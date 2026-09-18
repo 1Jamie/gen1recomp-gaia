@@ -1,5 +1,7 @@
 -- Warp / door / fade sequencing helpers for game3 field.
 
+local ModRuntime = require("src.mods.Runtime")
+
 local Warp = {}
 
 Warp._pending = nil
@@ -9,9 +11,30 @@ function Warp.isBusy()
   return Warp._busy == true
 end
 
+local function sameDestination(map, x, y) return map, x, y end
+
+local function announce(game, destMap, destX, destY, kind)
+  local Map = package.loaded["src.core.game3.map"]
+  local fromMap = Map and Map.current
+  local warp = { kind = kind, map = destMap, x = destX, y = destY }
+  if ModRuntime.wantsHook("warp.destination") then
+    local m, nx, ny = ModRuntime.call("warp.destination", sameDestination, destMap, destX, destY,
+      { warp = warp, lastMap = fromMap, data = game and game.data })
+    if m then
+      destMap, destX, destY = m, tonumber(nx) or destX, tonumber(ny) or destY
+    end
+  end
+  if ModRuntime.wants("player.warped") then
+    ModRuntime.emit("player.warped", { fromMap = fromMap, toMap = destMap,
+      x = destX, y = destY, warp = warp })
+  end
+  return destMap, destX, destY
+end
+
 --- Complete door entrance sequence (walking UP into a building)
 function Warp.startDoorEntrance(mod, game, destMap, destX, destY, doorX, doorY)
   if Warp._busy then return false end
+  destMap, destX, destY = announce(game, destMap, destX, destY, "door")
   Warp._busy = true
 
   local Field = package.loaded["src.core.game3.field"] or require("src.core.game3.field")
@@ -65,6 +88,7 @@ end
 --- Complete door exit sequence (walking DOWN off exit mat out to town)
 function Warp.startDoorExit(mod, game, destMap, destX, destY, exitX, exitY)
   if Warp._busy then return false end
+  destMap, destX, destY = announce(game, destMap, destX, destY, "exit_door")
   Warp._busy = true
 
   local Field = package.loaded["src.core.game3.field"] or require("src.core.game3.field")
@@ -123,6 +147,7 @@ end
 
 function Warp.startEscalator(mod, game, destMap, destX, destY, dir, approachDir, escX, escY)
   if Warp._busy then return false end
+  destMap, destX, destY = announce(game, destMap, destX, destY, "escalator")
   Warp._busy = true
   Warp._isEscalatorActive = true
 
@@ -270,6 +295,7 @@ end
 -- pokefirered/src/field_fadetransition.c:794
 function Warp.startStairWarp(mod, game, destMap, destX, destY, behavior)
   if Warp._busy then return false end
+  destMap, destX, destY = announce(game, destMap, destX, destY, "stairs")
   Warp._busy = true
 
   local Field = package.loaded["src.core.game3.field"] or require("src.core.game3.field")
@@ -376,6 +402,7 @@ end
 --- Complete teleport spin sequence (Silph Co, Sabrina's Gym warp pads)
 function Warp.startTeleport(mod, game, destMap, destX, destY)
   if Warp._busy then return false end
+  destMap, destX, destY = announce(game, destMap, destX, destY, "teleport")
   Warp._busy = true
 
   local Field = package.loaded["src.core.game3.field"] or require("src.core.game3.field")
@@ -420,6 +447,7 @@ end
 --- Complete fall hole sequence (Mt. Moon, Seafoam drop holes)
 function Warp.startFall(mod, game, destMap, destX, destY)
   if Warp._busy then return false end
+  destMap, destX, destY = announce(game, destMap, destX, destY, "fall")
   Warp._busy = true
 
   local Field = package.loaded["src.core.game3.field"] or require("src.core.game3.field")
@@ -480,6 +508,7 @@ function Warp.request(mod, game, mapId, x, y, facing, opts)
   if opts.fall then
     return Warp.startFall(mod, game, mapId, x, y)
   end
+  mapId, x, y = announce(game, mapId, x, y, "warp")
 
   Warp._pending = {
     mapId = mapId,

@@ -407,7 +407,7 @@ local function setGreyscaleOrOriginal(p, restore)
   end
 end
 
-local POSITION_SIDE = { [4] = "player", [6] = "enemy" }
+local POSITION_ID = { [4] = 0, [5] = 2, [6] = 1, [7] = 3 }
 
 -- pokefirered/src/battle_anim_dark.c:869
 T.SetGrayscaleOrOriginalPal = P.task(function(t, vm)
@@ -416,8 +416,9 @@ T.SetGrayscaleOrOriginalPal = P.task(function(t, vm)
   if a >= 0 and a <= 3 then
     p = P.monSprite(vm, a)
   elseif a >= 4 and a <= 7 then
-    local side = POSITION_SIDE[a]
-    if side and not P.monHidden(vm, side) then p = P.monPresent(side) end
+    local id = POSITION_ID[a]
+    local ok = id ~= nil and (id < 2 or require("src.core.game3.battle.anim_coords").spritePresent(nil, id))
+    if ok and not P.monHidden(vm, id) then p = P.monPresent(id) end
   end
   if p then setGreyscaleOrOriginal(p, t.ga[1] ~= 0) end
   P.DestroyAnimVisualTask(t)

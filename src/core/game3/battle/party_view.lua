@@ -62,4 +62,23 @@ function PartyView.firstAliveIndex(party)
   return nil
 end
 
+-- pokefirered/src/battle_setup.c:542
+function PartyView.doubleTransitionLevels(playerParty, foeParty)
+  local pSum, need = 0, 2
+  for _, mon in ipairs(playerParty or {}) do
+    local sp = tonumber(mon.species or mon.speciesId) or 0
+    if sp ~= 0 and sp ~= 412 and not mon.isEgg and (tonumber(mon.hp) or 0) ~= 0 then
+      pSum = (pSum + (tonumber(mon.level or mon.lvl) or 0)) % 256
+      need = need - 1
+      if need == 0 then break end
+    end
+  end
+  -- pokefirered/src/battle_setup.c:561
+  local eSum = 0
+  for i = 1, math.min(2, #(foeParty or {})) do
+    eSum = (eSum + (tonumber(foeParty[i].level or foeParty[i].lvl) or 0)) % 256
+  end
+  return pSum, eSum
+end
+
 return PartyView

@@ -6,6 +6,7 @@ local Window = require("src.ui.game3.window")
 local Chrome = require("src.ui.game3.chrome")
 local FrlgFont = require("src.ui.game3.frlg_font")
 local Strings = require("src.core.Strings")
+local ModRuntime = require("src.mods.Runtime")
 
 local StartMenu = {}
 
@@ -58,6 +59,11 @@ function StartMenu.show(opts)
   StartMenu._game = opts.game
   StartMenu._onClose = opts.onClose
   StartMenu.ENTRIES = build_entries(opts.session)
+  if ModRuntime.wantsHook("ui.start_menu.items") then
+    local hooked = ModRuntime.call("ui.start_menu.items", function(_, items) return items end,
+      opts.game, StartMenu.ENTRIES)
+    if type(hooked) == "table" then StartMenu.ENTRIES = hooked end
+  end
   local pos = tonumber(StartMenu.cursor) or 1
   if pos < 1 or pos > #StartMenu.ENTRIES then pos = 1 end -- pokefirered/src/menu.c:276
   StartMenu.cursor = pos -- pokefirered/src/start_menu.c:329
@@ -119,7 +125,10 @@ function StartMenu.confirm()
   local e = StartMenu.ENTRIES[StartMenu.cursor]
   if not e then return end
   local session = StartMenu._session
-  if e.id == "exit" then
+  if type(e.onSelect) == "function" then
+    local ok, err = pcall(e.onSelect, StartMenu._game, session)
+    if not ok then print("[game3/start_menu] onSelect failed: " .. tostring(err)) end
+  elseif e.id == "exit" then
     StartMenu._confirmExit = true
     StartMenu._confirmCursor = 2 -- Default to NO
   elseif e.id == "bag" then

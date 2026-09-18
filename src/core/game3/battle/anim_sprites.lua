@@ -136,9 +136,11 @@ end
 function AnimSprites.clearHost(hostId)
   if not hostId then return end
   AnimSprites.init()
+  local AnimCoords = require("src.core.game3.battle.anim_coords")
+  local want = AnimCoords.idOf(hostId)
   for i = 1, AnimSprites.MAX do
     local s = AnimSprites._pool[i]
-    if s.active and s.hostId == hostId then
+    if s.active and s.hostId ~= nil and (s.hostId == hostId or (want ~= nil and AnimCoords.idOf(s.hostId) == want)) then
       clear_slot(s)
     end
   end

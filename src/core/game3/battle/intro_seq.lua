@@ -26,6 +26,7 @@ function IntroSeq.reset()
   IntroSeq._pendingSlideIn = nil
   IntroSeq._pushMsg = nil
   IntroSeq._opts = nil
+  IntroSeq._cryQueue = nil
 end
 
 function IntroSeq.busy()
@@ -49,6 +50,54 @@ end
 
 local function stage()
   return Anim.stage()
+end
+
+local function present_of(key)
+  if type(key) ~= "number" then return Anim.present(key) end
+  return Anim.present(key) or (key < 2 and Anim.present(State.sideOf(key))) or nil
+end
+
+local function healthbox_of(s, key)
+  local hb = s and s.healthbox
+  if not hb then return nil end
+  if type(key) ~= "number" then return hb[key] end
+  return hb[key] or (key < 2 and hb[State.sideOf(key)]) or nil
+end
+
+local function center_of(st, key)
+  if type(key) == "number" and Anim.coords then
+    local a, b = Anim.coords(st, key)
+    if type(a) == "table" then return a.x or a[1], a.y or a[2] end
+    if a then return a, b end
+  end
+  local side = (type(key) == "number") and State.sideOf(key) or key
+  local base = (side == "player") and Anim.PLAYER_MON or Anim.ENEMY_MON
+  return base.x, base.y
+end
+
+local function battler_of(st, key)
+  if not st then return nil end
+  if type(key) == "number" then return State.battler(st, key) end
+  return st[key]
+end
+
+local function ball_for(s, key)
+  if type(key) ~= "number" then return s.ball end
+  s.balls = s.balls or {}
+  local b = s.balls[key]
+  if not b then
+    b = { visible = false, x = 0, y = 0, frame = 0, rot = 0, battler = key, side = State.sideOf(key) }
+    s.balls[key] = b
+  end
+  return b
+end
+
+local function present_ids(st, ids)
+  local out = {}
+  for _, id in ipairs(ids or {}) do
+    if st and not State.isAbsent(st, id) and State.battler(st, id) then out[#out + 1] = id end
+  end
+  return out
 end
 
 local function ball_status(mon)
@@ -210,6 +259,33 @@ local function build_trainer(st, opts)
     playerBalls = playerBalls,
     frames = 20,
   })
+  if st.double then
+    local foeIds = present_ids(st, { 1, 3 })
+    local plIds = present_ids(st, { 0, 2 })
+    local sentOut = strings.sentOut
+    if #foeIds == 2 then
+      -- pokefirered/src/battle_message.c:392
+      local who = sentOut:match("^(.-) sent\n") or ""
+      sentOut = who .. " sent\nout " .. State.displayName(State.battler(st, 1)) .. " and "
+        .. State.displayName(State.battler(st, 3)) .. "!"
+    end
+    local goText = "Go! " .. pname .. "!"
+    if #plIds == 2 then
+      -- pokefirered/src/battle_message.c:400
+      goText = "Go! " .. State.displayName(State.battler(st, 0)) .. " and\n"
+        .. State.displayName(State.battler(st, 2)) .. "!"
+    end
+    add("msg", { text = strings.wants })
+    add("msg", { text = sentOut })
+    add("opponent_sendout", { toX = 280, frames = 35, ids = foeIds })
+    add("cry", { side = "enemy", release = true, ids = foeIds })
+    add("healthbox", { side = "enemy", frames = 23, from = -115, ids = foeIds })
+    add("msg", { text = goText, linger = true })
+    add("player_throw", { ids = plIds })
+    add("healthbox", { side = "player", frames = 23, from = 115, ids = plIds })
+    add("wait", { frames = 3 })
+    return steps
+  end
   add("msg", { text = strings.wants })
   add("msg", { text = strings.sentOut })
   add("opponent_sendout", { toX = 280, frames = 35 })
@@ -251,6 +327,15 @@ function IntroSeq.begin(st, opts)
   Anim.present("enemy").darken = 0
   Anim.present("player").scale = 1
   Anim.present("enemy").scale = 1
+  if st.double then
+    s.balls = {}
+    for id = 0, 3 do
+      local p = present_of(id)
+      if p then p.visible, p.ox, p.darken, p.scale = false, 0, 0, 1 end
+      local hb = healthbox_of(s, id)
+      if hb then hb.visible = false end
+    end
+  end
 
   -- Park terrain and sliding sprites off-screen immediately so the first
   -- rendered frame (and fade-in) starts with them in initial slide positions.
@@ -528,17 +613,25 @@ local function run_step(step)
   end
 
   if kind == "opponent_sendout" then
-    local cx, cy = Anim.ENEMY_MON.x, Anim.ENEMY_MON.y
+    local Battle = package.loaded["src.core.game3.battle"]
+    local st = Battle and Battle._st
+    local keys = d.ids or { "enemy" }
+    local mons = {}
+    for n, key in ipairs(keys) do
+      local cx, cy = center_of(st, key)
+      local ball = ball_for(s, key)
+      ball.visible = true
+      ball.frame = 0
+      ball.rot = 0
+      ball.side = "enemy"
+      ball.x = cx
+      ball.y = cy + 24
+      mons[n] = { key = key, ball = ball }
+    end
     local tr = s.trainer.enemy
     local exitFrom = tr.ox or 0
     local exitTo = (d.toX or 280) - 176
     s.partyBar.enemy.visible = false
-    s.ball.visible = true
-    s.ball.frame = 0
-    s.ball.rot = 0
-    s.ball.side = "enemy"
-    s.ball.x = cx
-    s.ball.y = cy + 24
     wait_busy()
     -- pret OpponentHandleIntroTrainerBallThrow: starts linear slide-out (35 frames)
     -- AND StartSendOutAnim (16f delay + 12f emergence).
@@ -551,48 +644,64 @@ local function run_step(step)
       if f >= totalFrames then
         tr.visible = false
       end
-      -- Ball opens after 16 frames delay (SpriteCB_OpponentMonSendOut)
-      if f == 16 then
-        s.ball.frame = 1
-        if not openedSe then
-          openedSe = true
-          pcall(function() Audio.playSe(SE.SE_BALL_OPEN, { pan = 63 }) end)
+      for _, m in ipairs(mons) do
+        local ball = m.ball
+        -- Ball opens after 16 frames delay (SpriteCB_OpponentMonSendOut)
+        if f == 16 then
+          ball.frame = 1
+          if not openedSe then
+            openedSe = true
+            pcall(function() Audio.playSe(SE.SE_BALL_OPEN, { pan = 63 }) end)
+          end
+          local p = present_of(m.key)
+          if p then
+            p.visible = true
+            p.ox = 0
+            p.oy = 16
+            p.scale = 0.16
+            p.darken = 0
+          end
+          Anim.ballOpen(m.key, ball.x, ball.y)
         end
-        local p = Anim.present("enemy")
-        p.visible = true
-        p.ox = 0
-        p.oy = 16
-        p.scale = 0.16
-        p.darken = 0
-        Anim.ballOpen("enemy", s.ball.x, s.ball.y)
-      end
-      -- Emergence over 12 frames (frames 16..28) matching pret BATTLER_AFFINE_EMERGE
-      if f > 16 and f <= 28 then
-        local eu = (f - 16) / 12
-        local p = Anim.present("enemy")
-        p.oy = 16 * (1 - eu)
-        p.scale = 0.16 + 0.84 * eu
-        s.ball.frame = (eu < 0.5) and 1 or 2
-      end
-      if f > 28 then
-        local p = Anim.present("enemy")
-        p.oy = 0
-        p.scale = 1
-        s.ball.visible = false
+        -- Emergence over 12 frames (frames 16..28) matching pret BATTLER_AFFINE_EMERGE
+        if f > 16 and f <= 28 then
+          local eu = (f - 16) / 12
+          local p = present_of(m.key)
+          if p then
+            p.oy = 16 * (1 - eu)
+            p.scale = 0.16 + 0.84 * eu
+          end
+          ball.frame = (eu < 0.5) and 1 or 2
+        end
+        if f > 28 then
+          local p = present_of(m.key)
+          if p then
+            p.oy = 0
+            p.scale = 1
+          end
+          ball.visible = false
+        end
       end
     end, function()
       tr.visible = false
       tr.ox = exitTo
-      s.ball.visible = false
-      local p = Anim.present("enemy")
-      p.oy = 0
-      p.scale = 1
+      for _, m in ipairs(mons) do
+        m.ball.visible = false
+        local p = present_of(m.key)
+        if p then
+          p.oy = 0
+          p.scale = 1
+        end
+      end
       advance()
     end)
     return
   end
 
   if kind == "player_throw" then
+    local Battle = package.loaded["src.core.game3.battle"]
+    local st = Battle and Battle._st
+    local keys = d.ids or { "player" }
     local tr = s.trainer.player
     if not tr.visible then
       tr.visible = true
@@ -605,7 +714,11 @@ local function run_step(step)
     local pose = { { 1, 20 }, { 2, 6 }, { 3, 6 }, { 4, 24 }, { 0, 1 } }
     local poseFrame, poseLeft, poseI = 0, 0, 0
     local exitTo = -120
-    local pcx, pcy = Anim.PLAYER_MON.x, Anim.PLAYER_MON.y
+    local mons = {}
+    for n, key in ipairs(keys) do
+      local pcx, pcy = center_of(st, key)
+      mons[n] = { key = key, ball = ball_for(s, key), tx = pcx, ty = pcy + 24 }
+    end
     local threwSe, openedSe = false, false
     wait_busy()
     Anim.tweenStage(57, function(u, t)
@@ -626,63 +739,84 @@ local function run_step(step)
         tr.visible = false
         tr.ox = exitTo
       end
-      -- pret Task_StartSendOutAnim (31f delay) + Task_DoPokeballSendOutAnim (1f delay) -> spawn at frame 32
-      if f == 32 then
-        s.ball.visible = true
-        s.ball.frame = 0
-        s.ball.rot = 0
-        s.ball.side = "player"
-        s.ball.x = 48
-        s.ball.y = 70
-        s.ball._sx, s.ball._sy = 48, 70
-        s.ball._tx, s.ball._ty = pcx, pcy + 24
-        if not threwSe then
-          threwSe = true
-          pcall(function() Audio.playSe(SE.SE_BALL_THROW, { pan = -64 }) end)
+      for _, m in ipairs(mons) do
+        local ball = m.ball
+        -- pret Task_StartSendOutAnim (31f delay) + Task_DoPokeballSendOutAnim (1f delay) -> spawn at frame 32
+        if f == 32 then
+          ball.visible = true
+          ball.frame = 0
+          ball.rot = 0
+          ball.side = "player"
+          ball.x = 48
+          ball.y = 70
+          ball._sx, ball._sy = 48, 70
+          ball._tx, ball._ty = m.tx, m.ty
+          if not threwSe then
+            threwSe = true
+            pcall(function() Audio.playSe(SE.SE_BALL_THROW, { pan = -64 }) end)
+          end
         end
-      end
-      -- pret SpriteCB_PlayerMonSendOut_1 / 2: 25 frames arc flight with affine rotation
-      if f > 32 and f <= 57 and s.ball.visible then
-        local bu = (f - 32) / 25
-        local sx, sy = s.ball._sx, s.ball._sy
-        local tx, ty = s.ball._tx, s.ball._ty
-        s.ball.x = sx + (tx - sx) * bu
-        s.ball.y = sy + (ty - sy) * bu + (-30 * 4 * bu * (1 - bu))
-        -- pret sAffineAnim_BallRotate_4: 25 units per frame (approx 0.613 rad/frame)
-        s.ball.rot = (f - 32) * ((25 / 256) * math.pi * 2)
+        -- pret SpriteCB_PlayerMonSendOut_1 / 2: 25 frames arc flight with affine rotation
+        if f > 32 and f <= 57 and ball.visible then
+          local bu = (f - 32) / 25
+          local sx, sy = ball._sx, ball._sy
+          local tx, ty = ball._tx, ball._ty
+          ball.x = sx + (tx - sx) * bu
+          ball.y = sy + (ty - sy) * bu + (-30 * 4 * bu * (1 - bu))
+          -- pret sAffineAnim_BallRotate_4: 25 units per frame (approx 0.613 rad/frame)
+          ball.rot = (f - 32) * ((25 / 256) * math.pi * 2)
+        end
       end
     end, function()
       tr.visible = false
       tr.ox = exitTo
-      s.ball.frame = 1
-      s.ball.rot = 0
       if not openedSe then
         openedSe = true
         pcall(function() Audio.playSe(SE.SE_BALL_OPEN, { pan = -64 }) end)
       end
-      Anim.ballOpen("player", s.ball.x, s.ball.y)
-      local Battle = package.loaded["src.core.game3.battle"]
-      local st = Battle and Battle._st
-      local species = st and st.player and (st.player.species or (st.player.mon and (st.player.mon.species or st.player.mon.speciesId)))
-      if species then
-        -- pokefirered/src/pokeball.c:782
-        pcall(function() Audio.playCry(species, release_cry_mode(st.player.mon), -25) end)
+      for _, m in ipairs(mons) do
+        m.ball.frame = 1
+        m.ball.rot = 0
+        Anim.ballOpen(m.key, m.ball.x, m.ball.y)
+        local p = present_of(m.key)
+        if p then
+          p.visible = true
+          p.ox = 0
+          p.oy = 16
+          p.scale = 0.16
+        end
       end
-      local p = Anim.present("player")
-      p.visible = true
-      p.ox = 0
-      p.oy = 16
-      p.scale = 0.16
+      if not d.ids then
+        local b = st and st.player
+        local species = b and (b.species or (b.mon and (b.mon.species or b.mon.speciesId)))
+        if species then
+          -- pokefirered/src/pokeball.c:782
+          pcall(function() Audio.playCry(species, release_cry_mode(b.mon), -25) end)
+        end
+      end
       -- pret BATTLER_AFFINE_EMERGE: 12 frames scaling 40/256 to 256/256
       Anim.tweenStage(12, function(uu)
-        p.oy = 16 * (1 - uu)
-        p.scale = 0.16 + 0.84 * uu
-        s.ball.frame = (uu < 0.5) and 1 or 2
+        for _, m in ipairs(mons) do
+          local p = present_of(m.key)
+          if p then
+            p.oy = 16 * (1 - uu)
+            p.scale = 0.16 + 0.84 * uu
+          end
+          m.ball.frame = (uu < 0.5) and 1 or 2
+        end
       end, function()
-        p.oy = 0
-        p.scale = 1
-        s.ball.visible = false
-        s.ball.rot = 0
+        for _, m in ipairs(mons) do
+          local p = present_of(m.key)
+          if p then
+            p.oy = 0
+            p.scale = 1
+          end
+          m.ball.visible = false
+          m.ball.rot = 0
+        end
+        if d.ids and #d.ids > 0 then
+          IntroSeq._cryQueue = { side = "player", ids = d.ids }
+        end
         advance()
       end)
     end)
@@ -723,6 +857,12 @@ local function run_step(step)
     return
   end
 
+  if kind == "cry" and d.ids then
+    IntroSeq._cryQueue = { side = d.side or "enemy", ids = d.ids }
+    advance()
+    return
+  end
+
   if kind == "cry" then
     local side = d.side or "enemy"
     local Battle = package.loaded["src.core.game3.battle"]
@@ -737,6 +877,27 @@ local function run_step(step)
     end
     IntroSeq._waiting = true
     IntroSeq._waitingCry = true
+    return
+  end
+
+  if kind == "healthbox" and d.ids then
+    local from = d.from or ((d.side == "player") and 115 or -115)
+    local boxes = {}
+    for _, id in ipairs(d.ids) do
+      local hb = healthbox_of(s, id)
+      if hb then
+        hb.visible = true
+        hb.ox = from
+        boxes[#boxes + 1] = hb
+      end
+    end
+    wait_busy()
+    Anim.tweenStage(d.frames or 23, function(u)
+      for _, hb in ipairs(boxes) do hb.ox = from * (1 - u) end
+    end, function()
+      for _, hb in ipairs(boxes) do hb.ox = 0 end
+      advance()
+    end)
     return
   end
 
@@ -767,9 +928,34 @@ local function run_step(step)
   advance()
 end
 
+-- pokefirered/src/pokeball.c:680
+local function run_cry_queue()
+  local q = IntroSeq._cryQueue
+  if not q then return true end
+  if q.waiting and Audio.isCryFinished and not Audio.isCryFinished() then return false end
+  q.i = (q.i or 0) + 1
+  local id = q.ids[q.i]
+  if id == nil then
+    IntroSeq._cryQueue = nil
+    return true
+  end
+  local Battle = package.loaded["src.core.game3.battle"]
+  local b = Battle and Battle._st and State.battler(Battle._st, id)
+  local species = b and (b.species or (b.mon and (b.mon.species or b.mon.speciesId)))
+  if species then
+    local weak = release_cry_mode(b.mon) ~= 0
+    local mode
+    if #q.ids > 1 and q.i == 1 then mode = weak and 12 or 1 else mode = weak and 11 or 0 end
+    pcall(function() Audio.playCry(species, mode, (State.sideOf(id) == "player") and -25 or 25) end)
+  end
+  q.waiting = true
+  return false
+end
+
 function IntroSeq.update()
   if not IntroSeq._steps then return true end
   if IntroSeq._waitingGen then return false end
+  if IntroSeq._cryQueue and not run_cry_queue() then return false end
 
   if IntroSeq._pendingSlideIn and Anim.introSlideDone() then
     local fn = IntroSeq._pendingSlideIn
@@ -817,7 +1003,7 @@ function IntroSeq.update()
   while IntroSeq._steps and IntroSeq._i <= #IntroSeq._steps do
     run_step(IntroSeq._steps[IntroSeq._i])
     if IntroSeq._waiting or IntroSeq._waitingFade or IntroSeq._waitingCry
-        or IntroSeq._waitingMsg or IntroSeq._pendingSlideIn then
+        or IntroSeq._waitingMsg or IntroSeq._pendingSlideIn or IntroSeq._cryQueue then
       return false
     end
   end

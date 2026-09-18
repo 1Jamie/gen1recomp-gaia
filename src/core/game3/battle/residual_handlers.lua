@@ -18,6 +18,17 @@ local function side_battler(ad, sideKey)
   return sideKey == "player" and st.player or st.enemy
 end
 
+local function slot_battler(ad, id)
+  local State = require("src.core.game3.battle.state")
+  if id == nil or not State.isPresent(ad._st, id) then return nil end
+  return State.battler(ad._st, id)
+end
+
+local function token_battler(ad, key, tok, field)
+  if ad._st.double and tok[field] ~= nil then return slot_battler(ad, tok[field]) end
+  return side_battler(ad, key)
+end
+
 -- pokefirered/src/battle_util.c:505
 local function side_timer(field, label)
   return function(ctx)
@@ -102,7 +113,7 @@ function Handlers.tickWeather(ad)
         ad:applyHpLoss(b, dmg)
         if ad:isFainted(b) then
           b._faintAnnounced = true
-          ad:pushEvent({ kind = "faint", side = b.side })
+          ad:pushEvent({ kind = "faint", side = b.side, battler = b.id })
           ad:say(name(ad, b) .. " fainted!")
           ad:emitFaint(b)
         end
@@ -123,6 +134,7 @@ function Handlers.registerAll()
   -- pokefirered/src/battle_util.c:603
   Residuals.register("wish", function(ctx)
     local ad = ctx.adapter
+    if ad._st.double then return Handlers.wishDoubles(ad) end
     for _, key in ipairs({ "player", "enemy" }) do
       local side = key == "player" and ad._st.playerSide or ad._st.enemySide
       if side and side.tokens then
@@ -155,6 +167,43 @@ function Handlers.registerAll()
       end
     end
   end)
+
+  -- pokefirered/src/battle_util.c:603
+  function Handlers.wishDoubles(ad)
+    local st = ad._st
+    for _, b0 in ipairs(Residuals.sortedBattlers(ad)) do
+      local id = b0.id
+      local side = (id % 2 == 0) and st.playerSide or st.enemySide
+      if side and side.tokens then
+        local keep = {}
+        for _, tok in ipairs(side.tokens) do
+          if tok.id == "EXP_WISH" and (tok.battlerId == nil or tok.battlerId == id) then
+            tok.turns = (tok.turns or 1) - 1
+            if tok.turns <= 0 then
+              local b = slot_battler(ad, id)
+              if b and ad:hp(b) > 0 then
+                ad:playAnim("general", "WISH_HEAL", b, b)
+                ad:say(tostring(tok.wisher or name(ad, b)) .. "'s WISH\ncame true!")
+                if ad:hp(b) >= ad:maxHp(b) then
+                  ad:say(name(ad, b) .. "'s\nHP is full!")
+                else
+                  local heal = math.floor(ad:maxHp(b) / 2)
+                  if heal == 0 then heal = 1 end
+                  ad:heal(b, heal)
+                  ad:say(name(ad, b) .. " regained\nhealth!")
+                end
+              end
+            else
+              keep[#keep + 1] = tok
+            end
+          else
+            keep[#keep + 1] = tok
+          end
+        end
+        side.tokens = keep
+      end
+    end
+  end
 
   Residuals.register("weather_continue", function(ctx)
     Handlers.tickWeather(ctx.adapter)
@@ -197,7 +246,11 @@ function Handlers.registerAll()
     local ad, b = ctx.adapter, ctx.target
     if not b or not b.expSeeded then return end
     local src = b.expSeedSource
-    if src and src.side then src = side_battler(ad, src.side) end
+    if src and ad._st.double then
+      src = slot_battler(ad, src.id)
+    elseif src and src.side then
+      src = side_battler(ad, src.side)
+    end
     if not src or ad:isFainted(src) or ad:isFainted(b) then return end
     local dmg = math.floor(ad:maxHp(b) / 8)
     if dmg == 0 then dmg = 1 end
@@ -401,12 +454,13 @@ function Handlers.registerAll()
   -- pokefirered/src/battle_util.c:1081
   Residuals.register("future_sight", function(ctx)
     local ad = ctx.adapter
+    if ad._st.double then return Handlers.futureSightDoubles(ad) end
     for _, key in ipairs({ "player", "enemy" }) do
       local side = key == "player" and ad._st.playerSide or ad._st.enemySide
-      local target = side_battler(ad, key)
       if side and side.tokens then
         local keep = {}
         for _, tok in ipairs(side.tokens) do
+          local target = token_battler(ad, key, tok, "targetId")
           if tok.id == "EXP_FUTURE_SIGHT" then
             tok.turns = (tok.turns or 1) - 1
             if tok.turns <= 0 then
@@ -444,10 +498,40 @@ function Handlers.registerAll()
   end)
 end
 
+-- pokefirered/src/battle_util.c:1081
+function Handlers.futureSightDoubles(ad)
+  local st = ad._st
+  for id = 0, 3 do
+    local side = (id % 2 == 0) and st.playerSide or st.enemySide
+    if side and side.tokens then
+      local keep = {}
+      for _, tok in ipairs(side.tokens) do
+        local tid = tok.targetId or ((id % 2 == 0) and 0 or 1)
+        if tok.id == "EXP_FUTURE_SIGHT" and tid == id then
+          tok.turns = (tok.turns or 1) - 1
+          if tok.turns <= 0 then
+            local target = slot_battler(ad, id)
+            if target and ad:hp(target) > 0 then Handlers.futureSightHit(ad, tok, target) end
+          else
+            keep[#keep + 1] = tok
+          end
+        else
+          keep[#keep + 1] = tok
+        end
+      end
+      side.tokens = keep
+    end
+  end
+end
+
 -- pokefirered/data/battle_scripts_1.s:3461
 function Handlers.futureSightHit(ad, tok, target)
   local Engine = require("src.core.game3.battle.engine")
   local attacker = side_battler(ad, tok.attackerSide or (target.side == "player" and "enemy" or "player"))
+  if ad._st.double and tok.attackerId ~= nil then
+    local State = require("src.core.game3.battle.state")
+    attacker = State.battler(ad._st, tok.attackerId) or attacker
+  end
   ad:say(name(ad, target) .. " took the\n" .. tostring(tok.moveName or "FUTURE SIGHT") .. " attack!")
   local anim = { moveId = tok.moveId, user = attacker, target = target, hits = {}, heals = {}, faints = {} }
   local M = Engine.newContext(attacker, target, tok.moveId or 248, nil, ad, ad._st, {}, anim, { futureSight = true })

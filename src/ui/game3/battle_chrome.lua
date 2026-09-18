@@ -10,6 +10,8 @@ BattleChrome._manifest = nil
 BattleChrome._textbox = nil
 BattleChrome._playerBox = nil
 BattleChrome._enemyBox = nil
+BattleChrome._doublesPlayerBox = nil
+BattleChrome._doublesOpponentBox = nil
 BattleChrome._elements = nil
 BattleChrome._partyBar = nil
 BattleChrome._terrains = {}
@@ -111,6 +113,12 @@ function BattleChrome.install(cache)
   BattleChrome._textbox = nil
   BattleChrome._playerBox = nil
   BattleChrome._enemyBox = nil
+  BattleChrome._doublesPlayerBox = nil
+  BattleChrome._doublesOpponentBox = nil
+  BattleChrome._doublesTried = false
+  BattleChrome._hpBold = nil
+  BattleChrome._hpBoldQuads = {}
+  BattleChrome._hpBoldTried = false
   BattleChrome._elements = nil
   BattleChrome._elementsExp = nil
   BattleChrome._partyBar = nil
@@ -164,6 +172,98 @@ function BattleChrome.install(cache)
   else
     log("battle chrome missing — re-run --pokemon extract")
   end
+end
+
+local function rom_bytes()
+  local okP, Pokemon = pcall(require, "src.core.game3.pokemon")
+  if okP and Pokemon and type(Pokemon._romBytes) == "string" then return Pokemon._romBytes end
+  for _, p in ipairs({ "1636 - Pokemon Fire Red (U)(Squirrels).gba", "firered.gba", "Pokemon FireRed.gba" }) do
+    local f = io.open(p, "rb")
+    if f then
+      local d = f:read("*a")
+      f:close()
+      if d and #d >= 0x1000000 then return d end
+    end
+  end
+  return nil
+end
+
+local function load_doubles_boxes()
+  if BattleChrome._doublesTried then return end
+  BattleChrome._doublesTried = true
+  local root = battle_root()
+  local files = BattleChromeExtract.DOUBLES_FILES or {}
+  local pRgba = read_bytes(root .. "/" .. (files.player or "healthbox_doubles_player.rgba"))
+  local oRgba = read_bytes(root .. "/" .. (files.opponent or "healthbox_doubles_opponent.rgba"))
+  if not (pRgba and oRgba) then
+    local rom = rom_bytes()
+    if rom then
+      local ok, p2, o2 = pcall(BattleChromeExtract.bakeDoubles, function(i) return rom:byte(i + 1) or 0 end)
+      if ok and p2 and o2 then pRgba, oRgba = p2, o2 end
+    end
+  end
+  BattleChrome._doublesPlayerBox = rgba_to_image(pRgba, 128, 32)
+  BattleChrome._doublesOpponentBox = rgba_to_image(oRgba, 128, 32)
+  if not (BattleChrome._doublesPlayerBox and BattleChrome._doublesOpponentBox) then
+    print("[game3/battle_chrome] doubles healthboxes missing; re-import the ROM to extract them")
+  end
+end
+
+local function load_hp_bold()
+  if BattleChrome._hpBoldTried then return end
+  BattleChrome._hpBoldTried = true
+  local w, h = BattleChromeExtract.HP_BOLD_W or 88, BattleChromeExtract.HP_BOLD_H or 8
+  local rgba = read_bytes(battle_root() .. "/" .. (BattleChromeExtract.HP_BOLD_FILE or "hp_bold_digits.rgba"))
+  if not rgba then
+    local rom = rom_bytes()
+    if rom then
+      local ok, r2 = pcall(BattleChromeExtract.bakeHpBoldDigits, function(i) return rom:byte(i + 1) or 0 end)
+      if ok and r2 then rgba = r2 end
+    end
+  end
+  BattleChrome._hpBold = rgba_to_image(rgba, w, h)
+  BattleChrome._hpBoldQuads = {}
+  if not BattleChrome._hpBold then
+    print("[game3/battle_chrome] bold HP digits missing; re-import the ROM to extract them")
+  end
+end
+
+function BattleChrome.hasHpBoldDigits()
+  load_hp_bold()
+  return BattleChrome._hpBold ~= nil
+end
+
+-- pokefirered/src/battle_interface.c:889
+function BattleChrome.drawHpBoldChar(ch, x, y)
+  load_hp_bold()
+  local img = BattleChrome._hpBold
+  if not img then return false end
+  local chars = BattleChromeExtract.HP_BOLD_CHARS or "0123456789/"
+  local n = chars:find(ch, 1, true)
+  if not n then return false end
+  local q = BattleChrome._hpBoldQuads[n]
+  if not q then
+    q = love.graphics.newQuad((n - 1) * 8, 0, 8, 8, img:getDimensions())
+    BattleChrome._hpBoldQuads[n] = q
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(img, q, x, y)
+  return true
+end
+
+function BattleChrome.hasDoublesBoxes()
+  load_doubles_boxes()
+  return BattleChrome._doublesPlayerBox ~= nil and BattleChrome._doublesOpponentBox ~= nil
+end
+
+-- pokefirered/src/battle_gfx_sfx_util.c:39
+function BattleChrome.drawDoublesBox(isPlayer, x, y)
+  load_doubles_boxes()
+  local img = isPlayer and BattleChrome._doublesPlayerBox or BattleChrome._doublesOpponentBox
+  img = img or BattleChrome._enemyBox
+  if not img then return end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(img, x, y)
 end
 
 function BattleChrome.ready()
@@ -320,6 +420,7 @@ end
 
 -- Element tile bases (pret B_INTERFACE_GFX_*)
 local HP_TEXT_TILE = 1
+local HP_BAR_LEFT_BORDER = 65
 local HP_BAR_BASE = { green = 3, yellow = 47, red = 56 }
 local HP_BAR_TILES = 6
 local HP_BAR_PIXELS = 48
@@ -391,21 +492,36 @@ local function filled_pixels_for_bar(ratio, numTiles)
 end
 
 --- Draw pret HP bar: HP label tiles + 6 fill tiles (48px). Top-left of 64×8 strip.
-function BattleChrome.drawHpBar(x, y, hp, maxHp)
+function BattleChrome.drawHpBar(x, y, hp, maxHp, statusBorder)
   if not BattleChrome._elements then return end
   local color = BattleChrome.hpColor(hp, maxHp)
   local base = HP_BAR_BASE[color] or HP_BAR_BASE.green
   local pix = split_bar_pixels(BattleChrome.scaledHpFraction(hp, maxHp, HP_BAR_PIXELS), HP_BAR_TILES)
 
   love.graphics.setColor(1, 1, 1, 1)
-  for i = 0, 1 do
-    local q = elements_tile_quad(HP_TEXT_TILE + i)
-    if q then love.graphics.draw(BattleChrome._elements, q, x + i * 8, y) end
+  if statusBorder then
+    -- pokefirered/src/battle_interface.c:1672
+    local q = elements_tile_quad(HP_BAR_LEFT_BORDER)
+    if q then love.graphics.draw(BattleChrome._elements, q, x + 8, y) end
+  else
+    for i = 0, 1 do
+      local q = elements_tile_quad(HP_TEXT_TILE + i)
+      if q then love.graphics.draw(BattleChrome._elements, q, x + i * 8, y) end
+    end
   end
   for i = 0, HP_BAR_TILES - 1 do
     local q = elements_tile_quad(base + (pix[i + 1] or 0))
     if q then love.graphics.draw(BattleChrome._elements, q, x + 16 + i * 8, y) end
   end
+end
+
+function BattleChrome.drawElementTile(ti, x, y, healthboxPal)
+  local sheet = healthboxPal and (BattleChrome._elementsExp or BattleChrome._elements) or BattleChrome._elements
+  if not sheet then return end
+  local q = elements_tile_quad(ti, sheet)
+  if not q then return end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(sheet, q, x, y)
 end
 
 function BattleChrome.drawHpFill(x, y, hp, maxHp)

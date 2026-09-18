@@ -1,4 +1,5 @@
 local Anim = require("src.core.game3.battle.anim")
+local AnimCoords = require("src.core.game3.battle.anim_coords")
 
 local AnimCtx = {}
 
@@ -7,8 +8,8 @@ local function battle_state()
   return Battle and Battle._st
 end
 
-local function battler_id(side)
-  return (side == "enemy") and 1 or 0
+local function battler_id(key)
+  return AnimCoords.fixedId(key) or ((key == "enemy") and 1 or 0)
 end
 
 local function terrain_id(st)
@@ -19,10 +20,11 @@ local function terrain_id(st)
 end
 
 function AnimCtx.behindSubstitute(lowered)
-  local out = {}
-  for _, side in ipairs({ "player", "enemy" }) do
-    local p = Anim._present[side]
-    out[side] = ((p and p.substitute) or (lowered and lowered[side])) and true or false
+  local out = AnimCoords.idTable()
+  for id = 0, 3 do
+    local p = rawget(Anim._present, id)
+    local low = lowered and (lowered[id] or (id < 2 and lowered[AnimCoords.sideOf(id)]))
+    out[id] = ((p and p.substitute) or low) and true or false
   end
   return out
 end
@@ -33,14 +35,16 @@ function AnimCtx.build(attacker, target, opts)
   local st = battle_state()
   attacker = attacker or "player"
   target = target or attacker
-  local a = st and st[attacker]
+  local atkId = battler_id(attacker)
+  local a = AnimCoords.battler(st, atkId)
   local mon = a and a.mon or {}
-  local ap = Anim._present[attacker]
+  local ap = rawget(Anim._present, atkId)
   local ctx = {
     behindSubstitute = AnimCtx.behindSubstitute(opts.lowered),
-    battlerAttacker = battler_id(attacker),
+    battlerAttacker = atkId,
     battlerTarget = battler_id(target),
     effectBattler = battler_id(opts.effectBattler or target),
+    isDouble = AnimCoords.isDouble(st),
     animArg = tonumber(opts.animArg) or 0,
     movePower = 0,
     moveDmg = tonumber(opts.moveDmg) or 0,

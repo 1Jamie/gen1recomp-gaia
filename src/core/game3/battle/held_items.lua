@@ -360,7 +360,9 @@ end
 -- pokefirered/src/battle_util.c:2851
 function HeldItems.moveEnd(ad)
   local any = false
-  for _, b in ipairs({ ad._st.player, ad._st.enemy }) do
+  local list = { ad._st.player, ad._st.enemy }
+  if ad._st.double then list = ad:activeBattlers() end
+  for _, b in ipairs(list) do
     if b and not ad:isFainted(b) then
       local he, _, item = HeldItems.of(b)
       local did = false

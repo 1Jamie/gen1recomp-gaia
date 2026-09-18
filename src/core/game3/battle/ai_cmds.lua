@@ -272,12 +272,25 @@ local function pret_stat_level(battler, statId)
   return s + 6 -- pret 0..12 with 6 neutral
 end
 
+-- src/pokemon.c:2552
+local function spread_hit(vm, moveId)
+  local st = vm.st
+  if not (st and st.double) then return nil end
+  local m = Moves.get(moveId)
+  if bit_and_local(tonumber(m and m.target) or 0, 0x08) == 0 then return nil end
+  local State = require("src.core.game3.battle.state")
+  local id = State.idOf(vm.target)
+  if id == nil then return nil end
+  return State.countPresentOnSide(st, State.sideOf(id)) == 2 or nil
+end
+
 local function ai_damage(vm, moveId, movesetIndex)
   local dmg = Damage.calc(vm.user, vm.target, moveId, {
     forceCrit = false,
     forceRoll = 100,
     weather = vm.st and vm.st.weather,
     rng = function() return 100 end,
+    spread = spread_hit(vm, moveId),
   })
   local sim = vm.simulatedRNG and vm.simulatedRNG[movesetIndex] or 100
   dmg = math.floor(dmg * sim / 100)
@@ -605,12 +618,21 @@ function CMD.count_alive_pokemon(vm, op)
   local b = AiCmds.battler(vm, op.battler)
   local party = (b == vm.user) and (vm.st and vm.st.foeParty) or (vm.st and vm.st.playerParty)
   local onField = b and b.partyIndex or 1
+  local onField2 = onField
   local n = 0
-  if party then
-    for i, mon in ipairs(party) do
-      if i ~= onField and mon and (tonumber(mon.hp) or 0) > 0 and (mon.species or mon.id) then
-        n = n + 1
-      end
+  -- src/battle_ai_script_commands.c:1099
+  if vm.st and vm.st.double then
+    local State = require("src.core.game3.battle.state")
+    local id = State.idOf(b)
+    local partner = id and State.battler(vm.st, State.PARTNER(id))
+    onField2 = partner and partner.partyIndex or onField
+  end
+  for i = 1, 6 do
+    local mon = party and party[i]
+    local sp = mon and (mon.species or mon.id)
+    if i ~= onField and i ~= onField2 and (tonumber(mon and mon.hp) or 0) ~= 0
+        and sp and sp ~= 0 and not mon.isEgg then
+      n = n + 1
     end
   end
   vm.funcResult = n
@@ -854,8 +876,9 @@ function CMD.get_stockpile_count(vm, op)
   next_ip(vm)
 end
 
+-- src/battle_ai_script_commands.c:1806
 function CMD.is_double_battle(vm, op)
-  vm.funcResult = 0
+  vm.funcResult = (vm.st and vm.st.double) and 1 or 0
   next_ip(vm)
 end
 

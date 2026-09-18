@@ -92,6 +92,7 @@ function EvolutionScene.start(mon, postSpecies, opts)
   EvolutionScene._canStop = opts.canStop ~= false
   EvolutionScene._session = opts.session
   EvolutionScene._bag = opts.bag
+  EvolutionScene._via = opts.via
   EvolutionScene._onDone = opts.onDone
   EvolutionScene._isBattle = opts.isBattle and true or false
   EvolutionScene._headless = opts.headless and true or false
@@ -489,7 +490,7 @@ function EvolutionScene.update(dt)
       EvolutionScene._postScale = 1.0
 
       -- POINT OF NO RETURN: Mutate species, stats, nickname, dex, Shedinja now
-      Evolution.apply(EvolutionScene._mon, EvolutionScene._postSpecies, EvolutionScene._session, EvolutionScene._bag)
+      Evolution.apply(EvolutionScene._mon, EvolutionScene._postSpecies, EvolutionScene._session, EvolutionScene._bag, EvolutionScene._via)
 
       pcall(function() Audio.playSe(SE.SE_EXP or 1) end)
       spawn_flash_spray()

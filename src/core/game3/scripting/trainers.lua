@@ -80,6 +80,10 @@ local function decompose_ai_flags(flags)
   }
 end
 
+function Trainers.pack()
+  return load_pack() or nil
+end
+
 --- Get full trainer definition record by trainerId.
 function Trainers.get(trainerId)
   trainerId = tonumber(trainerId)
@@ -146,6 +150,42 @@ function Trainers.get(trainerId)
   return nil
 end
 
+local GBA_CHAR = {
+  [" "] = 0x00, ["é"] = 0x1B, ["&"] = 0x2D, ["+"] = 0x2E, ["!"] = 0xAB, ["?"] = 0xAC,
+  ["."] = 0xAD, ["-"] = 0xAE, ["…"] = 0xB0, ["“"] = 0xB1, ["”"] = 0xB2, ["‘"] = 0xB3,
+  ["’"] = 0xB4, ["'"] = 0xB4, ["♂"] = 0xB5, ["♀"] = 0xB6, [","] = 0xB8, ["/"] = 0xBA,
+}
+
+local function gba_char_sum(text)
+  local sum = 0
+  for ch in tostring(text or ""):gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+    local b = ch:byte()
+    local v = GBA_CHAR[ch]
+    if not v then
+      if #ch == 1 and b >= 48 and b <= 57 then v = 0xA1 + (b - 48)
+      elseif #ch == 1 and b >= 65 and b <= 90 then v = 0xBB + (b - 65)
+      elseif #ch == 1 and b >= 97 and b <= 122 then v = 0xD5 + (b - 97)
+      else v = 0 end
+    end
+    sum = sum + v
+  end
+  return sum
+end
+
+-- pokefirered/src/battle_main.c:1555
+local function double_personalities(t)
+  local Pokemon = require("src.core.game3.pokemon")
+  local nameHash = 0
+  local out = {}
+  for i, m in ipairs(t.party or {}) do
+    nameHash = (nameHash + gba_char_sum(t.name)) % 0x100000000
+    nameHash = (nameHash + gba_char_sum(Pokemon.name(tonumber(m.species) or 0))) % 0x100000000
+    out[i] = (0x80 + (nameHash * 256) % 0x100000000) % 0x100000000
+  end
+  return out
+end
+Trainers._doublePersonalities = double_personalities
+
 --- Resolve a foe battler struct + full party for battle runtime.
 -- Guarantees:
 -- 1. Uniform Flat IV scaling: actualIv = (rawIv * 31) / 255 across all 6 stats
@@ -161,7 +201,8 @@ function Trainers.foeFromId(trainerId)
   end
 
   local foeParty = {}
-  for _, m in ipairs(t.party) do
+  local pers = t.doubleBattle and double_personalities(t) or {}
+  for pi, m in ipairs(t.party) do
     local rawIv = tonumber(m.rawIv) or tonumber(m.iv) or 0
     local iv = tonumber(m.iv) or math.floor((rawIv * 31) / 255)
     local mon = {
@@ -175,6 +216,7 @@ function Trainers.foeFromId(trainerId)
       heldItem = tonumber(m.heldItem) or nil,
       moves = m.moves,
       trainerId = trainerId,
+      personality = pers[pi],
     }
     foeParty[#foeParty + 1] = mon
   end
@@ -189,6 +231,7 @@ function Trainers.foeFromId(trainerId)
     evs = lead.evs,
     heldItem = lead.heldItem,
     moves = lead.moves,
+    personality = lead.personality,
     trainerId = trainerId,
     aiFlags = t.aiFlags,
     ai = t.ai,

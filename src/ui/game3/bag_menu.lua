@@ -236,11 +236,16 @@ function BagMenu.handleInput(input)
           local BattleItems = require("src.core.game3.battle.items")
           if BattleItems.needsPartySelect(row.id) then
             local PartyMenu = require("src.ui.game3.party_menu")
+            local Battle = package.loaded["src.core.game3.battle"]
+            local st = Battle and Battle._st
+            -- pokefirered/src/party_menu.c:5878
             PartyMenu.show(party, BagMenu._session and BagMenu._session.moveOverlay, {
               session = BagMenu._session,
               bag = BagMenu._bag,
               item = row.id,
               mode = "use",
+              battleOrder = st and st.playerParty and PartyMenu.battleOrder(st) or nil,
+              layout = (st and st.double) and "double" or nil,
               onClose = function()
                 BagMenu.mode = "list"
                 clamp_cursor()

@@ -469,12 +469,12 @@ function Adapters.host(mod, game, world)
       local MonPic = require("src.ui.game3.mon_pic")
       MonPic.hide()
     end,
-    giveMon = function(species, level)
+    giveMon = function(species, level, _, _, _, nickname)
       local Runtime = package.loaded["src.core.game3.runtime"]
       local session = Runtime and Runtime.getSession and Runtime.getSession()
       if not session then return false end
       local Party = require("src.core.game3.party")
-      return Party.giveMon(session, species, level)
+      return Party.giveMon(session, species, level, nickname)
     end,
     freezeLocal = function(localId, snap)
       local G3 = useGame3Objects()
@@ -1214,6 +1214,7 @@ function Adapters.host(mod, game, world)
         earlyRival = battleOpts.earlyRival,
         rivalFlags = battleOpts.rivalFlags,
         noWhiteout = battleOpts.noWhiteout,
+        double = battleOpts.double,
         done = function(result)
           if done then done(result or "win") end
           tick_vm()

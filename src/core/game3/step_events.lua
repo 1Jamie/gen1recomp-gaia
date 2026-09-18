@@ -8,6 +8,7 @@
 -- 6. Repel Counter: Decrements steps -> "Repel's effect wore off..." on expiration.
 
 local Pokemon = require("src.core.game3.pokemon")
+local ModRuntime = require("src.mods.Runtime")
 
 local StepEvents = {}
 
@@ -80,6 +81,12 @@ local function trigger_white_out(session, game)
         local healX = (session and session.healX) or 6
         local healY = (session and session.healY) or 6
         local healFacing = (session and session.healFacing) or "down"
+        if ModRuntime.wants("world.blacked_out") then
+          ModRuntime.emit("world.blacked_out", {
+            save = session,
+            healTarget = { map = healMap, x = healX, y = healY },
+          })
+        end
 
         -- Heal all party Pokémon
         if session and session.party then

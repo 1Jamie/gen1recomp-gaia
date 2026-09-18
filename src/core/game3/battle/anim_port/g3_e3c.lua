@@ -12,8 +12,7 @@ end
 
 function H.bgPriority(vm, side)
   local bp = vm and vm._bgPrio
-  if side == "player" then return (bp and bp[2]) or 2 end
-  return (bp and bp[1]) or 2
+  return (bp and bp[require("src.core.game3.battle.anim_coords").bgPriorityRank(side)]) or 2
 end
 
 function H.monX(vm, side)

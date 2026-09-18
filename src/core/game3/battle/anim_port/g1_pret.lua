@@ -1,6 +1,7 @@
 local bit = require("bit")
 local Trig = require("src.core.game3.trig")
 local AnimSprites = require("src.core.game3.battle.anim_sprites")
+local AnimCoords = require("src.core.game3.battle.anim_coords")
 
 local band, bor, bxor, rshift, arshift, lshift = bit.band, bit.bor, bit.bxor, bit.rshift, bit.arshift, bit.lshift
 local floor = math.floor
@@ -27,7 +28,7 @@ P.SOUND_PAN_ATTACKER = -64
 P.SOUND_PAN_TARGET = 63
 
 -- pokefirered/src/battle_anim_mons.c:31
-P.COORDS = { player = { x = 72, y = 80 }, enemy = { x = 176, y = 40 } }
+P.COORDS = setmetatable({}, { __index = function(_, k) return AnimCoords.coords(nil, k) end })
 
 function P.s16(v)
   v = band(floor(tonumber(v) or 0), 0xFFFF)
@@ -110,11 +111,13 @@ end
 
 function P.atk(vm)
   vm = vm or P.vm()
+  if vm and vm.allyPair and vm:allyPair() then return vm:attackerId() end
   return vm and vm.attackerSide and vm:attackerSide() or "player"
 end
 
 function P.tgt(vm)
   vm = vm or P.vm()
+  if vm and vm.allyPair and vm:allyPair() then return vm:targetId() end
   return vm and vm.targetSide and vm:targetSide() or "enemy"
 end
 
@@ -129,7 +132,33 @@ end
 
 -- pokefirered/src/battle_anim_mons.c:821
 function P.isOpponent(side)
+  if type(side) == "number" then return AnimCoords.sideOf(side) ~= "player" end
   return side ~= "player"
+end
+
+function P.atkId(vm)
+  vm = vm or P.vm()
+  return vm and vm.attackerId and vm:attackerId() or 0
+end
+
+function P.tgtId(vm)
+  vm = vm or P.vm()
+  return vm and vm.targetId and vm:targetId() or 1
+end
+
+-- pokefirered/src/battle_anim.c:617
+function P.spriteVisible(id)
+  if not AnimCoords.spritePresent(nil, id) then return false end
+  local p = P.anim().present(id)
+  return p ~= nil
+end
+
+function P.visibleIds(except1, except2)
+  local out = {}
+  for _, id in ipairs(AnimCoords.ids()) do
+    if id ~= except1 and id ~= except2 and (id < 2 or P.spriteVisible(id)) then out[#out + 1] = id end
+  end
+  return out
 end
 
 function P.species(vm, side)
@@ -219,9 +248,18 @@ function P.attr(vm, side, attr)
   return 0
 end
 
+function P.bySide(fn)
+  return AnimCoords.sideArg(fn, 2)
+end
+P.coord = P.bySide(P.coord)
+P.coord2 = P.coord
+P.yDelta = P.bySide(P.yDelta)
+P.yWithElevation = P.bySide(P.yWithElevation)
+P.attr = P.bySide(P.attr)
+
 -- pokefirered/src/battle_anim_mons.c:1908
 function P.subpriorityOf(side)
-  return side == "player" and 30 or 40
+  return AnimCoords.subpriority(side)
 end
 
 -- pokefirered/src/battle_anim_mons.c:1924
@@ -266,6 +304,7 @@ end
 function P.zFor(pri, sub)
   pri = tonumber(pri) or 2
   sub = tonumber(sub) or 0
+  if AnimCoords.isDouble() then return AnimCoords.zFor(pri, sub, P.anim()._vm) end
   local key = (3 - math.max(0, math.min(3, pri))) * 100 + (99 - math.max(0, math.min(99, sub)))
   local off = floor(key * 97 / 400)
   local fp = in_front_of(pri, sub, "player")
@@ -282,7 +321,7 @@ end
 -- pokefirered/src/battle_anim.c:349
 local function op_subpriority(vm, op)
   local raw = tonumber(op.subpriority) or 0
-  local side = (op.animBattler == "target") and P.tgt(vm) or P.atk(vm)
+  local side = (op.animBattler == "target") and P.tgtId(vm) or P.atkId(vm)
   local sub
   if raw >= 64 then sub = P.subpriorityOf(side) + (raw - 64) else sub = P.subpriorityOf(side) - raw end
   if sub < 3 then sub = 3 end
@@ -328,8 +367,8 @@ end
 P.Pal = {}
 local Pal = P.Pal
 
-Pal.faded = {}
-Pal.unfaded = {}
+Pal.faded = AnimCoords.idTable()
+Pal.unfaded = AnimCoords.idTable()
 Pal.remap = {}
 Pal.backup = {}
 Pal.tagsTouched = {}
@@ -403,8 +442,8 @@ function Pal.fromBackup(slot, key)
 end
 
 function Pal.reset()
-  Pal.faded = {}
-  Pal.unfaded = {}
+  Pal.faded = AnimCoords.idTable()
+  Pal.unfaded = AnimCoords.idTable()
   Pal.remap = {}
   Pal.backup = {}
   Pal.dirty = true
@@ -422,9 +461,9 @@ function Pal.flush()
   if not Pal.dirty then return end
   Pal.dirty = false
   local Anim = P.anim()
-  for _, side in ipairs({ "player", "enemy" }) do
-    local p = Anim.present(side)
-    local st = Pal.faded[side] or Pal.unfaded[side]
+  for id = 0, 3 do
+    local p = (id < 2) and Anim.present(id) or rawget(Anim._present, id)
+    local st = rawget(Pal.faded, id) or rawget(Pal.unfaded, id)
     if p and (st or p._g1Blend) then
       local k, r, g, b = to_lerp(st)
       p.blendCoeff = k
@@ -479,8 +518,16 @@ end
 function P.palettesMask(vm, bg, atk, tgt, atkPartner, tgtPartner, anim1, anim2)
   local keys = {}
   if bg then keys[#keys + 1] = "bg" end
-  if atk then keys[#keys + 1] = P.atk(vm) end
-  if tgt then keys[#keys + 1] = P.tgt(vm) end
+  if atk then keys[#keys + 1] = P.atkId(vm) end
+  if tgt then keys[#keys + 1] = P.tgtId(vm) end
+  if atkPartner then
+    local id = AnimCoords.partner(P.atkId(vm))
+    if P.spriteVisible(id) then keys[#keys + 1] = id end
+  end
+  if tgtPartner then
+    local id = AnimCoords.partner(P.tgtId(vm))
+    if P.spriteVisible(id) then keys[#keys + 1] = id end
+  end
   if anim1 then keys[#keys + 1] = "anim1" end
   if anim2 then keys[#keys + 1] = "anim2" end
   return keys

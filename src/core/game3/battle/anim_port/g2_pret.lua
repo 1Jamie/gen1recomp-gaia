@@ -1,5 +1,6 @@
 local AnimSprites = require("src.core.game3.battle.anim_sprites")
 local AnimPal = require("src.core.game3.battle.anim_pal")
+local AnimCoords = require("src.core.game3.battle.anim_coords")
 
 local P = {}
 
@@ -124,11 +125,13 @@ end
 
 function P.atk()
   local vm = P.vm
+  if vm and vm.allyPair and vm:allyPair() then return vm:attackerId() end
   return vm and vm:attackerSide() or "player"
 end
 
 function P.tgt()
   local vm = P.vm
+  if vm and vm.allyPair and vm:allyPair() then return vm:targetId() end
   return vm and vm:targetSide() or "enemy"
 end
 
@@ -185,7 +188,7 @@ function P.species(b)
   return tonumber(sp)
 end
 
-local BASE = { player = { 72, 80 }, enemy = { 176, 40 } }
+local BASE = setmetatable({}, { __index = function(_, k) return AnimCoords.coords(nil, k) end })
 P.BASE = BASE
 
 -- pokefirered/src/battle_anim_mons.c:233
@@ -257,10 +260,14 @@ function P.coordAttr(b, attr)
   return 0
 end
 
+P.coord = AnimCoords.sideArg(P.coord, 1)
+P.defaultY = AnimCoords.sideArg(P.defaultY, 1)
+P.yWithElevation = AnimCoords.sideArg(P.yWithElevation, 1)
+P.coordAttr = AnimCoords.sideArg(P.coordAttr, 1)
+
 -- pokefirered/src/battle_anim_mons.c:1908
 function P.subpriorityOf(b)
-  if b == "player" then return 30 end
-  return 40
+  return AnimCoords.subpriority(b)
 end
 
 -- pokefirered/src/battle_anim_mons.c:1924
@@ -268,15 +275,14 @@ function P.bgPriority(b)
   local vm = P.vm
   local bp = vm and vm._bgPrio
   if bp then
-    if b == "player" then return bp[2] or 2 end
-    return bp[1] or 2
+    return bp[AnimCoords.bgPriorityRank(b)] or 2
   end
   return 2
 end
 
+-- pokefirered/src/battle_anim_mons.c:1934
 function P.bgPriorityRank(b)
-  if b == "player" then return 2 end
-  return 1
+  return AnimCoords.bgPriorityRank(b)
 end
 
 function P.present(b)
@@ -1517,7 +1523,11 @@ end
 function P.SetAverageBattlerPositions(b, respect)
   local xt, yt = 0, 1
   if respect then xt, yt = 2, 3 end
-  return P.coord(b, xt), P.coord(b, yt)
+  local id = AnimCoords.idOf(b) or 1
+  local x, y = P.coord(id, xt), P.coord(id, yt)
+  if not AnimCoords.isDouble() then return x, y end
+  local partner = AnimCoords.partner(id)
+  return P.div(x + P.coord(partner, xt), 2), P.div(y + P.coord(partner, yt), 2)
 end
 
 -- pokefirered/src/battle_anim_mons.c:1482

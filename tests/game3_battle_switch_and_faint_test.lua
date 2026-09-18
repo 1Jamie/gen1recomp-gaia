@@ -261,20 +261,28 @@ do
   }
 
   local selectedSlot = nil
+  local function validate(slot)
+    local mon = party[slot]
+    if mon and mon.hp <= 0 then return "BULBASAUR has no energy\nleft to battle!" end
+    return nil
+  end
   PartyMenu.show(party, nil, {
     mode = "battle_switch",
     activeSlot = 1,
+    validate = validate,
     onSelect = function(slot) selectedSlot = slot end,
   })
 
-  -- In battle_switch mode, cursor started at 2 (since 1 was active)
-  -- Try to pick fainted slot 2
   local fakeInput = {
     wasPressed = function(self, key) return key == "a" end,
   }
+  PartyMenu.cursor = 2
   PartyMenu.handleInput(fakeInput)
-  eq(PartyMenu.mode, "message", "picking fainted mon shows warning message")
-  check(PartyMenu._messageText:find("no will"), "message states 'There\\'s no will to fight!'")
+  eq(PartyMenu.mode, "action", "A on a fainted mon opens the action menu")
+  PartyMenu.actionCursor = 1
+  PartyMenu.handleInput(fakeInput)
+  eq(PartyMenu.mode, "message", "SHIFT on a fainted mon shows the warning")
+  check(PartyMenu._messageText:find("no energy"), "message is pret's no-energy line")
   PartyMenu.dismissMessage()
 
   -- Move to slot 3 and pick
@@ -303,22 +311,20 @@ do
     wasPressed = function(self, key) return key == "b" end,
   }
   PartyMenu.handleInput(cancelInput)
-  eq(PartyMenu.mode, "message", "pressing B shows warning in battle_faint mode")
-  check(PartyMenu._messageText:find("Choose a POKéMON"), "message requires choosing a Pokémon")
-  PartyMenu.dismissMessage()
+  eq(PartyMenu.mode, "battle_faint", "pressing B cannot leave battle_faint mode")
 
   -- Pick valid conscious slot 3 -> opens action menu
   PartyMenu.cursor = 3
   PartyMenu.handleInput(fakeInput)
   eq(PartyMenu.mode, "action", "battle_faint opens action menu for conscious slot 3")
-  eq(PartyMenu.ACTIONS[1], "SHIFT", "action menu has SHIFT")
+  eq(PartyMenu.ACTIONS[1], "SEND OUT", "action menu has SEND OUT")
   eq(PartyMenu.ACTIONS[2], "SUMMARY", "action menu has SUMMARY")
   eq(PartyMenu.ACTIONS[3], "CANCEL", "action menu has CANCEL")
 
   -- Confirm SHIFT
   PartyMenu.actionCursor = 1
   PartyMenu.handleInput(fakeInput)
-  eq(selectedSlot, 3, "SHIFT confirms slot 3 selection in battle_faint")
+  eq(selectedSlot, 3, "SEND OUT confirms slot 3 selection in battle_faint")
   eq(PartyMenu.isOpen(), false, "PartyMenu closed after faint replacement")
 end
 

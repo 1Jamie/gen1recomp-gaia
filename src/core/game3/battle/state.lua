@@ -30,6 +30,7 @@ end
 
 function State.makeBattler(mon, side, opts)
   opts = opts or {}
+  local id = tonumber(opts.id) or ((side == "enemy") and 1 or 0)
   mon = Damage.ensureStats(mon, mon and mon.level)
   local species = species_id(mon)
   local t1, t2 = types_for(species)
@@ -39,7 +40,9 @@ function State.makeBattler(mon, side, opts)
   end
   return {
     mon = mon,
+    id = id,
     side = side, -- "player" | "enemy"
+    flank = (id < 2) and "left" or "right",
     partyIndex = opts.partyIndex or 1,
     species = species,
     type1 = t1,
@@ -56,6 +59,174 @@ function State.makeBattler(mon, side, opts)
     isFirstTurn = 2,
   }
 end
+
+function State.PARTNER(id) return (id + 2) % 4 end
+function State.OPPOSITE(id) return (id % 2 == 0) and (id + 1) or (id - 1) end
+function State.sideOf(id) return (id % 2 == 0) and "player" or "enemy" end
+function State.flankOf(id) return (id < 2) and "left" or "right" end
+function State.positionsOnSide(side) return (side == "player") and { 0, 2 } or { 1, 3 } end
+
+function State.idOf(b)
+  if type(b) == "number" then return b end
+  if type(b) == "string" then return (b == "enemy") and 1 or 0 end
+  if type(b) ~= "table" then return nil end
+  if b.id then return b.id end
+  if b.side == "enemy" then return 1 end
+  if b.side == "player" then return 0 end
+  return nil
+end
+
+function State.battler(st, id)
+  if not st or id == nil then return nil end
+  if st.battlers then return st.battlers[id] end
+  if id == 0 then return st.player end
+  if id == 1 then return st.enemy end
+  return nil
+end
+
+function State.occupant(st, b)
+  if b == nil or not st then return b end
+  if type(b) == "string" then return st[b] end
+  local id = State.idOf(b)
+  if id == nil then return b end
+  return State.battler(st, id) or b
+end
+
+function State.isAbsent(st, id)
+  return st and st.absent and st.absent[id] and true or false
+end
+
+function State.isPresent(st, id)
+  return State.battler(st, id) ~= nil and not State.isAbsent(st, id)
+end
+
+function State.isAlive(st, id)
+  return State.isPresent(st, id) and not State.isFainted(State.battler(st, id))
+end
+
+function State.partner(st, b)
+  local id = State.idOf(b)
+  if id == nil or not (st and st.double) then return nil end
+  local p = State.PARTNER(id)
+  if not State.isPresent(st, p) then return nil end
+  return State.battler(st, p)
+end
+
+function State.opposite(st, b)
+  local id = State.idOf(b)
+  if id == nil then return nil end
+  return State.battler(st, State.OPPOSITE(id))
+end
+
+function State.presentIds(st)
+  local out = {}
+  for id = 0, 3 do
+    if State.isPresent(st, id) then out[#out + 1] = id end
+  end
+  return out
+end
+
+function State.present(st)
+  local out = {}
+  for id = 0, 3 do
+    if State.isPresent(st, id) then out[#out + 1] = State.battler(st, id) end
+  end
+  return out
+end
+
+function State.foes(st, b)
+  local id = State.idOf(b)
+  local out = {}
+  if id == nil then return out end
+  for i = 0, 3 do
+    if i % 2 ~= id % 2 and State.isPresent(st, i) then out[#out + 1] = State.battler(st, i) end
+  end
+  return out
+end
+
+function State.allies(st, b)
+  local id = State.idOf(b)
+  local out = {}
+  if id == nil then return out end
+  for i = 0, 3 do
+    if i % 2 == id % 2 and State.isPresent(st, i) then out[#out + 1] = State.battler(st, i) end
+  end
+  return out
+end
+
+-- pokefirered/src/pokemon.c:2651
+function State.countPresentOnSide(st, side)
+  local n = 0
+  for _, id in ipairs(State.positionsOnSide(side)) do
+    if State.isPresent(st, id) then n = n + 1 end
+  end
+  return n
+end
+
+-- pokefirered/src/battle_main.c:3400
+function State.speedOrder(st, adapter, opts)
+  opts = opts or {}
+  local Engine = package.loaded["src.core.game3.battle.engine"]
+  local ids = State.presentIds(st)
+  local spe = {}
+  for _, id in ipairs(ids) do
+    local b = State.battler(st, id)
+    if Engine and Engine.speedOf then
+      spe[id] = Engine.speedOf(b, st, adapter)
+    else
+      spe[id] = tonumber(b.mon and (b.mon.speed or b.mon.spe)) or 50
+    end
+  end
+  local function coin()
+    if adapter and adapter.roll then return adapter:roll(0, 1) end
+    return math.random(0, 1)
+  end
+  for i = 1, #ids - 1 do
+    for j = i + 1, #ids do
+      local a, b = ids[i], ids[j]
+      local pa = opts.priority and opts.priority[a] or 0
+      local pb = opts.priority and opts.priority[b] or 0
+      local swap
+      if pa ~= pb then
+        swap = pa < pb
+      elseif spe[a] == spe[b] then
+        swap = coin() == 1
+      else
+        swap = spe[a] < spe[b]
+      end
+      if swap then ids[i], ids[j] = b, a end
+    end
+  end
+  return ids
+end
+
+local function battler_slots(st)
+  return setmetatable({}, {
+    __index = function(_, k)
+      if k == 0 then return st.player end
+      if k == 1 then return st.enemy end
+      return nil
+    end,
+    __newindex = function(t, k, v)
+      if k == 0 then st.player = v
+      elseif k == 1 then st.enemy = v
+      else rawset(t, k, v) end
+    end,
+  })
+end
+State.newSlots = battler_slots
+
+local function first_usable(party, exclude)
+  for i = 1, #(party or {}) do
+    local m = party[i]
+    if i ~= exclude and m and not m.isEgg and (tonumber(m.hp) or 0) > 0
+        and (tonumber(m.species or m.speciesId) or 0) ~= 0 then
+      return i
+    end
+  end
+  return nil
+end
+State.firstUsable = first_usable
 
 function State.new(opts)
   opts = opts or {}
@@ -81,12 +252,77 @@ function State.new(opts)
     fleeAttempts = 0,
     log = {},
   }
+  st.double = opts.double and true or false
+  st.battlersCount = st.double and 4 or 2
+  st.battlers = battler_slots(st)
+  st.absent = {}
+  st.chosen = {}
+  st.turnOrder = {}
+  st.monToSwitchInto = {}
+  st.moveTarget = {}
   local pMon = playerParty[pi]
-  st.player = State.makeBattler(pMon, "player", { partyIndex = pi })
+  st.player = State.makeBattler(pMon, "player", { partyIndex = pi, id = 0 })
   local eMon = foeMon or st.foeParty[1]
-  st.enemy = State.makeBattler(eMon, "enemy", { partyIndex = 1 })
-  State.trackParticipant(st, st.enemy, pi)
+  st.enemy = State.makeBattler(eMon, "enemy", { partyIndex = 1, id = 1 })
+  if not st.double then
+    State.trackParticipant(st, st.enemy, pi)
+    return st
+  end
+  -- pokefirered/src/battle_controllers.c:290
+  local p2 = opts.partnerIndex or first_usable(playerParty, pi)
+  if p2 and playerParty[p2] then
+    st.battlers[2] = State.makeBattler(playerParty[p2], "player", { partyIndex = p2, id = 2 })
+  else
+    st.absent[2] = true
+  end
+  local e2 = opts.foePartnerIndex or first_usable(st.foeParty, st.enemy.partyIndex)
+  if e2 and st.foeParty[e2] then
+    st.battlers[3] = State.makeBattler(st.foeParty[e2], "enemy", { partyIndex = e2, id = 3 })
+  else
+    st.absent[3] = true
+  end
+  State.resetSentPokes(st)
   return st
+end
+
+-- pokefirered/src/battle_util.c:239
+function State.resetSentPokes(st)
+  local sent = {}
+  for _, id in ipairs({ 0, 2 }) do
+    local b = State.battler(st, id)
+    if b and b.partyIndex then sent[#sent + 1] = b.partyIndex end
+  end
+  for _, id in ipairs({ 1, 3 }) do
+    local foe = State.battler(st, id)
+    if foe then
+      foe.participants = {}
+      for _, pi in ipairs(sent) do foe.participants[pi] = true end
+    end
+  end
+end
+
+-- pokefirered/src/battle_util.c:254
+function State.opponentSwitchInResetSentPokes(st, foeBattler)
+  if not foeBattler then return end
+  foeBattler.participants = {}
+  for _, id in ipairs({ 0, 2 }) do
+    local b = State.battler(st, id)
+    if b and not State.isAbsent(st, id) and b.partyIndex then
+      foeBattler.participants[b.partyIndex] = true
+    end
+  end
+end
+
+-- pokefirered/src/battle_util.c:273
+function State.updateSentPokes(st, battler)
+  if not battler then return end
+  if battler.side == "enemy" then
+    return State.opponentSwitchInResetSentPokes(st, battler)
+  end
+  for _, id in ipairs({ 1, 3 }) do
+    local foe = State.battler(st, id)
+    if foe then State.trackParticipant(st, foe, battler.partyIndex) end
+  end
 end
 
 function State.displayName(battler)

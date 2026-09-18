@@ -10,6 +10,7 @@ local Chrome = require("src.ui.game3.chrome")
 local Window = require("src.ui.game3.window")
 local Naming = require("src.ui.game3.naming")
 local BallOpen = require("src.core.game3.battle.ball_open")
+local ModRuntime = require("src.mods.Runtime")
 
 local Scene = {}
 Scene.__index = Scene
@@ -380,9 +381,25 @@ function Scene:printerActive()
 end
 
 -- pokefirered/src/oak_speech.c:1124
+function Scene:_answered(label, value, saveKey)
+  if not ModRuntime.wants("intro.oak_speech.answered") then return end
+  ModRuntime.emit("intro.oak_speech.answered", {
+    speech = self, step = { id = label }, index = self._oakStep or 0,
+    label = label, value = value, saveKey = saveKey,
+  })
+end
+
 function Scene:oakPrint(key, speed)
   local text = OAK_TEXT[key] or key
   text = text:gsub("{PLAYER}", self.playerName):gsub("{RIVAL}", self.rivalName)
+  if self.section == "oak" then
+    self._oakStep = (self._oakStep or 0) + 1
+    if ModRuntime.wants("intro.oak_speech.step") then
+      ModRuntime.emit("intro.oak_speech.step", {
+        speech = self, step = { id = key, text = text }, index = self._oakStep,
+      })
+    end
+  end
   self.win.dialog = true
   self.printer = newPrinter(text, speed == nil and self.textSpeed or speed, true)
 end
@@ -890,6 +907,10 @@ function Scene.Task_OakSpeech_Init(self, t)
     return
   end
   self.section = "oak"
+  self._oakStep = 0
+  if ModRuntime.wants("intro.oak_speech.started") then
+    ModRuntime.emit("intro.oak_speech.started", { speech = self, steps = {} })
+  end
   self.bg1 = { image = self.assets.oakSpeechBg }
   d.nidoran = createSprite(self, {
     dims = Oam.SQUARE_64, priority = 1, image = self.assets.nidoranFront,
@@ -1062,6 +1083,7 @@ function Scene.Task_OakSpeech_HandleGenderInput(self, t)
   else
     return
   end
+  self:_answered("gender", self.gender, "gender")
   t.func = Scene.Task_OakSpeech_ClearGenderWindows
 end
 
@@ -1147,8 +1169,10 @@ function Scene:getDefaultName(choice)
     local list = self.gender == MALE and MALE_NAMES or FEMALE_NAMES
     local r = require("src.core.game3.rng").Random()
     self.playerName = list[(r % #list) + 1]
+    self:_answered("name", self.playerName, "name")
   else
     self.rivalName = RIVAL_NAMES[choice + 1]
+    self:_answered("rivalName", self.rivalName, "rivalName")
   end
 end
 
@@ -1197,6 +1221,11 @@ function Scene:enterNaming(rival)
     onDone = function(name)
       if name and name ~= "" then
         if rival then scene.rivalName = name else scene.playerName = name end
+        if rival then
+          scene:_answered("rivalName", name, "rivalName")
+        else
+          scene:_answered("name", name, "name")
+        end
       end
       scene.naming.stage = "fade_out"
       scene.naming.pal:beginFade(Pal.ALL, 0, 0, 16, Pal.BLACK)
@@ -1467,11 +1496,15 @@ end
 function Scene.Task_OakSpeech_FreeResources(self, t)
   -- pokefirered/src/oak_speech.c:1777
   destroyTask(t)
+  local answers = { gender = self.gender, name = self.playerName, rivalName = self.rivalName }
+  if ModRuntime.wants("intro.oak_speech.finished") then
+    ModRuntime.emit("intro.oak_speech.finished", { speech = self, answers = answers })
+  end
   self.result = {
     action = "new_game",
-    gender = self.gender,
-    name = self.playerName,
-    rivalName = self.rivalName,
+    gender = tonumber(answers.gender) or self.gender,
+    name = type(answers.name) == "string" and answers.name ~= "" and answers.name or self.playerName,
+    rivalName = type(answers.rivalName) == "string" and answers.rivalName ~= "" and answers.rivalName or self.rivalName,
     start = MapIds.NEW_GAME_START,
   }
 end

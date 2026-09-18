@@ -2,6 +2,7 @@ local bit = require("bit")
 local Trig = require("src.core.game3.trig")
 local AnimSprites = require("src.core.game3.battle.anim_sprites")
 local AnimPal = require("src.core.game3.battle.anim_pal")
+local AnimCoords = require("src.core.game3.battle.anim_coords")
 
 local band, bor, bxor, rshift, arshift, lshift = bit.band, bit.bor, bit.bxor, bit.rshift, bit.arshift, bit.lshift
 local floor = math.floor
@@ -24,7 +25,7 @@ P.Y_PIC_OFFSET = 3
 P.Y_PIC_OFFSET_DEFAULT = 4
 
 -- pokefirered/src/battle_anim_mons.c:31
-P.COORDS = { player = { x = 72, y = 80 }, enemy = { x = 176, y = 40 } }
+P.COORDS = setmetatable({}, { __index = function(_, k) return AnimCoords.coords(nil, k) end })
 
 function P.s16(v)
   v = band(floor(tonumber(v) or 0), 0xFFFF)
@@ -87,14 +88,17 @@ function P.other(side)
 end
 
 function P.atk(vm)
+  if vm and vm.allyPair and vm:allyPair() then return vm:attackerId() end
   return vm and vm.attackerSide and vm:attackerSide() or "player"
 end
 
 function P.tgt(vm)
+  if vm and vm.allyPair and vm:allyPair() then return vm:targetId() end
   return vm and vm.targetSide and vm:targetSide() or "enemy"
 end
 
 function P.sideId(side)
+  if type(side) == "number" then return side % 2 end
   return side == "player" and 0 or 1
 end
 
@@ -102,6 +106,7 @@ function P.battlerSide(vm, animBattler)
   animBattler = tonumber(animBattler) or 0
   if animBattler == 0 then return P.atk(vm) end
   if animBattler == 1 then return P.tgt(vm) end
+  if (animBattler == 2 or animBattler == 3) and vm and vm.battlerId then return vm:battlerId(animBattler) end
   return nil
 end
 
@@ -147,19 +152,27 @@ function P.yWithElevation(vm, side)
   return y
 end
 
+P.coord = AnimCoords.sideArg(P.coord, 2)
+P.yWithElevation = AnimCoords.sideArg(P.yWithElevation, 2)
+
 -- pokefirered/src/battle_anim_mons.c:286
 function P.substituteY(side)
-  return P.COORDS[side].y + (side ~= "player" and 16 or 17)
+  local id = AnimCoords.idOf(side) or 1
+  return P.COORDS[id].y + (AnimCoords.sideOf(id) ~= "player" and 16 or 17)
 end
 
 -- pokefirered/src/battle_anim_mons.c:1908
 function P.subpriorityOf(side)
-  return side == "player" and 30 or 40
+  return AnimCoords.subpriority(side)
 end
 
 function P.zFor(priority, subpriority)
   priority = tonumber(priority) or 2
   subpriority = tonumber(subpriority) or 0
+  if AnimCoords.isDouble() then
+    local Anim = package.loaded["src.core.game3.battle.anim"]
+    return AnimCoords.zFor(priority, subpriority, Anim and Anim._vm)
+  end
   if priority <= 1 then return 900 + (255 - subpriority) % 100 end
   local z = 500 - 10 * subpriority - 1
   if priority >= 3 then z = math.min(z, 99) end
@@ -221,10 +234,14 @@ end
 
 -- pokefirered/src/battle_anim_mons.c:2098
 function P.averagePositions(vm, side, respect)
-  if respect then
-    return P.coord(vm, side, P.X_2), P.coord(vm, side, P.Y_PIC_OFFSET)
-  end
-  return P.coord(vm, side, P.X), P.coord(vm, side, P.Y)
+  local xt, yt = P.X, P.Y
+  if respect then xt, yt = P.X_2, P.Y_PIC_OFFSET end
+  local id = AnimCoords.idOf(side) or 1
+  local x, y = P.coord(vm, id, xt), P.coord(vm, id, yt)
+  if not AnimCoords.isDouble() then return x, y end
+  local partner = AnimCoords.partner(id)
+  local px, py = P.coord(vm, partner, xt), P.coord(vm, partner, yt)
+  return P.cdiv(x + px, 2), P.cdiv(y + py, 2)
 end
 
 function P.destroy(s)

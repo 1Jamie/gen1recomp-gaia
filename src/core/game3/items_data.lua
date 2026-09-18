@@ -238,6 +238,10 @@ local function load_pack()
   return ItemsData._byId
 end
 
+function ItemsData.ensureLoaded()
+  return load_pack()
+end
+
 function ItemsData.install(_cache)
   ItemsData._pack = nil
   ItemsData._byId = nil

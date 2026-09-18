@@ -81,7 +81,8 @@ T.ShakeMon2 = K.wrap(function(t, vm)
   if A[0] < 4 then
     side = K.battlerSide(vm, A[0])
   elseif A[0] ~= 8 then
-    if A[0] == 4 then side = "player" elseif A[0] == 6 then side = "enemy" end
+    if A[0] == 4 then side = 0 elseif A[0] == 5 then side = 2 elseif A[0] == 6 then side = 1 else side = 3 end
+    if side >= 2 and not P.spriteVisible(side) then side = nil end
   else
     side = P.atk(vm)
   end
@@ -972,8 +973,7 @@ local function flash_step(t)
       d[1] = 0
       d[2] = d[2] - 1
       P.Pal.blend("bg", d[2], 0x7FFF)
-      P.Pal.blend("player", d[2], 0)
-      P.Pal.blend("enemy", d[2], 0)
+      for _, id in ipairs(P.visibleIds()) do P.Pal.blend(id, d[2], 0) end
       P.Pal.flush()
       if d[2] == 0 then d[0] = d[0] + 1 end
     end
@@ -983,8 +983,7 @@ local function flash_step(t)
 end
 
 T.Flash = K.wrap(function(t, vm)
-  P.Pal.setFaded("player", { m = 0, r = 0, g = 0, b = 0 })
-  P.Pal.setFaded("enemy", { m = 0, r = 0, g = 0, b = 0 })
+  for _, id in ipairs(P.visibleIds()) do P.Pal.setFaded(id, { m = 0, r = 0, g = 0, b = 0 }) end
   P.Pal.setFaded("bg", { m = 0, r = 1, g = 1, b = 1 })
   P.Pal.flush()
   t.data[0] = 0
@@ -1026,7 +1025,10 @@ end)
 T.BlendNonAttackerPalettes = K.wrap(function(t, vm)
   local A = t._A
   for j = 5, 1, -1 do A[j] = A[j - 1] end
-  local keys = { P.other(P.atk(vm)) }
+  local keys = {}
+  for id = 0, 3 do
+    if id ~= P.atkId(vm) and (id < 2 or P.spriteVisible(id)) then keys[#keys + 1] = id end
+  end
   t._keys = keys
   local d = t.data
   d[2] = A[1]
@@ -1052,8 +1054,10 @@ end)
 
 -- pokefirered/src/battle_anim_utility_funcs.c:719
 T.SetAllNonAttackersInvisiblity = K.wrap(function(t, vm)
-  local p = P.present(P.other(P.atk(vm)))
-  if p then p.visible = (t._A[0] == 0) end
+  for _, id in ipairs(P.visibleIds(P.atkId(vm))) do
+    local p = P.present(id)
+    if p then p.visible = (t._A[0] == 0) end
+  end
   K.destroy(t)
 end)
 

@@ -168,29 +168,36 @@ function Abilities.switchIn(ad, b)
 end
 
 -- pokefirered/data/battle_scripts_1.s:3983
+local function intimidate_one(ad, b, foe)
+  if not (foe and not ad:isFainted(foe) and (foe.substituteHP or 0) <= 0) then return end
+  local fab = ad:abilityOf(foe)
+  if fab == "CLEAR_BODY" or fab == "HYPER_CUTTER" or fab == "WHITE_SMOKE" then
+    ad:say(name(ad, foe) .. "'s " .. Abilities.name(fab) .. "\nprevented " .. name(ad, b)
+      .. "'s\nINTIMIDATE from working!")
+  else
+    local side = ad:ownSide(foe)
+    if side and (side.expMistTurns or 0) > 0 then
+      if not foe._statLoweredMsg then
+        foe._statLoweredMsg = true
+        ad:say(name(ad, foe) .. " is protected\nby MIST!")
+      end
+    elseif (foe.stages.attack or 0) > -6 then
+      foe.stages.attack = foe.stages.attack - 1
+      ad:playAnim("general", "STATS_CHANGE", foe, foe, Secondary.statAnimArg("attack", -1))
+      ad:say(name(ad, b) .. "'s INTIMIDATE\ncuts " .. name(ad, foe) .. "'s ATTACK!")
+    end
+  end
+end
+
 function Abilities.runIntimidate(ad)
   for _, b in ipairs(ad:activeBattlers()) do
     if b.expIntimidatePending and ad:abilityOf(b) == "INTIMIDATE" then
       b.expIntimidatePending = nil
-      local foe = ad:foeOf(b)
-      if foe and not ad:isFainted(foe) and (foe.substituteHP or 0) <= 0 then
-        local fab = ad:abilityOf(foe)
-        if fab == "CLEAR_BODY" or fab == "HYPER_CUTTER" or fab == "WHITE_SMOKE" then
-          ad:say(name(ad, foe) .. "'s " .. Abilities.name(fab) .. "\nprevented " .. name(ad, b)
-            .. "'s\nINTIMIDATE from working!")
-        else
-          local side = ad:ownSide(foe)
-          if side and (side.expMistTurns or 0) > 0 then
-            if not foe._statLoweredMsg then
-              foe._statLoweredMsg = true
-              ad:say(name(ad, foe) .. " is protected\nby MIST!")
-            end
-          elseif (foe.stages.attack or 0) > -6 then
-            foe.stages.attack = foe.stages.attack - 1
-            ad:playAnim("general", "STATS_CHANGE", foe, foe, Secondary.statAnimArg("attack", -1))
-            ad:say(name(ad, b) .. "'s INTIMIDATE\ncuts " .. name(ad, foe) .. "'s ATTACK!")
-          end
-        end
+      if ad._st and ad._st.double then
+        -- pokefirered/src/battle_script_commands.c:9174
+        for _, foe in ipairs(ad:foesOf(b)) do intimidate_one(ad, b, foe) end
+      else
+        intimidate_one(ad, b, ad:foeOf(b))
       end
       return true
     end
@@ -203,6 +210,24 @@ function Abilities.runTrace(ad)
   for _, b in ipairs(ad:activeBattlers()) do
     if b.expTracePending and ad:abilityOf(b) == "TRACE" then
       local foe = ad:foeOf(b)
+      local st = ad._st
+      if st and st.double then
+        -- pokefirered/src/battle_util.c:2243
+        local State = require("src.core.game3.battle.state")
+        local side = (b.id % 2 == 0) and 1 or 0
+        local t1, t2 = State.battler(st, side), State.battler(st, side + 2)
+        local ok1 = t1 and ad:abilityOf(t1) and ad:hp(t1) > 0
+        local ok2 = t2 and ad:abilityOf(t2) and ad:hp(t2) > 0
+        if ok1 and ok2 then
+          foe = State.battler(st, ad:roll(0, 1) * 2 + side)
+        elseif ok1 then
+          foe = t1
+        elseif ok2 then
+          foe = t2
+        else
+          foe = nil
+        end
+      end
       local fab = foe and ad:abilityOf(foe)
       if fab and ad:hp(foe) > 0 then
         b.expTracePending = nil
@@ -467,6 +492,24 @@ end
 
 -- pokefirered/src/battle_main.c:3002
 function Abilities.escapeBlocker(ad, b)
+  if ad._st and ad._st.double then
+    for _, foe in ipairs(ad:foesOf(b)) do
+      if not ad:isFainted(foe) then
+        local fab = ad:abilityOf(foe)
+        if fab == "SHADOW_TAG" then return foe, fab end
+        if fab == "ARENA_TRAP" and ad:abilityOf(b) ~= "LEVITATE" and not is_type(b, Types.ID.FLYING) then
+          return foe, fab
+        end
+      end
+    end
+    -- pokefirered/src/battle_main.c:3036
+    if is_type(b, Types.ID.STEEL) then
+      for _, o in ipairs(ad:activeBattlers()) do
+        if o ~= b and not ad:isFainted(o) and ad:abilityOf(o) == "MAGNET_PULL" then return o, "MAGNET_PULL" end
+      end
+    end
+    return nil
+  end
   local foe = ad:foeOf(b)
   if not foe or ad:isFainted(foe) then return nil end
   local fab = ad:abilityOf(foe)

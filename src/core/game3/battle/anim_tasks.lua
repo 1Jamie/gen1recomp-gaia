@@ -2865,8 +2865,11 @@ end
 AnimTasks.REGISTRY.GetTargetSide = AnimTasks.GetTargetSide
 AnimTasks.REGISTRY.AnimTask_GetTargetSide = AnimTasks.GetTargetSide
 
+-- pokefirered/src/battle_anim_utility_funcs.c:712
 function AnimTasks.GetTargetIsAttackerPartner(t, vm)
-  vm.args[7] = 0 -- In singles, target is never partner
+  local atk = vm.attackerId and vm:attackerId() or 0
+  local tgt = vm.targetId and vm:targetId() or 1
+  vm.args[7] = (require("bit").bxor(atk, 2) == tgt) and 1 or 0
   destroy_task(t)
 end
 

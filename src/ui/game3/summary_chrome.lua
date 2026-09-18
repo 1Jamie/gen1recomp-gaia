@@ -231,7 +231,11 @@ end
 
 function SummaryChrome.menuInfoImage()
   if SummaryChrome._menuInfo then return SummaryChrome._menuInfo end
-  local img = load_png(summary_root() .. "/menu_info.png")
+  local raw = read_bytes(summary_root() .. "/menu_info.rgba")
+  local img = raw and rgba_to_image(raw, 128, 128)
+  if not img then
+    img = load_png(summary_root() .. "/menu_info.png")
+  end
   if not img then
     img = load_png("src/import/gba/chrome/menus/menu_info.png")
   end

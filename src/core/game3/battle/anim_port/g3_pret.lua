@@ -2,6 +2,7 @@ local P = {}
 
 local bit = require("bit")
 local AnimPal = require("src.core.game3.battle.anim_pal")
+local AnimCoords = require("src.core.game3.battle.anim_coords")
 P.band, P.bor, P.bxor, P.lshift, P.rshift = bit.band, bit.bor, bit.bxor, bit.lshift, bit.rshift
 
 local SINE = {
@@ -91,8 +92,14 @@ function P.vm() return Anim()._vm end
 function P.AnimSprites() return require("src.core.game3.battle.anim_sprites") end
 function P.AnimTasks() return package.loaded["src.core.game3.battle.anim_tasks"] or require("src.core.game3.battle.anim_tasks") end
 
-function P.atk(vm) return vm:attackerSide() end
-function P.tgt(vm) return vm:targetSide() end
+function P.atk(vm)
+  if vm.allyPair and vm:allyPair() then return vm:attackerId() end
+  return vm:attackerSide()
+end
+function P.tgt(vm)
+  if vm.allyPair and vm:allyPair() then return vm:targetId() end
+  return vm:targetSide()
+end
 function P.side(vm, animBattler)
   animBattler = tonumber(animBattler) or 0
   if animBattler == 0 then return vm:attackerSide() end
@@ -112,7 +119,7 @@ local function picCoords()
   return PicCoords or nil
 end
 
-local BASE = { player = { 72, 80 }, enemy = { 176, 40 } }
+local BASE = setmetatable({}, { __index = function(_, k) return AnimCoords.coords(nil, k) end })
 
 function P.species(vm, side)
   local sp = vm and vm.speciesForSide and vm:speciesForSide(side)
@@ -160,10 +167,18 @@ function P.yWithElevation(vm, side)
   return y
 end
 
+P.yDelta = AnimCoords.sideArg(P.yDelta, 2)
+P.elevation = AnimCoords.sideArg(P.elevation, 2)
+P.coord = AnimCoords.sideArg(P.coord, 2)
+P.yWithElevation = AnimCoords.sideArg(P.yWithElevation, 2)
+
 -- pokefirered/src/battle_anim_mons.c:1908
 function P.subpriorityOf(side)
-  return side == "player" and 30 or 40
+  return AnimCoords.subpriority(side)
 end
+
+function P.atkId(vm) return vm:attackerId() end
+function P.tgtId(vm) return vm:targetId() end
 
 function P.monPresent(side)
   return Anim().present(side)
@@ -375,15 +390,7 @@ function P.zFor(pri, sub, vm)
   elseif pri >= 3 then
     return 2 + (100 - sub) * 0.01
   end
-  local monbg = vm and vm._monbg or {}
-  local bgPrio = vm and vm._bgPrio or {}
-  local frontEnemy, frontPlayer
-  if monbg.enemy then frontEnemy = (bgPrio[1] or 2) >= 2 else frontEnemy = sub < 40 end
-  if monbg.player then frontPlayer = (bgPrio[2] or 2) >= 2 else frontPlayer = sub < 30 end
-  local rank = math.max(0, math.min(98, 98 - sub))
-  if frontPlayer then return 201 + rank end
-  if frontEnemy then return 101 + rank end
-  return rank
+  return AnimCoords.layerZ(sub, vm and vm._monbg, vm and vm._bgPrio)
 end
 
 -- pokefirered/src/sprite.c:905
@@ -816,7 +823,7 @@ function P.CloneMon(vm, side)
   local cx, cy = P.monCenter(vm, side)
   local img = P.monImage(vm, side)
   local s = AnimSprites.acquire({
-    x = cx, y = cy, z = (side == "player") and 195 or 95, hostId = side,
+    x = cx, y = cy, z = AnimCoords.monBehindZ(side), hostId = side,
     w = 64, h = 64, image = img, callback = genericCallback,
   })
   if not s then return nil end
@@ -1524,5 +1531,9 @@ function P.ensureColorOverlay(vm)
   vm._g3overlay = s
   return s
 end
+
+P.coordAttr = AnimCoords.sideArg(P.coordAttr, 2)
+P.monCenter = AnimCoords.sideArg(P.monCenter, 2)
+P.monImage = AnimCoords.sideArg(P.monImage, 2)
 
 return P

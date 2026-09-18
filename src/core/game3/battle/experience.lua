@@ -4,6 +4,7 @@
 
 local Pokemon = require("src.core.game3.pokemon")
 local SummaryData = require("src.core.game3.summary_data")
+local ModRuntime = require("src.mods.Runtime")
 
 local Experience = {}
 
@@ -164,6 +165,19 @@ function Experience.apply(mon, amount)
     curExp = nextThresh
     levels[#levels + 1] = curLevel
     apply_level_stats(mon, curLevel)
+    -- pokefirered/src/battle_script_commands.c:3298
+    if ModRuntime.wants("pokemon.level_up") then
+      local G3 = require("src.mods.Gen3Compat")
+      local learnable, learnableIds = {}, {}
+      for _, mv in ipairs(Pokemon.movesLearnedAt(tonumber(mon.species or mon.speciesId), curLevel)) do
+        learnable[#learnable + 1] = G3.moveName(mv)
+        learnableIds[#learnableIds + 1] = mv
+      end
+      ModRuntime.emit("pokemon.level_up", {
+        mon = mon, level = curLevel, prevLevel = curLevel - 1,
+        learnable = learnable, learnableIds = learnableIds,
+      })
+    end
     local newStats = get_mon_stats(mon)
     steps[#steps].hp = tonumber(mon.hp)
     steps[#steps].maxHp = tonumber(mon.maxHp)
@@ -236,8 +250,26 @@ function Experience.awardFoe(st, foeBattler, opts)
   local sentIn = {}
   if opts.partyIndices then
     for _, pi in ipairs(opts.partyIndices) do sentIn[pi] = true end
+  elseif st.double and foeBattler.participants then
+    -- pokefirered/src/battle_script_commands.c:3123
+    for pi in pairs(foeBattler.participants) do sentIn[pi] = true end
   elseif st.player and st.player.mon and (tonumber(st.player.mon.hp) or 0) > 0 then
     sentIn[st.player.partyIndex or 1] = true
+  end
+  local b0 = st.player
+  local b2 = st.double and st.battlers and st.battlers[2] or nil
+  local absent = st.absent or {}
+  local function on_field(pi)
+    if b0 and b0.partyIndex == pi and not absent[0] then return b0 end
+    if b2 and b2.partyIndex == pi and not absent[2] then return b2 end
+    return nil
+  end
+  -- pokefirered/src/battle_script_commands.c:3248
+  local function getter_id(pi)
+    if not st.double then return 0 end
+    if b2 and b2.partyIndex == pi and not absent[2] then return 2 end
+    if not absent[0] then return 0 end
+    return 2
   end
   local party = st.playerParty or {}
   local function alive(mon)
@@ -273,20 +305,53 @@ function Experience.awardFoe(st, foeBattler, opts)
     local share = mon and has_share(mon)
     if mon and (sentIn[pi] or share) and (tonumber(mon.level) or 1) < Experience.MAX_LEVEL and alive(mon) then
       local per = opts.getOpts and opts.getOpts(mon, pi) or Experience.recipientOpts(st, mon)
-      local amount = sentIn[pi] and exp or 0
-      if share then amount = amount + shareExp end
-      if per.luckyEgg then amount = math.floor(amount * 150 / 100) end
-      if isTrainer then amount = math.floor(amount * 150 / 100) end
-      if per.traded then amount = math.floor(amount * 150 / 100) end
+      local function vanilla_amount()
+        local amount = sentIn[pi] and exp or 0
+        if share then amount = amount + shareExp end
+        if per.luckyEgg then amount = math.floor(amount * 150 / 100) end
+        if isTrainer then amount = math.floor(amount * 150 / 100) end
+        if per.traded then amount = math.floor(amount * 150 / 100) end
+        return amount
+      end
+      local amount
+      -- pokefirered/src/battle_script_commands.c:3230
+      if ModRuntime.wantsHook("exp.gain") then
+        local G3 = require("src.mods.Gen3Compat")
+        amount = ModRuntime.call("exp.gain", function() return vanilla_amount() end, {
+          defeatedDef = G3.speciesView(foeSpecies), level = foeLevel, isTrainer = isTrainer,
+          participants = viaSentIn, traded = per.traded, luckyEgg = per.luckyEgg,
+          expShare = share and true or false, mon = mon, index = pi,
+          battle = st, loser = foeBattler,
+        })
+        amount = math.max(0, math.floor(tonumber(amount) or 0))
+      else
+        amount = vanilla_amount()
+      end
       local result = Experience.apply(mon, amount)
-      if st.player and st.player.partyIndex == pi then
+      local fieldB
+      if st.double then
+        fieldB = on_field(pi)
+        if fieldB then
+          fieldB.mon = mon
+          fieldB.fainted = (tonumber(mon.hp) or 0) <= 0
+        end
+      elseif st.player and st.player.partyIndex == pi then
         st.player.mon = mon
         st.player.fainted = (tonumber(mon.hp) or 0) <= 0
+        fieldB = st.player
+      end
+      -- pokefirered/src/battle_script_commands.c:3278
+      if ModRuntime.wants("battle.exp_gained") then
+        ModRuntime.emit("battle.exp_gained", {
+          battle = st, mon = mon, gained = result.gained, levels = result.levels,
+          index = pi, battler = fieldB, battlerId = getter_id(pi),
+        })
       end
       out[#out + 1] = {
         mon = mon,
         partyIndex = pi,
-        battler = (st.player and st.player.partyIndex == pi) and st.player or nil,
+        battler = fieldB,
+        expGetterBattlerId = getter_id(pi),
         amount = amount,
         boosted = per.traded and true or false,
         result = result,

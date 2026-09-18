@@ -2,6 +2,7 @@
 -- MVP: ROM EVO_LEVEL (method 4) only. Stones/trade/friendship later.
 
 local Pokemon = require("src.core.game3.pokemon")
+local ModRuntime = require("src.mods.Runtime")
 
 local Evolution = {}
 
@@ -31,31 +32,66 @@ local function is_national_unlocked(session)
   return PokedexData.isNationalUnlocked(session)
 end
 
+local function level_row(mon, evo, session)
+  local level = tonumber(mon.level) or 1
+  local method = tonumber(evo.method or evo[1]) or 0
+  local param = tonumber(evo.param or evo[2]) or 0
+  local target = tonumber(evo.target or evo[3]) or 0
+  if method == Evolution.EVO_LEVEL and target > 0 and level >= param then
+    -- National Dex gating: prevent evolving into non-Kanto species (target > 151) if locked
+    if target > 151 and not is_national_unlocked(session) then
+      return "stop"
+    end
+    return "match", target, param
+  elseif (method == Evolution.EVO_FRIENDSHIP or method == Evolution.EVO_FRIENDSHIP_DAY or method == Evolution.EVO_FRIENDSHIP_NIGHT) and target > 0 then
+    local friendship = tonumber(mon.friendship) or 220
+    if friendship >= 220 then
+      if target > 151 and not is_national_unlocked(session) then
+        return "stop"
+      end
+      return "match", target, 0
+    end
+  end
+  return nil
+end
+
+local function evo_view(evo)
+  local G3 = require("src.mods.Gen3Compat")
+  local okS, Schemas = pcall(require, "src.mods.Schemas")
+  local methods = okS and Schemas.gen3View and Schemas.gen3View.EVOLUTIONS or {}
+  local method = tonumber(evo.method or evo[1]) or 0
+  local param = tonumber(evo.param or evo[2]) or 0
+  local target = tonumber(evo.target or evo[3]) or 0
+  return {
+    method = methods[method] or method, methodId = method, param = param,
+    level = param, species = G3.speciesName(target), speciesId = target,
+  }
+end
+
 --- Target species for level-up evolution, or nil.
+-- pokefirered/src/pokemon.c:5025
 function Evolution.levelTarget(mon, session)
   if not mon then return nil end
   if held_is_everstone(mon) then return nil end
   local species = Pokemon.speciesOf(mon) or tonumber(mon.species or mon.speciesId)
-  local level = tonumber(mon.level) or 1
   if not species then return nil end
+  local hooked = ModRuntime.wantsHook("evolution.check")
+  local R = hooked and package.loaded["src.core.game3.runtime"] or nil
   for _, evo in ipairs(Pokemon.evolutions(species)) do
-    local method = tonumber(evo.method or evo[1]) or 0
-    local param = tonumber(evo.param or evo[2]) or 0
-    local target = tonumber(evo.target or evo[3]) or 0
-    if method == Evolution.EVO_LEVEL and target > 0 and level >= param then
-      -- National Dex gating: prevent evolving into non-Kanto species (target > 151) if locked
-      if target > 151 and not is_national_unlocked(session) then
-        return nil
+    local kind, target, param = level_row(mon, evo, session)
+    if hooked then
+      local view = evo_view(evo)
+      local ok = ModRuntime.call("evolution.check", function()
+        return kind == "match"
+      end, R and R._game or nil, mon, view, { kind = "levelup", session = session })
+      if ok then
+        if kind == "match" then return target, param end
+        if view.speciesId > 0 then return view.speciesId, view.param end
       end
-      return target, param
-    elseif (method == Evolution.EVO_FRIENDSHIP or method == Evolution.EVO_FRIENDSHIP_DAY or method == Evolution.EVO_FRIENDSHIP_NIGHT) and target > 0 then
-      local friendship = tonumber(mon.friendship) or 220
-      if friendship >= 220 then
-        if target > 151 and not is_national_unlocked(session) then
-          return nil
-        end
-        return target, 0
-      end
+      if kind == "stop" then return nil end
+    else
+      if kind == "stop" then return nil end
+      if kind == "match" then return target, param end
     end
   end
   return nil
@@ -103,7 +139,7 @@ function Evolution.renameMon(mon, preSpecies, postSpecies)
 end
 
 --- Apply species change + stats. Point of no return.
-function Evolution.apply(mon, newSpecies, session, bag)
+function Evolution.apply(mon, newSpecies, session, bag, via)
   newSpecies = tonumber(newSpecies)
   if not mon or not newSpecies then return false end
   local preSpecies = Pokemon.speciesOf(mon) or tonumber(mon.species or mon.speciesId) or 1
@@ -183,6 +219,17 @@ function Evolution.apply(mon, newSpecies, session, bag)
         end
       end
     end
+  end
+
+  if ModRuntime.wants("pokemon.evolved") then
+    ModRuntime.emit("pokemon.evolved", {
+      mon = mon,
+      fromSpecies = Pokemon.keyName(preSpecies) or preSpecies,
+      toSpecies = Pokemon.keyName(newSpecies) or newSpecies,
+      fromSpeciesId = preSpecies,
+      toSpeciesId = newSpecies,
+      via = via or "level",
+    })
   end
 
   return true

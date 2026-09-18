@@ -3,9 +3,11 @@
 -- MAPSETUP.WARP races ON_FRAME and wipes applymovement tracks (Bill intro).
 
 local MapIds = require("src.core.game3.map_ids")
+local ModRuntime = require("src.mods.Runtime")
 local Map = {}
 
 Map.current = nil
+Map._announced = nil
 Map.neighbors = {}
 Map._loadedLayouts = {}
 Map._def = nil
@@ -263,9 +265,14 @@ function Map.load(mod, game, mapId, opts)
     return nil, "not a game3 map"
   end
   local Ghosts = require("src.core.game3.ghosts")
+  local fromMapId = Map._announced
   if Map.current and Map.current ~= mapId then
     Ghosts.capture(Map.current)
   end
+  if fromMapId and fromMapId ~= mapId and ModRuntime.wants("map.exited") then
+    ModRuntime.emit("map.exited", { mapId = fromMapId, toMapId = mapId })
+  end
+  Map._announced = mapId
   Map.current = mapId
   Map._loadedLayouts = { [mapId] = true }
 
@@ -398,6 +405,17 @@ function Map.load(mod, game, mapId, opts)
   -- pokefirered/src/overworld.c:806
   if not opts.seamless then
     require("src.core.game3.audio").setSavedSong(nil)
+  end
+  if fromMapId == mapId then
+    if opts.reason and ModRuntime.wants("map.reloaded") then
+      ModRuntime.emit("map.reloaded", { mapId = mapId, reason = opts.reason or "reload" })
+    end
+  elseif ModRuntime.wants("map.entered") then
+    ModRuntime.emit("map.entered", {
+      mapId = mapId, map = def, fromMapId = fromMapId,
+      via = opts.via or (opts.seamless and "connection")
+        or (opts.heal and "respawn") or (fromMapId and "warp" or "boot"),
+    })
   end
   if Space and Space.runEnterScripts then
     Space.runEnterScripts(mod or Runtime._mod, mapId, game, world)

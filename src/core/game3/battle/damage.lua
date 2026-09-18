@@ -4,6 +4,7 @@ local Rules = require("src.core.game3.battle.rules")
 local Types = require("src.core.game3.battle.types")
 local Moves = require("src.core.game3.battle.moves")
 local EffectIds = require("src.core.game3.battle.effect_ids")
+local ModRuntime = require("src.mods.Runtime")
 
 local Damage = {}
 
@@ -272,7 +273,15 @@ function Damage.base(attacker, defender, move, opts)
     damage = math.floor(damage / helper)
     damage = math.floor(damage / 50)
     if status_of(attacker) == "BRN" and aAb ~= "GUTS" then damage = math.floor(damage / 2) end
-    if opts.reflect and not crit then damage = math.floor(damage / 2) end
+    if opts.reflect and not crit then
+      if opts.doubleScreens then
+        damage = 2 * math.floor(damage / 3)
+      else
+        damage = math.floor(damage / 2)
+      end
+    end
+    -- pokefirered/src/pokemon.c:2552
+    if opts.spread then damage = math.floor(damage / 2) end
     if damage == 0 then damage = 1 end
   end
 
@@ -289,7 +298,15 @@ function Damage.base(attacker, defender, move, opts)
     local helper = math.max(1, Damage.applyStage(spDefense, defStage))
     damage = math.floor(damage / helper)
     damage = math.floor(damage / 50)
-    if opts.lightScreen and not crit then damage = math.floor(damage / 2) end
+    if opts.lightScreen and not crit then
+      if opts.doubleScreens then
+        damage = 2 * math.floor(damage / 3)
+      else
+        damage = math.floor(damage / 2)
+      end
+    end
+    -- pokefirered/src/pokemon.c:2604
+    if opts.spread then damage = math.floor(damage / 2) end
     local weather = opts.weatherKind
     if weather == "RAIN" then
       if moveType == Types.ID.FIRE then damage = math.floor(damage / 2)
@@ -393,8 +410,13 @@ function Damage.calc(attacker, defender, moveId, opts)
     end
   elseif effectByte == EffectIds.REVENGE and not opts.dmgMultiplier then
     -- pokefirered/src/battle_script_commands.c:8946
-    if (attacker.damageTakenThisTurn or 0) > 0
-        and (attacker.expHurtBy == nil or attacker.expHurtBy == defender.side) then
+    local hurtOk
+    if opts.adapter and opts.adapter._st and opts.adapter._st.double then
+      hurtOk = attacker.expHurtById == nil or attacker.expHurtById == defender.id
+    else
+      hurtOk = attacker.expHurtBy == nil or attacker.expHurtBy == defender.side
+    end
+    if (attacker.damageTakenThisTurn or 0) > 0 and hurtOk then
       dmgMultiplier = dmgMultiplier * 2
     end
   elseif effectByte == EffectIds.SMELLINGSALT and not opts.dmgMultiplier then
@@ -468,7 +490,19 @@ function Damage.calc(attacker, defender, moveId, opts)
   if opts.forceCrit ~= nil then
     crit = opts.forceCrit and true or false
   elseif defAb ~= "BATTLE_ARMOR" and defAb ~= "SHELL_ARMOR" and not opts.noCrit then
-    crit = Rules.crit.roll(attacker, move, opts.highCrit, rng)
+    -- pokefirered/src/battle_script_commands.c:1170
+    if opts.adapter and ModRuntime.wantsHook("battle.crit") then
+      local G3 = require("src.mods.Gen3Compat")
+      local num = tonumber(move.numId) or G3.moveId(move.id)
+      crit = ModRuntime.call("battle.crit", function(c)
+        return Rules.crit.roll(c.attacker, move, c.highCrit, c.rng)
+      end, { battle = opts.adapter._st, attacker = attacker, target = defender,
+             moveId = G3.moveName(num) or move.id, moveNum = num, rng = rng,
+             highCrit = opts.highCrit,
+             stage = Rules.crit.stage(attacker, move, opts.highCrit) }) and true or false
+    else
+      crit = Rules.crit.roll(attacker, move, opts.highCrit, rng)
+    end
   end
   local critMul = crit and Rules.crit.multiplier() or 1
 
@@ -479,6 +513,8 @@ function Damage.calc(attacker, defender, moveId, opts)
     adapter = opts.adapter,
     reflect = opts.reflect,
     lightScreen = opts.lightScreen,
+    doubleScreens = opts.doubleScreens,
+    spread = opts.spread,
     weatherKind = weatherKind,
     isSolarBeam = effectByte == EffectIds.SOLAR_BEAM,
     mudSport = opts.mudSport,
@@ -489,6 +525,8 @@ function Damage.calc(attacker, defender, moveId, opts)
   if attacker.expCharged and tonumber(move.type) == Types.ID.ELECTRIC then
     dmg = dmg * 2
   end
+  -- pokefirered/src/battle_script_commands.c:1219
+  if attacker.expHelpingHand then dmg = math.floor(dmg * 15 / 10) end
 
   local stab = 1
   local aT1, aT2 = attacker.type1, attacker.type2

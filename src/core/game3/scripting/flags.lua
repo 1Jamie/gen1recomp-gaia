@@ -3,6 +3,7 @@
 
 local Ctx = require("src.core.game3.scripting.ctx")
 local FlagsTable = require("src.core.game3.scripting.flags_table")
+local ModRuntime = require("src.mods.Runtime")
 
 local Flags = {}
 
@@ -247,6 +248,8 @@ end
 function Flags.setFlag(store, ctx, id, on)
   id = tonumber(id) or (type(id) == "string" and Flags.IDS[id]) or 0
   if not store or not store.flags then return end
+  local announce = ModRuntime.wants("flag.changed")
+    and Flags.getFlag(store, ctx, id) ~= (on and true or false)
   local strId = tostring(id)
   if on then
     store.flags[id] = true
@@ -260,6 +263,9 @@ function Flags.setFlag(store, ctx, id, on)
       local name = Flags.NAMES[id]
       if name then store.flags[name] = nil end
     end
+  end
+  if announce then
+    ModRuntime.emit("flag.changed", { name = Flags.NAMES[id] or id, id = id, value = on and true or false })
   end
 end
 

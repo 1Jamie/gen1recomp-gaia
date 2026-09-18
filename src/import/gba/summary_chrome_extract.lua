@@ -472,6 +472,16 @@ function SummaryChromeExtract.run(rom, cache, opts)
     cache:write(root .. "/pokerus.rgba", pkrsRgba)
   end
 
+  -- pokefirered/src/list_menu.c:738
+  if rom and Versions.MENU_INFO_GFX and Versions.MENU_INFO_PAL then
+    local miGfx = read_bytes(Versions.MENU_INFO_GFX, 128 * 128 / 2)
+    local miPal = read_bytes(Versions.MENU_INFO_PAL, 64)
+    local caught = bake_sheet_rgba(miGfx, miPal, 16, 16, 0)
+    local types = bake_sheet_rgba(miGfx, miPal, 16, 16, 1)
+    local split = 16 * 128 * 4
+    cache:write(root .. "/menu_info.rgba", caught:sub(1, split) .. types:sub(split + 1))
+  end
+
   local menuInfoBin = read_bin({
     "src/import/gba/chrome/menus/menu_info.png",
     "data/generated/gba/pokemon/summary/menu_info.png",

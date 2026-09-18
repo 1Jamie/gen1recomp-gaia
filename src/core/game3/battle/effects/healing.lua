@@ -113,13 +113,15 @@ function Healing.wish(ctx)
   local side = ctx.adapter:ownSide(ctx.user)
   if not side then return H.sayFail(ctx) end
   side.tokens = side.tokens or {}
+  local double = ctx.adapter._st and ctx.adapter._st.double
   for _, tok in ipairs(side.tokens) do
-    if tok.id == "EXP_WISH" then return H.sayFail(ctx) end
+    if tok.id == "EXP_WISH" and (not double or tok.battlerId == ctx.user.id) then return H.sayFail(ctx) end
   end
   side.tokens[#side.tokens + 1] = {
     id = "EXP_WISH",
     turns = 2,
     wisher = name(ctx, ctx.user),
+    battlerId = ctx.user.id,
   }
   H.attackAnim(ctx)
 end
@@ -133,8 +135,16 @@ function Healing.healBell(ctx)
   local active = State.partyMon(user)
   local blocked = isBell and ad:abilityOf(user) == "SOUNDPROOF"
   if not blocked then ad:clearStatus(user) end
+  local partner = ad._st and ad._st.double and ad:partnerOf(user) or nil
+  local partnerBlocked = partner and isBell and ad:abilityOf(partner) == "SOUNDPROOF"
+  -- pokefirered/src/battle_script_commands.c:8023
+  if partner and not partnerBlocked then
+    ad:clearStatus(partner)
+    partner.expNightmare = nil
+  end
+  local partnerMon = partner and State.partyMon(partner)
   for _, mon in ipairs(ad:partyMons(user)) do
-    if mon and mon ~= active and mon.status then
+    if mon and mon ~= active and mon ~= partnerMon and mon.status then
       mon.status = nil
       mon.sleep = nil
     end

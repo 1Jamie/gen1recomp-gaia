@@ -5,6 +5,7 @@
 local Movement = require("src.core.game3.scripting.movement")
 local Opcodes = require("src.core.game3.scripting.opcodes")
 local GfxIds = require("src.core.game3.scripting.gfx_ids")
+local ModRuntime = require("src.mods.Runtime")
 
 local Objects = {}
 
@@ -302,12 +303,16 @@ function Objects.loadMap(game, mapId, mapDef)
       end
     end
   end
+  local announce = ModRuntime.wants("world.npc_spawned")
   for _, def in ipairs(Objects._defs) do
     local eo = newEventObject(def)
     if eo.localId > 0 then
       applyPerm(eo, mapId)
       Objects._byId[eo.localId] = eo
       Objects._order[#Objects._order + 1] = eo.localId
+      if announce then
+        ModRuntime.emit("world.npc_spawned", { mapId = mapId, npcId = eo.localId, runtime = eo })
+      end
     end
   end
   if not Objects._logged then

@@ -174,10 +174,37 @@ function Moves.loadRomPack(cache)
   if not pack then pack = load_lua(root) end
   if pack and pack.moves then
     Moves._rom = pack.moves
+    Moves._runReloadHooks()
     return true
   end
   Moves._rom = nil
   return false
+end
+
+Moves._reloadHooks = {}
+
+function Moves.onReload(fn, key)
+  if type(fn) ~= "function" then return function() end end
+  local hooks = Moves._reloadHooks
+  for i = #hooks, 1, -1 do
+    local h = hooks[i]
+    if h.fn == fn or (key ~= nil and h.key == key) then
+      table.remove(hooks, i)
+    end
+  end
+  local entry = { fn = fn, key = key }
+  hooks[#hooks + 1] = entry
+  return function()
+    for i = #hooks, 1, -1 do
+      if hooks[i] == entry then table.remove(hooks, i) end
+    end
+  end
+end
+
+function Moves._runReloadHooks()
+  local snapshot = {}
+  for i, h in ipairs(Moves._reloadHooks) do snapshot[i] = h end
+  for _, h in ipairs(snapshot) do pcall(h.fn, Moves) end
 end
 
 function Moves.romReady()

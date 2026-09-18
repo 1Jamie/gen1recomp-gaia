@@ -3,6 +3,7 @@
 -- RNG: pret wild_encounter.c — Random() for gate/slot/level, WildEncounterRandom for rate.
 
 local Rng = require("src.core.game3.rng")
+local ModRuntime = require("src.mods.Runtime")
 
 local Encounters = {}
 
@@ -218,7 +219,7 @@ function Encounters.rollWater(mapId, enterFromOther)
   return roll_area(mapId, "water", WATER_WEIGHTS, enterFromOther, 15)
 end
 
-function Encounters.onStep(mapId, terrain, opts)
+local function vanilla_step(mapId, terrain, opts)
   Encounters.ensureLoaded()
   opts = opts or {}
   local enterFromOther = opts.enterFromOther
@@ -229,6 +230,54 @@ function Encounters.onStep(mapId, terrain, opts)
     return Encounters.rollWater(mapId, enterFromOther)
   end
   return Encounters.rollLand(mapId, nil, enterFromOther)
+end
+
+local function mod_encounter(enc)
+  if type(enc) ~= "table" then return enc end
+  local Pokemon = require("src.core.game3.pokemon")
+  local id = tonumber(enc.species)
+  return {
+    species = (id and Pokemon.keyName(id)) or enc.species,
+    speciesId = id or Pokemon.speciesFromName(enc.species),
+    level = enc.level,
+    item = enc.item,
+  }
+end
+
+local function engine_encounter(enc)
+  if type(enc) ~= "table" then return nil end
+  local id = tonumber(enc.species)
+  if not id and enc.species ~= nil then
+    local Pokemon = require("src.core.game3.pokemon")
+    id = Pokemon.speciesFromName(enc.species)
+  end
+  id = id or tonumber(enc.speciesId)
+  if not id then return nil end
+  return { species = id, level = tonumber(enc.level) or 5, item = enc.item }
+end
+
+local function same_encounter(enc) return enc end
+
+function Encounters.onStep(mapId, terrain, opts)
+  local wantsRoll = ModRuntime.wantsHook("encounter.roll")
+  local wantsSpecies = ModRuntime.wantsHook("encounter.species")
+  if not (wantsRoll or wantsSpecies) then
+    return vanilla_step(mapId, terrain, opts)
+  end
+  Encounters.ensureLoaded()
+  local ctx = { mapId = mapId, terrain = terrain, rng = Rng.Random, opts = opts }
+  local enc
+  if wantsRoll then
+    enc = ModRuntime.call("encounter.roll", function()
+      return mod_encounter(vanilla_step(mapId, terrain, opts))
+    end, table_for(mapId), ctx)
+  else
+    enc = mod_encounter(vanilla_step(mapId, terrain, opts))
+  end
+  if enc and wantsSpecies then
+    enc = ModRuntime.call("encounter.species", same_encounter, enc, ctx)
+  end
+  return engine_encounter(enc)
 end
 
 function Encounters.noteGrass(onGrass)

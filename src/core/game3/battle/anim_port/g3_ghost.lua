@@ -411,7 +411,7 @@ T.GrudgeFlames = P.task(function(t, vm)
   d[11] = P.div(P.coordAttr(vm, atk, P.ATTR_WIDTH), 2) + 8
   d[7] = 0
   local bp = vm._bgPrio
-  if atk == "player" then d[5] = (bp and bp[2]) or 2 else d[5] = (bp and bp[1]) or 2 end
+  d[5] = (bp and bp[require("src.core.game3.battle.anim_coords").bgPriorityRank(atk)]) or 2
   d[6] = P.subpriorityOf(atk) - 2
   d[3] = 0
   d[4] = 16
@@ -715,25 +715,26 @@ T.DestinyBondWhiteShadow = P.task(function(t, vm)
   d[5], d[6], d[7], d[8] = 0, 0, 0, 0
   d[9] = 16
   d[10] = t.ga[0]
-  local atk = P.atk(vm)
+  local atk = P.atkId(vm)
   local baseX = P.coord(vm, atk, P.COORD_X_2)
   local baseY = P.coordAttr(vm, atk, P.ATTR_BOTTOM)
   t._sprites = {}
-  local other = P.tgt(vm)
-  if other ~= atk and not P.monHidden(vm, other) then
-    local s = P.CreateSprite(vm, "gDestinyBondWhiteShadowSpriteTemplate", baseX, baseY, 55, destinyBondShadowStep)
-    if s then
-      local x = P.coord(vm, other, P.COORD_X_2)
-      local y = P.coordAttr(vm, other, P.ATTR_BOTTOM)
-      s.data[0] = P.s16(baseX * 16)
-      s.data[1] = P.s16(baseY * 16)
-      s.data[2] = P.s16(P.div((x - baseX) * 16, t.ga[1]))
-      s.data[3] = P.s16(P.div((y - baseY) * 16, t.ga[1]))
-      s.data[4] = t.ga[1]
-      s.data[5] = x
-      s.data[6] = y
-      t._sprites[#t._sprites + 1] = s
-      d[12] = d[12] + 1
+  for other = 0, 3 do
+    if other ~= atk and other ~= P.bxor(atk, 2) and not P.monHidden(vm, other) then
+      local s = P.CreateSprite(vm, "gDestinyBondWhiteShadowSpriteTemplate", baseX, baseY, 55, destinyBondShadowStep)
+      if s then
+        local x = P.coord(vm, other, P.COORD_X_2)
+        local y = P.coordAttr(vm, other, P.ATTR_BOTTOM)
+        s.data[0] = P.s16(baseX * 16)
+        s.data[1] = P.s16(baseY * 16)
+        s.data[2] = P.s16(P.div((x - baseX) * 16, t.ga[1]))
+        s.data[3] = P.s16(P.div((y - baseY) * 16, t.ga[1]))
+        s.data[4] = t.ga[1]
+        s.data[5] = x
+        s.data[6] = y
+        t._sprites[#t._sprites + 1] = s
+        d[12] = d[12] + 1
+      end
     end
   end
   t.fn = dbwsTaskStep

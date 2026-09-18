@@ -3,6 +3,7 @@
 local ItemsData = require("src.core.game3.items_data")
 local Bag = require("src.core.game3.bag")
 local Pokemon = require("src.core.game3.pokemon")
+local ModRuntime = require("src.mods.Runtime")
 
 local ItemUse = {}
 
@@ -343,6 +344,21 @@ function ItemUse.needsPartyTarget(id)
   return false
 end
 
+-- pokefirered/src/party_menu.c:5018
+function ItemUse.levelUpEvent(mon, level)
+  if not ModRuntime.wants("pokemon.level_up") then return end
+  local G3 = require("src.mods.Gen3Compat")
+  local learnable, learnableIds = {}, {}
+  for _, mv in ipairs(Pokemon.movesLearnedAt(tonumber(mon.species or mon.speciesId), level)) do
+    learnable[#learnable + 1] = G3.moveName(mv)
+    learnableIds[#learnableIds + 1] = mv
+  end
+  ModRuntime.emit("pokemon.level_up", {
+    mon = mon, level = level, prevLevel = level - 1,
+    learnable = learnable, learnableIds = learnableIds, via = "item",
+  })
+end
+
 function ItemUse.useRareCandy(session, mon)
   if not mon then return false, "none", "There's no POKéMON!" end
   local lvl = tonumber(mon.level) or 1
@@ -356,6 +372,7 @@ function ItemUse.useRareCandy(session, mon)
   Pokemon.applyStats(mon)
   local newMax = tonumber(mon.maxHp) or tonumber(mon.maxhp) or oldMax
   mon.hp = math.min(newMax, oldHp + math.max(0, newMax - oldMax))
+  ItemUse.levelUpEvent(mon, mon.level)
   local t = string.format("%s grew to\nLv. %d!", Pokemon.displayMonName(mon), mon.level)
   return true, "level", t
 end
@@ -377,10 +394,11 @@ function ItemUse.useEvolutionStone(session, mon, itemId, bag)
       session = session,
       bag = bag,
       savedSong = Audio._mapSong,
+      via = "item",
     })
     return true, "evo", "Evolving..."
   else
-    Evolution.apply(mon, target, session, bag)
+    Evolution.apply(mon, target, session, bag, "item")
     local t = string.format("%s evolved into\n%s!", oldName, newName)
     return true, "evo", t
   end
@@ -522,7 +540,15 @@ local function useField(session, bag, id, partySlot)
 end
 
 function ItemUse.useField(session,bag,id,partySlot)
-  local ok,kind,text=useField(session,bag,id,partySlot)
+  local ok,kind,text
+  if ModRuntime.wantsHook("item.use") then
+    local Runtime=package.loaded["src.core.game3.runtime"]
+    ok,kind,text=ModRuntime.call("item.use",function(_,_,hid,hslot)
+      return useField(session,bag,hid,hslot)
+    end,Runtime and Runtime._game,nil,id,partySlot,bag)
+  else
+    ok,kind,text=useField(session,bag,id,partySlot)
+  end
   if ok and kind~="tm" and kind~="tm_case" and kind~="berry_pouch" then
     local Items=require("src.core.game3.items")
     local Pokemon=require("src.core.game3.pokemon")

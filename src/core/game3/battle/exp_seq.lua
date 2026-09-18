@@ -100,11 +100,14 @@ function ExpSeq.begin(awards, pushMsg, thenMsgs, opts)
     local gained = result.gained or entry.amount or 0
     local pi = entry.partyIndex or 1
     local isBench = (entry.battler == nil)
+    local key = "player"
+    if opts.double and entry.battler and entry.battler.id ~= nil then key = entry.battler.id end
     if gained > 0 then
       -- pokefirered/src/battle_message.c:53
       add("msg", { text = name .. " gained" .. (entry.boosted and " a boosted" or "") .. "\n" .. tostring(gained) .. " EXP. Points!" })
       for _, step in ipairs(result.steps or {}) do
-        if not isBench then
+        -- pokefirered/src/battle_controller_player.c:1034
+        if not isBench and not opts.double then
           add("exp", {
             side = "player",
             level = step.level,
@@ -115,7 +118,7 @@ function ExpSeq.begin(awards, pushMsg, thenMsgs, opts)
         if step.grewTo then
           ExpSeq._leveled[pi] = true
           add("level", {
-            side = "player",
+            side = key,
             isBench = isBench,
             mon = mon,
             level = step.grewTo,
@@ -215,10 +218,14 @@ local function run_step(step)
       -- pokefirered/src/battle_controller_player.c:1143
       d._lvlAnim = true
       local side = d.side or "player"
+      local bid = (type(side) == "number") and side or nil
+      if bid then side = State.sideOf(bid) end
       ExpSeq._lvlAnimWait = true
       Anim.launchSpecial("LVL_UP", {
         attackerSide = side,
         targetSide = side,
+        attackerId = bid,
+        targetId = bid,
         onEnd = function() ExpSeq._lvlAnimWait = false end,
       })
       return

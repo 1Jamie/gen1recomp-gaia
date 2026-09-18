@@ -1,6 +1,6 @@
 -- Auto-derived from pret gMonFront/BackPicCoords + gEnemyMonElevation (FRLG).
 -- y_offset per internal SPECIES id. Do not edit by hand.
-return {
+local PicCoords = {
   front = {
     [0] = 0,
     [1] = 16,
@@ -894,3 +894,18 @@ return {
     [411] = 12,
   },
 }
+
+local AnimCoords = require("src.core.game3.battle.anim_coords")
+
+-- pokefirered/src/battle_anim_mons.c:31
+PicCoords.BATTLER_COORDS = { [false] = AnimCoords.SINGLES, [true] = AnimCoords.DOUBLES }
+PicCoords.SUBPRIORITY = AnimCoords.SUBPRIORITY
+PicCoords.BG_PRIORITY_RANK = AnimCoords.BG_PRIORITY_RANK
+PicCoords.DRAW_ORDER = AnimCoords.DRAW_ORDER_DOUBLES
+
+function PicCoords.battlerCoords(double, id)
+  local t = PicCoords.BATTLER_COORDS[double and true or false]
+  return t[tonumber(id) or 0] or t[0]
+end
+
+return PicCoords

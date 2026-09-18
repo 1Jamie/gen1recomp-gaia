@@ -122,6 +122,123 @@ local INFO_RIGHT = {
   hp = { 102, 12 }, hpMax = { 117, 12 }, hpBar = { 88, 10 },
 }
 
+-- pokefirered/src/data/party_menu.h:192
+local SLOT_WIN_DOUBLE = {
+  { left = 1, top = 1, w = 10, h = 7, kind = "main" },
+  { left = 1, top = 8, w = 10, h = 7, kind = "main" },
+  { left = 12, top = 1, w = 18, h = 3, kind = "wide" },
+  { left = 12, top = 5, w = 18, h = 3, kind = "wide" },
+  { left = 12, top = 9, w = 18, h = 3, kind = "wide" },
+  { left = 12, top = 13, w = 18, h = 3, kind = "wide" },
+}
+
+-- pokefirered/src/data/party_menu.h:81
+local SLOT_SPRITES_DOUBLE = {
+  { 16, 24, 20, 34, 56, 36, 16, 18 },
+  { 16, 80, 20, 90, 56, 92, 16, 74 },
+  { 104, 18, 108, 28, 144, 27, 102, 25 },
+  { 104, 50, 108, 60, 144, 59, 102, 57 },
+  { 104, 82, 108, 92, 144, 91, 102, 89 },
+  { 104, 114, 108, 124, 144, 123, 102, 121 },
+}
+
+local function is_double()
+  return PartyMenu._layout == "double"
+end
+
+local function slot_win(i)
+  return (is_double() and SLOT_WIN_DOUBLE or SLOT_WIN)[i]
+end
+
+local function slot_sprites(i)
+  return (is_double() and SLOT_SPRITES_DOUBLE or SLOT_SPRITES)[i]
+end
+
+-- pokefirered/src/party_menu.c:735
+local function slot_info(i)
+  if i == 1 or (i == 2 and is_double()) then return INFO_LEFT end
+  return INFO_RIGHT
+end
+
+local function slot_filled(i)
+  local mon = PartyMenu._party and PartyMenu._party[i]
+  return mon ~= nil and (tonumber(mon.species or mon.speciesId) or 1) ~= 0
+end
+
+-- pokefirered/src/party_menu.c:1499
+local function double_next_slot(slot, dir)
+  while true do
+    slot = slot + dir
+    if slot < 1 or slot > 6 then return nil end
+    if slot_filled(slot) then return slot end
+  end
+end
+
+-- pokefirered/src/party_menu.c:1402
+local function nav_double(cur, dir)
+  local last = PartyMenu._lastSelectedSlot
+  if dir == "up" then
+    if cur == 1 then return 7 end
+    local from = cur
+    if cur == 7 then from = 7 end
+    return double_next_slot(from, -1) or cur
+  elseif dir == "down" then
+    if cur == 7 then return 1 end
+    return double_next_slot(cur, 1) or 7
+  elseif dir == "right" then
+    if cur == 1 then
+      if last == 4 then
+        if slot_filled(4) then return 4 end
+      elseif slot_filled(3) then
+        return 3
+      end
+    elseif cur == 2 then
+      if last == 6 then
+        if slot_filled(6) then return 6 end
+      elseif slot_filled(5) then
+        return 5
+      end
+    end
+    return cur
+  elseif dir == "left" then
+    if cur == 3 or cur == 4 then
+      PartyMenu._lastSelectedSlot = cur
+      return 1
+    elseif cur == 5 or cur == 6 then
+      PartyMenu._lastSelectedSlot = cur
+      return 2
+    end
+  end
+  return cur
+end
+
+local function battle_nav_double(input)
+  local oldCur = PartyMenu.cursor
+  for _, dir in ipairs({ "up", "down", "left", "right" }) do
+    if input:wasPressed(dir) then
+      PartyMenu.cursor = nav_double(PartyMenu.cursor, dir)
+      break
+    end
+  end
+  if PartyMenu.cursor ~= oldCur then se(5) end
+end
+
+-- pokefirered/src/party_menu.c:5905
+local function open_battle_actions_double(prevMode)
+  local mon = PartyMenu._party and PartyMenu._party[PartyMenu.cursor]
+  se(5)
+  if not slot_filled(2) or (mon and mon.isEgg) then
+    PartyMenu.ACTIONS = { "SUMMARY", "CANCEL" }
+  elseif prevMode == "battle_faint" then
+    PartyMenu.ACTIONS = { "SEND OUT", "SUMMARY", "CANCEL" }
+  else
+    PartyMenu.ACTIONS = { "SHIFT", "SUMMARY", "CANCEL" }
+  end
+  PartyMenu._previousMode = prevMode
+  PartyMenu.mode = "action"
+  PartyMenu.actionCursor = 1
+end
+
 local function party_print(text, px, py, maxW)
   FrlgFont.draw(tostring(text or ""), px, py, {
     maxWidth = maxW or 56,
@@ -191,7 +308,7 @@ local function get_hp_bar_level(hp, maxHp, isEgg)
 end
 
 local function idle_mon_offset(slotIndex)
-  local spr = SLOT_SPRITES[slotIndex]
+  local spr = slot_sprites(slotIndex)
   if spr and spr[1] == 16 then
     return 0, -4
   end
@@ -262,7 +379,7 @@ local function ensure_slot_sprites(i, mon, selected)
     slot = {}
     PartyMenu._oam[i] = slot
   end
-  local spr = SLOT_SPRITES[i]
+  local spr = slot_sprites(i)
   if not spr or not mon then
     destroy_id(slot.mon); slot.mon = nil
     destroy_id(slot.ball); slot.ball = nil
@@ -384,12 +501,100 @@ local function sync_all_oam()
   end
 end
 
+-- pokefirered/src/party_menu.c:6005
+function PartyMenu.battleOrder(st)
+  local party = st and st.playerParty or {}
+  local n = 0
+  for i = 1, 6 do if party[i] then n = i end end
+  local order = st._partyOrder
+  local valid = type(order) == "table" and #order == n
+  if valid then
+    local seen = {}
+    for i = 1, n do
+      local v = order[i]
+      if type(v) ~= "number" or v < 1 or v > n or seen[v] then valid = false break end
+      seen[v] = true
+    end
+  end
+  local b0 = (st.battlers and st.battlers[0]) or st.player
+  local b2 = st.double and st.battlers and st.battlers[2] or nil
+  if not valid then
+    order = {}
+    local used = {}
+    for _, b in ipairs({ b0, b2 }) do
+      local pi = b and tonumber(b.partyIndex)
+      if pi and pi >= 1 and pi <= n and not used[pi] then
+        order[#order + 1] = pi
+        used[pi] = true
+      end
+    end
+    for i = 1, n do
+      if not used[i] then order[#order + 1] = i end
+    end
+    st._partyOrder = order
+  end
+  -- pokefirered/src/party_menu.c:5972
+  for pos, b in ipairs({ b0, b2 }) do
+    local want = b and tonumber(b.partyIndex)
+    if want and order[pos] ~= want then
+      for j = 1, n do
+        if order[j] == want then
+          order[pos], order[j] = order[j], order[pos]
+          break
+        end
+      end
+    end
+  end
+  return order
+end
+
+-- pokefirered/src/party_menu.c:6199
+local function apply_battle_order(party, overlay, opts)
+  local order = opts.battleOrder
+  if order == nil then
+    local Battle = package.loaded["src.core.game3.battle"]
+    local st = Battle and Battle._st
+    if not (st and st.playerParty and st.playerParty == party) then return party, overlay, opts end
+    order = PartyMenu.battleOrder(st)
+  end
+  local view = {}
+  for i, pi in ipairs(order) do view[i] = party[pi] end
+  local viewOverlay = overlay
+  if type(overlay) == "table" then
+    viewOverlay = {}
+    for i, pi in ipairs(order) do viewOverlay[i] = overlay[pi] end
+  end
+  local o = {}
+  for k, v in pairs(opts) do o[k] = v end
+  local active = opts.activeSlot
+  for i, pi in ipairs(order) do
+    if pi == active then o.activeSlot = i break end
+  end
+  local onSelect, validate = opts.onSelect, opts.validate
+  if onSelect then
+    o.onSelect = function(d, mon) return onSelect(d and order[d], mon) end
+  end
+  if validate then
+    o.validate = function(d) return validate(d and order[d]) end
+  end
+  PartyMenu._order = order
+  return view, viewOverlay, o
+end
+
 function PartyMenu.show(sessionParty, moveOverlay, opts)
   if type(moveOverlay) == "table" and opts == nil and (moveOverlay.mode or moveOverlay.session or moveOverlay.battle or moveOverlay.onSelect or moveOverlay.activeSlot) then
     opts = moveOverlay
     moveOverlay = nil
   end
   opts = opts or {}
+  PartyMenu._order = nil
+  if opts.mode == "battle_switch" or opts.mode == "battle_faint" or (opts.mode == "use" and opts.battleOrder) then
+    local party0 = sessionParty or (opts.session and opts.session.party)
+    local ov0 = moveOverlay or (opts.session and (opts.session.move_overlay or opts.session.moveOverlay))
+    if party0 then
+      sessionParty, moveOverlay, opts = apply_battle_order(party0, ov0, opts)
+    end
+  end
   destroy_party_oam()
   PartyMenu.open = true
   PartyMenu._party = sessionParty or (opts.session and opts.session.party)
@@ -398,8 +603,9 @@ function PartyMenu.show(sessionParty, moveOverlay, opts)
   PartyMenu._bag = opts.bag or (opts.session and (opts.session.bag or opts.session.inventory))
   PartyMenu._item = opts.item
   PartyMenu._activeSlot = opts.activeSlot or 1
+  PartyMenu._layout = (opts.layout == "double") and "double" or "single"
   PartyMenu._battle = opts.battle or (opts.mode == "battle_switch" or opts.mode == "battle_faint")
-  PartyMenu.cursor = (opts.mode == "battle_switch" and PartyMenu._activeSlot == 1 and #(PartyMenu._party or {}) > 1) and 2 or 1
+  PartyMenu.cursor = 1
   PartyMenu.mode = opts.mode or "list"
   PartyMenu._previousMode = PartyMenu.mode
   PartyMenu.summaryPage = 1
@@ -743,7 +949,7 @@ function PartyMenu.handleInput(input)
       se(5)
     elseif input:wasPressed("a") then
       local act = actions[PartyMenu.actionCursor]
-      if act == "SHIFT" or (PartyMenu._previousMode == "battle_switch" and act == "SWITCH") then
+      if act == "SHIFT" or act == "SEND OUT" or (PartyMenu._previousMode == "battle_switch" and act == "SWITCH") then
         se(5)
         local cb = PartyMenu._onSelect
         local chosen = PartyMenu.cursor
@@ -883,100 +1089,34 @@ function PartyMenu.handleInput(input)
     return
   end
 
-  -- Battle switch mode
-  if PartyMenu.mode == "battle_switch" then
-    local oldCur = PartyMenu.cursor
-    if input:wasPressed("up") then
-      PartyMenu.cursor = nav_up(PartyMenu.cursor, n)
-    elseif input:wasPressed("down") then
-      PartyMenu.cursor = nav_down(PartyMenu.cursor, n)
-    elseif input:wasPressed("left") then
-      PartyMenu.cursor, PartyMenu._lastSelectedSlot = nav_left(PartyMenu.cursor, n, PartyMenu._lastSelectedSlot)
-    elseif input:wasPressed("right") then
-      PartyMenu.cursor = nav_right(PartyMenu.cursor, n, PartyMenu._lastSelectedSlot)
-    end
-    if PartyMenu.cursor ~= oldCur then
-      se(5)
-    end
-    if input:wasPressed("a") then
-      if PartyMenu.cursor == 7 then
-        se(9)
-        PartyMenu.close()
-      else
-        local mon = PartyMenu._party and PartyMenu._party[PartyMenu.cursor]
-        local activeSlot = PartyMenu._activeSlot or 1
-        local hp = tonumber(mon and mon.hp) or 0
-        local name = mon and Pokemon.displayName(mon) or "POKéMON"
-        if PartyMenu.cursor == activeSlot then
-          se(9)
-          PartyMenu.showMessage(name .. " is already in\nbattle!", function()
-            PartyMenu.mode = "battle_switch"
-          end)
-        elseif hp <= 0 then
-          se(9)
-          PartyMenu.showMessage("There's no will to\nfight!", function()
-            PartyMenu.mode = "battle_switch"
-          end)
-        elseif mon and mon.isEgg then
-          se(9)
-          PartyMenu.showMessage("An EGG can't battle!", function()
-            PartyMenu.mode = "battle_switch"
-          end)
-        else
-          se(5)
-          PartyMenu.ACTIONS = { "SHIFT", "SUMMARY", "CANCEL" }
-          PartyMenu._previousMode = "battle_switch"
-          PartyMenu.mode = "action"
-          PartyMenu.actionCursor = 1
-        end
+  if PartyMenu.mode == "battle_switch" or PartyMenu.mode == "battle_faint" then
+    local sendOut = PartyMenu.mode == "battle_faint"
+    if is_double() then
+      battle_nav_double(input)
+    else
+      local oldCur = PartyMenu.cursor
+      if input:wasPressed("up") then
+        PartyMenu.cursor = nav_up(PartyMenu.cursor, n)
+      elseif input:wasPressed("down") then
+        PartyMenu.cursor = nav_down(PartyMenu.cursor, n)
+      elseif input:wasPressed("left") then
+        PartyMenu.cursor, PartyMenu._lastSelectedSlot = nav_left(PartyMenu.cursor, n, PartyMenu._lastSelectedSlot)
+      elseif input:wasPressed("right") then
+        PartyMenu.cursor = nav_right(PartyMenu.cursor, n, PartyMenu._lastSelectedSlot)
       end
-    elseif input:wasPressed("b") or input:wasPressed("start") then
-      se(9)
-      PartyMenu.close()
+      if PartyMenu.cursor ~= oldCur then se(5) end
     end
-    return
-  end
-
-  -- Battle faint forced replacement mode
-  if PartyMenu.mode == "battle_faint" then
-    if input:wasPressed("up") then
-      PartyMenu.cursor = ((PartyMenu.cursor - 2) % n) + 1
-      se(5)
-    elseif input:wasPressed("down") then
-      PartyMenu.cursor = (PartyMenu.cursor % n) + 1
-      se(5)
-    elseif input:wasPressed("a") then
-      local mon = PartyMenu._party and PartyMenu._party[PartyMenu.cursor]
-      local activeSlot = PartyMenu._activeSlot
-      local hp = tonumber(mon and mon.hp) or 0
-      local name = mon and Pokemon.displayName(mon) or "POKéMON"
-      if activeSlot and PartyMenu.cursor == activeSlot and hp <= 0 then
-        se(9)
-        PartyMenu.showMessage(name .. " has no will\nto fight!", function()
-          PartyMenu.mode = "battle_faint"
-        end)
-      elseif hp <= 0 then
-        se(9)
-        PartyMenu.showMessage("There's no will to\nfight!", function()
-          PartyMenu.mode = "battle_faint"
-        end)
-      elseif mon and mon.isEgg then
-        se(9)
-        PartyMenu.showMessage("An EGG can't battle!", function()
-          PartyMenu.mode = "battle_faint"
-        end)
+    local cancel = input:wasPressed("b") or (input:wasPressed("a") and PartyMenu.cursor == 7)
+    if cancel then
+      -- pokefirered/src/party_menu.c:1229
+      if sendOut then
+        se(26)
       else
         se(5)
-        PartyMenu.ACTIONS = { "SHIFT", "SUMMARY", "CANCEL" }
-        PartyMenu._previousMode = "battle_faint"
-        PartyMenu.mode = "action"
-        PartyMenu.actionCursor = 1
+        PartyMenu.close()
       end
-    elseif input:wasPressed("b") or input:wasPressed("start") then
-      se(9)
-      PartyMenu.showMessage("Choose a POKéMON.", function()
-        PartyMenu.mode = "battle_faint"
-      end)
+    elseif input:wasPressed("a") then
+      open_battle_actions_double(PartyMenu.mode)
     end
     return
   end
@@ -984,7 +1124,10 @@ function PartyMenu.handleInput(input)
   -- Selection mode for item USE
   if PartyMenu.mode == "use" then
     local oldCur = PartyMenu.cursor
-    if input:wasPressed("up") then
+    if is_double() then
+      battle_nav_double(input)
+      oldCur = PartyMenu.cursor
+    elseif input:wasPressed("up") then
       PartyMenu.cursor = nav_up(PartyMenu.cursor, n)
     elseif input:wasPressed("down") then
       PartyMenu.cursor = nav_down(PartyMenu.cursor, n)
@@ -1124,6 +1267,7 @@ function PartyMenu.handleInput(input)
         local newMax = newStats.maxHp
         local newHp = math.min(newMax, oldHp + math.max(0, newMax - oldMax))
         mon.hp = newHp
+        ItemUse.levelUpEvent(mon, mon.level)
 
         pcall(function() require("src.core.game3.audio").playFanfare(257) end) -- MUS_LEVEL_UP (257)
 
@@ -1242,7 +1386,8 @@ function PartyMenu.handleInput(input)
       -- Case 4: General Medicine / Potions / Status
       local startHp = tonumber(mon and mon.hp) or 0
       local maxHp = tonumber(mon and (mon.maxHp or mon.maxhp)) or 1
-      local ok, reason, msgText = ItemUse.useField(PartyMenu._session, PartyMenu._bag, PartyMenu._item, PartyMenu.cursor)
+      local realSlot = (PartyMenu._order and PartyMenu._order[PartyMenu.cursor]) or PartyMenu.cursor
+      local ok, reason, msgText = ItemUse.useField(PartyMenu._session, PartyMenu._bag, PartyMenu._item, realSlot)
       local endHp = tonumber(mon and mon.hp) or startHp
       if ok then
         se(2)
@@ -1433,11 +1578,11 @@ end
 
 -- BG + text only; OAM sprites flushed by Display.present.
 local function draw_filled_slot(i, mon, selected)
-  local win = SLOT_WIN[i]
+  local win = slot_win(i)
   if not win then return end
   local T = Display.TILE or 8
   local baseX, baseY = win.left * T, win.top * T
-  local info = (i == 1) and INFO_LEFT or INFO_RIGHT
+  local info = slot_info(i)
 
   PartyChrome.drawSlot(win.kind, win.left, win.top, selected)
 
@@ -1471,23 +1616,27 @@ function PartyMenu.draw()
   if not PartyMenu.open then return end
   local party = PartyMenu._party or {}
 
-  PartyChrome.drawBg()
-  sync_all_oam()
-
-  if PartyMenu.mode == "summary" then
-    SummaryMenu.draw()
+  if PartyMenu.mode == "summary" or SummaryMenu.isOpen() then
+    destroy_party_oam()
+    if PartyMenu.mode == "summary" then
+      PartyChrome.drawBg()
+      SummaryMenu.draw()
+    end
     return
   end
+
+  PartyChrome.drawBg()
+  sync_all_oam()
 
   destroy_id(PartyMenu._summaryIcon)
   PartyMenu._summaryIcon = nil
 
   for i = 1, 6 do
     local mon = party[i]
-    local win = SLOT_WIN[i]
+    local win = slot_win(i)
     if mon then
       draw_filled_slot(i, mon, i == PartyMenu.cursor or PartyMenu.switchFrom == i)
-    elseif i > 1 and win then
+    elseif i > 1 and win and win.kind ~= "main" then
       PartyChrome.drawSlot("empty", win.left, win.top, false)
     end
   end

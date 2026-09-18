@@ -2,6 +2,7 @@
 
 local MapIds = require("src.core.game3.map_ids")
 local Options = require("src.core.game3.options")
+local ModRuntime = require("src.mods.Runtime")
 
 local Schema = {}
 
@@ -74,6 +75,11 @@ function Schema.newGame(opts)
   if type(opts.engineOptions) == "table" then
     Options.bind(session, opts.engineOptions)
   end
+  session.modData = {}
+  if ModRuntime.wantsHook("save.new_game") then
+    local hooked = ModRuntime.call("save.new_game", function(s) return s end, session)
+    if type(hooked) == "table" then session = hooked end
+  end
   return session
 end
 
@@ -114,6 +120,8 @@ function Schema.toSaveTable(session)
     trainerId = session.trainerId,
     rng = session.rng,
     questLog = require("src.core.game3.quest_log").export(session),
+    modData = session.modData,
+    meta = session.meta,
   }
 end
 
@@ -155,6 +163,8 @@ function Schema.fromSaveTable(save)
     trainerId = save.trainerId,
     rng = save.rng,
     questLog = require("src.core.game3.quest_log").restore(save.questLog),
+    modData = type(save.modData) == "table" and save.modData or {},
+    meta = save.meta,
   }
   Schema.ensureMonBalls(session)
   if type(save.options) == "table" then

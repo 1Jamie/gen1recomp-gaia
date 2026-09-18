@@ -5,6 +5,7 @@ local bit = require("bit")
 local AnimSprites = require("src.core.game3.battle.anim_sprites")
 local AnimTasks = require("src.core.game3.battle.anim_tasks")
 local AnimPal = require("src.core.game3.battle.anim_pal")
+local AnimCoords = require("src.core.game3.battle.anim_coords")
 
 local band, rshift = bit.band, bit.rshift
 
@@ -140,6 +141,8 @@ function AnimVm.new()
     isReversed = false,
     _attackerSide = "player",
     _targetSide = "enemy",
+    _atkId = 0,
+    _tgtId = 1,
     pc = 1,
     script = nil,
     callStack = {},
@@ -158,7 +161,7 @@ function AnimVm.new()
     _shader = nil,
     _cbMode = "run",
     _phase = "cb1",
-    _monbg = {},
+    _monbg = AnimCoords.idTable(),
     _bgPrio = { [1] = 2, [2] = 2 },
     _tagBlend = {},
   }
@@ -174,10 +177,87 @@ function AnimVm:targetSide()
   return self._targetSide or (self._attackerSide == "player" and "enemy" or "player")
 end
 
-function AnimVm:setBattlers(atkSide, tgtSide)
-  if atkSide then self._attackerSide = atkSide end
-  if tgtSide then self._targetSide = tgtSide end
+function AnimVm:attackerId()
+  local id = self._atkId
+  if id ~= nil and AnimCoords.sideOf(id) == self:attackerSide() then return id end
+  return AnimCoords.fixedId(self:attackerSide()) or 0
+end
+
+function AnimVm:targetId()
+  local id = self._tgtId
+  if id ~= nil and AnimCoords.sideOf(id) == self:targetSide() then return id end
+  return AnimCoords.fixedId(self:targetSide()) or 1
+end
+
+function AnimVm:allyPair()
+  local a, t = self:attackerId(), self:targetId()
+  return a ~= t and AnimCoords.sideOf(a) == AnimCoords.sideOf(t)
+end
+
+-- pokefirered/src/battle_anim_mons.c:860
+function AnimVm:isDouble()
+  return AnimCoords.isDouble()
+end
+
+-- pokefirered/src/battle_anim_mons.c:831
+function AnimVm:battlerAtPosition(position)
+  local id = tonumber(position)
+  if id == nil or id < 0 or id > 3 then return nil end
+  if id >= 2 and not AnimCoords.isDouble() then return nil end
+  return id
+end
+
+local function key_to_id(key, cur)
+  if type(key) == "number" then return AnimCoords.idOf(key) end
+  if key == "player" or key == "enemy" then
+    if cur ~= nil and AnimCoords.sideOf(cur) == key then return cur end
+    return AnimCoords.idOf(key)
+  end
+  return nil
+end
+
+function AnimVm:applyBind()
+  if self.active then AnimCoords.bind(self:attackerId(), self:targetId()) end
+end
+
+function AnimVm:setBattlers(atk, tgt)
+  local a = key_to_id(atk, self._atkId)
+  local t = key_to_id(tgt, self._tgtId)
+  if a ~= nil then
+    self._atkId = a
+    self._attackerSide = AnimCoords.sideOf(a)
+  elseif atk then
+    self._attackerSide = atk
+  end
+  if t ~= nil then
+    self._tgtId = t
+    self._targetSide = AnimCoords.sideOf(t)
+  elseif tgt then
+    self._targetSide = tgt
+  end
   self.isReversed = (self._attackerSide == "enemy")
+  self:applyBind()
+end
+
+-- pokefirered/src/battle_anim_mons.c:333
+function AnimVm:battlerId(token)
+  if token == nil then return self:targetId() end
+  local n = tonumber(token)
+  local s = type(token) == "string" and token:lower() or nil
+  if n == 0 or s == "attacker" or s == "anim_attacker" then return self:attackerId() end
+  if n == 1 or s == "target" or s == "anim_target" then return self:targetId() end
+  local id
+  if n == 2 or s == "atk_partner" or s == "anim_atk_partner" then
+    id = AnimCoords.partner(self:attackerId())
+  elseif n == 3 or s == "def_partner" or s == "anim_def_partner" then
+    id = AnimCoords.partner(self:targetId())
+  elseif s == "player" or s == "enemy" then
+    return AnimCoords.idOf(s)
+  else
+    return self:targetId()
+  end
+  if AnimCoords.spritePresent(nil, id) then return id end
+  return nil
 end
 
 function AnimVm:resolveBattlerSide(token)
@@ -185,6 +265,7 @@ function AnimVm:resolveBattlerSide(token)
   if type(token) == "number" then
     if token == 0 then return self:attackerSide()
     elseif token == 1 then return self:targetSide()
+    elseif token == 2 or token == 3 then return self:battlerId(token)
     else return nil end
   end
   local s = tostring(token):lower()
@@ -196,7 +277,7 @@ function AnimVm:resolveBattlerSide(token)
   end
   if s == "player" or s == "enemy" then return s end
   if s == "atk_partner" or s == "anim_atk_partner" or s == "def_partner" or s == "anim_def_partner" then
-    return nil
+    return self:battlerId(s)
   end
   return self:targetSide()
 end
@@ -207,11 +288,25 @@ function AnimVm:x(v)
   return v
 end
 
+local function live_species(id)
+  local b = AnimCoords.battler(nil, id)
+  if type(b) ~= "table" then return nil end
+  if b.expTransform and b.expTransform.species then return b.expTransform.species end
+  return b.species or (b.mon and (b.mon.species or b.mon.speciesId))
+end
+
 function AnimVm:speciesForSide(side)
   if side == nil then return nil end
+  local id = AnimCoords.idOf(side)
   if self._speciesBySide and self._speciesBySide[side] ~= nil then return self._speciesBySide[side] end
-  if side == self:attackerSide() then return self._attackerSpecies end
-  if side == self:targetSide() then return self._targetSpecies end
+  if id ~= nil and id == self:attackerId() and self._attackerSpecies ~= nil then return self._attackerSpecies end
+  if id ~= nil and id == self:targetId() and self._targetSpecies ~= nil then return self._targetSpecies end
+  if id == nil then
+    if side == self:attackerSide() then return self._attackerSpecies end
+    if side == self:targetSide() then return self._targetSpecies end
+    return nil
+  end
+  if id >= 2 then return live_species(id) end
   return nil
 end
 
@@ -231,6 +326,8 @@ end
 
 function AnimVm:battlerCenter(side)
   local Anim = require("src.core.game3.battle.anim")
+  if side == "attacker" then side = self:attackerId()
+  elseif side == "target" then side = self:targetId() end
   return Anim.battlerCenter(side)
 end
 
@@ -291,8 +388,9 @@ function AnimVm:reset()
   self._attackerSpecies = nil
   self._targetSpecies = nil
   self._speciesBySide = nil
-  self._monbg = {}
+  self._monbg = AnimCoords.idTable()
   self._bgPrio = { [1] = 2, [2] = 2 }
+  AnimCoords.bind(nil)
   self._tagBlend = {}
   self.bldAlpha = nil
   self.statusAnimActive = false
@@ -320,7 +418,8 @@ local function finish(self)
   self._onEnd = nil
   AnimSprites.reset()
   AnimTasks.reset()
-  self._monbg = {}
+  self._monbg = AnimCoords.idTable()
+  AnimCoords.bind(nil)
   if cb then pcall(cb) end
 end
 
@@ -342,22 +441,33 @@ local function begin(self, script, opts)
   self.script = script
   self.pc = 1
   self.isReversed = opts.isReversed and true or false
-  self._attackerSide = opts.attackerSide or (self.isReversed and "enemy" or "player")
-  self._targetSide = opts.targetSide or (self.isReversed and "player" or "enemy")
-  if opts.attackerSide and opts.isReversed == nil then
+  local atk, tgt = opts.attackerSide, opts.targetSide
+  local atkId = tonumber(opts.attackerId) or AnimCoords.fixedId(atk)
+  local tgtId = tonumber(opts.targetId) or AnimCoords.fixedId(tgt)
+  if type(atk) ~= "string" then atk = atkId and AnimCoords.sideOf(atkId) or nil end
+  if type(tgt) ~= "string" then tgt = tgtId and AnimCoords.sideOf(tgtId) or nil end
+  self._attackerSide = atk or (self.isReversed and "enemy" or "player")
+  self._targetSide = tgt or (self.isReversed and "player" or "enemy")
+  if atk and opts.isReversed == nil then
     self.isReversed = (self._attackerSide == "enemy")
   end
+  self._atkId = atkId or AnimCoords.fixedId(self._attackerSide)
+  self._tgtId = tgtId or AnimCoords.fixedId(self._targetSide)
+  AnimCoords.bind(self._atkId, self._tgtId)
   self._attackerSpecies = opts.attackerSpecies
   self._targetSpecies = opts.targetSpecies
-  self._speciesBySide = {}
+  self._speciesBySide = AnimCoords.idTable()
+  if opts.speciesById then
+    for k, v in pairs(opts.speciesById) do self._speciesBySide[k] = v end
+  end
   if opts.speciesBySide then
     for k, v in pairs(opts.speciesBySide) do self._speciesBySide[k] = v end
   end
-  if opts.attackerSpecies ~= nil and self._speciesBySide[self._attackerSide] == nil then
-    self._speciesBySide[self._attackerSide] = opts.attackerSpecies
+  if opts.attackerSpecies ~= nil and rawget(self._speciesBySide, self._atkId) == nil then
+    rawset(self._speciesBySide, self._atkId, opts.attackerSpecies)
   end
-  if opts.targetSpecies ~= nil and self._speciesBySide[self._targetSide] == nil then
-    self._speciesBySide[self._targetSide] = opts.targetSpecies
+  if opts.targetSpecies ~= nil and rawget(self._speciesBySide, self._tgtId) == nil then
+    rawset(self._speciesBySide, self._tgtId, opts.targetSpecies)
   end
   self._onEnd = opts.onEnd
   self._turn = tonumber(opts.moveTurn or opts.turn) or 0
@@ -487,13 +597,7 @@ local function effective_z(vm, s)
   local sub = tonumber(s.subpriority) or 0
   if pri <= 1 then return 900 + (255 - sub) % 99 end
   if pri >= 3 then return math.max(1, math.min(98, 98 - sub)) end
-  local frontEnemy, frontPlayer
-  if vm._monbg.enemy then frontEnemy = (vm._bgPrio[1] or 2) >= 2 else frontEnemy = sub < 40 end
-  if vm._monbg.player then frontPlayer = (vm._bgPrio[2] or 2) >= 2 else frontPlayer = sub < 30 end
-  local rank = math.max(0, math.min(98, 98 - sub))
-  if frontPlayer then return 201 + rank end
-  if frontEnemy then return 101 + rank end
-  return rank
+  return AnimCoords.layerZ(sub, vm._monbg, vm._bgPrio)
 end
 
 local function draw_anim_bg(vm)
@@ -770,9 +874,8 @@ local function pret_subpriority(vm, op)
   local raw = tonumber(op.subpriority) or 0
   local argVar = band(raw, 0x7F)
   if argVar >= 64 then argVar = argVar - 64 else argVar = -argVar end
-  local side = (op.animBattler == "target") and vm:targetSide() or vm:attackerSide()
-  local base = (side == "player") and 30 or 40
-  local sub = base + argVar
+  local id = (op.animBattler == "target") and vm:targetId() or vm:attackerId()
+  local sub = AnimCoords.SUBPRIORITY[id] + argVar
   if sub < 3 then sub = 3 end
   return sub
 end
@@ -878,36 +981,37 @@ local function run_createsprite(vm, op)
   )
   local isDynamicArg1 = (isSlash or cbName == "EndureEnergy")
 
-  local anchorSide = vm:resolveBattlerSide(op.animBattler or "attacker")
+  local role = (op.animBattler == "target") and "target" or "attacker"
   local hFlip = false
   if isAttackerAlways then
-    anchorSide = vm:resolveBattlerSide("attacker")
+    role = "attacker"
   elseif isTravelDiagonally then
     local battlerArg = args[6]
     if battlerArg == 1 or battlerArg == "target" then
-      anchorSide = vm:resolveBattlerSide("target")
+      role = "target"
     else
-      anchorSide = vm:resolveBattlerSide("attacker")
+      role = "attacker"
     end
   elseif isTargetAlways then
-    anchorSide = vm:resolveBattlerSide("target")
+    role = "target"
   elseif isDynamicArg3 then
     local which = args[3]
     if which == 0 or which == "attacker" then
-      anchorSide = vm:resolveBattlerSide("attacker")
+      role = "attacker"
     elseif which == 1 or which == 2 or which == "target" or (which and which ~= 0) then
-      anchorSide = vm:resolveBattlerSide("target")
+      role = "target"
     end
   elseif isDynamicArg1 then
     if args[1] == 0 or args[1] == "attacker" then
-      anchorSide = vm:resolveBattlerSide("attacker")
+      role = "attacker"
     else
-      anchorSide = vm:resolveBattlerSide("target")
+      role = "target"
     end
   end
-  anchorSide = anchorSide or vm:targetSide()
+  local anchorId = (role == "attacker") and vm:attackerId() or vm:targetId()
+  local anchorSide = (role == "attacker") and vm:attackerSide() or vm:targetSide()
 
-  local cx, cy = vm:battlerCenter(anchorSide)
+  local cx, cy = vm:battlerCenter(anchorId)
   if isCutting and anchorSide == "player" then cy = cy + 8 end
 
   local ox, oy, dir = 0, 0, 0
@@ -948,7 +1052,7 @@ local function run_createsprite(vm, op)
     z = AnimSprites.Z.MID_FIELD,
     priority = 2,
     subpriority = subpri,
-    hostId = anchorSide,
+    hostId = anchorId,
     blendMode = "alpha",
     image = (not noGfx) and img or nil,
     w = bw,
@@ -972,6 +1076,7 @@ local function run_createsprite(vm, op)
   spr._reversed = vm.isReversed
   spr._args = args
   spr._anchorSide = anchorSide
+  spr._anchorId = anchorId
   spr._cbName = cbName
   if op.z or op.depth then
     spr._pz = nil
@@ -983,8 +1088,8 @@ local function run_createsprite(vm, op)
   spr.data[0] = 0
   spr.data[1] = 0
   spr.data[2] = isCutting and dir or (cbName == "RoarNoiseLine" and dir or (tonumber(args[3]) or 0))
-  local tx, ty = vm:battlerCenter(vm:targetSide())
-  local ax, ay = vm:battlerCenter(vm:attackerSide())
+  local tx, ty = vm:battlerCenter(vm:targetId())
+  local ax, ay = vm:battlerCenter(vm:attackerId())
   spr._attackerX, spr._attackerY = ax, ay
   if isProjectile then
     spr._targetX = tx + vm:x(tonumber(args[3]) or 0)
@@ -1141,10 +1246,13 @@ end
 local function task_clear_monbg(t, vm)
   t._n = (t._n or 0) + 1
   if t._n ~= 1 then
-    if t._side then vm._monbg[t._side] = nil end
-    local p = t._side and require("src.core.game3.battle.anim").present(t._side)
-    if p and t._origZ then p.z = t._origZ end
-    if p then p.monbg = false end
+    local Anim = require("src.core.game3.battle.anim")
+    for _, e in ipairs(t._ids or {}) do
+      rawset(vm._monbg, e.id, nil)
+      local p = Anim.present(e.id)
+      if p and e.origZ then p.z = e.origZ end
+      if p then p.monbg = false end
+    end
     AnimTasks.destroy(t)
   end
 end
@@ -1152,8 +1260,16 @@ AnimTasks.REGISTRY._G4ClearMonBg = task_clear_monbg
 
 local function battler_from_monbg_token(vm, token)
   local s = tostring(token or "target")
-  if s == "attacker" or s == "atk_partner" then return vm:attackerSide() end
-  return vm:targetSide()
+  if s == "attacker" or s == "atk_partner" then return vm:attackerId() end
+  return vm:targetId()
+end
+
+local function monbg_ids(vm, token)
+  local id = battler_from_monbg_token(vm, token)
+  local out = { id }
+  local partner = AnimCoords.partner(id)
+  if AnimCoords.spritePresent(nil, partner) then out[2] = partner end
+  return out
 end
 
 local OPS = {}
@@ -1350,37 +1466,42 @@ OPS.panse_adjustall = function(vm, op) return panse(vm, op, "adjustall") end
 -- pokefirered/src/battle_anim.c:531
 OPS.monbg = function(vm, op)
   local Anim = require("src.core.game3.battle.anim")
-  local side = battler_from_monbg_token(vm, op.battler)
-  local p = Anim.present(side)
-  if p and p.visible ~= false then
-    vm._monbg[side] = true
-    vm._bgPrio[side == "enemy" and 1 or 2] = 2
-    if p._g4OrigZ == nil then p._g4OrigZ = p.z end
-    p.z = AnimVm.Z.BEHIND
-    p.monbg = true
+  for _, id in ipairs(monbg_ids(vm, op.battler)) do
+    local p = Anim.present(id)
+    if p and p.visible ~= false then
+      rawset(vm._monbg, id, true)
+      vm._bgPrio[AnimCoords.BG_PRIORITY_RANK[id]] = 2
+      if p._g4OrigZ == nil then p._g4OrigZ = p.z end
+      p.z = AnimVm.Z.BEHIND
+      p.monbg = true
+    end
   end
   return true
 end
 OPS.monbg_static = function(vm, op)
-  local side = battler_from_monbg_token(vm, op.battler)
-  vm._bgPrio[side == "enemy" and 1 or 2] = 2
+  local id = battler_from_monbg_token(vm, op.battler)
+  vm._bgPrio[AnimCoords.BG_PRIORITY_RANK[id]] = 2
   return true
 end
 
 -- pokefirered/src/battle_anim.c:754
 OPS.clearmonbg = function(vm, op)
   local Anim = require("src.core.game3.battle.anim")
-  local side = battler_from_monbg_token(vm, op.battler)
-  local p = Anim.present(side)
+  local ids = {}
+  for _, id in ipairs(monbg_ids(vm, op.battler)) do
+    local p = Anim.present(id)
+    local e = { id = id }
+    e.origZ = p and p._g4OrigZ or ((AnimCoords.sideOf(id) == "player") and AnimVm.Z.PLAYER or AnimVm.Z.ENEMY)
+    if rawget(vm._monbg, id) then ids[#ids + 1] = e end
+    if p then p._g4OrigZ = nil end
+  end
   local t = AnimTasks.spawn("_G4ClearMonBg", 5, {}, vm)
   if t then
     t._g4kind = "aux"
-    t._side = vm._monbg[side] and side or nil
-    t._origZ = p and p._g4OrigZ or ((side == "player") and AnimVm.Z.PLAYER or AnimVm.Z.ENEMY)
-  elseif vm._monbg[side] then
-    vm._monbg[side] = nil
+    t._ids = ids
+  else
+    for _, e in ipairs(ids) do rawset(vm._monbg, e.id, nil) end
   end
-  if p then p._g4OrigZ = nil end
   return true
 end
 OPS.clearmonbg_static = OPS.nop
@@ -1503,9 +1624,9 @@ end
 
 -- pokefirered/src/battle_anim.c:1574
 OPS.splitbgprio = function(vm, op)
-  local side = (op.battler == "attacker") and vm:attackerSide() or vm:targetSide()
+  local id = (op.battler == "attacker") and vm:attackerId() or vm:targetId()
   if op.mode == "foes" and vm:attackerSide() == vm:targetSide() then return true end
-  if op.mode == "all" or side == "player" then
+  if op.mode == "all" or AnimCoords.BG_PRIORITY_RANK[id] == 2 then
     vm._bgPrio[1] = 1
     vm._bgPrio[2] = 2
   end
@@ -1526,8 +1647,8 @@ end
 -- pokefirered/src/battle_anim.c:1631
 local function set_visible(vm, op, visible)
   local Anim = require("src.core.game3.battle.anim")
-  local side = vm:resolveBattlerSide(op.battler or "attacker")
-  local p = side and Anim.present(side)
+  local id = vm:battlerId(op.battler or "attacker")
+  local p = id and Anim.present(id)
   if p then p.visible = visible end
   return true
 end

@@ -217,8 +217,10 @@ end
 T.BlendBattleAnimPal = K.wrap(function(t, vm)
   local sel = t._A[0]
   local keys = P.unpackSelected(vm, sel)
-  if band(sel, 0x80) ~= 0 then keys[#keys + 1] = "player" end
-  if band(sel, 0x200) ~= 0 then keys[#keys + 1] = "enemy" end
+  if band(sel, 0x80) ~= 0 then keys[#keys + 1] = 0 end
+  if band(sel, 0x100) ~= 0 and P.spriteVisible(2) then keys[#keys + 1] = 2 end
+  if band(sel, 0x200) ~= 0 then keys[#keys + 1] = 1 end
+  if band(sel, 0x400) ~= 0 and P.spriteVisible(3) then keys[#keys + 1] = 3 end
   start_blend_anim_sprite_color(t, keys)
 end)
 
@@ -229,18 +231,20 @@ T.BlendBattleAnimPalExclude = K.wrap(function(t, vm)
   local ex1, ex2
   if cmd == 2 or cmd == 0 then
     if cmd == 2 then keys = {} end
-    ex1 = P.atk(vm)
+    ex1 = P.atkId(vm)
   elseif cmd == 3 or cmd == 1 then
     if cmd == 3 then keys = {} end
-    ex1 = P.tgt(vm)
+    ex1 = P.tgtId(vm)
   elseif cmd == 4 then
-    ex1, ex2 = P.atk(vm), P.tgt(vm)
-  elseif cmd == 6 or cmd == 7 then
+    ex1, ex2 = P.atkId(vm), P.tgtId(vm)
+  elseif cmd == 6 then
     keys = {}
+    ex1 = bxor(P.atkId(vm), 2)
+  elseif cmd == 7 then
+    keys = {}
+    ex1 = bxor(P.tgtId(vm), 2)
   end
-  for _, side in ipairs({ "player", "enemy" }) do
-    if side ~= ex1 and side ~= ex2 then keys[#keys + 1] = side end
-  end
+  for _, id in ipairs(P.visibleIds(ex1, ex2)) do keys[#keys + 1] = id end
   start_blend_anim_sprite_color(t, keys)
 end)
 
@@ -413,6 +417,7 @@ end)
 -- pokefirered/src/battle_anim_effects_1.c:5289
 T.MusicNotesRainbowBlend = K.wrap(function(t, vm)
   local AnimPal = require("src.core.game3.battle.anim_pal")
+  require("src.core.game3.battle.anim_port.g1_callbacks_b")
   for j = 0, 3 do
     local row = P.PARTICLES_COLOR_BLEND[j]
     local f = nil
@@ -432,6 +437,7 @@ end)
 -- pokefirered/src/battle_anim_effects_1.c:5317
 T.MusicNotesClearRainbowBlend = K.wrap(function(t, vm)
   local AnimPal = require("src.core.game3.battle.anim_pal")
+  require("src.core.game3.battle.anim_port.g1_callbacks_b")
   for j = 1, 3 do
     AnimPal.free(P.PARTICLES_COLOR_BLEND[j][1])
   end

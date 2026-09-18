@@ -40,6 +40,7 @@ function K.battlerSide(vm, animBattler)
   animBattler = tonumber(animBattler) or 0
   if animBattler == 0 then return P.atk(vm) end
   if animBattler == 1 then return P.tgt(vm) end
+  if (animBattler == 2 or animBattler == 3) and vm and vm.battlerId then return vm:battlerId(animBattler) end
   return nil
 end
 
@@ -66,8 +67,8 @@ end
 function K.sideFromCtx(v)
   if v == "player" or v == "enemy" then return v end
   local n = tonumber(v)
-  if n == nil then return nil end
-  return (n % 2 == 0) and "player" or "enemy"
+  if n == nil or n < 0 or n > 3 then return nil end
+  return n
 end
 
 function K.battleState()

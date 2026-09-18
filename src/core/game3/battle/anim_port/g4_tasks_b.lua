@@ -482,8 +482,9 @@ return function(K)
       t.func = shakeTerrain
     elseif a[0] == 4 then
       t._mons = {}
-      for _, side in ipairs({ "player", "enemy" }) do
-        local p = P.present(side)
+      local AnimCoords = require("src.core.game3.battle.anim_coords")
+      for _, id in ipairs(AnimCoords.ids()) do
+        local p = (id < 2 or AnimCoords.spritePresent(nil, id)) and P.present(id) or nil
         if p and p.visible ~= false then t._mons[#t._mons + 1] = p end
       end
       t.func = shakeBattlers

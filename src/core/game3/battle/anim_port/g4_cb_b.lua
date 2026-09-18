@@ -228,7 +228,7 @@ return function(C)
       s.ox = s.ox + P.Sin(s.data[5], s.data[6])
       s.oy = s.oy + P.Cos(s.data[5], -6)
       local side = s._fogSide
-      local bgp = (s._vm and s._vm._bgPrio and s._vm._bgPrio[side == "enemy" and 1 or 2]) or 2
+      local bgp = (s._vm and s._vm._bgPrio and s._vm._bgPrio[require("src.core.game3.battle.anim_coords").bgPriorityRank(side)]) or 2
       if P.u16(s.data[5] - 64) <= 0x7F then
         P.setPriority(s, bgp, s.subpriority)
       else
@@ -355,7 +355,7 @@ return function(C)
     end
     s.x = P.coord(vm, P.atk(vm), P.X_2)
     s.y = P.coord(vm, P.atk(vm), P.Y_PIC_OFFSET)
-    local bgp = (vm._bgPrio and vm._bgPrio[P.tgt(vm) == "enemy" and 1 or 2]) or 2
+    local bgp = (vm._bgPrio and vm._bgPrio[require("src.core.game3.battle.anim_coords").bgPriorityRank(P.tgt(vm))]) or 2
     if a[7] ~= 0 then
       s.data[1] = s.x + a[1]
       s.data[2] = P.coord(vm, P.tgt(vm), P.X_2) + a[3]

@@ -7,7 +7,7 @@ local Lz77 = require("src.import.gba.lz77")
 
 local BattleChromeExtract = {}
 
-BattleChromeExtract.FORMAT_VERSION = 4
+BattleChromeExtract.FORMAT_VERSION = 5
 BattleChromeExtract.CACHE_SUB = "pokemon/battle"
 
 local function default_cache_root()
@@ -138,6 +138,82 @@ local function bake_enemy_healthbox(gfx, pal)
   blit_oam_rect(gfx, pal, 0, 8, 4, indices, 0, 0, w)
   blit_oam_rect(gfx, pal, 32, 8, 4, indices, 64, 0, w)
   return indices_to_rgba(indices, pal, w, h), w, h
+end
+
+-- pokefirered/src/battle_interface.c:568
+local function bake_doubles_healthbox(gfx, pal)
+  return bake_enemy_healthbox(gfx, pal)
+end
+
+BattleChromeExtract.DOUBLES_FILES = {
+  player = "healthbox_doubles_player.rgba",
+  opponent = "healthbox_doubles_opponent.rgba",
+}
+
+function BattleChromeExtract.bakeDoubles(get, cfg)
+  cfg = cfg or Versions.BATTLE_UI
+  if not (cfg.healthbox_doubles_player and cfg.healthbox_doubles_opponent) then return nil end
+  local raw = {}
+  for i = 0, 31 do raw[i + 1] = get(cfg.healthbox_pal + i) end
+  local hbPal = load_pal(raw, 16)
+  local playerRgba = bake_doubles_healthbox(Lz77.decompress(get, cfg.healthbox_doubles_player), hbPal)
+  local opponentRgba = bake_doubles_healthbox(Lz77.decompress(get, cfg.healthbox_doubles_opponent), hbPal)
+  return playerRgba, opponentRgba
+end
+
+BattleChromeExtract.HP_BOLD_FILE = "hp_bold_digits.rgba"
+BattleChromeExtract.HP_BOLD_CHARS = "0123456789/"
+BattleChromeExtract.HP_BOLD_W = 88
+BattleChromeExtract.HP_BOLD_H = 8
+
+-- pokefirered/src/text_printer.c:187
+local function decode_bold_half_rows(get, base, dest, destX, stride)
+  local map = { [0] = 0, 1, 3, 0 }
+  for row = 0, 7 do
+    local lo = get(base + row * 2) or 0
+    local hi = get(base + row * 2 + 1) or 0
+    for half = 0, 1 do
+      local b = half == 0 and hi or lo
+      for k = 0, 3 do
+        local v = math.floor(b / 4 ^ (3 - k)) % 4
+        dest[row * stride + destX + half * 4 + k + 1] = map[v]
+      end
+    end
+  end
+end
+
+-- pokefirered/src/text.c:1688
+function BattleChromeExtract.bakeHpBoldDigits(get, cfg)
+  cfg = cfg or Versions.BATTLE_UI
+  if not cfg.font_bold_glyphs then return nil end
+  local raw = {}
+  for i = 0, 31 do raw[i + 1] = get(cfg.healthbar_pal + i) end
+  local barPal = load_pal(raw, 16)
+  local w, h = BattleChromeExtract.HP_BOLD_W, BattleChromeExtract.HP_BOLD_H
+  local indices = {}
+  for i = 1, w * h do indices[i] = 0 end
+  local codes = { 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xBA }
+  for n, id in ipairs(codes) do
+    local glyph = cfg.font_bold_glyphs + 2 * (0x100 * math.floor(id / 16) + 8 * (id % 16))
+    -- pokefirered/src/battle_interface.c:900
+    decode_bold_half_rows(get, glyph + 2 * 0x80, indices, (n - 1) * 8, w)
+  end
+  return indices_to_rgba(indices, barPal, w, h)
+end
+
+function BattleChromeExtract.runDoubles(rom, cache, opts)
+  opts = opts or {}
+  local root = (opts.cacheRoot or default_cache_root()) .. "/" .. BattleChromeExtract.CACHE_SUB
+  local get = function(i) return rom:get(i) end
+  local playerRgba, opponentRgba = BattleChromeExtract.bakeDoubles(get, opts.cfg)
+  if not playerRgba then return false end
+  cache:write(root .. "/" .. BattleChromeExtract.DOUBLES_FILES.player, playerRgba)
+  cache:write(root .. "/" .. BattleChromeExtract.DOUBLES_FILES.opponent, opponentRgba)
+  local boldRgba = BattleChromeExtract.bakeHpBoldDigits(get, opts.cfg)
+  if boldRgba then
+    cache:write(root .. "/" .. BattleChromeExtract.HP_BOLD_FILE, boldRgba)
+  end
+  return true
 end
 
 local function bake_sheet_rgba(gfx, pal, w, h)
@@ -322,6 +398,7 @@ function BattleChromeExtract.run(rom, cache, opts)
   local enemyRgba = bake_enemy_healthbox(enemyGfx, hbPal)
   cache:write(root .. "/healthbox_player.rgba", playerRgba)
   cache:write(root .. "/healthbox_enemy.rgba", enemyRgba)
+  BattleChromeExtract.runDoubles(rom, cache, { cacheRoot = cacheRoot })
 
   local elGfx = read_raw(rom, cfg.healthbox_elements, 320 * 24 / 2)
   -- HP bar sprite uses TAG_HEALTHBAR_PAL; EXP is blitted into the healthbox
@@ -378,6 +455,8 @@ function BattleChromeExtract.run(rom, cache, opts)
   -- Player TL uses stale 64x32 centerToCorner (−32,−16) even though shape is 64x64
   playerBox = { w = 128, h = 64, x = 158, y = 88 },
   enemyBox = { w = 128, h = 32, x = 44, y = 30 },
+  doublesPlayerBox = { w = 128, h = 32, file = "healthbox_doubles_player.rgba" },
+  doublesOpponentBox = { w = 128, h = 32, file = "healthbox_doubles_opponent.rgba" },
   -- Sprite centers before pic y_offset; final Y = base + y_offset [+8 player]
   playerSprite = { x = 72, y = 80 },
   enemySprite = { x = 176, y = 40 },

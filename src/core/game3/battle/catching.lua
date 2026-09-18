@@ -3,15 +3,13 @@
 -- Pure functions for catch calculations, ball multipliers, shake factor math,
 -- and caught Pokémon persistence into party or PC storage.
 --
--- Emits standard mod event bus signals:
---   - "battle.ball_thrown" { ball, target }
---   - "catch.rate" { ball, rate, target }
---   - "mon.caught" { mon, location, firstTime }
+-- Emits battle.ball_thrown and pokemon.caught; the roll is hooked as catch.rate.
 
 local ItemsData = require("src.core.game3.items_data")
 local Pokemon = require("src.core.game3.pokemon")
 local Types = require("src.core.game3.battle.types")
 local Dex = require("src.core.game3.dex")
+local ModRuntime = require("src.mods.Runtime")
 
 local Catching = {}
 
@@ -32,13 +30,6 @@ Catching.BALL_BONUS = {
   [12] = 10, -- PREMIER_BALL
 }
 
-local function emit(event, payload)
-  local okR, Runtime = pcall(require, "src.mods.Runtime")
-  if okR and Runtime and Runtime.emit then
-    pcall(Runtime.emit, event, payload)
-  end
-end
-
 local function roll_rng(rng, lo, hi)
   lo = lo or 0
   hi = hi or 255
@@ -54,6 +45,14 @@ local function roll_rng(rng, lo, hi)
     return Rng.compat(lo, hi)
   end
   return math.random(lo, hi)
+end
+
+-- pokefirered/src/battle_script_commands.c:9471
+function Catching.targetFor(st, attackerId)
+  local id = (tonumber(attackerId) or 0)
+  local t = (id % 2 == 0) and (id + 1) or (id - 1)
+  if t == 1 or not st then return st and st.enemy end
+  return st.battlers and st.battlers[t] or st.enemy
 end
 
 function Catching.isBall(id)
@@ -140,18 +139,13 @@ function Catching.catchOdds(itemId, foeBattler, st, session)
   return math.max(1, math.min(255, odds))
 end
 
---- Attempt to catch the foe.
--- Returns: caught (bool), shakes (0..4).
-function Catching.tryCatch(itemId, foeBattler, st, session, rng)
-  emit("battle.ball_thrown", { ball = itemId, target = foeBattler })
+local function vanilla_catch(itemId, foeBattler, st, session, rng)
   local num = ItemsData.toNumericId(itemId) or tonumber(itemId) or 4
   if num == 1 then
-    emit("catch.rate", { ball = itemId, rate = 255, target = foeBattler })
     return true, 4
   end
 
   local odds = Catching.catchOdds(itemId, foeBattler, st, session)
-  emit("catch.rate", { ball = itemId, rate = odds, target = foeBattler })
 
   if odds >= 255 then
     return true, 4
@@ -172,6 +166,49 @@ function Catching.tryCatch(itemId, foeBattler, st, session, rng)
   end
 
   return true, 4
+end
+
+local function battle_state(st)
+  if st then return st end
+  local B = package.loaded["src.core.game3.battle.init"] or package.loaded["src.core.game3.battle"]
+  return B and B.getState and B.getState() or nil
+end
+
+--- Attempt to catch the foe.
+-- Returns: caught (bool), shakes (0..4).
+-- pokefirered/src/battle_script_commands.c:9463
+function Catching.tryCatch(itemId, foeBattler, st, session, rng)
+  local caught, shakes
+  if ModRuntime.wantsHook("catch.rate") then
+    local G3 = require("src.mods.Gen3Compat")
+    local mon = foeBattler and foeBattler.mon
+    local species = foeBattler and (foeBattler.species or (mon and (mon.species or mon.speciesId)))
+    local ballNum = ItemsData.toNumericId(itemId) or tonumber(itemId) or 4
+    caught, shakes = ModRuntime.call("catch.rate", function(b, _, _, o)
+      local id = (b ~= nil and G3.itemId(b)) or ballNum
+      return vanilla_catch(id, o.target, st, o.session, o.rng)
+    end, G3.itemName(ballNum) or "POKE_BALL", mon, G3.speciesView(species), {
+      battle = battle_state(st), target = foeBattler, session = session, rng = rng,
+      ballId = ballNum, species = G3.speciesName(species), speciesId = tonumber(species),
+      rate = Catching.catchOdds(itemId, foeBattler, st, session),
+    })
+    caught = caught and true or false
+    shakes = tonumber(shakes) or (caught and 4 or 0)
+  else
+    caught, shakes = vanilla_catch(itemId, foeBattler, st, session, rng)
+  end
+  if ModRuntime.wants("battle.ball_thrown") then
+    local G3 = require("src.mods.Gen3Compat")
+    local mon = foeBattler and foeBattler.mon
+    local species = foeBattler and (foeBattler.species or (mon and (mon.species or mon.speciesId)))
+    local ballNum = ItemsData.toNumericId(itemId) or tonumber(itemId) or 4
+    ModRuntime.emit("battle.ball_thrown", {
+      battle = battle_state(st), ball = G3.itemName(ballNum), ballId = ballNum,
+      caught = caught, shakes = shakes, mon = mon, target = foeBattler,
+      species = G3.speciesName(species), speciesId = tonumber(species),
+    })
+  end
+  return caught, shakes
 end
 
 local function clone_mon(mon)
@@ -240,7 +277,18 @@ function Catching.storeCaught(session, foeBattler, ballId)
     end
   end
 
-  emit("mon.caught", { mon = mon, location = location, firstTime = firstTimeCaught, box = boxId, slot = boxSlot })
+  -- pokefirered/src/battle_script_commands.c:9617
+  if ModRuntime.wants("pokemon.caught") then
+    local G3 = require("src.mods.Gen3Compat")
+    local R = package.loaded["src.core.game3.runtime"]
+    ModRuntime.emit("pokemon.caught", {
+      battle = battle_state(nil), mon = mon, species = G3.speciesName(species),
+      speciesId = tonumber(species), isNew = firstTimeCaught,
+      ball = G3.itemName(mon.pokeball), ballId = mon.pokeball,
+      destination = location == "pc" and "box" or "party",
+      box = boxId, slot = boxSlot, game = R and R._game or nil,
+    })
+  end
 
   return {
     success = true,

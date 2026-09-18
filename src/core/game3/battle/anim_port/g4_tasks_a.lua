@@ -114,13 +114,13 @@ return function(K)
     if d[0] == 0 then
       local x = P.coord(vm, side, P.X)
       local y = P.coord(vm, side, P.Y)
+      local id = vm.attackerId and vm:attackerId() or P.sideId(side)
       local item = vm.ctx and (vm.ctx.ballItem and vm.ctx.ballItem[side] or vm.ctx.pokeball)
       if not item then
-        local Battle = package.loaded["src.core.game3.battle"]
-        local b = Battle and Battle._st and Battle._st[side]
+        local b = require("src.core.game3.battle.anim_coords").battler(nil, id)
         item = b and b.mon and b.mon.pokeball
       end
-      if BallOpen then BallOpen.start(side, x, y + 32 + 5, item, false) end
+      if BallOpen then BallOpen.start(id, x, y + 32 + 5, item, false) end
       d[0] = d[0] + 1
     elseif d[0] == 1 then
       if not BallOpen or #BallOpen._tasks == 0 then D(t) end
@@ -304,15 +304,10 @@ return function(K)
     D(t)
   end
 
-  local function side_of_battler(id)
-    id = P.band(tonumber(id) or 0, 0xFF)
-    return (P.band(id, 1) == 0) and "player" or "enemy"
-  end
-
   -- pokefirered/src/battle_anim_special.c:2299
   TK.GetBattlersFromArg = function(t, vm)
     local m = P.u16(vm.animArg or 0)
-    P.setBattlers(vm, side_of_battler(P.band(m, 0xFF)), side_of_battler(P.rshift(m, 8)))
+    P.setBattlers(vm, P.band(m, 3), P.band(P.rshift(m, 8), 3))
     D(t)
   end
 

@@ -3,6 +3,7 @@
 -- Collision via game3.collision (owned COLL_* grid from extract bake).
 
 local Collision = require("src.core.game3.collision")
+local ModRuntime = require("src.mods.Runtime")
 
 local Player = {}
 
@@ -361,6 +362,12 @@ function Player.tryMove(dir, game, run)
             obj.x = destBx
             obj.y = destBy
             if obj.def then obj.def.x = destBx; obj.def.y = destBy end
+            if ModRuntime.wants("world.boulder_moved") then
+              local Map = package.loaded["src.core.game3.map"]
+              ModRuntime.emit("world.boulder_moved", {
+                mapId = Map and Map.current, npcId = obj.localId, x = destBx, y = destBy,
+              })
+            end
             beginStep(tx, ty, false, false)
             return "step"
           end
@@ -464,6 +471,16 @@ local function finishStep(game)
   session = session and session.getSession and session.getSession()
   if session then
     session.x, session.y, session.facing = Player.cellX, Player.cellY, Player.facing
+  end
+
+  if ModRuntime.wants("world.stepped") then
+    local Map = package.loaded["src.core.game3.map"]
+    ModRuntime.emit("world.stepped", {
+      mapId = (session and session.map) or (Map and Map.current),
+      x = Player.cellX, y = Player.cellY,
+      tile = Collision.behavior and Collision.behavior(Player.cellX, Player.cellY),
+      facing = Player.facing,
+    })
   end
 
   local onDoneCb = Player._onStepDone

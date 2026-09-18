@@ -9,6 +9,9 @@ local Setup = {}
 local function name(ctx, b) return ctx.adapter:displayName(b) end
 
 local function moved_last(ctx)
+  local st = ctx.adapter and ctx.adapter._st
+  -- pokefirered/src/battle_script_commands.c:9148
+  if st and st.double then return ctx.user and ctx.user.expTurnOrder == 4 end
   return ctx.user and ctx.user.expTurnOrder == 2
 end
 
@@ -91,6 +94,7 @@ function Setup.lockOn(ctx)
   if not H.accuracy(ctx, "normal") then return end
   ctx.target.expLockedOn = 2
   ctx.target.expLockedOnBy = ctx.user.side
+  ctx.target.expLockedOnById = ctx.user.id
   H.attackAnim(ctx)
   ctx.adapter:say(name(ctx, ctx.user) .. " took aim\nat " .. name(ctx, ctx.target) .. "!")
 end
@@ -115,15 +119,18 @@ end
 function Setup.imprison(ctx)
   local user = ctx.user
   if user.expImprison then return H.sayFail(ctx) end
-  local foe = ctx.adapter:foeOf(user)
+  local st = ctx.adapter._st
+  local foes = (st and st.double) and ctx.adapter:foesOf(user) or { ctx.adapter:foeOf(user) }
   local shared = false
   local um = user.mon and user.mon.moves or {}
-  local fm = foe and foe.mon and foe.mon.moves or {}
-  for i = 1, 4 do
-    local a = H.moveNum(um[i])
-    if a and a ~= 0 then
-      for j = 1, 4 do
-        if H.moveNum(fm[j]) == a then shared = true end
+  for _, foe in ipairs(foes) do
+    local fm = foe and foe.mon and foe.mon.moves or {}
+    for i = 1, 4 do
+      local a = H.moveNum(um[i])
+      if a and a ~= 0 then
+        for j = 1, 4 do
+          if H.moveNum(fm[j]) == a then shared = true end
+        end
       end
     end
   end
@@ -202,8 +209,11 @@ function Setup.futureSight(ctx)
   local side = ad:foeSide(ctx.user)
   if not side then return H.sayFail(ctx) end
   side.tokens = side.tokens or {}
+  local double = ad._st and ad._st.double
   for _, tok in ipairs(side.tokens) do
-    if tok.id == "EXP_FUTURE_SIGHT" then return H.sayFail(ctx) end
+    if tok.id == "EXP_FUTURE_SIGHT" and (not double or tok.targetId == ctx.target.id) then
+      return H.sayFail(ctx)
+    end
   end
   local Damage = require("src.core.game3.battle.damage")
   local Rules = require("src.core.game3.battle.rules")
@@ -213,7 +223,10 @@ function Setup.futureSight(ctx)
     weatherKind = Rules.weather.effective(ad._st, ad),
     reflect = defSide and (defSide.expReflectTurns or 0) > 0,
     lightScreen = defSide and (defSide.expLightScreenTurns or 0) > 0,
+    doubleScreens = double and ad._st and require("src.core.game3.battle.state").countPresentOnSide(ad._st, ctx.target.side) == 2,
   })
+  -- pokefirered/src/battle_script_commands.c:8558
+  if ctx.user.expHelpingHand then dmg = math.floor(dmg * 15 / 10) end
   side.tokens[#side.tokens + 1] = {
     id = "EXP_FUTURE_SIGHT",
     turns = 3,
@@ -221,6 +234,8 @@ function Setup.futureSight(ctx)
     moveId = ctx.moveId,
     moveName = ctx.opts and ctx.opts.moveName or "FUTURE SIGHT",
     attackerSide = ctx.user.side,
+    attackerId = ctx.user.id,
+    targetId = ctx.target.id,
   }
   H.attackAnim(ctx)
   local tok = side.tokens[#side.tokens]
@@ -270,7 +285,24 @@ end
 
 -- pokefirered/src/battle_script_commands.c:8779
 function Setup.helpingHand(ctx)
-  return H.sayFail(ctx)
+  local ad, user = ctx.adapter, ctx.user
+  local st = ad._st
+  local State = require("src.core.game3.battle.state")
+  local pid = State.PARTNER(State.idOf(user))
+  local partner = State.battler(st, pid)
+  if not (st and st.double) or not State.isPresent(st, pid) or not partner
+      or user.expHelpingHand or partner.expHelpingHand then
+    return H.sayFail(ctx)
+  end
+  partner.expHelpingHand = true
+  ctx.target = partner
+  local M = H.move(ctx)
+  if M then
+    M.target = partner
+    M.tname = ad:displayName(partner)
+  end
+  H.attackAnim(ctx)
+  ad:say(name(ctx, user) .. " is ready to\nhelp " .. name(ctx, partner) .. "!")
 end
 
 function Setup.splash(ctx)

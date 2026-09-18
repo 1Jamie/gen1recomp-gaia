@@ -43,6 +43,7 @@ function CatchSeq.reset()
   CatchSeq._catchResult = nil
   CatchSeq._ball = nil
   CatchSeq._waitingBall = false
+  CatchSeq._target = 1
 end
 
 function CatchSeq.busy()
@@ -86,6 +87,7 @@ function CatchSeq.begin(st, itemId, caught, shakes, opts)
   CatchSeq._headless = opts.headless and true or false
   CatchSeq._session = opts.session
   CatchSeq._result = caught and "catch" or "fail_catch"
+  CatchSeq._target = tonumber(opts.target) or 1
 
   local session = opts.session
   if not session then
@@ -348,7 +350,7 @@ function CB.arcFlight(b)
   for i = 0, 7 do b.data[i] = 0 end
   b.cb = CB.tenFrameDelay
   -- pokefirered/src/battle_anim_special.c:857
-  BallOpen.start("enemy", b.x, b.y, b.itemId, false)
+  BallOpen.start(b.target or 1, b.x, b.y, b.itemId, false)
   play_se(SE.SE_BALL_OPEN)
 end
 
@@ -552,7 +554,7 @@ function CB.beginBreakOut(b)
   start_anim(b, 1)
   affine_start(b.aff, 0)
   b.cb = CB.runBreakOut
-  BallOpen.start("enemy", b.x, b.y, b.itemId, true)
+  BallOpen.start(b.target or 1, b.x, b.y, b.itemId, true)
   play_se(SE.SE_BALL_OPEN)
   b.mon.visible = true
   b.monAff = { paused = false }
@@ -684,22 +686,24 @@ end
 -- pokefirered/src/battle_anim_special.c:734
 local function start_ball(d)
   local st = CatchSeq._st
-  local enemy = st and st.enemy
+  local target = tonumber(d.target) or CatchSeq._target or 1
+  local enemy = Anim.Coords.battler(st, target)
   local sp = enemy and enemy.species
   if not sp and enemy and enemy.mon then
     sp = Pokemon.speciesOf and Pokemon.speciesOf(enemy.mon) or enemy.mon.species or enemy.mon.speciesId
   end
+  local base = Anim.coords(st, target) or Anim.ENEMY_MON
   local Ui = require("src.core.game3.battle.ui")
-  local monY = Anim.ENEMY_MON.y
+  local monY = base.y
   if Ui.battlerSpriteCenter then
-    local _, cy = Ui.battlerSpriteCenter("enemy", sp, Anim.ENEMY_MON)
+    local _, cy = Ui.battlerSpriteCenter("enemy", sp, { x = base.x, y = base.y })
     monY = cy
   end
   local stage = Anim.stage().ball
   stage.visible, stage.darken, stage.flash, stage.side = false, 0, 0, "enemy"
   local b = {
     x = 32, y = 80, x2 = 0, y2 = 0,
-    data = { [0] = 34, Anim.ENEMY_MON.x, Anim.ENEMY_MON.y - 16, 0, 0, 0, 0, 0 },
+    data = { [0] = 34, base.x, base.y - 16, 0, 0, 0, 0, 0 },
     anims = BALL_ANIMS, animNum = 0, animBeginning = true, animEnded = false, animPaused = false,
     frame = 0, hFlip = false, delay = 0, cmd = 1,
     aff = { paused = false },
@@ -708,7 +712,8 @@ local function start_ball(d)
     subpx = 0,
     caseId = d.caseId or 0,
     itemId = d.itemId,
-    mon = Anim.present("enemy"),
+    mon = Anim.present(target),
+    target = target,
     monY = monY,
     stage = stage,
     cb = CB.init,

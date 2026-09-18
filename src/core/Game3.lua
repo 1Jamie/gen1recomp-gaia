@@ -15,9 +15,12 @@ local Help = require("src.ui.game3.help_system")
 
 local QuestLog = require("src.ui.game3.quest_log")
 local QuestRecorder = require("src.core.game3.quest_log_recorder")
+local ModRuntime = require("src.mods.Runtime")
 
 local Game3 = {}
 Game3.__index = Game3
+
+local function noop() end
 
 Game3.SKIN_FAST_FORWARD = 4
 
@@ -75,6 +78,7 @@ function Game3:_enterField(session, reason)
   end
   session._questNewScene=true
   if reason == "continue" then session._questMap=session.map end
+  require("src.core.game3.map")._announced = nil
   Runtime.start(nil, self, session, { reason = reason or "new_game" })
   -- Runtime.start already Map.loads unless alreadyOnMap; keep explicit reload for
   -- session x/y/facing in case start opts change.
@@ -156,6 +160,9 @@ function Game3:load(opts)
   self.options = options
   self:applyOptions(options)
 
+  self:_exposeModData()
+  self:_loadMods(opts)
+
   -- Never auto-skip boot into a legacy Sevii sidecar.
   local continueOk = self:_hasContinueSave()
   require("src.ui.game3.start_menu").resetCursor() -- pokefirered/src/main.c:134
@@ -175,6 +182,67 @@ function Game3:load(opts)
   pcall(function()
     require("src.core.PresentSync").applyFixedStepPeriod()
   end)
+  if ModRuntime.wants("game.ready") then
+    ModRuntime.emit("game.ready", { game = self })
+  end
+end
+
+function Game3:_exposeModData()
+  local data = self.data
+  if type(data) ~= "table" then return end
+  data.gen3Pokemon = require("src.core.game3.pokemon")
+  local Moves = require("src.core.game3.battle.moves")
+  if not Moves._romLoaded then pcall(Moves.loadRomPack, Dataset.cache()) end
+  data.gen3Moves = Moves
+  local ItemsData = require("src.core.game3.items_data")
+  pcall(ItemsData.ensureLoaded)
+  data.gen3Items = ItemsData
+  local Encounters = require("src.core.game3.encounters")
+  data.gen3Encounters = Encounters._tables
+  local Trainers = require("src.core.game3.scripting.trainers")
+  local okT, pack = pcall(Trainers.pack)
+  data.gen3Trainers = okT and type(pack) == "table" and pack or nil
+  local Space = require("src.core.game3.scripting.space")
+  local bundle = Space.bundle
+  data.gen3Text = bundle and bundle.text or nil
+  data.gen3Scripts = bundle and bundle.scripts or nil
+end
+
+function Game3:_loadMods(opts)
+  local modOpts = opts and opts.modOpts or nil
+  local ok, loader = pcall(function()
+    local mods = require("src.mods.Loader").new()
+    mods.game = self
+    mods:load(self.data, modOpts)
+    return mods
+  end)
+  if ok and loader then
+    self.mods = loader
+    self.modStatus = loader:status()
+  else
+    require("src.core.Logger").error(
+      "mods failed to load, continuing without them: %s", tostring(loader))
+  end
+  local okC, Gen3Compat = pcall(require, "src.mods.Gen3Compat")
+  if okC and type(Gen3Compat) == "table" and Gen3Compat.applyMerged then
+    local okA, err = pcall(Gen3Compat.applyMerged, self)
+    if not okA then
+      require("src.core.Logger").error("Gen3Compat.applyMerged failed: %s", tostring(err))
+    end
+  end
+end
+
+function Game3:adoptSave(session, seedBuckets)
+  if type(session) ~= "table" then return end
+  if type(session.modData) ~= "table" then session.modData = {} end
+  local loader = self.mods
+  if not loader then return end
+  if seedBuckets then
+    for id, bucket in pairs(loader.modSave or {}) do
+      if session.modData[id] == nil then session.modData[id] = bucket end
+    end
+  end
+  loader.modSave = session.modData
 end
 
 function Game3:writeOptions()
@@ -279,6 +347,14 @@ function Game3:_handleBootAction(action)
   if action.action == "continue" then
     local ok, save = pcall(SaveData.load)
     if ok and save and save.engine == "game3" then
+      if ModRuntime.wants("save.loading") then
+        ModRuntime.emit("save.loading", { raw = save })
+      end
+      local activeMods = self.modStatus and self.modStatus.loaded
+      if SaveData.runMigrations then
+        SaveData.runMigrations(save, self.mods and self.mods.migrations, activeMods)
+      end
+      local modsDiff = SaveData.modsDiff and SaveData.modsDiff(save, activeMods) or nil
       local session = Schema.fromSaveTable(save)
       Options.bind(session, self.options)
       -- Refuse Sevii leftovers.
@@ -286,6 +362,9 @@ function Game3:_handleBootAction(action)
         print("[game3] ignoring legacy Sevii save map " .. session.map)
         session = Schema.newGame({ gender = 0 })
       end
+      self:adoptSave(session, not self._modSaveAdopted)
+      self._modSaveAdopted = true
+      self.sessionStartedAt = os.time()
       self.questPlayback = QuestLog.begin(session)
       if self.questPlayback then
         self.session=session
@@ -293,6 +372,13 @@ function Game3:_handleBootAction(action)
         Audio.stopAll()
       else
         self:_enterField(session, "continue")
+      end
+      if modsDiff and SaveData.modsDiffNotice then
+        local notice = SaveData.modsDiffNotice(modsDiff, save.meta)
+        if notice then require("src.core.Logger").warn("%s", notice) end
+      end
+      if ModRuntime.wants("save.loaded") then
+        ModRuntime.emit("save.loaded", { save = session, meta = session.meta, modsDiff = modsDiff })
       end
     end
     return
@@ -304,6 +390,12 @@ function Game3:_handleBootAction(action)
       gender = action.gender or 0,
       start = action.start,
     })
+    self:adoptSave(session, not self._modSaveAdopted)
+    self._modSaveAdopted = true
+    self.sessionStartedAt = os.time()
+    if ModRuntime.wants("save.created") then
+      ModRuntime.emit("save.created", { save = session })
+    end
     self:_enterField(session, "new_game")
     return
   end
@@ -322,6 +414,9 @@ end
 
 function Game3:fixedUpdate(dt)
   self:_aliasLA()
+  if ModRuntime.wantsHook("input.step") then
+    ModRuntime.call("input.step", noop, self, dt or FixedStep.STEP)
+  end
   if self.input and self.input.step then self.input:step() end
   if self.input and self.input.softResetStep and self.input:softResetStep() then
     self.input:reset()
@@ -441,6 +536,20 @@ function Game3:update(dt)
   pcall(function() require("src.render.Tilt").update(dt) end)
 end
 
+function Game3:_drawHud(w, h)
+  if not ModRuntime.wantsHook("render.hud") then return end
+  local scale, ox, oy, _, _, scaleY = Display.fit(w, h)
+  local viewport = {
+    width = w, height = h,
+    gameX = ox, gameY = oy,
+    gameWidth = Display.W * scale, gameHeight = Display.H * (scaleY or scale),
+    scale = scale,
+  }
+  love.graphics.push("all")
+  pcall(function() ModRuntime.call("render.hud", noop, self, viewport) end)
+  love.graphics.pop()
+end
+
 function Game3:draw()
   local w = love.graphics.getWidth()
   local h = love.graphics.getHeight()
@@ -469,6 +578,7 @@ function Game3:draw()
         drawBootFrame()
       end
     end
+    self:_drawHud(w, h)
     if self.touchControls then
       self.touchControls:draw()
     end
@@ -477,6 +587,7 @@ function Game3:draw()
 
   if Runtime.isActive() then
     if Display.present(self, w, h) then
+      self:_drawHud(w, h)
       if self.touchControls then
         self.touchControls:draw()
       end
@@ -488,6 +599,7 @@ function Game3:draw()
   love.graphics.setColor(0.4, 0.8, 0.4)
   local map = self.session and self.session.map or "?"
   love.graphics.printf("Fire Red field: " .. tostring(map), 0, h * 0.45, w, "center")
+  self:_drawHud(w, h)
   if self.touchControls then
     self.touchControls:draw()
   end
@@ -543,11 +655,19 @@ function Game3:_hotkey(key)
 end
 
 function Game3:keypressed(key)
-  if self:_hotkey(key) then return end
-  if self.input and self.input.keypressed then self.input:keypressed(key) end
+  local function vanilla()
+    if self:_hotkey(key) then return end
+    if self.input and self.input.keypressed then self.input:keypressed(key) end
+  end
+  if not ModRuntime.wantsHook("input.key") then return vanilla() end
+  return ModRuntime.call("input.key", vanilla, self, { phase = "pressed", key = key })
 end
 function Game3:keyreleased(key)
-  if self.input and self.input.keyreleased then self.input:keyreleased(key) end
+  local function vanilla()
+    if self.input and self.input.keyreleased then self.input:keyreleased(key) end
+  end
+  if not ModRuntime.wantsHook("input.key") then return vanilla() end
+  return ModRuntime.call("input.key", vanilla, self, { phase = "released", key = key })
 end
 
 function Game3:_padPressedBody(joystick, button)
@@ -585,21 +705,45 @@ function Game3:_padReleasedBody(joystick, button)
 end
 
 function Game3:gamepadpressed(joystick, button)
-  self:_padPressedBody(joystick, button)
+  local function vanilla() self:_padPressedBody(joystick, button) end
+  if not ModRuntime.wantsHook("input.gamepad") then return vanilla() end
+  return ModRuntime.call("input.gamepad", vanilla, self,
+    { phase = "pressed", joystick = joystick, button = button })
 end
 function Game3:gamepadreleased(joystick, button)
-  self:_padReleasedBody(joystick, button)
+  local function vanilla() self:_padReleasedBody(joystick, button) end
+  if not ModRuntime.wantsHook("input.gamepad") then return vanilla() end
+  return ModRuntime.call("input.gamepad", vanilla, self,
+    { phase = "released", joystick = joystick, button = button })
 end
 
 function Game3:saveGame()
   if not self.session or self.phase == "quest_log" then return end
+  if ModRuntime.wantsHook("save.write")
+      and ModRuntime.call("save.write", function() return true end, self) == false then
+    return false
+  end
   if Runtime.getSession then
     local s = Runtime.getSession()
     if s then self.session = s end
   end
+  pcall(function()
+    require("src.core.game3.scripting.space").persistSession(nil, self)
+  end)
   QuestRecorder.save(self)
-  self.save = Schema.toSaveTable(self.session)
-  if SaveData.save then pcall(SaveData.save, self.save) end
+  local save = Schema.toSaveTable(self.session)
+  if SaveData.buildMeta then
+    save.meta = SaveData.buildMeta(
+      self.modStatus and self.modStatus.loaded, save.meta, self.sessionStartedAt)
+    self.session.meta = save.meta
+  end
+  self.save = save
+  if ModRuntime.wants("save.writing") then
+    ModRuntime.emit("save.writing", { save = save, meta = save.meta })
+  end
+  if not SaveData.save then return false end
+  local ok, written = pcall(SaveData.save, save)
+  return ok and written ~= false
 end
 
 function Game3:resize() end
@@ -627,11 +771,15 @@ end
 
 function Game3:wheelmoved(_, dy)
   if type(dy) ~= "number" then return end
-  if dy > 0 then
-    self:zoomStep(1)
-  elseif dy < 0 then
-    self:zoomStep(-1)
+  local function vanilla()
+    if dy > 0 then
+      self:zoomStep(1)
+    elseif dy < 0 then
+      self:zoomStep(-1)
+    end
   end
+  if not ModRuntime.wantsHook("input.wheel") then return vanilla() end
+  return ModRuntime.call("input.wheel", vanilla, self, dy)
 end
 function Game3:textinput() end
 function Game3:filedropped() end
@@ -649,21 +797,26 @@ function Game3:touchreleased(id, x, y, dx, dy, pressure)
 end
 
 function Game3:gamepadaxis(joystick, axis, value)
-  if math.abs(value) > 0.5 and self.touchControls then
-    self.touchControls:noteGamepad()
-  end
-  if self.input and self.input.triggerAxis then
-    local trigger, phase = self.input:triggerAxis(axis, value)
-    if trigger then
-      if phase == "pressed" then
-        self:_padPressedBody(joystick, trigger)
-      elseif phase == "released" then
-        self:_padReleasedBody(joystick, trigger)
-      end
-      return
+  local function vanilla()
+    if math.abs(value) > 0.5 and self.touchControls then
+      self.touchControls:noteGamepad()
     end
+    if self.input and self.input.triggerAxis then
+      local trigger, phase = self.input:triggerAxis(axis, value)
+      if trigger then
+        if phase == "pressed" then
+          self:_padPressedBody(joystick, trigger)
+        elseif phase == "released" then
+          self:_padReleasedBody(joystick, trigger)
+        end
+        return
+      end
+    end
+    if self.input and self.input.gamepadaxis then self.input:gamepadaxis(joystick, axis, value) end
   end
-  if self.input and self.input.gamepadaxis then self.input:gamepadaxis(joystick, axis, value) end
+  if not ModRuntime.wantsHook("input.gamepad") then return vanilla() end
+  return ModRuntime.call("input.gamepad", vanilla, self,
+    { phase = "axis", joystick = joystick, axis = axis, value = value })
 end
 
 function Game3:joystickpressed(joystick, button)
@@ -701,15 +854,23 @@ function Game3:joystickhat(joystick, hat, direction)
   if self.input and self.input.joystickhat then self.input:joystickhat(joystick, hat, direction) end
 end
 
-function Game3:joystickadded() end
+function Game3:_releaseModInput()
+  if self.mods and self.mods.releaseModInput then self.mods:releaseModInput() end
+end
+
+function Game3:joystickadded()
+  self:_releaseModInput()
+end
 
 function Game3:joystickremoved(joystick)
+  self:_releaseModInput()
   if self.touchControls then self.touchControls:joystickremoved() end
 end
 
 function Game3:focus(f)
   if self.input then self.input:reset() end
   if self.touchControls then self.touchControls:reset() end
+  self:_releaseModInput()
   if f then
     if self.input then self.input:reconcile() end
     Audio.onFocusGained()
@@ -796,6 +957,9 @@ function Game3:reset()
   self.boot = nil
   self.session = nil
   self.data = nil
+  self.mods = nil
+  self.modStatus = nil
+  self._modSaveAdopted = nil
   self.phase = "boot"
   self.returnToLauncher = nil
   self.onExit = nil

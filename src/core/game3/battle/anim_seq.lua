@@ -1,5 +1,7 @@
+local bit = require("bit")
 local Anim = require("src.core.game3.battle.anim")
 local AnimCtx = require("src.core.game3.battle.anim_ctx")
+local AnimCoords = require("src.core.game3.battle.anim_coords")
 
 local AnimSeq = {}
 
@@ -31,12 +33,23 @@ local SUB_EXEMPT_GENERAL = {
 -- pokefirered/data/battle_scripts_1.s:3913
 local TARGET_ACTIVE_GENERAL = { ITEM_STEAL = true, ITEM_KNOCKOFF = true, SNATCH_MOVE = true }
 
-local function battler_id(side)
-  return (side == "enemy") and 1 or 0
+local function to_id(v)
+  if type(v) == "number" then return v end
+  return AnimCoords.fixedId(v)
 end
 
-local function other(side)
-  return (side == "player") and "enemy" or "player"
+local function side_of(id)
+  return AnimCoords.sideOf(id)
+end
+
+local function opposite(id)
+  return bit.bxor(id or 0, 1)
+end
+
+local function ev_id(ev, idKey, sideKey)
+  local v = ev[idKey]
+  if type(v) == "number" then return v end
+  return to_id(ev[sideKey])
 end
 
 local function battle_state()
@@ -44,15 +57,15 @@ local function battle_state()
   return Battle and Battle._st
 end
 
-local function battler_of(side)
-  local st = battle_state()
-  return st and st[side]
+local function battler_of(id)
+  return AnimCoords.battler(battle_state(), to_id(id))
 end
 
-local function species_of(side)
-  local b = Anim.shownBattler(side, battler_of(side))
+local function species_of(id)
+  id = to_id(id)
+  local b = Anim.shownBattler(id, battler_of(id))
   if type(b) ~= "table" then return nil end
-  local p = Anim._present[side]
+  local p = rawget(Anim._present, id)
   if b.expTransform and p and not p.pendingTransform then
     return p.transformSpecies or b.expTransform.species
   end
@@ -79,10 +92,10 @@ local function effectiveness_se(eff)
 end
 
 -- pokefirered/src/battle_script_commands.c:1883
-local function play_effectiveness_se(eff, side)
+local function play_effectiveness_se(eff, battler)
   local id = effectiveness_se(eff)
   if not id then return end
-  local pan = (side == "player") and -64 or 63
+  local pan = (side_of(to_id(battler) or 1) == "player") and -64 or 63
   pcall(function()
     require("src.core.game3.audio").playSe(id, { pan = pan })
   end)
@@ -92,17 +105,18 @@ local function flush_pending_eff()
   local p = AnimSeq._pendingEff
   AnimSeq._pendingEff = nil
   if p and p.effectiveness ~= nil then
-    play_effectiveness_se(p.effectiveness, p.side)
+    play_effectiveness_se(p.effectiveness, p.battler or p.side)
   end
 end
 
-local function stand_in(side, slot)
+local function stand_in(id, slot)
   local st = battle_state()
+  local side = side_of(id)
   local party = st and ((side == "player") and st.playerParty or st.foeParty)
   local mon = party and slot and party[slot]
   if not mon then return nil end
   local State = require("src.core.game3.battle.state")
-  local ok, b = pcall(State.makeBattler, mon, side, { partyIndex = slot })
+  local ok, b = pcall(State.makeBattler, mon, side, { partyIndex = slot, id = id })
   return ok and b or nil
 end
 
@@ -131,8 +145,8 @@ end
 local function reconcile_sprites()
   local st = battle_state()
   if not st or Anim._headless then return end
-  for _, side in ipairs({ "player", "enemy" }) do
-    local p = Anim._present[side]
+  for _, id in ipairs(AnimCoords.ids(st)) do
+    local p = rawget(Anim._present, id)
     if p then
       p.shown = nil
       p.blinkHidden = false
@@ -140,8 +154,8 @@ local function reconcile_sprites()
       p.invisible = nil
       p.battlerInvisible = nil
     end
-    local b = st[side]
-    local alive = b and b.mon and (tonumber(b.mon.hp) or 0) > 0
+    local b = AnimCoords.battler(st, id)
+    local alive = b and b.mon and (tonumber(b.mon.hp) or 0) > 0 and not (st.absent and st.absent[id])
     if p and alive and not st.over then
       if b.semiInvulnerable and AnimSeq._scene then
         p.visible = false
@@ -150,8 +164,8 @@ local function reconcile_sprites()
         p.alpha = 1
       end
       local subbed = (b.substituteHP or 0) > 0
-      if subbed ~= (p.substitute == true) and not AnimSeq._subLowered[side] then
-        Anim.setSubstitute(side, subbed)
+      if subbed ~= (p.substitute == true) and not AnimSeq._subLowered[id] then
+        Anim.setSubstitute(id, subbed)
       end
     end
   end
@@ -201,8 +215,9 @@ function AnimSeq.buildSteps(events, meta)
       end
       if lastMove and tostring(ev.text or ""):find("SUBSTITUTE took damage") then
         -- pokefirered/src/battle_script_commands.c:5300
-        add("hitfx", { side = lastMove.target or other(lastMove.attacker or "player"),
-          effectiveness = meta.effectiveness or 1 })
+        local a = ev_id(lastMove, "attackerId", "attacker") or 0
+        local t = ev_id(lastMove, "targetId", "target") or opposite(a)
+        add("hitfx", { side = side_of(t), battler = t, effectiveness = meta.effectiveness or 1 })
       end
       add("msg", { text = ev.text, wait = ev.wait })
       lastMsg = ev.text
@@ -214,10 +229,12 @@ function AnimSeq.buildSteps(events, meta)
       lastMove = ev
       add("move", {
         moveId = ev.moveId, attacker = ev.attacker, target = ev.target,
+        attackerId = ev_id(ev, "attackerId", "attacker"), targetId = ev_id(ev, "targetId", "target"),
         turn = ev.turn or 0, calledBy = meta.calledBy, damage = ev.damage, power = ev.power,
       })
     elseif k == "anim" then
-      local d = { anim = ev.anim, name = ev.name, attacker = ev.attacker, target = ev.target, arg = ev.arg }
+      local d = { anim = ev.anim, name = ev.name, attacker = ev.attacker, target = ev.target, arg = ev.arg,
+        attackerId = ev_id(ev, "attackerId", "attacker"), targetId = ev_id(ev, "targetId", "target") }
       if ev.anim == "special" and (ev.name == "SUBSTITUTE_TO_MON" or ev.name == "MON_TO_SUBSTITUTE") then
         if ev.name == "SUBSTITUTE_TO_MON" then
           for j = i + 1, n do
@@ -229,34 +246,41 @@ function AnimSeq.buildSteps(events, meta)
       end
       add("anim", d)
     elseif k == "hit" then
+      local b = ev_id(ev, "battler", "side")
       local eff = 1
-      if prevKind == "move" or (lastMove and prevKind ~= "hit" and prevKind ~= "hp") then
+      if ev.effectiveness ~= nil then
+        eff = ev.effectiveness
+      elseif prevKind == "move" or (lastMove and prevKind ~= "hit" and prevKind ~= "hp") then
         eff = meta.effectiveness or 1
       end
-      add("hitfx", { side = ev.side, effectiveness = eff })
-      add("hp", { side = ev.side, from = ev.from, to = ev.to, maxHp = ev.maxHp })
+      add("hitfx", { side = ev.side, battler = b, effectiveness = eff })
+      add("hp", { side = ev.side, battler = b, from = ev.from, to = ev.to, maxHp = ev.maxHp })
     elseif k == "hp" then
+      local b = ev_id(ev, "battler", "side")
       if prevKind == "msg" and tostring(lastMsg or ""):find("hurt itself in its") then
         -- pokefirered/data/battle_scripts_1.s:3741
-        add("hitfx", { side = ev.side, effectiveness = 1 })
+        add("hitfx", { side = ev.side, battler = b, effectiveness = 1 })
       end
-      add("hp", { side = ev.side, from = ev.from, to = ev.to, maxHp = ev.maxHp })
+      add("hp", { side = ev.side, battler = b, from = ev.from, to = ev.to, maxHp = ev.maxHp })
     elseif k == "faint" then
+      local b = ev_id(ev, "battler", "side")
       -- pokefirered/data/battle_scripts_1.s:2810
-      add("faint_cry", { side = ev.side })
+      add("faint_cry", { side = ev.side, battler = b })
       add("pause", { frames = 64 })
-      add("faint", { side = ev.side })
+      add("faint", { side = ev.side, battler = b })
     elseif k == "switch_out" then
-      add("switch_out", { side = ev.side, reason = ev.reason })
+      add("switch_out", { side = ev.side, battler = ev_id(ev, "battler", "side"), reason = ev.reason })
     elseif k == "switch" then
-      add("switch_out", { side = ev.side, reason = ev.reason, slot = ev.from })
+      local b = ev_id(ev, "battler", "side")
+      add("switch_out", { side = ev.side, battler = b, reason = ev.reason, slot = ev.from })
       local hp = nil
       for j = i + 1, n do
         local e2 = events[j]
-        if (e2.kind == "hp" or e2.kind == "hit") and e2.side == ev.side then hp = e2.from break end
-        if e2.kind == "switch" and e2.side == ev.side then break end
+        local b2 = ev_id(e2, "battler", "side")
+        if (e2.kind == "hp" or e2.kind == "hit") and b2 == b then hp = e2.from break end
+        if e2.kind == "switch" and b2 == b then break end
       end
-      local d = { side = ev.side, slot = ev.to, hp = hp, reason = ev.reason }
+      local d = { side = ev.side, battler = b, slot = ev.to, hp = hp, reason = ev.reason }
       if ev.reason == "baton_pass" and events[i + 1] and events[i + 1].kind == "msg" then
         -- pokefirered/data/battle_scripts_1.s:1690
         deferredIn = d
@@ -285,7 +309,7 @@ local function legacy_steps(result)
     restStart = 2
   end
   local us = result.user and result.user.side or "player"
-  local ts = result.target and result.target.side or other(us)
+  local ts = result.target and result.target.side or ((us == "player") and "enemy" or "player")
   if result.hits and #result.hits > 0 then
     for hi, hit in ipairs(result.hits) do
       add("move", { moveId = result.moveId, attacker = us, target = ts, turn = 0 })
@@ -320,12 +344,16 @@ local function start(steps, pushMsg)
   end
   local held = {}
   for _, step in ipairs(steps) do
-    if step.kind == "move" and tonumber(step.data.moveId) == MOVE_TRANSFORM then
-      local p = Anim.present(step.data.attacker or "player")
+    local d = step.data or {}
+    if step.kind == "move" and tonumber(d.moveId) == MOVE_TRANSFORM then
+      local p = Anim.present(ev_id(d, "attackerId", "attacker") or 0)
       if p then p.pendingTransform = true end
-    elseif step.kind == "switch_out" and step.data.slot and not held[step.data.side] then
-      held[step.data.side] = true
-      Anim.setShown(step.data.side, stand_in(step.data.side, step.data.slot))
+    elseif step.kind == "switch_out" and d.slot then
+      local b = ev_id(d, "battler", "side")
+      if b ~= nil and not held[b] then
+        held[b] = true
+        Anim.setShown(b, stand_in(b, d.slot))
+      end
     end
   end
   AnimSeq._steps = steps
@@ -374,9 +402,40 @@ local function ctx_for(attacker, target, opts)
   return AnimCtx.build(attacker, target, opts)
 end
 
+local function species_by_id(a, t)
+  if not AnimCoords.isDouble(battle_state()) then return nil end
+  local out = {}
+  for id = 0, 3 do
+    if id ~= a and id ~= t then out[id] = species_of(id) end
+  end
+  return out
+end
+
+local function launch_opts(a, t, extra)
+  local o = {
+    attackerSide = side_of(a),
+    targetSide = side_of(t),
+    attackerId = a,
+    targetId = t,
+    isReversed = side_of(a) == "enemy",
+    attackerSpecies = species_of(a),
+    targetSpecies = species_of(t),
+    speciesById = species_by_id(a, t),
+  }
+  for k, v in pairs(extra or {}) do o[k] = v end
+  return o
+end
+
+local function move_ids(d)
+  local a = ev_id(d, "attackerId", "attacker") or 0
+  local t = ev_id(d, "targetId", "target")
+  if t == nil then t = opposite(a) end
+  return a, t
+end
+
 local function move_ctx(d)
-  local attacker = d.attacker or "player"
-  local ctx = ctx_for(attacker, d.target or other(attacker), { moveId = d.moveId, moveDmg = d.damage })
+  local attacker, target = move_ids(d)
+  local ctx = ctx_for(attacker, target, { moveId = d.moveId, moveDmg = d.damage })
   if tonumber(d.power) then ctx.movePower = tonumber(d.power) end
   local okM, Moves = pcall(require, "src.core.game3.battle.moves")
   local mv = okM and Moves.get and Moves.get(d.moveId)
@@ -384,15 +443,15 @@ local function move_ctx(d)
 end
 
 local function after_move(d, mv)
-  local side = d.attacker or "player"
-  local p = Anim.present(side)
+  local id = move_ids(d)
+  local p = Anim.present(id)
   if not p then return end
   if tonumber(d.moveId) == MOVE_TRANSFORM then p.pendingTransform = nil end
   if not AnimSeq._scene then return end
   if tonumber(d.moveId) == MOVE_SUBSTITUTE then
-    local b = battler_of(side)
+    local b = battler_of(id)
     if b and (b.substituteHP or 0) > 0 and not p.substitute then
-      Anim.setSubstitute(side, true)
+      Anim.setSubstitute(id, true)
       p.visible = true
       p.ox, p.oy = 0, 0
     end
@@ -416,36 +475,31 @@ local function run_move(d)
   end
   local ctx, mv = move_ctx(d)
   wait_anim()
-  local attacker = d.attacker or "player"
-  local target = d.target or other(attacker)
-  Anim.launchMove(d.moveId, {
-    attackerSide = attacker,
-    targetSide = target,
-    isReversed = attacker == "enemy",
-    attackerSpecies = species_of(attacker),
-    targetSpecies = species_of(target),
+  local attacker, target = move_ids(d)
+  Anim.launchMove(d.moveId, launch_opts(attacker, target, {
     moveTurn = d.turn or 0,
     ctx = ctx,
     onEnd = function()
       after_move(d, mv)
       if AnimSeq._waiting then advance() end
     end,
-  })
+  }))
   launch_done()
 end
 
 local function general_arg(d)
   if d.name == "LEECH_SEED_DRAIN" then
     -- pokefirered/src/battle_util.c:798
-    local seeder = d.target or other(d.attacker or "player")
-    return battler_id(seeder) + battler_id(d.attacker or "player") * 256
+    local a, seeder = move_ids(d)
+    return seeder + a * 256
   end
   return tonumber(d.arg) or 0
 end
 
 local function run_general(d)
   local name = d.name
-  local active = (TARGET_ACTIVE_GENERAL[name] and d.target) or d.attacker or "player"
+  local a = move_ids(d)
+  local active = (TARGET_ACTIVE_GENERAL[name] and ev_id(d, "targetId", "target")) or a
   local p = Anim.present(active)
   local castform = name == "CASTFORM_CHANGE"
   if castform then
@@ -482,12 +536,7 @@ local function run_general(d)
     return
   end
   wait_anim()
-  Anim.launchGeneral(name, {
-    attackerSide = active,
-    targetSide = active,
-    isReversed = active == "enemy",
-    attackerSpecies = species_of(active),
-    targetSpecies = species_of(active),
+  Anim.launchGeneral(name, launch_opts(active, active, {
     animArg = general_arg(d),
     ctx = ctx_for(active, active, { animArg = general_arg(d) }),
     onEnd = function()
@@ -506,37 +555,33 @@ local function run_general(d)
       end
       if AnimSeq._waiting then advance() end
     end,
-  })
+  }))
   launch_done()
 end
 
 -- pokefirered/src/battle_script_commands.c:5494
 local function run_status(d)
-  local side = d.attacker or d.target or "player"
-  local b = battler_of(side)
+  local id = ev_id(d, "attackerId", "attacker")
+  if id == nil then id = ev_id(d, "targetId", "target") or 0 end
+  local b = battler_of(id)
   if not AnimSeq._scene or (b and (b.semiInvulnerable or (b.substituteHP or 0) > 0)) then
     advance()
     return
   end
   wait_anim()
-  Anim.launchStatus(d.name, {
+  Anim.launchStatus(d.name, launch_opts(id, id, {
     force = true,
-    attackerSide = side,
-    targetSide = side,
-    isReversed = side == "enemy",
-    attackerSpecies = species_of(side),
-    targetSpecies = species_of(side),
-    ctx = ctx_for(side, side),
+    ctx = ctx_for(id, id),
     onEnd = function()
       if AnimSeq._waiting then advance() end
     end,
-  })
+  }))
   launch_done()
 end
 
 local function run_special(d)
-  local side = d.attacker or "player"
-  local p = Anim.present(side)
+  local id = ev_id(d, "attackerId", "attacker") or 0
+  local p = Anim.present(id)
   if d.name == "SUBSTITUTE_TO_MON" or d.name == "MON_TO_SUBSTITUTE" then
     local mid = tonumber(d.moveId)
     if not AnimSeq._scene and mid ~= MOVE_TRANSFORM and mid ~= MOVE_SUBSTITUTE then
@@ -546,42 +591,38 @@ local function run_special(d)
     -- pokefirered/src/battle_controller_player.c:2338
     if d.name == "SUBSTITUTE_TO_MON" then
       if not (p and p.substitute) then advance() return end
-      AnimSeq._subLowered[side] = true
+      AnimSeq._subLowered[id] = true
     else
-      if not AnimSeq._subLowered[side] then advance() return end
-      AnimSeq._subLowered[side] = nil
-      local b = battler_of(side)
+      if not AnimSeq._subLowered[id] then advance() return end
+      AnimSeq._subLowered[id] = nil
+      local b = battler_of(id)
       if b and (b.substituteHP or 0) <= 0 then advance() return end
     end
   end
   wait_anim()
-  Anim.launchSpecial(d.name, {
-    attackerSide = side,
-    targetSide = side,
-    isReversed = side == "enemy",
-    attackerSpecies = species_of(side),
-    targetSpecies = species_of(side),
-    ctx = ctx_for(side, side),
+  Anim.launchSpecial(d.name, launch_opts(id, id, {
+    ctx = ctx_for(id, id),
     onEnd = function()
       if d.name == "SUBSTITUTE_TO_MON" then
-        Anim.setSubstitute(side, false)
+        Anim.setSubstitute(id, false)
       elseif d.name == "MON_TO_SUBSTITUTE" then
-        Anim.setSubstitute(side, true)
+        Anim.setSubstitute(id, true)
       end
-      local pp = Anim.present(side)
+      local pp = Anim.present(id)
       if pp then pp.ox = 0 end
       if AnimSeq._waiting then advance() end
     end,
-  })
+  }))
   launch_done()
 end
 
 -- pokefirered/src/battle_controller_player.c:2144
 local function run_switch_out(d)
-  local side = d.side or "enemy"
-  local p = Anim.present(side)
+  local id = ev_id(d, "battler", "side") or 1
+  local side = side_of(id)
+  local p = Anim.present(id)
   local function hide()
-    local pp = Anim.present(side)
+    local pp = Anim.present(id)
     if pp then
       pp.visible = false
       pp.switchedOut = true
@@ -589,37 +630,33 @@ local function run_switch_out(d)
       pp.sx, pp.sy = 1, 1
     end
     local s = Anim.stage()
-    if s and s.healthbox and s.healthbox[side] then s.healthbox[side].visible = false end
+    if s and s.healthbox and s.healthbox[id] then s.healthbox[id].visible = false end
     if AnimSeq._waiting then advance() end
   end
-  if d.slot then Anim.setShown(side, stand_in(side, d.slot)) end
+  if d.slot then Anim.setShown(id, stand_in(id, d.slot)) end
   if not p or p.visible == false then
     AnimSeq._waiting = true
     hide()
     return
   end
   local function out()
-    Anim.launchSpecial((side == "player") and "SWITCH_OUT_PLAYER_MON" or "SWITCH_OUT_OPPONENT_MON", {
-      attackerSide = side,
-      targetSide = side,
-      isReversed = side == "enemy",
-      attackerSpecies = species_of(side),
-      targetSpecies = species_of(side),
-      ctx = ctx_for(side, side),
+    Anim.launchSpecial((side == "player") and "SWITCH_OUT_PLAYER_MON" or "SWITCH_OUT_OPPONENT_MON", launch_opts(id, id, {
+      ctx = ctx_for(id, id),
       onEnd = hide,
-    })
+    }))
   end
   wait_anim()
   if p.substitute then
-    Anim.launchSpecial("SUBSTITUTE_TO_MON", {
-      attackerSide = side, targetSide = side, isReversed = side == "enemy",
-      ctx = ctx_for(side, side),
+    local o = launch_opts(id, id, {
+      ctx = ctx_for(id, id),
       onEnd = function()
-        Anim.setSubstitute(side, false)
+        Anim.setSubstitute(id, false)
         p.ox = 0
         out()
       end,
     })
+    o.attackerSpecies, o.targetSpecies, o.speciesById = nil, nil, nil
+    Anim.launchSpecial("SUBSTITUTE_TO_MON", o)
   else
     out()
   end
@@ -627,16 +664,17 @@ local function run_switch_out(d)
 end
 
 local function run_switch_in(d)
-  local side = d.side or "enemy"
+  local id = ev_id(d, "battler", "side") or 1
+  local side = side_of(id)
   local st = battle_state()
-  local p = Anim.present(side)
-  Anim.setShown(side, nil)
+  local p = Anim.present(id)
+  Anim.setShown(id, nil)
   if p then
     p.switchedOut = nil
     -- pokefirered/src/battle_gfx_sfx_util.c:997
     p.castformForm, p.castformMon = nil, nil
-    Anim.setSubstitute(side, false)
-    local b = st and st[side]
+    Anim.setSubstitute(id, false)
+    local b = AnimCoords.battler(st, id)
     if b and b.mon then
       p.displayHp = tonumber(d.hp) or tonumber(b.mon.hp) or 0
       p.displayMaxHp = tonumber(b.mon.maxHp) or 1
@@ -645,7 +683,8 @@ local function run_switch_in(d)
   end
   local SwitchSeq = require("src.core.game3.battle.switch_seq")
   AnimSeq._waitSwitch = true
-  local started = SwitchSeq.beginEventSwitchIn(st, side, {
+  local started = SwitchSeq.beginEventSwitchIn(st, (id < 2) and side or id, {
+    battler = id,
     headless = Anim._headless,
     pushMsg = AnimSeq._pushMsg,
     onDone = function()
@@ -671,8 +710,9 @@ local function run_step(step)
     return
   end
   if kind == "faint_cry" then
-    local side = d.side or "enemy"
-    local sp = species_of(side)
+    local id = ev_id(d, "battler", "side") or 1
+    local side = side_of(id)
+    local sp = species_of(id)
     if sp and not Anim._headless then
       -- pokefirered/src/battle_controller_player.c:2696
       pcall(function()
@@ -697,28 +737,30 @@ local function run_step(step)
   end
   if kind == "hitfx" then
     -- pokefirered/src/battle_controller_player.c:2658
-    if d.effectiveness ~= nil then play_effectiveness_se(d.effectiveness, d.side) end
+    local id = ev_id(d, "battler", "side")
+    if d.effectiveness ~= nil then play_effectiveness_se(d.effectiveness, id) end
     wait_anim()
-    Anim.blinkMon(d.side, { onComplete = function() if AnimSeq._waiting then advance() end end })
+    Anim.blinkMon(id, { onComplete = function() if AnimSeq._waiting then advance() end end })
     launch_done()
     return
   end
   if kind == "hp" then
     wait_anim()
-    Anim.tweenHp(d.side, d.from, d.to, d.maxHp, {
+    Anim.tweenHp(ev_id(d, "battler", "side"), d.from, d.to, d.maxHp, {
       onComplete = function() if AnimSeq._waiting then advance() end end,
     })
     launch_done()
     return
   end
   if kind == "faint" then
-    local p = Anim.present(d.side or "enemy")
+    local id = ev_id(d, "battler", "side") or 1
+    local p = Anim.present(id)
     if p then
-      Anim.setSubstitute(d.side or "enemy", false)
+      Anim.setSubstitute(id, false)
       p.blinkHidden = false
     end
     wait_anim()
-    Anim.faintMon(d.side or "enemy", {
+    Anim.faintMon(id, {
       onComplete = function() if AnimSeq._waiting then advance() end end,
     })
     launch_done()

@@ -57,6 +57,44 @@ local function stage()
   return Anim.stage()
 end
 
+local function step_battler(st, d)
+  if d.id ~= nil then return st and State.battler(st, d.id) end
+  return st and st[d.side or "player"]
+end
+
+local function step_side(d)
+  if d.id ~= nil then return State.sideOf(d.id) end
+  return d.side or "player"
+end
+
+local function step_present(d)
+  if d.id == nil then return Anim.present(d.side or "player") end
+  return Anim.present(d.id) or (d.id < 2 and Anim.present(State.sideOf(d.id))) or nil
+end
+
+local function step_healthbox(s, d)
+  local hb = s and s.healthbox
+  if not hb then return nil end
+  if d.id == nil then return hb[d.side or "player"] end
+  return hb[d.id] or (d.id < 2 and hb[State.sideOf(d.id)]) or nil
+end
+
+local function step_center(st, d)
+  if d.id ~= nil and Anim.coords then
+    local a, b = Anim.coords(st, d.id)
+    if type(a) == "table" then return a.x or a[1], a.y or a[2] end
+    if a then return a, b end
+  end
+  local base = (step_side(d) == "player") and Anim.PLAYER_MON or Anim.ENEMY_MON
+  return base.x, base.y
+end
+
+local function trainer_label(st)
+  return (st and st.trainerClassName and st.trainerClassName ~= "")
+    and (st.trainerClassName .. " " .. (st.trainerName or ""))
+    or (st and st.trainerName or "TRAINER")
+end
+
 local function withdraw_text(battler)
   local name = battler and State.displayName(battler) or "POKéMON"
   local hp = tonumber(battler and battler.mon and battler.mon.hp) or 0
@@ -149,7 +187,7 @@ local function engine_entry_events(st, sides)
   if not (Engine and Engine.switchInEffects and battle_adapter()) then return nil end
   return capture_events(function(ad)
     for _, side in ipairs(sides) do
-      local b = st and st[side]
+      local b = st and ((type(side) == "number") and State.battler(st, side) or st[side])
       if b and b.mon and (tonumber(b.mon.hp) or 0) > 0 then
         Engine.switchInEffects(st, ad, b, { spikes = true })
       end
@@ -273,6 +311,72 @@ function SwitchSeq.beginSendOut(st, side, newSlot, opts)
   return true
 end
 
+-- pokefirered/src/battle_message.c:1633
+function SwitchSeq.returnText(st, id)
+  local old = State.battler(st, id)
+  if State.sideOf(id) == "player" then
+    return State.displayName(old) .. ", come back!"
+  end
+  return trainer_label(st) .. "\nwithdrew " .. State.displayName(old) .. "!"
+end
+
+-- pokefirered/data/battle_scripts_1.s:3046
+function SwitchSeq.beginDoubleSwitch(st, id, newSlot, opts)
+  opts = opts or {}
+  SwitchSeq.reset()
+  SwitchSeq._st = st
+  SwitchSeq._headless = opts.headless and true or false
+  SwitchSeq._pushMsg = opts.pushMsg
+  SwitchSeq._onDone = opts.onDone
+  local side = State.sideOf(id)
+  local withdrawMsg
+  if opts.withdraw and not opts.noWithdrawMsg then
+    withdrawMsg = SwitchSeq.returnText(st, id)
+  end
+  local reason = opts.reason or (opts.withdraw and "switch" or "replace")
+
+  if SwitchSeq._headless then
+    if withdrawMsg and SwitchSeq._pushMsg then SwitchSeq._pushMsg(withdrawMsg) end
+    local Engine = package.loaded["src.core.game3.battle.engine"]
+    local party = (side == "player") and st.playerParty or st.foeParty
+    if Engine and Engine.performSwitch and battle_adapter() and party and party[newSlot] then
+      capture_events(function(ad)
+        Engine.performSwitch(st, ad, id, newSlot, { batonPass = opts.batonPass, reason = reason })
+      end)
+    end
+    Anim.syncDisplayFromState(st)
+    local nb = State.battler(st, id)
+    if SwitchSeq._pushMsg then
+      if side == "player" then
+        SwitchSeq._pushMsg("Go! " .. State.displayName(nb) .. "!")
+      else
+        SwitchSeq._pushMsg(trainer_label(st) .. " sent\nout " .. State.displayName(nb) .. "!")
+      end
+    end
+    headless_entry(st, { id })
+    finish()
+    return false
+  end
+
+  local steps = {}
+  if withdrawMsg then
+    steps[#steps + 1] = { kind = "msg", data = { text = withdrawMsg } }
+  end
+  if opts.withdraw then
+    steps[#steps + 1] = { kind = "withdraw", data = { id = id } }
+  end
+  steps[#steps + 1] = { kind = "swap_data", data = { id = id, newSlot = newSlot, batonPass = opts.batonPass, reason = reason } }
+  steps[#steps + 1] = { kind = "msg_sendout", data = { id = id } }
+  steps[#steps + 1] = { kind = (side == "player") and "sendout_player" or "sendout_enemy", data = { id = id, slot = newSlot } }
+  steps[#steps + 1] = { kind = "shiny_check", data = { id = id } }
+  steps[#steps + 1] = { kind = "cry", data = { id = id } }
+  steps[#steps + 1] = { kind = "healthbox", data = { id = id } }
+  steps[#steps + 1] = { kind = "entry_triggers", data = { id = id } }
+  SwitchSeq._steps = steps
+  SwitchSeq._i = 1
+  return true
+end
+
 -- pokefirered/src/battle_controller_player.c:2105
 function SwitchSeq.beginEventSwitchIn(st, side, opts)
   opts = opts or {}
@@ -285,11 +389,15 @@ function SwitchSeq.beginEventSwitchIn(st, side, opts)
     finish()
     return false
   end
+  local id = tonumber(opts.battler) or ((type(side) == "number") and side or nil)
+  if id ~= nil and not (st and st.double) and id < 2 then id = nil end
+  if type(side) == "number" then side = State.sideOf(side) end
+  local d = (id ~= nil) and { id = id } or { side = side }
   SwitchSeq._steps = {
-    { kind = (side == "player") and "sendout_player" or "sendout_enemy", data = { side = side } },
-    { kind = "shiny_check", data = { side = side } },
-    { kind = "cry", data = { side = side } },
-    { kind = "healthbox", data = { side = side } },
+    { kind = (side == "player") and "sendout_player" or "sendout_enemy", data = d },
+    { kind = "shiny_check", data = d },
+    { kind = "cry", data = d },
+    { kind = "healthbox", data = d },
   }
   SwitchSeq._i = 1
   return true
@@ -397,15 +505,12 @@ local function run_step(step)
   end
 
   if kind == "msg_sendout" then
-    local side = d.side or "player"
+    local side = step_side(d)
     local text = ""
     if side == "player" then
-      text = "Go! " .. State.displayName(st and st.player) .. "!"
+      text = "Go! " .. State.displayName(step_battler(st, d)) .. "!"
     else
-      local tname = (st and st.trainerClassName and st.trainerClassName ~= "")
-        and (st.trainerClassName .. " " .. (st.trainerName or ""))
-        or (st and st.trainerName or "TRAINER")
-      text = tname .. " sent\nout " .. State.displayName(st and st.enemy) .. "!"
+      text = trainer_label(st) .. " sent\nout " .. State.displayName(step_battler(st, d)) .. "!"
     end
     if side == "player" and not SwitchSeq._headless then
       -- pokefirered/src/battle_message.c:399
@@ -419,9 +524,8 @@ local function run_step(step)
   end
 
   if kind == "withdraw" then
-    local side = d.side or "player"
-    local p = Anim.present(side)
-    local hb = s.healthbox[side]
+    local p = step_present(d)
+    local hb = step_healthbox(s, d)
     if hb then hb.visible = false end
     pcall(function() Audio.playSe(SE.SE_BALL_OPEN) end)
     wait_busy()
@@ -440,16 +544,17 @@ local function run_step(step)
   end
 
   if kind == "swap_data" then
-    local side = d.side or "player"
+    local side = step_side(d)
     local newSlot = d.newSlot or 1
     local Engine = package.loaded["src.core.game3.battle.engine"]
     local party = st and ((side == "player") and st.playerParty or st.foeParty)
-    local pres = Anim.present(side)
+    local pres = step_present(d)
     -- pokefirered/src/battle_gfx_sfx_util.c:997
     if pres then pres.castformForm, pres.castformMon = nil, nil end
-    if Engine and Engine.performSwitch and battle_adapter() and st and st[side] and party and party[newSlot] then
+    if Engine and Engine.performSwitch and battle_adapter() and step_battler(st, d) and party and party[newSlot] then
       capture_events(function(ad)
-        Engine.performSwitch(st, ad, side, newSlot, { batonPass = d.batonPass, reason = "switch" })
+        Engine.performSwitch(st, ad, d.id ~= nil and d.id or side, newSlot,
+          { batonPass = d.batonPass, reason = d.reason or "switch" })
       end)
       Anim.syncDisplayFromState(st)
       advance()
@@ -477,7 +582,7 @@ local function run_step(step)
   end
 
   if kind == "sendout_player" then
-    local pcx, pcy = Anim.PLAYER_MON.x, Anim.PLAYER_MON.y
+    local pcx, pcy = step_center(st, d.id ~= nil and d or { side = "player" })
     s.ball.visible = true
     s.ball.frame = 0
     s.ball.rot = 0
@@ -497,8 +602,8 @@ local function run_step(step)
       s.ball.frame = 1
       s.ball.rot = 0
       pcall(function() Audio.playSe(SE.SE_BALL_OPEN, { pan = -64 }) end)
-      Anim.ballOpen("player", s.ball.x, s.ball.y)
-      local p = Anim.present("player")
+      Anim.ballOpen(d.id ~= nil and d.id or "player", s.ball.x, s.ball.y)
+      local p = step_present(d.id ~= nil and d or { side = "player" }) or {}
       p.visible = true
       p.ox = 0
       p.oy = 16
@@ -520,7 +625,7 @@ local function run_step(step)
   end
 
   if kind == "sendout_enemy" then
-    local cx, cy = Anim.ENEMY_MON.x, Anim.ENEMY_MON.y
+    local cx, cy = step_center(st, d.id ~= nil and d or { side = "enemy" })
     s.ball.visible = true
     s.ball.frame = 0
     s.ball.side = "enemy"
@@ -530,8 +635,8 @@ local function run_step(step)
     Anim.tweenStage(16, function() end, function()
       s.ball.frame = 1
       pcall(function() Audio.playSe(SE.SE_BALL_OPEN, { pan = 63 }) end)
-      Anim.ballOpen("enemy", s.ball.x, s.ball.y)
-      local p = Anim.present("enemy")
+      Anim.ballOpen(d.id ~= nil and d.id or "enemy", s.ball.x, s.ball.y)
+      local p = step_present(d.id ~= nil and d or { side = "enemy" }) or {}
       p.visible = true
       p.ox = 0
       p.oy = 16
@@ -552,8 +657,7 @@ local function run_step(step)
   end
 
   if kind == "shiny_check" then
-    local side = d.side or "player"
-    local b = st and st[side]
+    local b = step_battler(st, d)
     local mon = b and b.mon
     local isShiny = mon and SummaryData.isShiny(mon)
     if isShiny then
@@ -569,8 +673,8 @@ local function run_step(step)
   end
 
   if kind == "cry" then
-    local side = d.side or "player"
-    local b = st and st[side]
+    local side = step_side(d)
+    local b = step_battler(st, d)
     local sp = b and (b.species or (b.mon and (b.mon.species or b.mon.speciesId)))
     if sp then
       -- pokefirered/src/pokeball.c:782
@@ -583,8 +687,8 @@ local function run_step(step)
   end
 
   if kind == "healthbox" then
-    local side = d.side or "player"
-    local hb = s.healthbox[side]
+    local side = step_side(d)
+    local hb = step_healthbox(s, d) or {}
     local from = (side == "player") and 115 or -115
     hb.visible = true
     hb.ox = from
@@ -600,6 +704,7 @@ local function run_step(step)
 
   if kind == "entry_triggers" then
     local sides = d.sides or { d.side or "player" }
+    if d.id ~= nil then sides = { d.id } end
     if #sides > 1 then
       table.sort(sides, function(a, bSide)
         local spA = st and st[a] and (st[a].speed or (st[a].mon and st[a].mon.speed)) or 0
@@ -635,6 +740,14 @@ local function run_step(step)
     if p then p.visible = false end
     local hb = s.healthbox and s.healthbox.enemy
     if hb then hb.visible = false end
+    if st and st.double then
+      for _, id in ipairs({ 1, 3 }) do
+        local pp = step_present({ id = id })
+        if pp then pp.visible = false end
+        local hh = step_healthbox(s, { id = id })
+        if hh then hh.visible = false end
+      end
+    end
     local Trainers = require("src.core.game3.scripting.trainers")
     local info = st and st.trainerId and Trainers.info(st.trainerId)
     local picId = (st and st.trainerPicId) or (info and info.pic) or 0

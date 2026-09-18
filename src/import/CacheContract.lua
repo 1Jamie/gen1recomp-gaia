@@ -20,7 +20,7 @@ CacheContract.VERSION_FORMAT = {
   -- engine/overworld/map_sprites.asm:181
   yellow = "rom-cache-v11-yellow1:",
   -- v8: M4A tracks retain reachable patterns and explicit entry offsets.
-  firered = "rom-cache-v10-firered:",
+  firered = "rom-cache-v12-firered:",
 }
 CacheContract.MARKER_PATH = "rom-cache.complete"
 
@@ -193,6 +193,9 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/gba/pokemon/battle_moves.lua",
     "data/generated/gba/pokemon/battle/manifest.lua",
     "data/generated/gba/pokemon/battle/healthbox_player.rgba",
+    "data/generated/gba/pokemon/battle/healthbox_doubles_player.rgba",
+    "data/generated/gba/pokemon/battle/healthbox_doubles_opponent.rgba",
+    "data/generated/gba/pokemon/battle/hp_bold_digits.rgba",
     "data/generated/gba/pokemon/battle/terrain_building.rgba",
     "data/generated/gba/pokemon/battle/ball_open/manifest.lua",
     "data/generated/gba/pokemon/battle/ball_open/particles.rgba",
@@ -208,6 +211,7 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/gba/doors/pallet.rgba",
     "data/generated/gba/native/manifest.lua",
     "data/generated/gba/pokemon/summary/manifest.lua",
+    "data/generated/gba/pokemon/summary/menu_info.rgba",
     "data/generated/gba/pokemon/storage/manifest.lua",
     "data/generated/gba/pokedex/manifest.lua",
     "data/generated/gba/chrome/manifest.lua",

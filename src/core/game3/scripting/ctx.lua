@@ -86,4 +86,22 @@ function Ctx.clearTemps(store)
   end
 end
 
+function Ctx.modCtx(vm)
+  local ok, Gen3Compat = pcall(require, "src.mods.Gen3Compat")
+  if ok and type(Gen3Compat) == "table" and type(Gen3Compat.scriptCtx) == "function" then
+    local okC, c = pcall(Gen3Compat.scriptCtx, vm)
+    if okC and type(c) == "table" then return c end
+  end
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  local session = Runtime and Runtime.getSession and Runtime.getSession()
+  local Map = package.loaded["src.core.game3.map"]
+  return {
+    game = Runtime and Runtime._game,
+    save = session,
+    session = session,
+    overworld = { map = { id = Map and Map.current } },
+    runner = vm,
+  }
+end
+
 return Ctx

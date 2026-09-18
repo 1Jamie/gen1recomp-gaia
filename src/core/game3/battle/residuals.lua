@@ -28,6 +28,27 @@ end
 
 -- pokefirered/src/battle_util.c:494
 local function sortedBattlers(adapter)
+  local st = adapter and adapter._st
+  if st and st.double then
+    local State = require("src.core.game3.battle.state")
+    local ids = st._endTurnOrder
+    if not ids then
+      local pri
+      if st.turnActions then
+        local Moves = require("src.core.game3.battle.moves")
+        pri = {}
+        for _, act in ipairs(st.turnActions) do
+          if act.battler ~= nil and act.kind == "move" then pri[act.battler] = Moves.priority(act.move) end
+        end
+      end
+      ids = State.speedOrder(st, adapter, { priority = pri })
+    end
+    local out = {}
+    for _, id in ipairs(ids) do
+      if State.isPresent(st, id) then out[#out + 1] = State.battler(st, id) end
+    end
+    return out
+  end
   local list = adapter:activeBattlers() or {}
   local a, b = list[1], list[2]
   if a and b then
@@ -48,7 +69,7 @@ local function runStepAndRecord(adapter, battler, phase, fn, events)
   local hpBefore = {}
   for _, b in ipairs(active) do
     if b and b.side then
-      hpBefore[b.side] = adapter:hp(b)
+      hpBefore[b] = adapter:hp(b)
     end
   end
 
@@ -68,21 +89,22 @@ local function runStepAndRecord(adapter, battler, phase, fn, events)
   local faints = {}
   for _, b in ipairs(active) do
     if b and b.side then
-      local before = hpBefore[b.side] or 0
+      local before = hpBefore[b] or 0
       local after = adapter:hp(b)
       if before ~= after then
         hpChanges[#hpChanges + 1] = {
           side = b.side,
+          battler = b.id,
           from = before,
           to = after,
           maxHp = adapter:maxHp(b),
         }
       end
       if adapter:isFainted(b) and before > 0 then
-        faints[#faints + 1] = { side = b.side }
+        faints[#faints + 1] = { side = b.side, battler = b.id }
         if not b._faintAnnounced then
           b._faintAnnounced = true
-          if adapter.pushEvent then adapter:pushEvent({ kind = "faint", side = b.side }) end
+          if adapter.pushEvent then adapter:pushEvent({ kind = "faint", side = b.side, battler = b.id }) end
           adapter:say(adapter:displayName(b) .. " fainted!")
         end
         adapter:emitFaint(b)
@@ -134,23 +156,36 @@ function Residuals.collectEvents(adapter)
     b.expEnduring = nil
   end
 
+  local st = adapter._st
+  if st and st.double then
+    st._endTurnOrder = nil
+    -- pokefirered/src/battle_util.c:484
+    local order = {}
+    for _, b in ipairs(sortedBattlers(adapter)) do order[#order + 1] = b.id end
+    st._endTurnOrder = order
+    st.turnOrder = order
+  end
+
   for _, phase in ipairs(Rules.FIELD_PHASES_ORDER) do
-    if adapter:isBattleDecided() then return events end
+    if adapter:isBattleDecided() then break end
     run_phase(adapter, phase, nil, events)
   end
 
-  for _, battler in ipairs(sortedBattlers(adapter)) do
-    for _, phase in ipairs(Rules.BATTLER_PHASES_ORDER) do
-      if adapter:isBattleDecided() or adapter:isFainted(battler) then break end
-      if run_phase(adapter, phase, battler, events) then break end
+  if not adapter:isBattleDecided() then
+    for _, battler in ipairs(sortedBattlers(adapter)) do
+      for _, phase in ipairs(Rules.BATTLER_PHASES_ORDER) do
+        if adapter:isBattleDecided() or adapter:isFainted(battler) then break end
+        if run_phase(adapter, phase, battler, events) then break end
+      end
     end
   end
 
   for _, phase in ipairs(Rules.POST_PHASES_ORDER) do
-    if adapter:isBattleDecided() then return events end
+    if adapter:isBattleDecided() then break end
     run_phase(adapter, phase, nil, events)
   end
 
+  if st then st._endTurnOrder = nil end
   return events
 end
 

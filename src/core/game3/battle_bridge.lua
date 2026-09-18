@@ -4,6 +4,7 @@
 local Party = require("src.core.game3.party")
 local PartyView = require("src.core.game3.battle.party_view")
 local Downgrade = require("src.core.game3.battle_downgrade")
+local ModRuntime = require("src.mods.Runtime")
 
 local BattleBridge = {}
 
@@ -118,6 +119,41 @@ function BattleBridge.installWhiteoutIntercept(mod, game)
   end
 end
 
+local LEAD_FIELDS = { "species", "level", "rawIv", "iv", "ivs", "evs", "heldItem",
+  "moves", "personality" }
+
+-- pokefirered/src/battle_main.c:1539
+local function hooked_trainer_party(foe, trainerId)
+  if type(foe) ~= "table" or type(foe.party) ~= "table" or #foe.party == 0 then return foe end
+  local G3 = require("src.mods.Gen3Compat")
+  local named = G3.partyNames(foe.party)
+  local out = ModRuntime.call("trainer.party", function(_, _, party)
+    return party
+  end, foe.trainerClass, trainerId, named)
+  if type(out) ~= "table" or #out == 0 then return foe end
+  local copy = {}
+  for k, v in pairs(foe) do copy[k] = v end
+  copy.party = G3.partyNums(out)
+  local lead = copy.party[1]
+  for _, key in ipairs(LEAD_FIELDS) do copy[key] = lead[key] end
+  return copy
+end
+
+local function battle_payload(Battle, opts, foe, isDouble)
+  local st = Battle.getState and Battle.getState()
+  local G3 = require("src.mods.Gen3Compat")
+  local enemy = st and st.enemy and st.enemy.mon
+  local sp = enemy and tonumber(enemy.species or enemy.speciesId)
+  local tid = opts.trainerId or (foe and foe.trainerId)
+  return {
+    battle = st, kind = opts.wild and "wild" or "trainer",
+    trainerId = (not opts.wild) and tid or nil,
+    trainerClass = (not opts.wild) and foe and foe.trainerClass or nil,
+    species = G3.speciesName(sp), speciesId = sp,
+    level = enemy and enemy.level, double = isDouble and true or false,
+  }
+end
+
 local function writeback(session, battleParty, remap, result, save, opts)
   opts = opts or {}
   if not session then return end
@@ -178,6 +214,10 @@ function BattleBridge.start(mod, game, foe, opts)
 
   local battleParty, remap = PartyView.fromSession(session.party, session.move_overlay)
   if #battleParty == 0 then return nil, "empty party" end
+  local isDouble = (not opts.wild) and (opts.double or (foe and foe.doubleBattle)) and true or false
+  if isDouble and Party.monsStateToDoubles(session.party) ~= Party.PLAYER_HAS_TWO_USABLE_MONS then
+    return nil, "need two mons"
+  end
 
   BattleBridge._remap = remap
   BattleBridge._battleParty = battleParty
@@ -185,8 +225,19 @@ function BattleBridge.start(mod, game, foe, opts)
   local save = game and game.save
   local done = opts.done
 
+  if not opts.wild and ModRuntime.wantsHook("trainer.party") then
+    foe = hooked_trainer_party(foe, opts.trainerId or (foe and foe.trainerId))
+  end
+
   local function finish(result)
     writeback(session, battleParty, remap, result, save, opts)
+    -- pokefirered/src/battle_main.c:3861
+    if ModRuntime.wants("battle.ended") then
+      local B = package.loaded["src.core.game3.battle"]
+      ModRuntime.emit("battle.ended", {
+        battle = B and B.getState and B.getState() or nil, result = result or "win",
+      })
+    end
     BattleBridge._remap = nil
     BattleBridge._battleParty = nil
     BattleBridge._finish = nil
@@ -216,6 +267,7 @@ function BattleBridge.start(mod, game, foe, opts)
 
   local startOpts = {
     wild = opts.wild,
+    double = isDouble,
     playerParty = battleParty,
     foe = foe,
     headless = opts.headless,
@@ -230,6 +282,12 @@ function BattleBridge.start(mod, game, foe, opts)
     playerGender = opts.playerGender or gender,
     onDone = function(result)
       finish(result)
+    end,
+    onStarted = function()
+      -- pokefirered/src/battle_main.c:612
+      if ModRuntime.wants("battle.started") then
+        ModRuntime.emit("battle.started", battle_payload(Battle, opts, foe, isDouble))
+      end
     end,
   }
 
@@ -298,6 +356,9 @@ function BattleBridge.start(mod, game, foe, opts)
     local leadMon = battleParty and battleParty[1]
     local playerLv = leadMon and (leadMon.level or leadMon.lvl) or 5
     local foeLv = (foe and foe.level) or (foe and foe.party and foe.party[1] and (foe.party[1].level or foe.party[1].lvl)) or 3
+    if isDouble then
+      playerLv, foeLv = PartyView.doubleTransitionLevels(battleParty, foe and foe.party)
+    end
 
     local pickOpts = {
       wild = opts.wild,

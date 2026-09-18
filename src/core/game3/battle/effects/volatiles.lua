@@ -12,7 +12,8 @@ local function protect_like(ctx, onSuccess)
   local last = user.expLastResulting and H.moveNum(user.expLastResulting)
   if last ~= 182 and last ~= 197 and last ~= 203 then user.expProtectStreak = 0 end
   local streak = user.expProtectStreak or 0
-  local ok = user.expTurnOrder ~= 2
+  local st = ctx.adapter._st
+  local ok = user.expTurnOrder ~= ((st and st.double) and 4 or 2)
   if ok and streak > 0 then
     local denom = 2 ^ math.min(streak, 3)
     ok = ctx.adapter:roll(0, denom - 1) == 0

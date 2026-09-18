@@ -3,6 +3,7 @@
 local Extract = require("src.import.gba.extract_island1")
 local PokemonExtract = require("src.import.gba.pokemon_extract")
 local Versions = require("src.import.gba.versions")
+local ModRuntime = require("src.mods.Runtime")
 
 local Pokemon = {}
 
@@ -154,6 +155,36 @@ function Pokemon.install(cache)
   else
     log("species pack missing — re-import FireRed ROM")
   end
+  Pokemon._runReloadHooks()
+end
+
+Pokemon._reloadHooks = {}
+
+function Pokemon.onReload(fn, key)
+  if type(fn) ~= "function" then return function() end end
+  local hooks = Pokemon._reloadHooks
+  for i = #hooks, 1, -1 do
+    local h = hooks[i]
+    if h.fn == fn or (key ~= nil and h.key == key) then
+      table.remove(hooks, i)
+    end
+  end
+  local entry = { fn = fn, key = key }
+  hooks[#hooks + 1] = entry
+  return function()
+    for i = #hooks, 1, -1 do
+      if hooks[i] == entry then table.remove(hooks, i) end
+    end
+  end
+end
+
+function Pokemon._runReloadHooks()
+  local snapshot = {}
+  for i, h in ipairs(Pokemon._reloadHooks) do snapshot[i] = h end
+  for _, h in ipairs(snapshot) do
+    local ok, err = pcall(h.fn, Pokemon)
+    if not ok then log("onReload callback failed: " .. tostring(err)) end
+  end
 end
 
 function Pokemon.invalidate()
@@ -194,6 +225,19 @@ function Pokemon.name(species)
   local n = Pokemon._names and Pokemon._names[species]
   if n and n ~= "" and n ~= "??????????" then return n end
   return string.format("POKéMON %03d", species)
+end
+
+function Pokemon.keyName(species)
+  species = tonumber(species)
+  if not species or species < 1 then return nil end
+  if not Pokemon._names then Pokemon.install(Pokemon._cache) end
+  local n = Pokemon._names and Pokemon._names[species]
+  if type(n) ~= "string" or n == "" or n == "??????????" then return nil end
+  n = n:upper()
+  n = n:gsub("♀", "_F"):gsub("♂", "_M")
+  n = n:gsub("[%.']", "")
+  n = n:gsub("[%s%-]+", "_")
+  return n
 end
 
 function Pokemon.speciesFromName(name)
@@ -649,6 +693,13 @@ function Pokemon.teachMove(mon, moveId)
       local max = move_max_pp(moveId)
       mon.pp[i] = max
       mon.maxPp[i] = max
+      -- pokefirered/src/pokemon.c:2208
+      if ModRuntime.wants("pokemon.move_learned") then
+        ModRuntime.emit("pokemon.move_learned", {
+          mon = mon, moveId = require("src.mods.Gen3Compat").moveName(moveId),
+          moveNum = moveId, slot = i,
+        })
+      end
       return true, i
     end
   end
@@ -669,6 +720,14 @@ function Pokemon.replaceMove(mon, slot, newMoveId)
   local max = move_max_pp(newMoveId)
   mon.pp[slot] = max
   mon.maxPp[slot] = max
+  -- pokefirered/src/pokemon.c:2248
+  if ModRuntime.wants("pokemon.move_learned") then
+    local G3 = require("src.mods.Gen3Compat")
+    ModRuntime.emit("pokemon.move_learned", {
+      mon = mon, moveId = G3.moveName(newMoveId), moveNum = newMoveId, slot = slot,
+      forgotten = G3.moveName(old), forgottenNum = tonumber(old),
+    })
+  end
   return old
 end
 

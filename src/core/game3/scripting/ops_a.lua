@@ -6,6 +6,7 @@ local Flags = require("src.core.game3.scripting.flags")
 local TextIR = require("src.core.game3.scripting.text_ir")
 local Natives = require("src.core.game3.scripting.natives")
 local Movement = require("src.core.game3.scripting.movement")
+local ModRuntime = require("src.mods.Runtime")
 
 local Ops = {}
 
@@ -101,7 +102,7 @@ local function show_message(vm, ptr, stay)
   return false
 end
 
-function Ops.dispatch(vm, row)
+local function dispatch(vm, row)
   local op = row.op
   local ctx = vm.ctx
   local store = vm.store
@@ -394,15 +395,39 @@ function Ops.dispatch(vm, row)
     local species = var_get(store, ctx, row[1] or row.species)
     local level = var_get(store, ctx, row[2] or row.level)
     if level < 1 then level = 5 end
+    local nickname
+    if ModRuntime.wants("pokemon.before_give") then
+      local Pokemon = require("src.core.game3.pokemon")
+      local gift = {
+        ctx = Ctx.modCtx(vm),
+        species = Pokemon.keyName(species) or species,
+        speciesId = species,
+        level = level,
+      }
+      ModRuntime.emit("pokemon.before_give", gift)
+      local id = type(gift.species) == "number" and gift.species
+        or Pokemon.speciesFromName(gift.species)
+      if tonumber(id) and tonumber(id) >= 1 and tonumber(id) ~= species then
+        species = tonumber(id)
+        local src = tonumber(row[1] or row.species) or 0
+        if src >= 0x4000 then Flags.setVar(store, ctx, src, species) end
+      end
+      if tonumber(gift.level) then
+        level = math.max(1, math.min(100, math.floor(tonumber(gift.level))))
+      end
+      if type(gift.nickname) == "string" and gift.nickname ~= "" then
+        nickname = gift.nickname
+      end
+    end
     local ok = false
     if a.giveMon then
-      ok = a.giveMon(species, level, row[3], row[4], row[5])
+      ok = a.giveMon(species, level, row[3], row[4], row[5], nickname)
     else
       local Party = require("src.core.game3.party")
       local Runtime = package.loaded["src.core.game3.runtime"]
       local session = Runtime and Runtime.getSession and Runtime.getSession()
       if session then
-        ok = Party.giveMon(session, species, level)
+        ok = Party.giveMon(session, species, level, nickname)
       end
     end
     Flags.setVar(store, ctx, Ctx.VAR_RESULT, ok and 0 or 2) -- 0=party, 2=fail
@@ -812,6 +837,37 @@ function Ops.dispatch(vm, row)
       return false
     end
 
+    local isDouble = battleType == 4 or battleType == 6 or battleType == 7 or battleType == 8
+    if op == "trainerbattle" and isDouble and a.startTrainerBattle then
+      local Party = require("src.core.game3.party")
+      local Runtime = package.loaded["src.core.game3.runtime"]
+      local session = Runtime and Runtime.getSession and Runtime.getSession()
+      -- pokefirered/data/scripts/trainer_battle.inc:30
+      if Party.monsStateToDoubles(session and session.party) ~= Party.PLAYER_HAS_TWO_USABLE_MONS then
+        local dialogs = Trainers.dialogs(trainerId) or {}
+        local cantText = (row.notEnoughText and resolve_text(vm, row.notEnoughText)) or dialogs.notEnough
+        if cantText and cantText ~= "" and a.openMessageAsync then
+          ctx.mode = "native"
+          ctx.status = "waiting"
+          local shown = false
+          ctx.nativePoll = function()
+            if not shown then return false end
+            ctx.status = "halted"
+            return false
+          end
+          a.openMessageAsync(cantText, function() shown = true end)
+          if shown then
+            ctx.mode = "bytecode"
+            ctx.status = "halted"
+            ctx.nativePoll = nil
+          end
+          return true
+        end
+        ctx.status = "halted"
+        return true
+      end
+    end
+
     if a.startTrainerBattle then
       local foe = Trainers.foeFromId(trainerId)
       if not foe then
@@ -866,7 +922,7 @@ function Ops.dispatch(vm, row)
             if eventScript and (battleType == 1 or battleType == 2
                 or battleType == 6 or battleType == 8) then
               pendingGoto = eventScript
-            elseif battleType == 0 then
+            elseif battleType == 0 or battleType == 4 then
               -- Single standard trainer: script ends after encounter
               shouldHalt = true
             end
@@ -879,6 +935,7 @@ function Ops.dispatch(vm, row)
           noWhiteout = earlyRival and (rivalFlags % 2 == 1),
           defeatText = defeatText,
           victoryText = victoryText,
+          double = (foe.doubleBattle == true) or nil,
         })
       end
 
@@ -1096,10 +1153,49 @@ function Ops.dispatch(vm, row)
       or op == "trywondercardscript" or op == "erasebox" then
     return false
   else
+    local Runtime = package.loaded["src.core.game3.runtime"]
+    local game = Runtime and Runtime._game
+    local commands = game and game.data and game.data.commands
+    local record = type(commands) == "table" and commands[op]
+    local fn = type(record) == "table" and record.fn or record
+    if type(fn) == "function" then
+      local okCall, res = pcall(fn, Ctx.modCtx(vm), unpack(row))
+      if not okCall then
+        if a.log then a.log("[game3] command " .. tostring(op) .. " failed: " .. tostring(res)) end
+        return false
+      end
+      if type(res) == "string" and vm.scripts and vm.scripts[res] then
+        jump(vm, res)
+      elseif res == "end" then
+        vm:halt()
+        return true
+      end
+      return false
+    end
     -- Unknown / Tier C: skip
     if a.log then a.log("[game3] skip op " .. tostring(op)) end
     return false
   end
+end
+
+local function commandVanilla(vm)
+  return function(_, name, hrow)
+    if type(hrow) ~= "table" then hrow = {} end
+    if name ~= nil and name ~= hrow.op then
+      local copy = {}
+      for k, v in pairs(hrow) do copy[k] = v end
+      copy.op = name
+      hrow = copy
+    end
+    return dispatch(vm, hrow)
+  end
+end
+
+function Ops.dispatch(vm, row)
+  if not ModRuntime.wantsHook("script.command") then
+    return dispatch(vm, row)
+  end
+  return ModRuntime.call("script.command", commandVanilla(vm), Ctx.modCtx(vm), row.op, row)
 end
 
 return Ops

@@ -127,9 +127,31 @@ function Party.size(sessionParty)
   return #sessionParty
 end
 
+Party.PLAYER_HAS_TWO_USABLE_MONS = 0
+Party.PLAYER_HAS_ONE_MON = 1
+Party.PLAYER_HAS_ONE_USABLE_MON = 2
+
+-- pokefirered/src/pokemon.c:3769
+function Party.monsStateToDoubles(sessionParty)
+  if type(sessionParty) ~= "table" then return Party.PLAYER_HAS_ONE_MON end
+  local count = 0
+  for _, mon in ipairs(sessionParty) do
+    if (tonumber(mon.species or mon.speciesId) or 0) ~= 0 then count = count + 1 end
+  end
+  if count <= 1 then return Party.PLAYER_HAS_ONE_MON end
+  local usable = 0
+  for _, mon in ipairs(sessionParty) do
+    local sp = tonumber(mon.species or mon.speciesId) or 0
+    if (tonumber(mon.hp) or 0) ~= 0 and sp ~= 0 and sp ~= 412 and not mon.isEgg and not mon.egg then
+      usable = usable + 1
+    end
+  end
+  return (usable > 1) and Party.PLAYER_HAS_TWO_USABLE_MONS or Party.PLAYER_HAS_ONE_USABLE_MON
+end
+
 --- Append a Gen3-shaped opaque mon for script givemon (starter / gifts).
 -- Returns true if added to party (slot available).
-function Party.giveMon(session, species, level)
+function Party.giveMon(session, species, level, nickname)
   if type(session) ~= "table" then return false end
   session.party = session.party or {}
   if #session.party >= 6 then return false end
@@ -170,8 +192,9 @@ function Party.giveMon(session, species, level)
     species = species,
     speciesId = species,
     name = name,
-    nickname = "",
+    nickname = type(nickname) == "string" and nickname or "",
     level = level,
+    metLevel = level,
     growthRate = growthRate,
     exp = SummaryData.expForLevel(growthRate, level),
     status = nil,

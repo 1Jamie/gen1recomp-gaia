@@ -2,6 +2,7 @@
 
 local State = require("src.core.game3.battle.state")
 local Rules = require("src.core.game3.battle.rules")
+local ModRuntime = require("src.mods.Runtime")
 
 local Adapter = {}
 
@@ -45,8 +46,15 @@ Adapter.ABILITY_BY_ID = ABILITY_BY_ID
 local function side_of(battler)
   if type(battler) == "table" then return battler.side end
   if type(battler) == "string" then return battler end
+  if type(battler) == "number" then return State.sideOf(battler) end
   return nil
 end
+
+local function id_of(battler)
+  if battler == nil then return nil end
+  return State.idOf(battler)
+end
+Adapter.idOf = id_of
 
 function Adapter.new(battleState, sayFn)
   local a = {
@@ -77,6 +85,8 @@ function Adapter.new(battleState, sayFn)
       name = name,
       attacker = side_of(attacker),
       target = side_of(target),
+      attackerId = id_of(attacker),
+      targetId = id_of(target),
       arg = arg,
     })
   end
@@ -175,6 +185,14 @@ function Adapter.new(battleState, sayFn)
       local Engine = package.loaded["src.core.game3.battle.engine"]
       if Engine and Engine.cancelMultiTurnMoves then Engine.cancelMultiTurnMoves(battler) end
     end
+    -- pokefirered/src/battle_script_commands.c:2110
+    if ModRuntime.wants("battle.status_inflicted") then
+      ModRuntime.emit("battle.status_inflicted", {
+        battle = self._st, target = battler, status = status, source = source,
+        side = battler.side, battlerId = id_of(battler),
+        sourceId = type(source) == "table" and id_of(source) or nil,
+      })
+    end
     return true
   end
   function a:clearStatus(battler)
@@ -210,6 +228,7 @@ function Adapter.new(battleState, sayFn)
     return self:pushEvent({
       kind = kind or "hp",
       side = battler.side,
+      battler = id_of(battler),
       from = from,
       to = to,
       maxHp = self:maxHp(battler),
@@ -246,6 +265,14 @@ function Adapter.new(battleState, sayFn)
     if battler then
       battler.fainted = true
       if battler.mon then battler.mon.hp = 0 end
+      -- pokefirered/src/battle_script_commands.c:2831
+      if ModRuntime.wants("battle.fainted") and battler._modFainted ~= (battler.mon or true) then
+        battler._modFainted = battler.mon or true
+        ModRuntime.emit("battle.fainted", {
+          battle = self._st, battler = battler, side = self:ownSide(battler),
+          sideName = battler.side, battlerId = id_of(battler),
+        })
+      end
     end
   end
   function a:displayName(battler) return State.displayName(battler) end
@@ -264,17 +291,33 @@ function Adapter.new(battleState, sayFn)
     if ok and type(v) == "number" then return v end
     return math.random(lo, hi)
   end
-  function a:activeBattlers()
+  function a:battlers() return State.present(self._st) end
+  function a:activeBattlers() return State.present(self._st) end
+  function a:aliveBattlers()
     local out = {}
-    if self._st.player then out[#out + 1] = self._st.player end
-    if self._st.enemy then out[#out + 1] = self._st.enemy end
+    for _, b in ipairs(State.present(self._st)) do
+      if not State.isFainted(b) then out[#out + 1] = b end
+    end
     return out
   end
+  function a:battler(id) return State.battler(self._st, id) end
+  function a:isDouble() return self._st.double == true end
   function a:foeOf(battler)
     if not battler then return nil end
-    if battler.side == "player" then return self._st.enemy end
-    return self._st.player
+    local st = self._st
+    if not st.double then
+      if battler.side == "player" then return st.enemy end
+      return st.player
+    end
+    local opp = State.OPPOSITE(State.idOf(battler))
+    if State.isPresent(st, opp) then return State.battler(st, opp) end
+    local alt = State.PARTNER(opp)
+    if State.isPresent(st, alt) then return State.battler(st, alt) end
+    return State.battler(st, opp)
   end
+  function a:foesOf(battler) return State.foes(self._st, battler) end
+  function a:alliesOf(battler) return State.allies(self._st, battler) end
+  function a:partnerOf(battler) return State.partner(self._st, battler) end
   function a:ownSide(battler)
     if not battler then return nil end
     if battler.side == "player" then return self._st.playerSide end

@@ -4,6 +4,7 @@ local Ctx = require("src.core.game3.scripting.ctx")
 local Flags = require("src.core.game3.scripting.flags")
 local Ops = require("src.core.game3.scripting.ops_a")
 local Adapters = require("src.core.game3.scripting.adapters")
+local ModRuntime = require("src.mods.Runtime")
 
 local Vm = {}
 Vm.__index = Vm
@@ -49,7 +50,16 @@ function Vm:setPc(listKey, index)
   self.ctx.pc = { listKey = listKey, index = index or 1 }
 end
 
-function Vm:halt()
+function Vm:_scriptEnded(completed)
+  if not self._scriptKey then return end
+  local key = self._scriptKey
+  self._scriptKey = nil
+  if ModRuntime.wants("script.ended") then
+    ModRuntime.emit("script.ended", { ctx = Ctx.modCtx(self), completed = completed and true or false, key = key })
+  end
+end
+
+function Vm:halt(aborted)
   local a = self.adapters
   local ctx = self.ctx
   if a and a.unfreezeLocal then
@@ -58,6 +68,7 @@ function Vm:halt()
     end
   end
   Ctx.haltCleanup(self.ctx)
+  self:_scriptEnded(not aborted)
 end
 
 function Vm:isRunning()
@@ -80,6 +91,7 @@ function Vm:start(scriptKey, facing)
     end
     return false
   end
+  if self._scriptKey then self:_scriptEnded(false) end
   self.ctx.mode = "bytecode"
   self.ctx.status = "running"
   self.ctx.stack = {}
@@ -103,6 +115,10 @@ function Vm:start(scriptKey, facing)
     self.ctx.specialVars[Ctx.VAR_FACING] = keptFacing
   end
   self:setPc(scriptKey, 1)
+  self._scriptKey = scriptKey
+  if ModRuntime.wants("script.started") then
+    ModRuntime.emit("script.started", { ctx = Ctx.modCtx(self), key = scriptKey })
+  end
   self:resume()
   return true
 end
@@ -114,7 +130,7 @@ function Vm:resume()
     guard = guard + 1
     if guard > 10000 then
       self.adapters.log("[game3] runaway script")
-      self:halt()
+      self:halt(true)
       return
     end
     if ctx.mode == "native" then
@@ -134,7 +150,7 @@ function Vm:resume()
     local list = self.scripts[pc.listKey]
     if not list then
       self.adapters.log("[game3] bad list " .. tostring(pc.listKey))
-      self:halt()
+      self:halt(true)
       return
     end
     local row = list[pc.index]

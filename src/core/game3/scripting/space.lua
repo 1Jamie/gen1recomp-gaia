@@ -133,6 +133,7 @@ local function persist_sidecar(mod, game)
   if session then
     session.flags = snap.flags
     session.vars = snap.vars
+    return
   end
   game = resolve_game(mod, game)
   if not (game and game.save) then return end
@@ -237,7 +238,7 @@ end
 
 function Space.deactivate(mod)
   if Space.vm then
-    Space.vm:halt()
+    Space.vm:halt(Space.vm:isRunning())
   end
   persist_sidecar(mod or Space._mod)
   if Space.store then

@@ -1,3 +1,5 @@
+local AnimCoords = require("src.core.game3.battle.anim_coords")
+
 local BallOpen = {}
 
 BallOpen.CACHE_SUB = "pokemon/battle/ball_open"
@@ -36,7 +38,7 @@ function BallOpen.reset()
   BallOpen._sprites = {}
   BallOpen._particles = {}
   BallOpen._tasks = {}
-  BallOpen._mon = {}
+  BallOpen._mon = AnimCoords.idTable()
   BallOpen._fade = new_fade()
 end
 
@@ -398,6 +400,7 @@ end
 
 -- pokefirered/src/pokeball.c:763
 function BallOpen.start(side, x, y, ballItem, unfadeLater)
+  side = AnimCoords.fixedId(side) or side
   local ballId = BallOpen.ballIdForItem(ballItem)
   -- pokefirered/src/battle_anim_special.c:1427
   local tasks = BallOpen._tasks
@@ -505,7 +508,7 @@ function BallOpen.fadeActive()
 end
 
 function BallOpen.monBlend(side)
-  local m = BallOpen._mon[side]
+  local m = BallOpen._mon[AnimCoords.fixedId(side) or side]
   if not m or m.coeff <= 0 then return 0 end
   local d = BallOpen.data()
   local c = d and d.fadeColors and d.fadeColors[m.ballId + 1]

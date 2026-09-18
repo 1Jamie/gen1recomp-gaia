@@ -6,10 +6,12 @@ local AnimVm = require("src.core.game3.battle.anim_vm")
 local AnimSprites = require("src.core.game3.battle.anim_sprites")
 local BallOpen = require("src.core.game3.battle.ball_open")
 local AnimPal = require("src.core.game3.battle.anim_pal")
+local AnimCoords = require("src.core.game3.battle.anim_coords")
 
 local Anim = {}
 
 Anim.Z = AnimVm.Z
+Anim.Coords = AnimCoords
 
 -- pret sBattlerCoords (singles) — CreateSprite CENTER
 Anim.ENEMY_MON = { x = 176, y = 40 }
@@ -24,10 +26,7 @@ Anim._expTweening = false
 Anim._introTweening = 0
 Anim._seqBusy = false
 Anim._statusQueue = {}
-Anim._present = {
-  player = nil,
-  enemy = nil,
-}
+Anim._present = AnimCoords.idTable()
 Anim._stage = nil
 Anim._screenEffect = {
   type = "none",
@@ -112,9 +111,11 @@ function Anim.endScreenEffect()
   end
 end
 
-local function default_present(side)
+local function default_present(id)
+  local side = AnimCoords.sideOf(id)
   local z = (side == "player") and Anim.Z.PLAYER or Anim.Z.ENEMY
   return {
+    id = id,
     side = side,
     ox = 0,
     oy = 0,
@@ -144,10 +145,13 @@ local function default_stage(headless)
       enemy = { visible = false, ox = 0, oy = 0, picId = nil },
     },
     ball = { visible = false, x = 0, y = 0, frame = 0, side = nil },
-    healthbox = {
-      player = { visible = headless and true or false, ox = 0 },
-      enemy = { visible = headless and true or false, ox = 0 },
-    },
+    balls = {},
+    healthbox = AnimCoords.idTable({
+      [0] = { visible = headless and true or false, ox = 0 },
+      [1] = { visible = headless and true or false, ox = 0 },
+      [2] = { visible = headless and true or false, ox = 0 },
+      [3] = { visible = headless and true or false, ox = 0 },
+    }),
     partyBar = {
       player = { visible = false, ox = 0, balls = {} },
       enemy = { visible = false, ox = 0, balls = {} },
@@ -165,20 +169,69 @@ function Anim.x(v)
   return tonumber(v) or 0
 end
 
-function Anim.present(side)
-  if side == "attacker_side" and Anim._vm then
-    side = Anim._vm:attackerSide()
+function Anim.idOf(key)
+  if key == "attacker_side" then
+    local vm = Anim._vm
+    return vm and vm.attackerId and vm:attackerId() or 0
   end
-  if side ~= "player" and side ~= "enemy" then return nil end
-  if not Anim._present[side] then
-    Anim._present[side] = default_present(side)
-  end
-  return Anim._present[side]
+  return AnimCoords.idOf(key)
 end
 
-function Anim.battlerCenter(side)
-  local base = (side == "player") and Anim.PLAYER_MON or Anim.ENEMY_MON
-  local p = Anim.present(side)
+function Anim.sideOf(id)
+  return AnimCoords.sideOf(id)
+end
+
+function Anim.isDouble(st)
+  return AnimCoords.isDouble(st)
+end
+
+function Anim.setDouble(v)
+  AnimCoords.setDouble(v)
+end
+
+function Anim.present(key)
+  local id = Anim.idOf(key)
+  if id == nil then return nil end
+  local p = rawget(Anim._present, id)
+  if not p then
+    if id >= 2 and not AnimCoords.isDouble() then return nil end
+    p = default_present(id)
+    if id >= 2 and not Anim._headless then p.visible = false end
+    rawset(Anim._present, id, p)
+  end
+  return p
+end
+
+-- pokefirered/src/battle_anim_mons.c:105
+function Anim.coords(st, key)
+  return AnimCoords.coords(st, key)
+end
+
+-- pokefirered/src/battle_anim_mons.c:1908
+function Anim.subpriority(key)
+  return AnimCoords.subpriority(key)
+end
+
+-- pokefirered/src/battle_anim_mons.c:1934
+function Anim.bgPriorityRank(key)
+  return AnimCoords.bgPriorityRank(key)
+end
+
+function Anim.monDrawOrder(st)
+  return AnimCoords.monDrawOrder(st)
+end
+
+function Anim.particleBand(k, st)
+  return AnimCoords.particleBand(k, st)
+end
+
+function Anim.battlerIds(st)
+  return AnimCoords.ids(st)
+end
+
+function Anim.battlerCenter(key)
+  local base = Anim.coords(nil, key) or Anim.ENEMY_MON
+  local p = Anim.present(key)
   local cx = base.x + (p and p.ox or 0)
   local cy = base.y + (p and p.oy or 0)
   return cx, cy
@@ -192,13 +245,15 @@ function Anim.reset(opts)
   Anim._introTweening = 0
   Anim._seqBusy = false
   Anim._statusQueue = {}
-  Anim._present.player = default_present("player")
-  Anim._present.enemy = default_present("enemy")
-  Anim._stage = default_stage(Anim._headless)
-  if not Anim._headless then
-    Anim._present.player.visible = false
-    Anim._present.enemy.visible = false
+  AnimCoords.setDouble(opts.double)
+  AnimCoords.bind(nil)
+  for id = 0, 3 do rawset(Anim._present, id, nil) end
+  for id = 0, AnimCoords.isDouble() and 3 or 1 do
+    local p = default_present(id)
+    if not Anim._headless then p.visible = false end
+    rawset(Anim._present, id, p)
   end
+  Anim._stage = default_stage(Anim._headless)
   if not Anim._vm then
     Anim._vm = AnimVm.new()
   end
@@ -220,11 +275,81 @@ function Anim.reset(opts)
 end
 
 -- pokefirered/src/pokeball.c:769
-function Anim.ballOpen(side, x, y)
+function Anim.ballOpen(key, x, y)
   if Anim._headless then return nil end
-  local Battle = package.loaded["src.core.game3.battle"]
-  local b = Battle and Battle._st and Battle._st[side]
-  return BallOpen.start(side, x, y, b and b.mon and b.mon.pokeball)
+  local id = Anim.idOf(key) or 1
+  local b = AnimCoords.battler(nil, id)
+  return BallOpen.start(id, x, y, b and b.mon and b.mon.pokeball)
+end
+
+local function play_se(name, pan)
+  pcall(function()
+    local SE = require("src.core.game3.se_ids")
+    require("src.core.game3.audio").playSe(SE[name], { pan = pan })
+  end)
+end
+
+-- pokefirered/src/pokeball.c:349
+function Anim.sendOutMon(key, opts)
+  opts = opts or {}
+  local id = Anim.idOf(key) or 1
+  local side = AnimCoords.sideOf(id)
+  local p = Anim.present(id)
+  local done = opts.onComplete
+  if Anim._headless or not p then
+    if p then
+      p.visible = true
+      p.ox, p.oy, p.scale = 0, 0, 1
+    end
+    if done then done() end
+    return nil
+  end
+  local base = Anim.coords(nil, id) or Anim.ENEMY_MON
+  local stage = Anim.stage()
+  stage.balls = stage.balls or {}
+  local ball = { visible = true, frame = 0, rot = 0, side = side, battler = id, x = 0, y = 0 }
+  stage.balls[id] = ball
+  local pan = (side == "player") and -64 or 63
+  local function reveal()
+    ball.frame = 1
+    ball.rot = 0
+    play_se("SE_BALL_OPEN", pan)
+    Anim.ballOpen(id, ball.x, ball.y)
+    p.visible = true
+    p.ox = 0
+    p.oy = 16
+    p.scale = 0.16
+    p.darken = 0
+    Anim.tweenStage(12, function(u)
+      p.oy = 16 * (1 - u)
+      p.scale = 0.16 + 0.84 * u
+      ball.frame = (u < 0.5) and 1 or 2
+    end, function()
+      p.oy = 0
+      p.scale = 1
+      ball.visible = false
+      if stage.balls[id] == ball then stage.balls[id] = nil end
+      if done then done() end
+    end)
+  end
+  if side == "player" then
+    -- pokefirered/src/pokeball.c:912
+    local sx, sy = 48, 70
+    local tx, ty = base.x, base.y + 24
+    ball.x, ball.y = sx, sy
+    play_se("SE_BALL_THROW", pan)
+    Anim.tweenStage(25, function(u, t)
+      local f = t and t.frames or (u * 25)
+      ball.x = sx + (tx - sx) * u
+      ball.y = sy + (ty - sy) * u + (-30 * 4 * u * (1 - u))
+      ball.rot = f * ((25 / 256) * math.pi * 2)
+    end, reveal)
+  else
+    -- pokefirered/src/pokeball.c:406
+    ball.x, ball.y = base.x, base.y + 24
+    Anim.tweenStage(16, function() end, reveal)
+  end
+  return ball
 end
 
 function Anim.setSeqBusy(v)
@@ -261,14 +386,15 @@ end
 --- Pret faint presentation: SE_FAINT + sink/slide off, then hide mon + healthbox.
 -- Opponent: SpriteCB_AnimFaintOpponent — +8px every 2 frames, ~8 steps.
 -- Player: SpriteCB_FaintSlideAnim — +5px/frame until below screen.
-function Anim.faintMon(side, opts)
+function Anim.faintMon(key, opts)
   opts = opts or {}
-  side = side or "enemy"
-  local p = Anim.present(side)
+  local id = Anim.idOf(key or "enemy") or 1
+  local side = AnimCoords.sideOf(id)
+  local p = Anim.present(id)
   local stage = Anim.stage()
-  local hb = stage and stage.healthbox and stage.healthbox[side]
+  local hb = stage and stage.healthbox and stage.healthbox[id]
   local AnimSprites = require("src.core.game3.battle.anim_sprites")
-  AnimSprites.clearHost(side)
+  AnimSprites.clearHost(id)
 
   local function hide_all()
     if p then
@@ -311,7 +437,8 @@ function Anim.faintMon(side, opts)
       local ok, Display = pcall(require, "src.core.game3.display")
       if ok and Display and Display.H then screenH = Display.H end
     end
-    local need = math.max(1, math.ceil((screenH - (Anim.PLAYER_MON.y or 80) + 32) / 5))
+    local base = Anim.coords(nil, id) or Anim.PLAYER_MON
+    local need = math.max(1, math.ceil((screenH - (base.y or 80) + 32) / 5))
     local frames = math.max(16, need + 2)
     Anim.tweenStage(frames, function(_, t)
       p.oy = fromOy + 5 * (t.frames or 1)
@@ -348,9 +475,9 @@ end
 function Anim.syncDisplayFromState(st)
   if not st then return end
   local Experience = require("src.core.game3.battle.experience")
-  for _, side in ipairs({ "player", "enemy" }) do
-    local b = st[side]
-    local p = Anim.present(side)
+  for _, id in ipairs(AnimCoords.ids(st)) do
+    local b = AnimCoords.battler(st, id)
+    local p = Anim.present(id)
     if b and b.mon and p then
       p.displayHp = tonumber(b.mon.hp) or 0
       p.displayMaxHp = tonumber(b.mon.maxHp) or 1
@@ -671,6 +798,7 @@ local function launch_table(kind, name, opts)
   local o = {}
   for k, v in pairs(opts) do o[k] = v end
   if o.targetSide == nil then o.targetSide = o.attackerSide end
+  if o.targetId == nil then o.targetId = o.attackerId end
   if kind == "status" and o.statusAnim == nil then o.statusAnim = true end
   if Anim._vm.launchScript then return Anim._vm:launchScript(script, o) end
   return Anim._vm:launch(script, o)
@@ -726,16 +854,19 @@ function Anim.shownBattler(side, battler)
 end
 
 -- pokefirered/src/battle_anim_mons.c:286
-function Anim.substituteY(side)
-  if side == "player" then return Anim.PLAYER_MON.y + 17 end
-  return Anim.ENEMY_MON.y + 16
+function Anim.substituteY(key)
+  local id = Anim.idOf(key) or 1
+  local base = Anim.coords(nil, id) or Anim.ENEMY_MON
+  if AnimCoords.sideOf(id) == "player" then return base.y + 17 end
+  return base.y + 16
 end
 
 -- pokefirered/src/battle_gfx_sfx_util.c:762
-function Anim.substituteImage(side)
+function Anim.substituteImage(key)
   local pack = load_pack()
   local tags = pack and pack.tags
-  local info = tags and tags[(side == "player") and "SUBSTITUTE_DOLL_BACK" or "SUBSTITUTE_DOLL_FRONT"]
+  local id = Anim.idOf(key) or 1
+  local info = tags and tags[(AnimCoords.sideOf(id) == "player") and "SUBSTITUTE_DOLL_BACK" or "SUBSTITUTE_DOLL_FRONT"]
   return info and info.image or nil
 end
 

@@ -39,7 +39,7 @@ function Special.roar(ctx)
   end
   if not H.accuracy(ctx, "lockon") then return end
   if not H.accuracy(ctx, "normal") then return end
-  local candidates = engine().switchCandidates(st, target.side)
+  local candidates = engine().switchCandidates(st, st.double and target.id or target.side)
   if not st.wild and #candidates < 1 then return H.sayFail(ctx) end
   local uLvl = tonumber(user.mon and user.mon.level) or 1
   local tLvl = tonumber(target.mon and target.mon.level) or 1
@@ -57,7 +57,7 @@ function Special.roar(ctx)
     return
   end
   local slot = candidates[ad:roll(1, #candidates)]
-  local nb = engine().performSwitch(st, ad, target.side, slot, { reason = "roar" })
+  local nb = engine().performSwitch(st, ad, st.double and target.id or target.side, slot, { reason = "roar" })
   if nb then
     local M = H.move(ctx)
     if M then M.target = nb end
@@ -94,6 +94,9 @@ function Special.conversion2(ctx)
   local lastType = user.expLastHitByType
   if not last or last == 0 or lastType == nil then return H.sayFail(ctx) end
   local foe = ad:foeOf(user)
+  if ad._st.double and user.expLastHitById ~= nil then
+    foe = require("src.core.game3.battle.state").battler(ad._st, user.expLastHitById) or foe
+  end
   if engine().isTwoTurnMove(last) and foe and foe.twoTurnMove then return H.sayFail(ctx) end
   local valid = {}
   local t = Types.TABLE
@@ -228,7 +231,7 @@ end
 function Special.batonPass(ctx)
   local ad, user = ctx.adapter, ctx.user
   local st = ad._st
-  local candidates = engine().switchCandidates(st, user.side)
+  local candidates = engine().switchCandidates(st, st.double and user.id or user.side)
   if #candidates == 0 then return H.sayFail(ctx) end
   H.attackAnim(ctx)
   local pick
@@ -237,16 +240,16 @@ function Special.batonPass(ctx)
     if ok then pick = tonumber(v) end
   elseif user.side == "player" and st.interactiveChoices and coroutine.running() then
     -- pokefirered/src/battle_script_commands.c:4626
-    pick = tonumber(coroutine.yield({ kind = "baton_pass", side = user.side, candidates = candidates }))
+    pick = tonumber(coroutine.yield({ kind = "baton_pass", side = user.side, battler = user.id, candidates = candidates }))
   elseif user.side == "enemy" then
     -- pokefirered/src/battle_controller_opponent.c:1410
-    pick = engine().mostSuitableMon(st, ad, "enemy")
+    pick = engine().mostSuitableMon(st, ad, st.double and user.id or "enemy")
   end
   local slot = candidates[1]
   for _, c in ipairs(candidates) do
     if c == pick then slot = pick end
   end
-  local nb = engine().performSwitch(st, ad, user.side, slot, { batonPass = true, reason = "baton_pass" })
+  local nb = engine().performSwitch(st, ad, st.double and user.id or user.side, slot, { batonPass = true, reason = "baton_pass" })
   if nb then
     local M = H.move(ctx)
     if M then M.user = nb end
@@ -267,6 +270,10 @@ function Special.teleport(ctx)
   local ab = ad:abilityOf(user)
   local foe = ad:foeOf(user)
   local fab = foe and ad:abilityOf(foe)
+  if ad._st.double then
+    local Abilities = require("src.core.game3.battle.abilities")
+    foe, fab = Abilities.escapeBlocker(ad, user)
+  end
   if not (ab == "RUN_AWAY" or item == 194) then
     if fab == "SHADOW_TAG" or (fab == "ARENA_TRAP" and not H.hasType(ctx, user, Types.ID.FLYING) and ab ~= "LEVITATE")
         or (fab == "MAGNET_PULL" and H.hasType(ctx, user, Types.ID.STEEL)) then
@@ -284,7 +291,10 @@ end
 -- pokefirered/src/battle_script_commands.c:8702
 function Special.followMe(ctx)
   local side = ctx.adapter:ownSide(ctx.user)
-  if side then side.expFollowMe = ctx.user end
+  if side then
+    side.expFollowMe = ctx.user
+    side.expFollowMeId = ctx.user.id
+  end
   H.attackAnim(ctx)
   ctx.adapter:say(name(ctx, ctx.user) .. " became the\ncenter of attention!")
 end

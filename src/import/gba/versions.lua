@@ -1178,8 +1178,11 @@ Versions.BATTLE_UI = {
   healthbox_elements = 0xD11BC4,    -- uncompressed 320×24 4bpp
   healthbox_player = 0xD1F340,      -- gHealthboxSinglesPlayerGfx LZ → 4096
   healthbox_enemy = 0xD1F604,       -- gHealthboxSinglesOpponentGfx LZ → 2048
+  healthbox_doubles_player = 0xD1F794,   -- gHealthboxDoublesPlayerGfx LZ → 2048
+  healthbox_doubles_opponent = 0xD1F928, -- gHealthboxDoublesOpponentGfx LZ → 2048
   healthbox_pal = 0xD11B84,         -- uncompressed 32 (gBattleInterface_Healthbox_Pal)
   healthbar_pal = 0xD11BA4,         -- uncompressed 32 (gBattleInterface_Healthbar_Pal)
+  font_bold_glyphs = 0x22FC48,      -- uncompressed 8192 2bpp (sFontBoldJapaneseGlyphs, src/text.c:384)
   terrain_grass = {
     pal = 0x248400,                 -- LZ → 96 (3 banks)
     tiles = 0x24844C,               -- LZ → 3136
@@ -1273,6 +1276,8 @@ Versions.SUMMARY_POKERUS_GFX = 0x463B20          -- sPokerus_Gfx (64 bytes)
 Versions.SUMMARY_POKERUS_PAL = 0x463B00          -- sPokerus_Pal (32 bytes)
 Versions.SUMMARY_HP_BAR_YELLOW_PAL = 0x463AAC    -- sHpBar_Yellow_Pal (32 bytes)
 Versions.SUMMARY_HP_BAR_RED_PAL = 0x463ACC       -- sHpBar_Red_Pal (32 bytes)
+Versions.MENU_INFO_GFX = 0xE95DDC                -- gMenuInfoElements_Gfx (4bpp 128x128, 8192 bytes)
+Versions.MENU_INFO_PAL = 0xE95D9C                -- gMenuInfoElements1_Pal + gMenuInfoElements2_Pal (64 bytes)
 
 -- Bag / item-menu chrome + item icons (LZ; FireRed USA 1.0).
 Versions.BAG_BG_GFX = 0xE830CC                  -- gBagBg_Gfx

@@ -4,6 +4,7 @@
 
 local Flags = require("src.core.game3.scripting.flags")
 local Ctx = require("src.core.game3.scripting.ctx")
+local ModRuntime = require("src.mods.Runtime")
 
 local TrainerSight = {}
 
@@ -82,6 +83,7 @@ function TrainerSight.getTrainerId(eo)
         local tid = tonumber(row.trainer or row[1])
         if tid then
           eo.trainerId = tid
+          eo.trainerBattleType = tonumber(row.type) or 0
           return tid
         end
       end
@@ -108,6 +110,32 @@ function TrainerSight.isDefeated(eo, store, ctx)
     end
   end
   return false
+end
+
+function TrainerSight.battleType(eo)
+  if not eo then return nil end
+  if eo.trainerBattleType == nil then
+    local Sp = Space()
+    local scriptKey = eo.scriptKey or (eo.def and eo.def.scriptKey)
+    local list = scriptKey and Sp and Sp.bundle and Sp.bundle.scripts and Sp.bundle.scripts[scriptKey]
+    eo.trainerBattleType = false
+    for _, row in ipairs(type(list) == "table" and list or {}) do
+      if row.op == "trainerbattle" or row.op == "dotrainerbattle" then
+        eo.trainerBattleType = tonumber(row.type) or 0
+        break
+      end
+    end
+  end
+  return eo.trainerBattleType or nil
+end
+
+-- pokefirered/src/trainer_see.c:114
+function TrainerSight.blockedByDoubles(eo)
+  if TrainerSight.battleType(eo) ~= 4 then return false end
+  local Party = require("src.core.game3.party")
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  local session = Runtime and Runtime.getSession and Runtime.getSession()
+  return Party.monsStateToDoubles(session and session.party) ~= Party.PLAYER_HAS_TWO_USABLE_MONS
 end
 
 --- Test if a metatile behavior byte represents a one-way ledge hop.
@@ -222,6 +250,15 @@ function TrainerSight.engage(game, eo, dist)
   -- 3. Play encounter music immediately when trainer spots player (pret PlayTrainerEncounterMusic / EventScript_DoTrainerBattleFromApproach)
   local tid = TrainerSight.getTrainerId(eo)
   local okT, Trainers = pcall(require, "src.core.game3.scripting.trainers")
+  -- pokefirered/src/trainer_see.c:105
+  if ModRuntime.wants("world.trainer_engaged") then
+    local info = okT and Trainers and tid and Trainers.info and Trainers.info(tid) or nil
+    local Map = package.loaded["src.core.game3.map"]
+    ModRuntime.emit("world.trainer_engaged", {
+      npc = eo, trainerClass = info and info.class, partyIndex = tid, trainerId = tid,
+      mapId = Map and Map.current, sight = { distance = dist, facing = eo.facing },
+    })
+  end
   local musicId = okT and Trainers and Trainers.getEncounterMusic and Trainers.getEncounterMusic(tid)
   if not musicId then
     musicId = 285 -- MUS_ENCOUNTER_BOY fallback
@@ -308,7 +345,7 @@ function TrainerSight.check(game, specificTrainer)
       local sight = tonumber(eo.sight or (eo.def and (eo.def.sight or eo.def.trainerRange))) or 0
       if sight > 0 and not TrainerSight.isDefeated(eo, store, ctx) then
         local spotted, dist = TrainerSight.checkLineOfSight(eo, P, game)
-        if spotted then
+        if spotted and not TrainerSight.blockedByDoubles(eo) then
           TrainerSight.engage(game, eo, dist)
           return true
         end
@@ -325,7 +362,7 @@ function TrainerSight.check(game, specificTrainer)
       local sight = tonumber(eo.sight or (eo.def and (eo.def.sight or eo.def.trainerRange))) or 0
       if sight > 0 and not TrainerSight.isDefeated(eo, store, ctx) then
         local spotted, dist = TrainerSight.checkLineOfSight(eo, P, game)
-        if spotted then
+        if spotted and not TrainerSight.blockedByDoubles(eo) then
           -- Immediately engage and break iterator to suppress any other simultaneous spots
           TrainerSight.engage(game, eo, dist)
           return true

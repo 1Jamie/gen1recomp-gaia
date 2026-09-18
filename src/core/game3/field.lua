@@ -1,6 +1,7 @@
 -- Game3 field loop coordinator (scripts, player input, heal/respawn).
 
 local Player = require("src.core.game3.player")
+local ModRuntime = require("src.mods.Runtime")
 
 local Field = {}
 
@@ -54,6 +55,9 @@ end
 function Field.update(_dt)
   if not Field.running then return end
   local game = Field._game
+
+  local Compat = package.loaded["src.mods.Gen3Compat"]
+  if Compat and Compat.worldTick then Compat.worldTick(_dt) end
 
   local Space = package.loaded["src.core.game3.scripting.space"]
   if Space and Space.vm then
@@ -233,9 +237,30 @@ end
 
 --- A-button field interact: NPC talk → bgEvent → metatile interaction → Surf.
 -- Returns true if a script (or handled action) started.
+local function interacted(fx, fy, kind, target)
+  if not ModRuntime.wants("world.interacted") then return end
+  local Map = package.loaded["src.core.game3.map"]
+  local session = Field._session
+  ModRuntime.emit("world.interacted", {
+    mapId = (session and session.map) or (Map and Map.current),
+    x = fx, y = fy, kind = kind, target = target,
+  })
+end
+
+local inInteract = false
+
 function Field.interact(game)
   game = game or Field._game
   if not Field.running then return false end
+  local Compat = package.loaded["src.mods.Gen3Compat"]
+  local replaced = not inInteract and Compat and Compat.interactWrapper and Compat.interactWrapper()
+  if replaced then
+    inInteract = true
+    local ok, res = pcall(replaced, Compat.resolve("src.world.OverworldController"))
+    inInteract = false
+    if not ok then error(res, 0) end
+    return res
+  end
 
   local Runtime = package.loaded["src.core.game3.runtime"]
   if Runtime and Runtime.uiBusy and Runtime.uiBusy() then return false end
@@ -320,9 +345,22 @@ function Field.interact(game)
       end
     elseif eo.def.scriptKey then
       local lid = eo.localId or eo.def.localId or eo.def.index or 0
-      Objects.freeze(lid)
-      Objects.facePlayer(lid, game)
-      Space.startScript(eo.def.scriptKey, lid, facingDir)
+      local talkTo = Compat and Compat.talkToWrapper and Compat.talkToWrapper()
+      if talkTo and talkTo(Compat.resolve("src.world.OverworldController"), eo) then
+        interacted(ox, oy, "npc", eo)
+        return true
+      end
+      local function talk()
+        Objects.freeze(lid)
+        Objects.facePlayer(lid, game)
+        Space.startScript(eo.def.scriptKey, lid, facingDir)
+      end
+      if ModRuntime.wantsHook("world.talk") then
+        ModRuntime.call("world.talk", talk, game, eo)
+      else
+        talk()
+      end
+      interacted(ox, oy, "npc", eo)
       return true
     end
   end
@@ -333,14 +371,20 @@ function Field.interact(game)
   if elevation==0 then elevation=P.elevation or 0 end
   local sign = bg_event_at(game, fx, fy, elevation, facingDir)
   if sign and sign.scriptKey then
-    if Space.startScript(sign.scriptKey, nil, facingDir) then return true end
+    if Space.startScript(sign.scriptKey, nil, facingDir) then
+      interacted(fx, fy, "sign", sign)
+      return true
+    end
   end
 
   -- 3) Original metatile interactions follow objects and map-specific scripts.
   local behavior=Collision.behavior(fx,fy)
   local key=require("src.core.game3.scripting.interaction_scripts").scriptFor(behavior,P.facing)
   if behavior==nil then key=CollisionStd.scriptFor(Collision.cell(fx,fy)) end
-  if key and Space.startScript(key,nil,facingDir) then return true end
+  if key and Space.startScript(key,nil,facingDir) then
+    interacted(fx, fy, "script", key)
+    return true
+  end
 
   -- 4) Water / Surf interact on facing water tile
   if not P.surfing and Collision.isWater and Collision.isWater(fx, fy) then
@@ -489,7 +533,7 @@ function Field.executeFieldMove(payload)
     if payload.se then Audio.playSe(payload.se) end
     FieldEffects.startWarpSpin(act, function()
       Field.locked = false
-      Field.respawnAtHeal()
+      Field.respawnAtHeal({ fieldMove = true })
     end)
     if payload.text then
       Message.show(payload.text, function() Message.close() end)
@@ -512,11 +556,17 @@ function Field.executeFieldMove(payload)
 end
 
 --- White-out / heal respawn via game3 map loader (H7).
-function Field.respawnAtHeal()
+function Field.respawnAtHeal(opts)
   local session = Field._session
   if not session then return end
   local HealLocations = require("src.core.game3.heal_locations")
   HealLocations.normalizeSession(session)
+  if not (opts and opts.fieldMove) and ModRuntime.wants("world.blacked_out") then
+    ModRuntime.emit("world.blacked_out", {
+      save = session,
+      healTarget = { map = session.healMap, x = session.healX, y = session.healY },
+    })
+  end
   local Party = require("src.core.game3.party")
   Party.healAll(session.party)
   local Map = require("src.core.game3.map")
@@ -563,6 +613,9 @@ function Field.setMetatile(x, y, metatile, isImpassable)
   }
   local session = Field._session
   local mapId = session and session.map
+  if ModRuntime.wants("world.block_replaced") then
+    ModRuntime.emit("world.block_replaced", { mapId = mapId, bx = x, by = y, block = metatile })
+  end
   local game = Field._game
   local data = game and game.data and game.data.maps
   local mapDef = mapId and data and data[mapId]

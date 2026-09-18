@@ -5,6 +5,7 @@ local Types = require("src.core.game3.battle.types")
 local Rules = require("src.core.game3.battle.rules")
 local Secondary = require("src.core.game3.battle.effects.secondary")
 local HeldItems = require("src.core.game3.battle.held_items")
+local ModRuntime = require("src.mods.Runtime")
 
 local E = EffectIds
 local Hit = {}
@@ -16,6 +17,24 @@ local function roll(ad, lo, hi) return ad:roll(lo, hi) end
 local function move_is_sleep_talk(ref)
   local m = Moves.get(ref)
   return tonumber(m and m.effect) == E.SLEEP_TALK or tonumber(ref) == MOVE_SLEEP_TALK
+end
+
+local function dealt_event(M, target, dealt, info, sub)
+  if not ModRuntime.wants("battle.damage_dealt") then return end
+  local State = require("src.core.game3.battle.state")
+  local G3 = require("src.mods.Gen3Compat")
+  local view = G3.moveView(M.move)
+  local eff = tonumber(info.effectiveness)
+  local mult = eff and math.floor(eff * 10 + 0.5) or 10
+  local physical = info.physical
+  if physical == nil then physical = Types.isPhysical(M.moveType or M.move.type) end
+  ModRuntime.emit("battle.damage_dealt", {
+    battle = M.st, user = M.user, target = target, move = view,
+    moveId = view and view.id, moveNum = M.mnum, damage = dealt,
+    crit = info.critical and true or false, typeMult = mult, effectiveness = mult,
+    side = target.side, userId = State.idOf(M.user), targetId = State.idOf(target),
+    kind = physical and "physical" or "special", substitute = sub or nil,
+  })
 end
 
 -- pokefirered/src/battle_script_commands.c:1744
@@ -37,6 +56,7 @@ function Hit.dealDamage(M, dmg, info)
     if (M.firstDmg or 0) == 0 then M.firstDmg = dmg end
     M.hpDealt = dealt
     M.hitsLanded = (M.hitsLanded or 0) + 1
+    dealt_event(M, target, dealt, info, true)
     return dealt
   end
   local before = ad:hp(target)
@@ -45,6 +65,7 @@ function Hit.dealDamage(M, dmg, info)
   local dealt = before - after
   M.anim.hits[#M.anim.hits + 1] = {
     side = target.side or "enemy",
+    battler = target.id,
     from = before,
     to = after,
     maxHp = ad:maxHp(target),
@@ -53,12 +74,17 @@ function Hit.dealDamage(M, dmg, info)
   if (M.firstDmg or 0) == 0 then M.firstDmg = dealt end
   if dealt > 0 then M.targetDamaged = true end
   target.expHurtBy = user.side
+  target.expHurtById = user.id
+  target.expLastHitById = user.id
   local physical = info.physical
   if physical == nil then physical = Types.isPhysical(M.moveType or M.move.type) end
+  -- pokefirered/src/battle_script_commands.c:1824
   if physical then
     target.lastPhysicalDamageTaken = dealt
+    target.lastPhysicalById = user.id
   else
     target.lastSpecialDamageTaken = dealt
+    target.lastSpecialById = user.id
     M.specialHit = true
   end
   if (target.bideTurns or 0) > 0 then
@@ -67,6 +93,7 @@ function Hit.dealDamage(M, dmg, info)
   end
   M.hpDealt = dealt
   M.hitsLanded = (M.hitsLanded or 0) + 1
+  dealt_event(M, target, dealt, info, false)
   return dealt
 end
 
@@ -120,10 +147,20 @@ local function field_sport(M, key)
   return M.st and M.st[key == "mudSport" and "expMudSport" or "expWaterSport"] and true or false
 end
 
+local MOVE_TARGET_BOTH = 8
+
 local function calc_opts(M, extra)
   local ad, target = M.adapter, M.target
   local defSide = ad:ownSide(target)
+  local st = M.st
+  local twoDef = false
+  if st and st.double and target then
+    local State = require("src.core.game3.battle.state")
+    twoDef = State.countPresentOnSide(st, target.side) == 2
+  end
   local o = {
+    doubleScreens = twoDef,
+    spread = twoDef and tonumber(M.move and M.move.target) == MOVE_TARGET_BOTH,
     rng = ad:rng(),
     weather = Rules.weather.effective(M.st, ad),
     adapter = ad,
@@ -166,6 +203,18 @@ local function pre_checks(M)
     -- pokefirered/src/battle_script_commands.c:7568
     local taken = (eff == E.COUNTER) and user.lastPhysicalDamageTaken or user.lastSpecialDamageTaken
     local foe = ad:foeOf(user)
+    if M.st and M.st.double then
+      local State = require("src.core.game3.battle.state")
+      local src = (eff == E.COUNTER) and user.lastPhysicalById or user.lastSpecialById
+      foe = src ~= nil and State.battler(M.st, src) or nil
+      if foe and src % 2 == State.idOf(user) % 2 then foe = nil end
+      if foe and ad:hp(foe) > 0 then
+        local Engine = require("src.core.game3.battle.engine")
+        local fm = Engine.followMeId(M.st, ad, user)
+        local fb = fm ~= nil and State.battler(M.st, fm) or nil
+        if fb and ad:hp(fb) > 0 then foe = fb end
+      end
+    end
     if not taken or taken <= 0 or not foe or ad:isFainted(foe)
         or (user.expHurtBy and user.expHurtBy == user.side) then
       fail(M)
@@ -200,9 +249,10 @@ local function pre_checks(M)
     M.anim.missed = true
     return true
   end
-  if eff == E.EXPLOSION then
+  if eff == E.EXPLOSION and not M.explosionStarted then
     for _, b in ipairs(ad:activeBattlers()) do
       if ad:abilityOf(b) == "DAMP" then
+        M.stopTargets = true
         M:attackString()
         M:ppReduce()
         M:say(ad:displayName(b) .. "'s DAMP\nprevents " .. M.uname .. "\nfrom using " .. M.moveName .. "!")
@@ -376,10 +426,35 @@ local function fury_cutter_power(M)
   return power
 end
 
+-- pokefirered/src/battle_script_commands.c:1209
+local function damage_calc(M, target, calcOpts)
+  if not ModRuntime.wantsHook("battle.damage") then
+    return Damage.calc(M.user, target, M.move, calcOpts)
+  end
+  local G3 = require("src.mods.Gen3Compat")
+  local view = G3.moveView(M.move)
+  local vanillaInfo
+  local dmg, info = ModRuntime.call("battle.damage", function(c)
+    local d, i = Damage.calc(c.user, c.target, M.move, c.opts)
+    vanillaInfo = i
+    return d, i
+  end, { battle = M.st, user = M.user, target = target, move = view,
+         moveId = view and view.id, moveNum = M.mnum, opts = calcOpts,
+         rng = calcOpts and calcOpts.rng })
+  if type(info) ~= "table" then
+    info = vanillaInfo or {
+      move = M.move, effectiveness = 1, critical = false,
+      moveType = tonumber(M.move.type), power = tonumber(M.move.power),
+      typeFlags = { super = false, notVery = false, immune = false },
+    }
+  end
+  return math.max(0, math.floor(tonumber(dmg) or 0)), info
+end
+
 local function hit_once(M, opts)
   local ad, user, target = M.adapter, M.user, M.target
   opts = opts or {}
-  local dmg, info = Damage.calc(user, target, M.move, calc_opts(M, opts.calc))
+  local dmg, info = damage_calc(M, target, calc_opts(M, opts.calc))
   M.moveType = info.moveType or M.moveType
   if info.failed then
     M.failed = true
@@ -426,17 +501,18 @@ function Hit.run(M)
     -- pokefirered/data/battle_scripts_1.s:376
     M:attackString()
     M:ppReduce()
+    M.explosionStarted = true
     ad:setHp(user, 0)
-    local dmg, info = Damage.calc(user, M.target, M.move, calc_opts(M))
+    local dmg, info = damage_calc(M, M.target, calc_opts(M))
     if not M:accuracyCheck("normal", true) then
       M.anim.missed = true
       M.noEffect = true
-      M:tryFaintUser()
+      if not M.deferUserFaint then M:tryFaintUser() end
       return
     end
     if flags_immune(M, info) then
       M.noEffect = true
-      M:tryFaintUser()
+      if not M.deferUserFaint then M:tryFaintUser() end
       return
     end
     local target = M.target
@@ -453,18 +529,19 @@ function Hit.run(M)
       if line then M:say(line) end
     end
     M:tryFaintTarget()
-    M:tryFaintUser()
+    if not M.deferUserFaint then M:tryFaintUser() end
     return
   end
 
   M:attackString()
   M:ppReduce()
 
-  local magnitude
-  if eff == E.MAGNITUDE then
+  local magnitude = M.magnitude
+  if eff == E.MAGNITUDE and not magnitude then
     local r = roll(ad, 0, 99)
     local _, info = Damage.calc(user, M.target, M.move, calc_opts(M, { magnitudeRoll = r, forceCrit = false, noRandom = true }))
     magnitude = { power = info.power, value = info.magnitude }
+    M.magnitude = magnitude
     M:say(string.format("MAGNITUDE %d!", magnitude.value or 4))
   end
 
@@ -517,7 +594,10 @@ function Hit.run(M)
     local base = Damage.base(user, target, M.move, {
       adapter = ad, weatherKind = Rules.weather.effective(M.st, ad),
       reflect = calc_opts(M).reflect, lightScreen = calc_opts(M).lightScreen,
+      doubleScreens = calc_opts(M).doubleScreens,
     }) * n
+    -- pokefirered/src/battle_script_commands.c:6603
+    if user.expHelpingHand then base = math.floor(base * 15 / 10) end
     local aT1, aT2 = user.type1, user.type2
     if aT1 == tonumber(M.move.type) or aT2 == tonumber(M.move.type) then base = math.floor(base * 15 / 10) end
     local dmg, flags = Types.typeCalc(M.move.type, target.type1, target.type2, base, target.expIdentified)
@@ -659,6 +739,8 @@ function Hit.beatUp(M)
       local dmg = atk * (tonumber(M.move.power) or 10) * (math.floor(lvl * 2 / 5) + 2)
       dmg = math.floor(dmg / math.max(1, def))
       dmg = math.floor(dmg / 50) + 2
+      -- pokefirered/src/battle_script_commands.c:8606
+      if user.expHelpingHand then dmg = math.floor(dmg * 15 / 10) end
       local name = (mon.nickname and mon.nickname ~= "") and mon.nickname or Pokemon.name(sp)
       M:say(tostring(name) .. "'s attack!")
       local crit = Rules.crit.roll(user, M.move, nil, ad:rng())

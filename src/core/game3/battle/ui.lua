@@ -36,6 +36,14 @@ Ui._st = nil
 Ui._pendingCommand = nil
 Ui._pendingYesNo = nil
 Ui._session = nil
+Ui._active = 0
+Ui._actionCursor = {}
+Ui._moveCursor = {}
+Ui._moveCursorMon = {}
+Ui._target = nil
+Ui._bounce = { hb = {}, mon = {} }
+Ui._preview = nil
+Ui._partnerAction = nil
 
 -- pokefirered/src/battle_script_commands.c:5149
 local BATTLE_YESNO = { left = 24, top = 9, style = "battle" }
@@ -62,7 +70,12 @@ local function live_battler(side)
   local Battle = package.loaded["src.core.game3.battle"]
   local st = Battle and Battle._st
   local Anim = package.loaded["src.core.game3.battle.anim"]
-  local b = st and st[side]
+  local b
+  if type(side) == "number" then
+    b = st and ((side == 0 and st.player) or (side == 1 and st.enemy) or (st.battlers and st.battlers[side]))
+  else
+    b = st and st[side]
+  end
   if Anim and Anim.shownBattler then b = Anim.shownBattler(side, b) end
   return b, st
 end
@@ -88,7 +101,26 @@ local function shows_ghost(side, st)
 end
 Ui.showsGhost = shows_ghost
 
+local function is_double(st)
+  st = st or Ui._st
+  return type(st) == "table" and st.double == true
+end
+
 local function battler_sprite_center(side, species, base, form, ghost)
+  if type(side) == "number" then
+    local id = side
+    side = (id % 2 == 0) and "player" or "enemy"
+    local _, st = live_battler(id)
+    base = base or (PicCoords and PicCoords.battlerCoords and PicCoords.battlerCoords(is_double(st), id))
+    if is_double(st) and side == "player" and PicCoords and species then
+      local sp = tonumber(species) or 0
+      local yo = (PicCoords.back and PicCoords.back[sp]) or 0
+      if sp == SPECIES_CASTFORM then yo = CASTFORM_BACK_Y[form or 0] or 0 end
+      -- pokefirered/src/battle_anim_mons.c:252
+      local y = math.min(base.y + yo + 8, 160 - 64 + 8)
+      return base.x, y - 4
+    end
+  end
   local cx, cy = base.x, (side == "player") and (base.y - 4) or base.y
   if not PicCoords or not species then return cx, cy end
   local sp = tonumber(species) or 0
@@ -119,6 +151,7 @@ Ui.battlerSpriteCenter = battler_sprite_center
 
 function Ui.battlerPic(side, battler, species)
   local b, st = live_battler(side)
+  if type(side) == "number" then side = (side % 2 == 0) and "player" or "enemy" end
   battler = battler or b
   if shows_ghost(side, st) and Pokemon.ghostPic then
     local g = Pokemon.ghostPic()
@@ -148,6 +181,14 @@ function Ui.reset(opts)
   Ui._st = nil
   Ui._pendingCommand = nil
   Ui._pendingYesNo = nil
+  Ui._active = 0
+  Ui._actionCursor = {}
+  Ui._moveCursor = {}
+  Ui._moveCursorMon = {}
+  Ui._target = nil
+  Ui._bounce = { hb = {}, mon = {} }
+  Ui._preview = nil
+  Ui._partnerAction = nil
   if not Ui._headless then
     pcall(BattleChrome.install, nil)
   end
@@ -280,7 +321,7 @@ function Ui.choiceActive()
 end
 
 function Ui.waitingForCommand()
-  return Ui._mode == "menu" or Ui._mode == "moves" or Ui._mode == "bag"
+  return Ui._mode == "menu" or Ui._mode == "moves" or Ui._mode == "bag" or Ui._mode == "target"
 end
 
 local function open_battle_bag()
@@ -309,6 +350,7 @@ local function open_battle_bag()
         itemId = itemId,
         partySlot = partySlot,
       }
+      if is_double() then Ui._pendingCommand.battler = Ui._active or 0 end
       Ui._mode = "none"
     end,
     onClose = function()
@@ -321,7 +363,84 @@ function Ui.isShowing()
   return Ui._showing or Ui.busy() or (Message and Message.isOpen and Message.isOpen())
 end
 
+local function active_battler(st)
+  st = st or Ui._st
+  if not st then return nil end
+  local id = Ui._active or 0
+  if id == 0 then return st.player end
+  return st.battlers and st.battlers[id]
+end
+Ui.activeBattlerObject = active_battler
+
+function Ui.activeBattler()
+  return Ui._active or 0
+end
+
+function Ui.battlePartyOrder(st)
+  return require("src.ui.game3.party_menu").battleOrder(st)
+end
+
+function Ui.openPartyMenu(st, battlerId, opts)
+  opts = opts or {}
+  st = st or Ui._st
+  local PartyMenu = require("src.ui.game3.party_menu")
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  local session = Ui._session
+    or (Runtime and Runtime.getSession and Runtime.getSession())
+  local party = (st and st.playerParty) or (session and session.party) or {}
+  local overlay = session and session.move_overlay
+  local id = tonumber(battlerId) or 0
+  local forced = opts.forced and true or false
+  if st and st.playerParty then
+    for _, bid in ipairs({ 0, 2 }) do
+      local b = (bid == 0 and st.player) or (st.double and st.battlers and st.battlers[bid])
+      if b then State.syncBattlerToParty(b, st.playerParty) end
+    end
+  end
+  PartyMenu.show(party, overlay, {
+    mode = forced and "battle_faint" or "battle_switch",
+    layout = (st and st.double) and "double" or nil,
+    battleOrder = st and st.playerParty and Ui.battlePartyOrder(st) or nil,
+    session = session,
+    activeSlot = (st and st.player and st.player.partyIndex) or 1,
+    battle = true,
+    validate = function(pi)
+      if opts.validate then return opts.validate(pi) end
+      if st and st.double then return Commands.switchError(st, pi, forced, id) end
+      return Commands.switchError(st, pi, forced)
+    end,
+    onSelect = function(pi)
+      if opts.onSelect then opts.onSelect(pi) end
+    end,
+    onClose = opts.onClose,
+  })
+end
+
+local function open_battle_party_double()
+  local id = Ui._active or 0
+  Ui._mode = "party"
+  Ui.openPartyMenu(Ui._st, id, {
+    onSelect = function(slot)
+      if slot == nil then
+        Ui._mode = "menu"
+        return
+      end
+      Ui._pendingCommand = {
+        kind = "switch",
+        user = "player",
+        battler = id,
+        slot = slot,
+      }
+      Ui._mode = "none"
+    end,
+    onClose = function()
+      Ui._mode = "menu"
+    end,
+  })
+end
+
 local function open_battle_party()
+  if is_double() then return open_battle_party_double() end
   local PartyMenu = require("src.ui.game3.party_menu")
   local Runtime = package.loaded["src.core.game3.runtime"]
   local session = Ui._session
@@ -358,11 +477,19 @@ local function open_battle_party()
   })
 end
 
-function Ui.openMenu()
+function Ui.openMenu(battlerId, opts)
   Ui._linger = false
   Ui._timed = nil
   Ui._mode = "menu"
-  Ui._menuIndex = 1
+  Ui._target = nil
+  Ui._active = tonumber(battlerId) or 0
+  Ui._partnerAction = opts and opts.partnerAction or nil
+  if is_double() then
+    -- pokefirered/src/battle_controller_player.c:2421
+    Ui._menuIndex = Ui._actionCursor[Ui._active] or 1
+  else
+    Ui._menuIndex = 1
+  end
   Ui._pendingCommand = nil
   if Message and Message.open then
     Message.open = false
@@ -392,6 +519,12 @@ end
 function Ui.takeCommand()
   local c = Ui._pendingCommand
   Ui._pendingCommand = nil
+  if c then
+    -- pokefirered/src/battle_controller_player.c:2809
+    Ui._bounce = { hb = {}, mon = {} }
+    Ui._target = nil
+    Ui._preview = nil
+  end
   return c
 end
 
@@ -503,6 +636,23 @@ end
 
 -- pokefirered/src/battle_main.c:2380
 local function open_move_menu()
+  if is_double() then
+    local id = Ui._active or 0
+    local battler = active_battler()
+    local mon = battler and battler.mon
+    if mon ~= Ui._moveCursorMon[id] then
+      Ui._moveCursorMon[id] = mon
+      Ui._moveCursor[id] = 1
+    end
+    local n = move_count(mon)
+    local idx = tonumber(Ui._moveCursor[id]) or 1
+    if idx < 1 then idx = 1 end
+    if idx > n then idx = n end
+    Ui._moveCursor[id] = idx
+    Ui._moveIndex = idx
+    Ui._mode = "moves"
+    return
+  end
   local battler = Ui._st and Ui._st.player
   if battler ~= Ui._moveIndexBattler then
     Ui._moveIndexBattler = battler
@@ -516,8 +666,540 @@ local function open_move_menu()
   Ui._mode = "moves"
 end
 
+local MT = { SELECTED = 0, DEPENDS = 1, USER_OR_SELECTED = 2, RANDOM = 4, BOTH = 8, USER = 16, FOES_AND_ALLY = 32, OPPONENTS_FIELD = 64 }
+local MOVE_CURSE = 174
+local TYPE_GHOST = 7
+local ITEM_PREMIER_BALL = 12
+-- pokefirered/src/battle_controller_player.c:171
+local TARGET_IDENTITIES = { 0, 2, 3, 1 }
+
+local function band(a, b)
+  local bit = require("bit")
+  return bit.band(tonumber(a) or 0, tonumber(b) or 0)
+end
+
+local function move_num(mv)
+  local n = tonumber(mv)
+  if n then return n end
+  if mv == nil or mv == "" then return 0 end
+  if Moves.numForName then
+    local norm = Moves.normalizeId and Moves.normalizeId(mv) or mv
+    return Moves.numForName(norm) or 0
+  end
+  return 0
+end
+
+local function is_type(b, t)
+  return b and (tonumber(b.type1) == t or tonumber(b.type2) == t)
+end
+
+-- pokefirered/src/battle_controller_player.c:444
+local function move_target_type(battler, mv)
+  if move_num(mv) == MOVE_CURSE then
+    return is_type(battler, TYPE_GHOST) and MT.SELECTED or MT.USER
+  end
+  local def = mv and Moves.get(mv)
+  return tonumber(def and def.target) or 0
+end
+Ui.moveTargetType = move_target_type
+
+local function absent(st, id)
+  if not st then return true end
+  if st.absent and st.absent[id] then return true end
+  local b = (id == 0 and st.player) or (id == 1 and st.enemy) or (st.battlers and st.battlers[id])
+  return b == nil
+end
+
+-- pokefirered/src/pokemon.c:2651
+local function count_except_active(st, id)
+  local n = 0
+  for i = 0, 3 do
+    if i ~= id and not absent(st, i) then n = n + 1 end
+  end
+  return n
+end
+
+-- pokefirered/src/battle_controller_player.c:437
+function Ui.targetSelection(st, id, slot)
+  st = st or Ui._st
+  id = tonumber(id) or 0
+  local b = (id == 0 and st.player) or (st.battlers and st.battlers[id])
+  local mon = b and b.mon
+  local mv = mon and mon.moves and mon.moves[slot]
+  local tt = move_target_type(b, mv)
+  local opposingLeft = (id % 2 == 0) and 1 or 0
+  local cursor = (band(tt, MT.USER) ~= 0) and id or opposingLeft
+  if not (st and st.double) then return false, cursor, cursor end
+  local can = band(tt, MT.RANDOM + MT.BOTH + MT.DEPENDS + MT.FOES_AND_ALLY + MT.OPPONENTS_FIELD + MT.USER) == 0
+  local pp = mon and mon.pp and tonumber(mon.pp[slot])
+  if pp ~= nil and pp == 0 then
+    can = false
+  elseif band(tt, MT.USER + MT.USER_OR_SELECTED) == 0 and count_except_active(st, id) <= 1 then
+    -- pokefirered/src/pokemon.c:2686
+    cursor = absent(st, opposingLeft) and (opposingLeft + 2) or opposingLeft
+    can = false
+  end
+  if not can then return false, cursor, cursor end
+  local start
+  if band(tt, MT.USER + MT.USER_OR_SELECTED) ~= 0 then
+    start = id
+  elseif absent(st, opposingLeft) then
+    start = opposingLeft + 2
+  else
+    start = opposingLeft
+  end
+  return true, cursor, start
+end
+
+-- pokefirered/src/battle_main.c:2091
+local function start_bounce(kind, id, delta, amp)
+  local t = Ui._bounce[kind]
+  if t[id] then return end
+  t[id] = { idx = (kind == "hb") and 128 or 192, delta = delta, amp = amp, y = 0, fresh = true }
+end
+
+-- pokefirered/src/battle_main.c:2132
+local function end_bounce(kind, id)
+  Ui._bounce[kind][id] = nil
+end
+
+local function end_all_bounces()
+  Ui._bounce = { hb = {}, mon = {} }
+end
+
+-- pokefirered/src/trig.c:4
+local function sin_q8(idx, amp)
+  local v = math.floor(math.sin((idx % 256) * math.pi / 128) * 256 + 0.5)
+  return math.floor(v * amp / 256)
+end
+
+-- pokefirered/src/battle_main.c:2159
+local function tick_bounces()
+  for _, kind in ipairs({ "hb", "mon" }) do
+    for _, bo in pairs(Ui._bounce[kind]) do
+      if bo.fresh then
+        bo.fresh = false
+        bo.y = 0
+      else
+        bo.y = sin_q8(bo.idx, bo.amp) + bo.amp
+        bo.idx = (bo.idx + bo.delta) % 256
+      end
+    end
+  end
+end
+
+function Ui.bounceOffset(kind, id)
+  local bo = Ui._bounce[kind] and Ui._bounce[kind][id]
+  return bo and bo.y or 0
+end
+
+local PREVIEW_ALL = { [114] = true, [201] = true, [195] = true, [240] = true, [241] = true, [258] = true, [300] = true, [346] = true }
+local PREVIEW_ALLIES = { [219] = true, [115] = true, [113] = true, [54] = true, [215] = true, [312] = true }
+local MOVE_HELPING_HAND = 270
+
+-- pokefirered/src/battle_controller_player.c:2889
+local function preview_targets(st, id, slot)
+  local b = active_battler(st)
+  local mv = b and b.mon and b.mon.moves and b.mon.moves[slot]
+  local tt = move_target_type(b, mv)
+  local num = move_num(mv)
+  local partner = (id + 2) % 4
+  if tt == MT.SELECTED or tt == MT.DEPENDS or tt == MT.USER_OR_SELECTED or tt == MT.RANDOM then
+    return { [0] = true, [1] = true, [2] = true, [3] = true }, 0
+  elseif tt == MT.BOTH or tt == MT.OPPONENTS_FIELD then
+    return { [1] = true, [3] = true }, 8
+  elseif tt == MT.USER then
+    if PREVIEW_ALL[num] then return { [0] = true, [1] = true, [2] = true, [3] = true }, 8 end
+    if PREVIEW_ALLIES[num] then return { [0] = true, [2] = true }, 8 end
+    if num == MOVE_HELPING_HAND then return { [partner] = true }, 8 end
+    return { [id] = true }, 8
+  elseif tt == MT.FOES_AND_ALLY then
+    return { [1] = true, [partner] = true, [3] = true }, 8
+  end
+  return {}, 0
+end
+
+local ALL_BATTLERS = { [0] = true, [1] = true, [2] = true, [3] = true }
+
+local function fade_state()
+  local f = Ui._preview
+  if not f then
+    f = { active = false, objY = {}, objToggle = false, mask = {}, y = 0, target = 0,
+      delay = 0, delayCounter = 0, finishing = false, finCounter = 0 }
+    Ui._preview = f
+  end
+  return f
+end
+
+-- pokefirered/src/palette.c:393
+local function fade_update(f)
+  if not f.active then return end
+  if f.finishing then
+    -- pokefirered/src/palette.c:757
+    if f.finCounter == 4 then
+      f.active, f.finishing, f.finCounter = false, false, 0
+    else
+      f.finCounter = f.finCounter + 1
+    end
+    return
+  end
+  if not f.objToggle then
+    if f.delayCounter < f.delay then
+      f.delayCounter = f.delayCounter + 1
+      return
+    end
+    f.delayCounter = 0
+  else
+    for id in pairs(f.mask) do f.objY[id] = f.y end
+  end
+  f.objToggle = not f.objToggle
+  if not f.objToggle then
+    if f.y == f.target then
+      f.mask = {}
+      f.finishing = true
+    elseif f.y > f.target then
+      f.y = math.max(f.target, f.y - 2)
+    else
+      f.y = math.min(f.target, f.y + 2)
+    end
+  end
+end
+
+-- pokefirered/src/palette.c:151
+local function fade_begin(mask, delay, startY, targetY)
+  local f = fade_state()
+  if f.active then return false end
+  f.mask, f.delay, f.delayCounter = mask, delay, delay
+  f.y, f.target = startY, targetY
+  f.active = true
+  fade_update(f)
+  return true
+end
+
+-- pokefirered/src/palette.c:349
+local function fade_reset_clear()
+  local f = fade_state()
+  f.active, f.finishing, f.finCounter, f.delayCounter, f.y, f.target = false, false, 0, 0, 0, 0
+  fade_begin(ALL_BATTLERS, 0, 0, 0)
+end
+
+local function tick_preview()
+  if not is_double() then return end
+  local f = fade_state()
+  if Ui._mode == "moves" then
+    -- pokefirered/src/battle_controller_player.c:442
+    local mask, y = preview_targets(Ui._st, Ui._active or 0, Ui._moveIndex)
+    fade_begin(mask, 8, y, 0)
+  end
+  fade_update(f)
+end
+
+function Ui.previewCoeff(id)
+  local f = Ui._preview
+  return (f and f.objY[id]) or 0
+end
+
+-- pokefirered/src/battle_main.c:2019
+local function blink_start(t)
+  t.blinkCounter = 8
+  t.hidden = false
+end
+
+local function tick_target()
+  local t = Ui._target
+  if not t then return end
+  t.blinkCounter = (t.blinkCounter or 8) - 1
+  if t.blinkCounter <= 0 then
+    t.hidden = not t.hidden
+    t.blinkCounter = 8
+  end
+end
+
+function Ui.targetHidden(id)
+  local t = Ui._target
+  return t ~= nil and t.cursor == id and t.hidden == true
+end
+
+function Ui.targetCursor()
+  return Ui._target and Ui._target.cursor or nil
+end
+
+function Ui.tick()
+  local m = Ui._mode
+  if m == "menu" or m == "moves" or m == "target" or m == "selmsg" then
+    local id = Ui._active or 0
+    if m == "menu" then
+      -- pokefirered/src/battle_controller_player.c:223
+      start_bounce("hb", id, 7, 1)
+      start_bounce("mon", id, 7, 1)
+    elseif m == "target" and Ui._target then
+      -- pokefirered/src/battle_controller_player.c:326
+      local cur = Ui._target.cursor
+      start_bounce("hb", cur, 15, 1)
+      for i = 0, 3 do
+        if i ~= cur then end_bounce("hb", i) end
+      end
+    end
+    tick_bounces()
+    tick_target()
+  elseif m ~= "bag" and m ~= "party" then
+    end_all_bounces()
+  end
+  tick_preview()
+end
+
+local function finish_move_choice(id, slot, target)
+  local err = Commands.selectionError(Ui._st, slot, id)
+  if err then
+    -- pokefirered/src/battle_main.c:3277
+    Ui._selCmd = nil
+    Ui._selReturn = "moves"
+    Ui._mode = "selmsg"
+    Ui.push(err)
+    return
+  end
+  Ui._pendingCommand = Commands.playerAction(Ui._st, 1, slot, id, target)
+  Ui._mode = "none"
+  end_all_bounces()
+end
+
+local function enter_target_mode(id, slot, start, cb)
+  Ui._target = { battler = id, slot = slot, cursor = start, cb = cb }
+  blink_start(Ui._target)
+  Ui._mode = "target"
+end
+
+-- pokefirered/src/battle_controller_player.c:493
+function Ui.chooseTarget(st, battlerId, moveSlot, cb)
+  if st then Ui._st = st end
+  local id = tonumber(battlerId) or 0
+  Ui._active = id
+  local needs, target, start = Ui.targetSelection(Ui._st, id, moveSlot)
+  if not needs then
+    if cb then cb(target) end
+    return false
+  end
+  Ui._moveIndex = moveSlot
+  enter_target_mode(id, moveSlot, start, cb or false)
+  return true
+end
+
+-- pokefirered/src/battle_controller_player.c:355
+local function cycle_target(dir)
+  local t = Ui._target
+  local st = Ui._st
+  local b = active_battler(st)
+  local mv = b and b.mon and b.mon.moves and b.mon.moves[t.slot]
+  local def = mv and Moves.get(mv)
+  local userOrSel = band(def and def.target, MT.USER_OR_SELECTED) ~= 0
+  local pos = 1
+  for i = 1, 4 do
+    if TARGET_IDENTITIES[i] == t.cursor then pos = i break end
+  end
+  for _ = 1, 8 do
+    pos = pos + dir
+    if pos < 1 then pos = 4 elseif pos > 4 then pos = 1 end
+    local cand = TARGET_IDENTITIES[pos]
+    local ok
+    if cand % 2 == 0 then
+      ok = (cand ~= t.battler) or userOrSel
+    else
+      ok = true
+    end
+    if absent(st, cand) then ok = false end
+    if ok then
+      t.cursor = cand
+      break
+    end
+  end
+  blink_start(t)
+end
+
+local function handle_target_input(input)
+  local t = Ui._target
+  if not t then
+    Ui._mode = "moves"
+    return true
+  end
+  if input:wasPressed("a") then
+    play_select()
+    local cur, cb, id, slot = t.cursor, t.cb, t.battler, t.slot
+    Ui._target = nil
+    end_bounce("hb", cur)
+    if cb then
+      Ui._mode = "none"
+      cb(cur)
+    else
+      finish_move_choice(id, slot, cur)
+    end
+    return true
+  elseif input:wasPressed("b") then
+    play_select()
+    local cur, cb, id = t.cursor, t.cb, t.battler
+    Ui._target = nil
+    -- pokefirered/src/battle_controller_player.c:346
+    start_bounce("hb", id, 7, 1)
+    start_bounce("mon", id, 7, 1)
+    end_bounce("hb", cur)
+    if cb then
+      Ui._mode = "none"
+      cb(nil)
+    else
+      Ui._mode = "moves"
+    end
+    return true
+  elseif input:wasPressed("left") or input:wasPressed("up") then
+    play_select()
+    cycle_target(-1)
+    return true
+  elseif input:wasPressed("right") or input:wasPressed("down") then
+    play_select()
+    cycle_target(1)
+    return true
+  end
+  return true
+end
+
+local function handle_double_input(input)
+  local st = Ui._st
+  local id = Ui._active or 0
+  if Ui._mode == "target" then
+    return handle_target_input(input)
+  end
+  if Ui._mode == "menu" then
+    -- pokefirered/src/battle_controller_player.c:219
+    local c = (Ui._menuIndex or 1) - 1
+    local nc = c
+    if input:wasPressed("a") then
+      play_select()
+      Ui._actionCursor[id] = Ui._menuIndex
+      local kind = Commands.MENU[Ui._menuIndex]
+      if kind == "FIGHT" then
+        local act, msg = Commands.fightShortcut(st, id)
+        if act and msg then
+          Ui._selCmd = act
+          Ui._mode = "selmsg"
+          Ui.push(msg)
+        elseif act then
+          Ui._pendingCommand = act
+          Ui._mode = "none"
+          end_all_bounces()
+        else
+          open_move_menu()
+        end
+      elseif kind == "BAG" then
+        open_battle_bag()
+      elseif kind == "POKEMON" or kind == "POKéMON" then
+        open_battle_party()
+      else
+        local Engine = package.loaded["src.core.game3.battle.engine"]
+        local BattleMod = package.loaded["src.core.game3.battle"]
+        local ad = BattleMod and BattleMod._adapter
+        local canRun, why = true, nil
+        if Engine and Engine.canRun and ad and st then
+          canRun, why = Engine.canRun(st, ad, active_battler(st))
+        end
+        if not canRun and why then
+          Ui._selCmd = nil
+          Ui._selReturn = "menu"
+          Ui._mode = "selmsg"
+          Ui.push(why)
+        else
+          Ui._pendingCommand = Commands.playerAction(st, Ui._menuIndex, nil, id)
+          Ui._mode = "none"
+          end_all_bounces()
+        end
+      end
+      return true
+    elseif input:wasPressed("left") then
+      if c % 2 == 1 then nc = c - 1 end
+    elseif input:wasPressed("right") then
+      if c % 2 == 0 then nc = c + 1 end
+    elseif input:wasPressed("up") then
+      if c >= 2 then nc = c - 2 end
+    elseif input:wasPressed("down") then
+      if c < 2 then nc = c + 2 end
+    elseif input:wasPressed("b") then
+      -- pokefirered/src/battle_controller_player.c:286
+      if id == 2 and not (st.absent and st.absent[0]) then
+        local pa = Ui._partnerAction
+        local refund = nil
+        if pa and pa.kind == "bag" then
+          local item = tonumber(pa.itemId or pa.item)
+          if item and item <= ITEM_PREMIER_BALL then
+            refund = item
+          else
+            return true
+          end
+        end
+        play_select()
+        Ui._pendingCommand = { kind = "cancel_partner", battler = id, refundItem = refund }
+        Ui._mode = "none"
+        end_all_bounces()
+      end
+      return true
+    elseif input:wasPressed("start") then
+      -- pokefirered/src/battle_controller_player.c:306
+      local Healthbox = require("src.core.game3.battle.healthbox")
+      Healthbox.swapHpBarsWithHpText(st)
+      return true
+    end
+    if nc ~= c then
+      play_select()
+      Ui._menuIndex = nc + 1
+      Ui._actionCursor[id] = Ui._menuIndex
+    end
+    return true
+  elseif Ui._mode == "bag" or Ui._mode == "party" then
+    return true
+  elseif Ui._mode == "moves" then
+    local b = active_battler(st)
+    local n = move_count(b and b.mon)
+    local c = (Ui._moveIndex or 1) - 1
+    local nc = c
+    -- pokefirered/src/battle_controller_player.c:511
+    if input:wasPressed("left") then
+      if c % 2 == 1 then nc = c - 1 end
+    elseif input:wasPressed("right") then
+      if c % 2 == 0 and c + 1 < n then nc = c + 1 end
+    elseif input:wasPressed("up") then
+      if c >= 2 then nc = c - 2 end
+    elseif input:wasPressed("down") then
+      if c < 2 and c + 2 < n then nc = c + 2 end
+    end
+    local idx, moved = nc + 1, nc ~= c
+    if moved then
+      Ui._moveIndex = idx
+      Ui._moveCursor[id] = idx
+      play_select()
+      -- pokefirered/src/battle_controller_player.c:521
+      fade_begin(ALL_BATTLERS, 0, 0, 0)
+      return true
+    end
+    if input:wasPressed("a") then
+      play_select()
+      local slot = Ui._moveIndex
+      local needs, target, start = Ui.targetSelection(st, id, slot)
+      fade_reset_clear()
+      if needs then
+        enter_target_mode(id, slot, start, false)
+      else
+        finish_move_choice(id, slot, target)
+      end
+      return true
+    elseif input:wasPressed("b") then
+      play_select()
+      fade_reset_clear()
+      Ui._mode = "menu"
+      return true
+    end
+  end
+  return false
+end
+
 function Ui.handleInput(input)
   if not input then return false end
+  Ui.tick()
 
   -- Learn-move / evo YES-NO and forget list
   if Choice and Choice.active then
@@ -538,6 +1220,7 @@ function Ui.handleInput(input)
   end
 
   if not Ui.waitingForCommand() then return false end
+  if is_double() then return handle_double_input(input) end
   if Ui._mode == "menu" then
     local idx, moved = grid_nav(Ui._menuIndex, input, 4)
     if moved then
@@ -807,13 +1490,15 @@ end
 
 --- Draw mon pic at GetBattlerSpriteFinal_Y center (64×64 → TL = center−32).
 -- Applies Anim present offsets / alpha / visibility / z (Dig/Fly hide).
-local function draw_mon_sprite(battler, base, back)
+local function draw_mon_sprite(battler, base, back, id)
   if not battler then return end
   local side = back and "player" or "enemy"
+  local key = id or side
   local Anim = require("src.core.game3.battle.anim")
-  local pres = Anim.present(side)
+  local pres = Anim.present(key)
   if pres and (pres.visible == false or pres.blinkHidden or pres.battlerInvisible or pres.invisible) then return end
-  battler = Anim.shownBattler(side, battler) or battler
+  if id and Ui.targetHidden(id) then return end
+  battler = Anim.shownBattler(key, battler) or battler
 
   local sp = battler.species
   if not sp and battler.mon and Pokemon.speciesOf then
@@ -829,20 +1514,21 @@ local function draw_mon_sprite(battler, base, back)
   if tf then sp = tf end
   local ghost = shows_ghost(side, Ui._st)
   local form = (tonumber(sp) == SPECIES_CASTFORM) and castform_form(side, battler) or 0
-  local cx, cy = battler_sprite_center(side, sp, base, form, ghost)
+  local cx, cy = battler_sprite_center(id or side, sp, base, form, ghost)
   if pres then
     cx = cx + (pres.ox or 0)
     cy = cy + (pres.oy or 0)
   end
+  cy = cy + Ui.bounceOffset("mon", id or (back and 0 or 1))
   local scale = (pres and pres.scale) or 1
   local darken = (pres and pres.darken) or 0
   local entry
-  local dollImg = pres and pres.substitute and Anim.substituteImage(side)
+  local dollImg = pres and pres.substitute and Anim.substituteImage(key)
   if dollImg then
     -- pokefirered/src/battle_gfx_sfx_util.c:794
     entry = { image = dollImg }
     cx = base.x + (pres.ox or 0)
-    cy = (pres.substituteY or Anim.substituteY(side)) + (pres.oy or 0)
+    cy = (pres.substituteY or Anim.substituteY(key)) + (pres.oy or 0)
   end
   if not entry and ghost and Pokemon.ghostPic then
     entry = Pokemon.ghostPic()
@@ -866,7 +1552,13 @@ local function draw_mon_sprite(battler, base, back)
     local sx = (hFlip and -1 or 1) * scale * ((pres and pres.sx) or 1)
     local sy = scale * ((pres and pres.sy) or 1)
     local rot = (pres and pres.rotation) or 0
-    local blended = BallOpen.setBlendShader(BallOpen.monBlend(side))
+    local blended
+    if id then
+      blended = BallOpen.setBlendShader(BallOpen.monBlend(id))
+      if not blended and id < 2 then blended = BallOpen.setBlendShader(BallOpen.monBlend(side)) end
+    else
+      blended = BallOpen.setBlendShader(BallOpen.monBlend(side))
+    end
     if not blended and pres then
       if pres.palAffine then
         blended = set_affine_shader(pres.palAffine)
@@ -882,6 +1574,11 @@ local function draw_mon_sprite(battler, base, back)
     if not blended and tf and not dollImg then
       -- pokefirered/src/battle_gfx_sfx_util.c:747
       blended = BallOpen.setBlendShader(6, 31, 31, 31)
+    end
+    if not blended and id then
+      local pc = Ui.previewCoeff(id)
+      -- pokefirered/src/battle_controller_player.c:2987
+      if pc > 0 then blended = BallOpen.setBlendShader(pc, 31, 31, 31) end
     end
     if pres and type(pres.hShift) == "table" and rot == 0 and sy == 1 then
       local img = entry.image
@@ -932,7 +1629,8 @@ local function draw_action_menu(st)
   -- B_WIN_ACTION_MENU @ (17,15) → (136,120); printer (0,2) → (136,122)
   -- ActionSelectionCreateCursorAt: tile (16+7*col, 35+row) → after scroll (128,120);
   -- cursor is a 1×2 BG pip whose ink lines up with printer y=2 text → draw at text Y.
-  local name = st and st.player and State.displayName(st.player) or "POKéMON"
+  local ab = st and (is_double(st) and active_battler(st) or st.player)
+  local name = ab and State.displayName(ab) or "POKéMON"
   draw_prompt_text(string.format("What will\n%s do?", name), 10, 122)
   local labels = { "FIGHT", "BAG", "POKéMON", "RUN" }
   local positions = {
@@ -952,7 +1650,8 @@ local function draw_action_menu(st)
 end
 
 local function draw_move_menu(st)
-  local mon = st and st.player and st.player.mon
+  local ab = st and (is_double(st) and active_battler(st) or st.player)
+  local mon = ab and ab.mon
   local positions = {
     { 16, 122 }, { 88, 122 },
     { 16, 138 }, { 88, 138 },
@@ -1026,17 +1725,17 @@ local function draw_player_trainer(stage)
   end
 end
 
-local function draw_intro_ball(stage)
-  if not stage or not stage.ball or not stage.ball.visible then return end
-  local bx = (stage.ball.x or 0) + (stage.ball.ox or 0)
-  local by = (stage.ball.y or 0) + (stage.ball.oy or 0)
-  local rot = tonumber(stage.ball.rot) or 0
-  local frame = math.max(0, math.min(2, tonumber(stage.ball.frame) or 0))
-  local darken = tonumber(stage.ball.darken) or 0
-  local flash = tonumber(stage.ball.flash) or 0
+local function draw_ball_entry(ball)
+  if not ball or not ball.visible then return end
+  local bx = (ball.x or 0) + (ball.ox or 0)
+  local by = (ball.y or 0) + (ball.oy or 0)
+  local rot = tonumber(ball.rot) or 0
+  local frame = math.max(0, math.min(2, tonumber(ball.frame) or 0))
+  local darken = tonumber(ball.darken) or 0
+  local flash = tonumber(ball.flash) or 0
   local shade = math.max(0, math.min(1, 1 - darken * (1 - 8 / 255)))
 
-  local alpha = tonumber(stage.ball.alpha) or 1
+  local alpha = tonumber(ball.alpha) or 1
   if flash > 0 and flash % 2 == 0 then
     love.graphics.setColor(1, 1, 1, alpha)
   else
@@ -1070,7 +1769,7 @@ local function draw_intro_ball(stage)
       local iw, ih = img:getDimensions()
       Ui._ballQuads[key] = love.graphics.newQuad(0, frame * 16, 16, 16, iw, ih)
     end
-    local blend = stage.ball.blend
+    local blend = ball.blend
     local blended = blend and BallOpen.setBlendShader(blend.coeff, blend.r, blend.g, blend.b)
     love.graphics.draw(img, Ui._ballQuads[key], bx, by, rot, 1, 1, 8, 8)
     if blended then love.graphics.setShader() end
@@ -1095,13 +1794,79 @@ local function draw_intro_ball(stage)
   love.graphics.setColor(1, 1, 1, 1)
 end
 
+-- pokefirered/src/battle_controller_player.c:2105
+local function draw_intro_ball(stage)
+  if not stage then return end
+  draw_ball_entry(stage.ball)
+  local balls = stage.balls
+  if type(balls) == "table" then
+    for id = 0, 3 do
+      local e = rawget(balls, id)
+      if e and e ~= stage.ball then draw_ball_entry(e) end
+    end
+  end
+end
+
+local function battler_at(st, id)
+  if id == 0 then return st.player end
+  if id == 1 then return st.enemy end
+  return st.battlers and st.battlers[id]
+end
+
+-- pokefirered/src/battle_anim_mons.c:1908
+local function draw_double_mons(st, stage, Anim, screenFxActive)
+  local order = (Anim.monDrawOrder and Anim.monDrawOrder(st)) or PicCoords.DRAW_ORDER
+  local band = Anim.particleBand
+  local function particles(k)
+    local lo, hi
+    if band then lo, hi = band(k, st) end
+    if not lo then
+      lo = (k == 0) and 0 or (k * 100 + 1)
+      hi = (k >= #order) and 999 or (k * 100 + 99)
+    end
+    Anim.drawParticles(lo, hi)
+  end
+  draw_enemy_trainer(stage)
+  particles(0)
+  for k, id in ipairs(order) do
+    if id % 2 == 0 and k > 1 and order[k - 1] % 2 == 1 then
+      draw_player_trainer(stage)
+    end
+    if not (st.absent and st.absent[id]) then
+      local b = battler_at(st, id)
+      local base = (Anim.coords and Anim.coords(st, id)) or PicCoords.battlerCoords(true, id)
+      draw_mon_sprite(b, base, id % 2 == 0, id)
+    end
+    if screenFxActive then Anim.beginScreenEffect() end
+    particles(k)
+  end
+end
+
+-- pokefirered/src/battle_interface.c:540
+local function draw_double_healthboxes(st, Anim)
+  for id = 3, 0, -1 do
+    local b = battler_at(st, id)
+    if b and not (st.absent and st.absent[id]) then
+      Healthbox.draw(id, Anim.shownBattler(id, b), { st = st, oy = Ui.bounceOffset("hb", id) })
+    end
+  end
+end
+
+-- pokefirered/src/battle_interface.c:1080
+function Ui.partySummaryCoords(st, battlerId, isSwitchingMons)
+  local id = tonumber(battlerId) or 0
+  if id % 2 == 0 then return 136, 96 end
+  if isSwitchingMons and is_double(st) and id ~= 3 then return 104, 16 end
+  return 104, 40
+end
+
 local function draw_party_bars(stage)
   if not stage or not stage.partyBar then return end
   local m = BattleChrome.manifest and BattleChrome.manifest() or {}
   local enemy = stage.partyBar.enemy
   if enemy and enemy.visible then
     local pos = m.partyBarOpponent or { x = 104, y = 40 }
-    BattleChrome.drawPartyBar(pos.x, pos.y, enemy.balls, enemy.ox, true)
+    BattleChrome.drawPartyBar(enemy.x or pos.x, enemy.y or pos.y, enemy.balls, enemy.ox, true)
   end
   local player = stage.partyBar.player
   if player and player.visible then
@@ -1178,6 +1943,10 @@ function Ui.draw(w, h)
   -- 3. In front of Enemy / Behind Player / Mid-field (Z: 101 .. 199)
   -- 4. Player Mon (Z: 200)
   -- 5. In front of Player & Global Foreground (Z: 201 .. 999)
+  local dbl = st and is_double(st)
+  if dbl then
+    draw_double_mons(st, stage, Anim, screenFxActive)
+  else
   draw_enemy_trainer(stage)
   Anim.drawParticles(0, 99)
   if st then
@@ -1192,27 +1961,30 @@ function Ui.draw(w, h)
   end
   if screenFxActive then Anim.beginScreenEffect() end
   Anim.drawParticles(201, 999)
+  end
   draw_intro_ball(stage)
   -- pokefirered/src/pokeball.c:770
   BallOpen.draw()
   if screenFxActive then Anim.endScreenEffect() end
-  if st then
-    Healthbox.draw("enemy", Anim.shownBattler("enemy", st.enemy))
-    Healthbox.draw("player", Anim.shownBattler("player", st.player))
+  if dbl then
+    draw_double_healthboxes(st, Anim)
+  elseif st then
+    Healthbox.draw("enemy", Anim.shownBattler("enemy", st.enemy), { oy = Ui.bounceOffset("hb", 1) })
+    Healthbox.draw("player", Anim.shownBattler("player", st.player), { oy = Ui.bounceOffset("hb", 0) })
   end
   draw_party_bars(stage)
 
   local panelMode = "none"
   if Ui._mode == "menu" then
     panelMode = "menu"
-  elseif Ui._mode == "moves" then
+  elseif Ui._mode == "moves" or Ui._mode == "target" then
     panelMode = "moves"
   end
   BattleChrome.drawPanel(panelMode)
 
   if Ui._mode == "menu" then
     draw_action_menu(st)
-  elseif Ui._mode == "moves" then
+  elseif Ui._mode == "moves" or Ui._mode == "target" then
     draw_move_menu(st)
   end
 
