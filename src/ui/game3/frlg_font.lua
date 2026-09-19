@@ -423,6 +423,11 @@ local function buildRev()
     ["⑦"] = 0x110, ["⑧"] = 0x111, ["⑨"] = 0x112,
     ["◎"] = 0x115, ["△"] = 0x116, ["✕"] = 0x117,
     ["No"] = 0x108,
+    ["▶"] = 0xEF, -- gText_SelectorArrow2 / CHAR_SELECTOR_ARROW
+    ["▲"] = 0x79, -- CHAR_UP_ARROW
+    ["▼"] = 0x7A, -- CHAR_DOWN_ARROW
+    ["◀"] = 0x7B, -- CHAR_LEFT_ARROW
+    ["_"] = 0x109, -- CHAR_EXTRA_SYMBOL + CHAR_UNDERSCORE
     ['"'] = 0xB2,
     ["“"] = 0xB1,
     ["”"] = 0xB2,

@@ -8,6 +8,7 @@ local Stack = require("src.ui.game3.stack")
 local Window = require("src.ui.game3.window")
 local Chrome = require("src.ui.game3.chrome")
 local FrlgFont = require("src.ui.game3.frlg_font")
+local MapSectionsExtract = require("src.import.gba.map_sections_extract")
 
 local SaveMenu = {}
 
@@ -138,11 +139,36 @@ function SaveMenu.cancel()
   SaveMenu.close()
 end
 
+local function resolve_location_name(session)
+  if not session then return "PALLET TOWN" end
+  if session.mapName and session.mapName ~= "" and not session.mapName:find("^FR_") and not session.mapName:find("^SEVII_") then
+    return session.mapName:upper()
+  end
+  local mapId = session.map
+  local secId = session.regionMapSectionId or session.mapSec
+  local info = MapSectionsExtract.getInfo(secId, mapId, 0)
+  if info and info.rawName and info.rawName ~= "" and info.rawName ~= "???" then
+    return info.rawName:upper()
+  end
+  if info and info.name and info.name ~= "" and info.name ~= "???" then
+    return info.name:upper()
+  end
+  if type(mapId) == "string" and mapId ~= "" then
+    local s = mapId:gsub("^FR_", ""):gsub("^SEVII_", "")
+    s = s:gsub("(%l)(%u)", "%1 %2")
+    s = s:gsub("(%a)(%d)", "%1 %2")
+    s = s:gsub("(%d)(%a)", "%1 %2")
+    s = s:gsub("_", " "):gsub("%s+", " "):upper()
+    return s
+  end
+  return "PALLET TOWN"
+end
+
 function SaveMenu.draw()
   if not SaveMenu.open then return end
   local session = SaveMenu._session or {}
   local name = tostring(session.name or session.playerName or "RED")
-  local map = tostring(session.mapName or session.map or "PALLET TOWN"):upper()
+  local map = resolve_location_name(session)
   local badges = count_badges(session)
   local caught = count_caught(session.dex) or tonumber(session.caughtMonsCount) or 0
   local hours = tonumber(session.playTimeHours or session.hours) or 0

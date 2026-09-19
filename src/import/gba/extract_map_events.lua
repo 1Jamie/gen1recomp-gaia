@@ -77,30 +77,57 @@ local function parse_objects(rom, ptr, count)
   return objects
 end
 
+local FLAG_HIDDEN_ITEMS_START = 0x3E8
+
 local function parse_bg_events(rom, ptr, count)
   local off = gba_off(rom, ptr)
   if not off or count <= 0 then return {} end
+  local bit = bit or bit32 or require("bit")
   local bgs = {}
   for i = 0, count - 1 do
     local base = off + i * BG_SIZE
     local x = rom:u16(base)
+    if x >= 0x8000 then x = x - 0x10000 end
     local y = rom:u16(base + 2)
+    if y >= 0x8000 then y = y - 0x10000 end
     local elev = rom:get(base + 4)
     local kind = rom:get(base + 5)
-    local scriptPtr = rom:u32(base + 8)
-    local row = {
-      type = "sign",
-      x = x,
-      y = y,
-      elevation = elev,
-      kind = kind,
-      scriptPtr = scriptPtr,
-    }
-    -- Hidden items store item data in the union, not a script pointer.
-    if kind ~= BG_EVENT_HIDDEN_ITEM and scriptPtr ~= 0 and gba_off(rom, scriptPtr) then
-      row.scriptKey = Opcodes.key(scriptPtr)
+    if kind == BG_EVENT_HIDDEN_ITEM then
+      local item = rom:u16(base + 8)
+      local info = rom:u16(base + 10)
+      local hiddenItemId = bit.band(info, 0x1FF)
+      local quantity = bit.rshift(bit.band(info, 0x7E00), 9)
+      if quantity == 0 then quantity = 1 end
+      local underfoot = bit.rshift(info, 15) ~= 0
+      local flag = FLAG_HIDDEN_ITEMS_START + hiddenItemId
+      bgs[#bgs + 1] = {
+        type = "hidden_item",
+        x = x,
+        y = y,
+        elevation = elev,
+        kind = kind,
+        item = item,
+        hiddenItemId = hiddenItemId,
+        quantity = quantity,
+        underfoot = underfoot,
+        flag = flag,
+      }
+    else
+      local scriptPtr = rom:u32(base + 8)
+      local row = {
+        type = "sign",
+        x = x,
+        y = y,
+        elevation = elev,
+        kind = kind,
+        scriptPtr = scriptPtr,
+      }
+      -- Hidden items store item data in the union, not a script pointer.
+      if scriptPtr ~= 0 and gba_off(rom, scriptPtr) then
+        row.scriptKey = Opcodes.key(scriptPtr)
+      end
+      bgs[#bgs + 1] = row
     end
-    bgs[#bgs + 1] = row
   end
   return bgs
 end

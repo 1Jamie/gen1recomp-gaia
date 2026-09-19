@@ -118,7 +118,102 @@ MapSectionsExtract.SECTIONS = {
   [196] = { id = "MAPSEC_SPECIAL_AREA", name = "CELADON DEPT.", theme = "brick" },
 }
 
+local Versions = require("src.import.gba.versions")
+local TextIR = require("src.core.game3.scripting.text_ir")
+
 local _mapToSecCache = nil
+
+local function decode_name_from_rom(rom, off, maxLen)
+  maxLen = maxLen or 32
+  local chars = {}
+  for i = 0, maxLen - 1 do
+    local b = rom:get(off + i)
+    if b == 0xFF then break end
+    if TextIR.CHARMAP[b] then
+      chars[#chars + 1] = TextIR.CHARMAP[b]
+    elseif b >= 0xBB and b <= 0xD4 then
+      chars[#chars + 1] = string.char(string.byte("A") + (b - 0xBB))
+    elseif b >= 0xD5 and b <= 0xEE then
+      chars[#chars + 1] = string.char(string.byte("a") + (b - 0xD5))
+    end
+  end
+  return table.concat(chars)
+end
+
+--- Extract authentic place names directly from ROM's sMapNames pointer table.
+function MapSectionsExtract.extractNamesFromRom(rom)
+  if not rom or not rom.u32 then return end
+  local base = Versions.MAPSEC_NAMES or 0x3F1CAC
+  local count = Versions.KANTO_MAPSEC_COUNT or 109
+  local start = Versions.KANTO_MAPSEC_START or 88
+  for i = 0, count - 1 do
+    local secId = start + i
+    local ptr = rom:u32(base + i * 4)
+    local off = rom:ptrOffset(ptr)
+    if off then
+      local name = decode_name_from_rom(rom, off)
+      if name and name ~= "" then
+        if not MapSectionsExtract.SECTIONS[secId] then
+          MapSectionsExtract.SECTIONS[secId] = {
+            id = string.format("MAPSEC_%d", secId),
+            theme = "marble",
+          }
+        end
+        MapSectionsExtract.SECTIONS[secId].name = name
+      end
+    end
+  end
+end
+
+local function load_generated_sections()
+  local okFs, CacheFs = pcall(require, "src.import.CacheFs")
+  local gen = nil
+  if okFs and CacheFs and CacheFs.read then
+    local chunk = CacheFs.read("data/generated/gba/region_map/map_sections.lua")
+      or CacheFs.read("data/generated/gba/map_sections.lua")
+      or CacheFs.read("region_map/map_sections.lua")
+    if chunk then
+      local fn = loadstring and loadstring(chunk) or load(chunk)
+      if fn then gen = fn() end
+    end
+  end
+  if not gen and love and love.filesystem and love.filesystem.read then
+    local chunk = love.filesystem.read("data/generated/gba/region_map/map_sections.lua")
+      or love.filesystem.read("data/generated/gba/map_sections.lua")
+    if chunk then
+      local fn = loadstring and loadstring(chunk) or load(chunk)
+      if fn then gen = fn() end
+    end
+  end
+  if not gen then
+    local f = io.open("data/generated/gba/region_map/map_sections.lua", "r")
+      or io.open("data/generated/gba/map_sections.lua", "r")
+    if f then
+      local chunk = f:read("*a")
+      f:close()
+      if chunk then
+        local fn = loadstring and loadstring(chunk) or load(chunk)
+        if fn then gen = fn() end
+      end
+    end
+  end
+  if gen and gen.sections then
+    for secId, s in pairs(gen.sections) do
+      MapSectionsExtract.SECTIONS[secId] = s
+    end
+  end
+end
+load_generated_sections()
+
+local function normalize_map_name(mapId)
+  if type(mapId) ~= "string" then return "" end
+  local s = mapId:gsub("^FR_", ""):gsub("^SEVII_", "")
+  s = s:gsub("(%l)(%u)", "%1_%2")
+  s = s:gsub("(%a)(%d)", "%1_%2")
+  s = s:gsub("(%d)(%a)", "%1_%2")
+  s = s:gsub("-", "_"):upper()
+  return s
+end
 
 local function load_map_tree_cache()
   if _mapToSecCache then return _mapToSecCache end
@@ -167,6 +262,9 @@ local function load_map_tree_cache()
               _mapToSecCache[m.id] = sid
               _mapToSecCache[slot] = sid
               _mapToSecCache[m.id:upper()] = sid
+              local norm = normalize_map_name(m.id)
+              _mapToSecCache[norm] = sid
+              _mapToSecCache["FR_" .. norm] = sid
             end
           end
         end
@@ -175,16 +273,6 @@ local function load_map_tree_cache()
   end
 
   return _mapToSecCache
-end
-
-local function normalize_map_name(mapId)
-  if type(mapId) ~= "string" then return "" end
-  local s = mapId:gsub("^FR_", ""):gsub("^SEVII_", "")
-  s = s:gsub("(%l)(%u)", "%1_%2")
-  s = s:gsub("(%a)(%d)", "%1_%2")
-  s = s:gsub("(%d)(%a)", "%1_%2")
-  s = s:gsub("-", "_"):upper()
-  return s
 end
 
 --- Get section info for mapsec ID, applying Celadon Dept Store override rule.
@@ -202,12 +290,22 @@ function MapSectionsExtract.getInfo(secId, mapId, floorNum)
 
   if (not secId or secId < 88) and mapId then
     local norm = normalize_map_name(mapId)
-    -- Try direct matching against SECTIONS
-    for id, info in pairs(MapSectionsExtract.SECTIONS) do
-      local secKey = info.id:sub(8)
-      if norm == secKey or norm:find("^" .. secKey) or norm:find(secKey, 1, true) then
-        secId = id
-        break
+    if norm ~= "" then
+      local cache = load_map_tree_cache()
+      if cache and cache[norm] then
+        secId = cache[norm]
+      elseif cache and cache["FR_" .. norm] then
+        secId = cache["FR_" .. norm]
+      end
+    end
+    if not secId or secId < 88 then
+      -- Try direct matching against SECTIONS
+      for id, info in pairs(MapSectionsExtract.SECTIONS) do
+        local secKey = info.id:sub(8)
+        if norm == secKey or norm:find("^" .. secKey) or norm:find(secKey, 1, true) then
+          secId = id
+          break
+        end
       end
     end
   end
@@ -227,6 +325,8 @@ function MapSectionsExtract.getInfo(secId, mapId, floorNum)
     end
   end
 
+  local rawName = name
+
   -- Append floor suffix (pokefirered/src/map_name_popup.c:205)
   local floor = tonumber(floorNum) or 0
   if floor == 127 then
@@ -241,17 +341,23 @@ function MapSectionsExtract.getInfo(secId, mapId, floorNum)
     secId = secId or 88,
     id = info.id,
     name = name,
-    rawName = info.name,
+    rawName = rawName,
     theme = theme,
     floorNum = floor,
   }
+end
+
+--- Resolve a clean place name (without floor suffix) for any mapId or secId.
+function MapSectionsExtract.getPlaceName(mapId, secId)
+  local info = MapSectionsExtract.getInfo(secId, mapId, 0)
+  return info and info.rawName or (info and info.name)
 end
 
 --- Format Lua file content
 function MapSectionsExtract.formatLua()
   local lines = {
     "-- Generated map section definitions and popup themes.",
-    "-- Sourced from pokefirered region_map_sections.json.",
+    "-- Extracted directly from ROM sMapNames table.",
     "return {",
     "  KANTO_MAPSEC_START = " .. MapSectionsExtract.KANTO_MAPSEC_START .. ",",
     "  sections = {",
@@ -271,9 +377,12 @@ function MapSectionsExtract.formatLua()
   return table.concat(lines, "\n")
 end
 
---- Write to cache root
-function MapSectionsExtract.run(_rom, cache, opts)
+--- Extract from ROM and write to cache root
+function MapSectionsExtract.run(rom, cache, opts)
   opts = opts or {}
+  if rom then
+    MapSectionsExtract.extractNamesFromRom(rom)
+  end
   local root = opts.cacheRoot or "data/generated/gba"
   local content = MapSectionsExtract.formatLua()
   if cache and cache.write then
@@ -281,9 +390,22 @@ function MapSectionsExtract.run(_rom, cache, opts)
     cache:write(root .. "/map_sections.lua", content)
   else
     local okFs, CacheFs = pcall(require, "src.import.CacheFs")
+    local wrote = false
     if okFs and CacheFs and CacheFs.write then
-      CacheFs.write(root .. "/region_map/map_sections.lua", content)
-      CacheFs.write(root .. "/map_sections.lua", content)
+      local ok1 = pcall(CacheFs.write, root .. "/region_map/map_sections.lua", content)
+      local ok2 = pcall(CacheFs.write, root .. "/map_sections.lua", content)
+      if ok1 or ok2 then wrote = true end
+    end
+    if not wrote then
+      local function write_file(path, str)
+        local dir = path:match("^(.*)/[^/]+$")
+        if dir then pcall(os.execute, "mkdir -p '" .. dir .. "'") end
+        local f = io.open(path, "w")
+        if f then f:write(str); f:close(); return true end
+        return false
+      end
+      write_file(root .. "/region_map/map_sections.lua", content)
+      write_file(root .. "/map_sections.lua", content)
     end
   end
   return true
