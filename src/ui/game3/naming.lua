@@ -93,6 +93,12 @@ local L = {
   -- Player/rival icon CreateSprite(56,37); 16×32 → TL (48,21)
   iconCX = 56, iconCY = 37,
   iconW = 16, iconH = 32,
+  -- Mon icon CreateMonIcon(species, SpriteCallbackDummy, 56, 40) is a 32×32
+  -- sprite (Versions.MON_ICON_W/H) drawn unscaled, centred on the frame baked
+  -- into bg.png — pokefirered/src/naming_screen.c:1422. Reusing the 16×32
+  -- player box above would letterbox it to half size.
+  monIconCX = 56, monIconCY = 40,
+  monIconW = 32, monIconH = 32,
   charY = 49,
   -- Underscore CreateSprite(base+3,60) 8×8 → TL (base-1, 56)
   underscoreBaseY = 56,
@@ -310,13 +316,15 @@ local function drawPlayerIcon(st)
         if entry and entry.image then
           local iw = entry.w or entry.image:getWidth()
           local ih = entry.h or (entry.quads and entry.h) or entry.image:getHeight()
-          local sc = math.min(L.iconW / iw, L.iconH / ih)
-          local q = entry.quads and (entry.quads[1] or entry.quads[0])
-          local cx, cy = L.iconCX, 40 -- pokefirered/src/naming_screen.c:1422
+          -- A mon icon is 32×32 and fills its frame 1:1; the frontPic fallback
+          -- is 64×64 and shrinks into the same box.
+          local sc = math.min(L.monIconW / iw, L.monIconH / ih)
+          -- pret passes SpriteCallbackDummy, so the icon shows its frame 0.
+          local q = entry.quads and entry.quads[0]
           if q then
-            love.graphics.draw(entry.image, q, cx, cy, 0, sc, sc, iw / 2, ih / 2)
+            love.graphics.draw(entry.image, q, L.monIconCX, L.monIconCY, 0, sc, sc, iw / 2, ih / 2)
           else
-            love.graphics.draw(entry.image, cx, cy, 0, sc, sc, iw / 2, ih / 2)
+            love.graphics.draw(entry.image, L.monIconCX, L.monIconCY, 0, sc, sc, iw / 2, ih / 2)
           end
           return
         end
