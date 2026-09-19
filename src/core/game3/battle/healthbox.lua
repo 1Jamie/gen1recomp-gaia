@@ -471,7 +471,7 @@ function Healthbox.draw(side, battler, opts)
       SummaryChrome.drawStatusIcon(tlX + 2, tlY + 16, ailment)
     else
       -- pokefirered/src/battle_interface.c:1551 TryAddPokeballIconToHealthbox
-      if Healthbox.shouldShowCaughtMarker(bst or st, battler) then
+      if Healthbox.shouldShowCaughtMarker(bst, battler) then
         BattleChrome.drawPartyBall(tlX + 8, tlY + 16, "caught")
       end
     end

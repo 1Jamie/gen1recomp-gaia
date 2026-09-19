@@ -82,7 +82,6 @@ local FLAG_HIDDEN_ITEMS_START = 0x3E8
 local function parse_bg_events(rom, ptr, count)
   local off = gba_off(rom, ptr)
   if not off or count <= 0 then return {} end
-  local bit = bit or bit32 or require("bit")
   local bgs = {}
   for i = 0, count - 1 do
     local base = off + i * BG_SIZE
@@ -95,10 +94,10 @@ local function parse_bg_events(rom, ptr, count)
     if kind == BG_EVENT_HIDDEN_ITEM then
       local item = rom:u16(base + 8)
       local info = rom:u16(base + 10)
-      local hiddenItemId = bit.band(info, 0x1FF)
-      local quantity = bit.rshift(bit.band(info, 0x7E00), 9)
+      local hiddenItemId = info % 512
+      local quantity = math.floor(info / 512) % 64
       if quantity == 0 then quantity = 1 end
-      local underfoot = bit.rshift(info, 15) ~= 0
+      local underfoot = info >= 32768
       local flag = FLAG_HIDDEN_ITEMS_START + hiddenItemId
       bgs[#bgs + 1] = {
         type = "hidden_item",

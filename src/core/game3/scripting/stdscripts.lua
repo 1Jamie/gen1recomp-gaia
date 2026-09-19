@@ -116,6 +116,7 @@ Std.SCRIPTS = {
   },
   EventScript_PC = {
     { op = "lockall" },
+    { op = "setvar", var = 0x8004, value = 0 },
     { op = "special", id = Std.SPECIAL.AnimatePcTurnOn },
     { op = "loadword", dest = 0, value = "Text_BootedUpPC" },
     { op = "message", ptr = 0 },
@@ -123,6 +124,7 @@ Std.SCRIPTS = {
     { op = "waitbuttonpress" },
     { op = "special", id = Std.SPECIAL.CreatePCMenu },
     { op = "waitstate" },
+    { op = "setvar", var = 0x8004, value = 0 },
     { op = "special", id = Std.SPECIAL.AnimatePcTurnOff },
     { op = "releaseall" },
     { op = "end" },
