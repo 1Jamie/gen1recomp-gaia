@@ -25,6 +25,15 @@ Naming.TEMPLATE = {
   NICKNAME = "NICKNAME",
 }
 
+-- pret gText_PkmnsNickname ("'s nickname?"), prepended with gSpeciesNames[mon]
+-- by DrawMonTextEntryBox — pokefirered/src/naming_screen.c:1712. Used by both
+-- mon naming templates (CAUGHT_MON and NICKNAME).
+function Naming.monTitle(speciesName)
+  local s = tostring(speciesName or "")
+  if s == "" then s = "POKéMON" end
+  return s .. "'s nickname?"
+end
+
 -- pret sKeyboardChars + sPageColumnXPos (cursor). Letters drawn via ROW_TEXT CLEARs.
 local PAGES = {
   {
@@ -90,6 +99,10 @@ local SIDE = { "PAGE", "BACK", "OK" }
 -- Values below are on-screen top-left blit positions (px).
 local L = {
   titleX = 73, titleY = 33,
+  -- WIN_TEXT_ENTRY_BOX = {tilemapLeft 9, tilemapTop 4, width 16} → screen
+  -- x 72..200; the title prints at (1,1) inside it, so it has 127px before the
+  -- GBA's per-window clip (CopyGlyphToWindow) would truncate it.
+  titleMaxW = 127,
   -- Player/rival icon CreateSprite(56,37); 16×32 → TL (48,21)
   iconCX = 56, iconCY = 37,
   iconW = 16, iconH = 32,
@@ -713,7 +726,9 @@ function Naming.draw()
 
   -- 5) Title + icon + typed name (above KB)
   love.graphics.setColor(1, 1, 1, 1)
-  drawText(st.title, L.titleX, L.titleY)
+  -- Clamp to the text-entry window so an over-long title cannot spill over the
+  -- frame (pret blits glyphs into the window buffer and clips there).
+  drawText(st.title, L.titleX, L.titleY, { maxWidth = L.titleMaxW })
 
   drawPlayerIcon(st)
 
