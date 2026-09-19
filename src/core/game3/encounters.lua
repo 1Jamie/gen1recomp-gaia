@@ -202,8 +202,52 @@ local function table_for(mapId)
   if not mapId then return nil end
   local t = Encounters._tables[mapId]
   if t then return t end
-  return Encounters._tables[tostring(mapId)]
+  local s = tostring(mapId)
+  t = Encounters._tables[s]
+  if t then return t end
+
+  -- MapCatalog resolution (e.g. pret name or group:num)
+  local ok, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+  if ok and MapCatalog then
+    local res = MapCatalog.resolve(s)
+    if res and Encounters._tables[res] then
+      return Encounters._tables[res]
+    end
+    local slot = MapCatalog.slotKeyFor(s)
+    if slot then
+      local colonSlot = slot:gsub("_", ":")
+      if Encounters._tables[colonSlot] then return Encounters._tables[colonSlot] end
+      if Encounters._tables[slot] then return Encounters._tables[slot] end
+    end
+  end
+
+  -- Prefix stripping / addition
+  if s:sub(1, 3) == "FR_" then
+    t = Encounters._tables[s:sub(4)]
+    if t then return t end
+  else
+    t = Encounters._tables["FR_" .. s]
+    if t then return t end
+  end
+
+  -- Route underscore normalization (ROUTE_22 <-> ROUTE22)
+  local routeNum = s:match("ROUTE_?(%d+)")
+  if routeNum then
+    t = Encounters._tables["FR_ROUTE_" .. routeNum]
+      or Encounters._tables["FR_ROUTE" .. routeNum]
+      or Encounters._tables["ROUTE_" .. routeNum]
+      or Encounters._tables["ROUTE" .. routeNum]
+    if t then return t end
+  end
+
+  return nil
 end
+
+function Encounters.tableFor(mapId)
+  Encounters.ensureLoaded()
+  return table_for(mapId)
+end
+Encounters.table_for = Encounters.tableFor
 
 --- The area `terrain` rolls on, resolved the same way rollLand/rollWater do.
 --- The cooldown needs the rate before the roll happens, and must not consume
