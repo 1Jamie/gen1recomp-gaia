@@ -148,8 +148,12 @@ function Rules.partialTrap.rollTurns(rng)
   return (math.floor(n) % 4) + 3
 end
 
-function Rules.partialTrap.active()
-  return Capabilities.gen3PartialTrap
+local function partial_trap_name(moveId)
+  local ok, Moves = pcall(require, "src.core.game3.battle.moves")
+  if ok and Moves and Moves.displayName then
+    return Moves.displayName(moveId)
+  end
+  return tostring(moveId or "the attack")
 end
 
 -- pokefirered/src/battle_message.c:1263
