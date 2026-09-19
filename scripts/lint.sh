@@ -24,6 +24,8 @@ if [ "${1:-}" = "--gate" ]; then
   shift
 fi
 
+export PATH="$(pwd)/node_modules/.bin:${HOME:-}/.luarocks/bin:$PATH"
+
 if ! command -v luacheck >/dev/null 2>&1; then
   echo "luacheck not found on PATH (install: luarocks install luacheck)" >&2
   exit 2
