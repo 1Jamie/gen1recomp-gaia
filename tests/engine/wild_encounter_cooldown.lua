@@ -6,6 +6,10 @@
 -- soft rather than a hard floor.  Without it a Route 1 tile (rate 21) rolls
 -- 21% per step and the game reads as "a wild battle nearly every step".
 --
+-- DoWildEncounterRateTest carries the rest of the same function family: the
+-- bike and banked-failure rate modifiers, plus the flute / Cleanse Tag /
+-- ability modifiers the cooldown also honours.
+--
 -- Every expected value below is the literal pret constant, so a drift in the
 -- port shows up here rather than as a frequency change in-game.
 
@@ -140,7 +144,106 @@ eq(il, 10, "Illuminate doubles the leak")
 setMods(nil, { { species = 1, level = 5, isEgg = true, abilityId = 35 } })
 eq(mods(), 6, "egg lead applies no ability modifier")
 
+-- ------------------------------------------------- rate test modifiers
+
+-- pret DoWildEncounterRateTest applies the same modifiers to the roll's
+-- threshold, in 1/1600ths, so they have to be pinned separately from the
+-- cooldown's minSteps.
+print("[test] rate test modifiers (pret DoWildEncounterRateTest)")
+local function rateOf(r) return Encounters.encounterRate(r) end
+
+setMods(nil, nil)
+eq(rateOf(21), 336, "rate 21 -> 21*16")
+eq(rateOf(0), 0, "rate 0 -> no threshold")
+eq(rateOf(100), 1600, "rate 100 saturates at MAX_ENCOUNTER_RATE")
+
+setMods("white", nil)
+eq(rateOf(21), 504, "White Flute raises the threshold by half")
+setMods("black", nil)
+eq(rateOf(21), 168, "Black Flute halves the threshold")
+
+setMods(nil, { { species = 1, level = 5, item = 190 } })
+eq(rateOf(21), 224, "Cleanse Tag cuts the threshold to two thirds")
+
+setMods(nil, { { species = 1, level = 5, abilityId = 1 } })
+eq(rateOf(21), 168, "Stench halves the threshold")
+setMods(nil, { { species = 1, level = 5, abilityId = 35 } })
+eq(rateOf(21), 672, "Illuminate doubles the threshold")
+
+-- pret clamps after the ability mod, so Illuminate on a saturated rate stays
+-- at MAX_ENCOUNTER_RATE instead of overflowing.
+setMods(nil, { { species = 1, level = 5, abilityId = 35 } })
+eq(rateOf(100), 1600, "the clamp runs after the ability modifier")
+
+-- Modifier order is observable through the integer divisions: pret applies
+-- flute -> Cleanse Tag -> ability, and reordering changes the result.
+setMods("white", { { species = 1, level = 5, item = 190 } })
+eq(rateOf(5), 80, "flute before Cleanse Tag (reversed order gives 79)")
+setMods(nil, { { species = 1, level = 5, item = 190, abilityId = 35 } })
+eq(rateOf(7), 148, "Cleanse Tag before ability (reversed order gives 149)")
+
 Space.store, Runtime.session = prevStore, prevSession
+
+-- ------------------------------------------------- rate buff / bike
+
+-- pret AddToWildEncounterRateBuff banks the rate of a failed roll, and the
+-- Mach/Acro bike scales the threshold down by 20%.
+print("[test] banked failure rate + bike")
+local function rollLand()
+  return Encounters.rollLand("ROUTE_1", nil, false)
+end
+
+Rng.SeedRng(0xC0DE)
+Rng.SeedWildEncounterRng(1)
+reset()
+eq(Encounters._encounterRateBuff, 0, "buff starts empty")
+eq(rollLand(), nil, "seed 1: the roll fails")
+eq(Encounters._encounterRateBuff, 21, "a failed roll banks the area rate")
+eq(Encounters.encounterRate(21), 337, "the banked rate lifts the threshold")
+
+-- A cooldown denial returns before the rate test, so it banks nothing.
+reset()
+Encounters.handleCooldown("land", 21)
+eq(Encounters._encounterRateBuff, 0, "a cooldown denial banks nothing")
+
+-- So does the first-step-into-grass behaviour gate (pret returns before
+-- DoWildEncounterRateTest there too).
+Rng.SeedRng(2)
+Rng.SeedWildEncounterRng(0xBEEF)
+reset()
+eq(Encounters.rollLand("ROUTE_1", nil, true), nil, "the behaviour gate denies")
+eq(Encounters._encounterRateBuff, 0, "the behaviour gate banks nothing")
+
+-- Starting a battle zeroes it again (pret sets encounterRateBuff = 0).
+Rng.SeedRng(0xC0DE)
+Rng.SeedWildEncounterRng(2)
+reset()
+check(rollLand() ~= nil, "seed 2: the roll lands")
+eq(Encounters._encounterRateBuff, 0, "a landed encounter clears the buff")
+
+-- A Repel zeroes the bank instead of growing it.
+reset()
+Rng.SeedWildEncounterRng(1)
+Runtime.session = { repelSteps = 100 }
+eq(rollLand(), nil, "the roll still fails under a Repel")
+eq(Encounters._encounterRateBuff, 0, "an active Repel clears the bank")
+Runtime.session = prevSession
+
+-- The bank is what makes a long dry spell slowly likelier, so a big bank has
+-- to move the threshold materially (pret: buff * 16 / 200).
+reset()
+Encounters._encounterRateBuff = 2500
+eq(Encounters.encounterRate(21), 536, "banked 2500 adds 200 to the threshold")
+reset()
+
+-- pret TestPlayerAvatarFlags(PLAYER_AVATAR_FLAG_MACH_BIKE | ACRO_BIKE).
+local Player = require("src.core.game3.player")
+local prevBiking = Player.biking
+Player.biking = true
+eq(Encounters.encounterRate(21), 268, "the bike cuts the threshold to 80%")
+Player.biking = false
+eq(Encounters.encounterRate(21), 336, "on foot the threshold is unscaled")
+Player.biking = prevBiking
 
 -- ---------------------------------------------------------------- end to end
 
@@ -170,8 +273,8 @@ end
 
 local withCooldown = roll(4000, true)
 local withoutCooldown = roll(4000, false)
-eq(withCooldown, 397, "4000 steps with the cooldown -> 397 encounters")
-eq(withoutCooldown, 843, "4000 steps without it -> 843 encounters")
+eq(withCooldown, 401, "4000 steps with the cooldown -> 401 encounters")
+eq(withoutCooldown, 858, "4000 steps without it -> 858 encounters")
 check(withCooldown < withoutCooldown / 2,
   ("cooldown more than halves the encounter count (%d vs %d)"):format(withCooldown, withoutCooldown))
 

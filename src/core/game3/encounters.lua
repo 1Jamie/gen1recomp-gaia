@@ -11,6 +11,7 @@ Encounters._tables = {} -- mapId or "group:num" → { land = { rate, slots }, ..
 Encounters._pendingWild = nil
 Encounters._prevGrass = false -- pret first-step-into-grass gate
 Encounters._stepsSinceLastEncounter = 0 -- pret sWildEncounterData.stepsSinceLastEncounter
+Encounters._encounterRateBuff = 0 -- pret sWildEncounterData.encounterRateBuff
 Encounters._logged = false
 Encounters._loaded = false
 
@@ -33,6 +34,11 @@ local FLAG_SYS_BLACK_FLUTE_ACTIVE = 0x804
 local COOLDOWN_NONE = 0xFF
 local COOLDOWN_BASE_LEAK = 5 -- pret: encRate = 5 * 256
 local COOLDOWN_SCALE = 256 -- pret keeps minSteps/encRate scaled so the modifiers stay fractional
+
+-- pret AddToWildEncounterRateBuff banks into a u16 field, so it wraps there.
+local RATE_BUFF_MOD = 65536
+-- pret VAR_REPEL_STEP_COUNT (this tree stores it at the 0x4021 slot).
+local VAR_REPEL_STEP_COUNT = 0x4021
 
 local function log(msg)
   print("[game3/encounters] " .. tostring(msg))
@@ -174,10 +180,7 @@ local function level_of(entry)
 end
 
 --- pret DoWildEncounterRateDiceRoll: WildEncounterRandom() % 1600 < rate.
-local function rate_test(rate)
-  rate = (tonumber(rate) or 0) * 16
-  if rate > MAX_ENCOUNTER_RATE then rate = MAX_ENCOUNTER_RATE end
-  if rate < 1 then return false end
+local function rate_dice_roll(rate)
   return (Rng.WildEncounterRandom() % MAX_ENCOUNTER_RATE) < rate
 end
 
@@ -324,6 +327,65 @@ end
 --- nothing stepped into (scripts, fishing).
 function Encounters.resetRateModifiers()
   Encounters._stepsSinceLastEncounter = 0
+  Encounters._encounterRateBuff = 0
+end
+
+--- pret TestPlayerAvatarFlags(PLAYER_AVATAR_FLAG_MACH_BIKE | ..._ACRO_BIKE).
+local function bike_active()
+  local ok, Player = pcall(require, "src.core.game3.player")
+  return (ok and Player and Player.biking) == true
+end
+
+--- pret VarGet(VAR_REPEL_STEP_COUNT) != 0.
+local function repel_active()
+  local ok, Runtime = pcall(require, "src.core.game3.runtime")
+  local session = ok and Runtime and Runtime.getSession and Runtime.getSession()
+  if type(session) ~= "table" then return false end
+  local vars = session.vars
+  local steps = tonumber(session.repelSteps)
+    or (type(vars) == "table" and tonumber(vars[VAR_REPEL_STEP_COUNT]))
+    or 0
+  return steps > 0
+end
+
+--- pret AddToWildEncounterRateBuff: bank a failed roll's rate so the next
+--- attempt is likelier. A Repel zeroes the bank instead of growing it.
+local function add_to_rate_buff(rate)
+  if repel_active() then
+    Encounters._encounterRateBuff = 0
+    return
+  end
+  Encounters._encounterRateBuff =
+    (Encounters._encounterRateBuff + (tonumber(rate) or 0)) % RATE_BUFF_MOD
+end
+
+--- pret DoWildEncounterRateTest, without the roll: the threshold in 1/1600ths
+--- that the dice roll compares against. Every encounter-rate modifier applies
+--- here as well as in the cooldown -- bike, banked buff, flute, Cleanse Tag,
+--- then ability, in pret's order.
+function Encounters.encounterRate(rate)
+  local r = (tonumber(rate) or 0) * 16
+  if bike_active() then r = math.floor(r * 80 / 100) end
+  r = r + math.floor(Encounters._encounterRateBuff * 16 / 200)
+  local flute = flute_mod_type()
+  if flute == 1 then
+    r = r + math.floor(r / 2)
+  elseif flute == 2 then
+    r = math.floor(r / 2)
+  end
+  if lead_holds_cleanse_tag() then r = math.floor(r * 2 / 3) end
+  local ability = ability_mod_type()
+  if ability == 1 then
+    r = math.floor(r / 2)
+  elseif ability == 2 then
+    r = r * 2
+  end
+  if r > MAX_ENCOUNTER_RATE then r = MAX_ENCOUNTER_RATE end
+  return r
+end
+
+local function rate_test(rate)
+  return rate_dice_roll(Encounters.encounterRate(rate))
 end
 
 local function roll_area(mapId, areaKey, weights, enterFromOther, fallbackRate)
@@ -332,15 +394,22 @@ local function roll_area(mapId, areaKey, weights, enterFromOther, fallbackRate)
   if not area or #area.slots == 0 then return nil end
 
   -- pret DoGlobalWildEncounterDiceRoll: (Random() % 100) >= 60 → deny.
+  -- This returns before the rate test, so it does not bank into the buff.
   if enterFromOther and (Rng.Random() % 100) >= 60 then
     return nil
   end
   if not rate_test(area.rate) then
+    add_to_rate_buff(area.rate)
     return nil
   end
 
   local entry = pick_slot(area.slots, weights)
-  if type(entry) ~= "table" then return nil end
+  if type(entry) ~= "table" then
+    -- pret banks here too: the rate test passed but TryGenerateWildMon found
+    -- no allowed mon (repel level check, empty slot).
+    add_to_rate_buff(area.rate)
+    return nil
+  end
   return {
     species = entry.species or entry[1],
     level = level_of(entry),
