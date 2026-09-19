@@ -583,7 +583,8 @@ local function draw_page_skills(mon)
   end
   ability = ability or "—"
   local ax, ay = cxy("abilityName", 74, 129)
-  draw_text(tostring(ability), ax, ay, 80, "NORMAL")
+  -- No registry renames abilities; a translation reaches the name through Strings().
+  draw_text(Strings(tostring(ability)), ax, ay, 80, "NORMAL")
   local desc = SummaryData.abilityDescription(abilityId, tostring(ability))
   local ad = coords().abilityDesc or { x = 10, y = 143, w = 232 }
   draw_text(desc, ad.x or 10, ad.y or 143, ad.w or 232, "NORMAL")

@@ -8,9 +8,11 @@ local Abilities = {}
 -- pokefirered/src/data/text/abilities.h:162
 local DISPLAY = { COMPOUND_EYES = "COMPOUNDEYES", LIGHTNING_ROD = "LIGHTNINGROD" }
 
+-- The name battle messages print.  No registry renames abilities, so a
+-- translation reaches them through Strings(), keyed by the cart's English.
 function Abilities.name(ab)
   if not ab then return "" end
-  return DISPLAY[ab] or (ab:gsub("_", " "))
+  return Strings(DISPLAY[ab] or (ab:gsub("_", " ")))
 end
 
 -- pokefirered/src/battle_util.c:31
