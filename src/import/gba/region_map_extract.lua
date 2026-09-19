@@ -32,15 +32,66 @@ end
 RegionMapExtract.MAP_WIDTH = 22
 RegionMapExtract.MAP_HEIGHT = 15
 
-local MapSectionsExtract = require("src.import.gba.map_sections_extract")
-
--- Populate section names from ROM-backed MapSectionsExtract
-RegionMapExtract.SECTION_NAMES = {}
-for _, info in pairs(MapSectionsExtract.SECTIONS or {}) do
-  if info.id and info.name then
-    RegionMapExtract.SECTION_NAMES[info.id] = info.name
-  end
-end
+-- Fallback-only text.  The authoritative section names and area descriptions
+-- are read from the ROM by src/import/gba/map_preview_extract.lua; these tables
+-- keep the module usable when no ROM was imported (ROM-free CI, unit tests).
+-- See RegionMapExtract.ensureGenerated.
+RegionMapExtract.FALLBACK_SECTION_NAMES = {
+  MAPSEC_PALLET_TOWN = "PALLET TOWN",
+  MAPSEC_VIRIDIAN_CITY = "VIRIDIAN CITY",
+  MAPSEC_PEWTER_CITY = "PEWTER CITY",
+  MAPSEC_CERULEAN_CITY = "CERULEAN CITY",
+  MAPSEC_LAVENDER_TOWN = "LAVENDER TOWN",
+  MAPSEC_VERMILION_CITY = "VERMILION CITY",
+  MAPSEC_CELADON_CITY = "CELADON CITY",
+  MAPSEC_FUCHSIA_CITY = "FUCHSIA CITY",
+  MAPSEC_CINNABAR_ISLAND = "CINNABAR ISLAND",
+  MAPSEC_INDIGO_PLATEAU = "INDIGO PLATEAU",
+  MAPSEC_SAFFRON_CITY = "SAFFRON CITY",
+  MAPSEC_ROUTE_4_POKECENTER = "ROUTE 4",
+  MAPSEC_ROUTE_10_POKECENTER = "ROUTE 10",
+  MAPSEC_ROUTE_1 = "ROUTE 1",
+  MAPSEC_ROUTE_2 = "ROUTE 2",
+  MAPSEC_ROUTE_3 = "ROUTE 3",
+  MAPSEC_ROUTE_4 = "ROUTE 4",
+  MAPSEC_ROUTE_5 = "ROUTE 5",
+  MAPSEC_ROUTE_6 = "ROUTE 6",
+  MAPSEC_ROUTE_7 = "ROUTE 7",
+  MAPSEC_ROUTE_8 = "ROUTE 8",
+  MAPSEC_ROUTE_9 = "ROUTE 9",
+  MAPSEC_ROUTE_10 = "ROUTE 10",
+  MAPSEC_ROUTE_11 = "ROUTE 11",
+  MAPSEC_ROUTE_12 = "ROUTE 12",
+  MAPSEC_ROUTE_13 = "ROUTE 13",
+  MAPSEC_ROUTE_14 = "ROUTE 14",
+  MAPSEC_ROUTE_15 = "ROUTE 15",
+  MAPSEC_ROUTE_16 = "ROUTE 16",
+  MAPSEC_ROUTE_17 = "ROUTE 17",
+  MAPSEC_ROUTE_18 = "ROUTE 18",
+  MAPSEC_ROUTE_19 = "ROUTE 19",
+  MAPSEC_ROUTE_20 = "ROUTE 20",
+  MAPSEC_ROUTE_21 = "ROUTE 21",
+  MAPSEC_ROUTE_22 = "ROUTE 22",
+  MAPSEC_ROUTE_23 = "ROUTE 23",
+  MAPSEC_ROUTE_24 = "ROUTE 24",
+  MAPSEC_ROUTE_25 = "ROUTE 25",
+  MAPSEC_VIRIDIAN_FOREST = "VIRIDIAN FOREST",
+  MAPSEC_MT_MOON = "MT. MOON",
+  MAPSEC_S_S_ANNE = "S.S. ANNE",
+  MAPSEC_UNDERGROUND_PATH = "UNDERGROUND PATH",
+  MAPSEC_UNDERGROUND_PATH_2 = "UNDERGROUND PATH",
+  MAPSEC_DIGLETTS_CAVE = "DIGLETT'S CAVE",
+  MAPSEC_KANTO_VICTORY_ROAD = "VICTORY ROAD",
+  MAPSEC_ROCKET_HIDEOUT = "ROCKET HIDEOUT",
+  MAPSEC_SILPH_CO = "SILPH CO.",
+  MAPSEC_POKEMON_MANSION = "POKéMON MANSION",
+  MAPSEC_KANTO_SAFARI_ZONE = "SAFARI ZONE",
+  MAPSEC_POKEMON_TOWER = "POKéMON TOWER",
+  MAPSEC_CERULEAN_CAVE = "CERULEAN CAVE",
+  MAPSEC_POWER_PLANT = "POWER PLANT",
+  MAPSEC_SEAFOAM_ISLANDS = "SEAFOAM ISLANDS",
+  MAPSEC_ROCK_TUNNEL = "ROCK TUNNEL",
+}
 
 -- [y][x] 0-indexed layout (15 rows, 22 cols)
 RegionMapExtract.KANTO_GRID = {
@@ -73,7 +124,7 @@ RegionMapExtract.DUNGEON_GRID = {
 }
 
 -- Authentic FRLG Area Descriptions (pokefirered/src/strings.c gText_RegionMap_AreaDesc_*)
-RegionMapExtract.DUNGEON_DESCRIPTIONS = {
+RegionMapExtract.FALLBACK_DUNGEON_DESCRIPTIONS = {
   MAPSEC_VIRIDIAN_FOREST = "A deep and sprawling forest that extends around VIRIDIAN CITY. A natural maze, many people become lost inside.",
   MAPSEC_MT_MOON = "A mystical mountain that is known for its frequent meteor falls. The shards of stars that fall here are known as MOON STONES.",
   MAPSEC_DIGLETTS_CAVE = "A seemingly plain tunnel that was dug by wild DIGLETT. It is famous for connecting ROUTES 2 and 11.",
@@ -87,7 +138,72 @@ RegionMapExtract.DUNGEON_DESCRIPTIONS = {
   MAPSEC_POWER_PLANT = "A power plant that was abandoned years ago, though some of the machines still work. It is infested with electric POKéMON.",
 }
 
--- Host Map ID -> (x, y) grid coords for player icon
+-- Effective tables the UI reads.  Seeded from the fallbacks and overlaid with
+-- ROM-derived text by ensureGenerated.
+local function copyTable(src)
+  local out = {}
+  for k, v in pairs(src) do out[k] = v end
+  return out
+end
+
+RegionMapExtract.SECTION_NAMES = copyTable(RegionMapExtract.FALLBACK_SECTION_NAMES)
+RegionMapExtract.DUNGEON_DESCRIPTIONS = copyTable(RegionMapExtract.FALLBACK_DUNGEON_DESCRIPTIONS)
+
+local generatedLoaded = false
+local generatedOk = false
+
+--- Overlay ROM-derived names/descriptions onto the effective tables.
+-- `names` is keyed by numeric mapsec (88..196) and `dungeonInfo` by the same,
+-- so both are bridged to the symbolic MAPSEC_* keys the UI uses via `sections`
+-- (map_sections_extract.SECTIONS).  Returns the number of sections updated.
+function RegionMapExtract.applyGeneratedText(names, dungeonInfo, sections)
+  if not sections then return 0 end
+  local updated = 0
+  if names then
+    for secId, name in pairs(names) do
+      local info = sections[secId]
+      if info and info.id and name and name ~= "" then
+        RegionMapExtract.SECTION_NAMES[info.id] = name
+        updated = updated + 1
+      end
+    end
+  end
+  if dungeonInfo then
+    for secId, entry in pairs(dungeonInfo) do
+      local info = sections[secId]
+      if info and info.id and entry then
+        if entry.name and entry.name ~= "" then
+          RegionMapExtract.SECTION_NAMES[info.id] = entry.name
+        end
+        if entry.desc and entry.desc ~= "" then
+          RegionMapExtract.DUNGEON_DESCRIPTIONS[info.id] = entry.desc
+        end
+        updated = updated + 1
+      end
+    end
+  end
+  return updated
+end
+
+--- Load the generated region-map text from the cache and apply it, once.
+-- Falls back silently to the hand-authored tables when the cache has no
+-- generated text (ROM-free checkouts).  Returns true when ROM text was applied.
+function RegionMapExtract.ensureGenerated()
+  if generatedLoaded then return generatedOk end
+  generatedLoaded = true
+  generatedOk = pcall(function()
+    local CacheFs = require("src.import.CacheFs")
+    local MapPreviewExtract = require("src.import.gba.map_preview_extract")
+    local MapSectionsExtract = require("src.import.gba.map_sections_extract")
+    local names = MapPreviewExtract.loadNames(CacheFs)
+    local dungeonInfo = MapPreviewExtract.loadDungeonInfo(CacheFs)
+    if not names and not dungeonInfo then return end
+    RegionMapExtract.applyGeneratedText(names, dungeonInfo, MapSectionsExtract.SECTIONS)
+  end) and true or false
+  return generatedOk
+end
+
+
 RegionMapExtract.HOST_MAP_TO_GRID = {
   PALLET_TOWN = { 4, 11 },
   REDS_HOUSE_1F = { 4, 11 },
@@ -143,6 +259,7 @@ RegionMapExtract.HOST_MAP_TO_GRID = {
 }
 
 function RegionMapExtract.resolveLocation(mapId, mapSec)
+  RegionMapExtract.ensureGenerated()
   if mapSec and RegionMapExtract.SECTION_NAMES[mapSec] then
     local name = RegionMapExtract.SECTION_NAMES[mapSec]
     -- 1. Check DUNGEON_GRID first for dungeon mapsecs

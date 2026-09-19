@@ -5,7 +5,10 @@ local MapSectionsExtract = {}
 
 MapSectionsExtract.KANTO_MAPSEC_START = 88 -- 0x58 = MAPSEC_PALLET_TOWN
 
--- Mapsec ID to { id, name, theme }
+-- Fallback-only names.  The authoritative section names are read from the ROM
+-- by src/import/gba/map_preview_extract.lua and overlaid by ensureGenerated;
+-- these keep the module usable when no ROM was imported (ROM-free CI, tests).
+-- The symbolic `id` and the popup `theme` are not in the ROM and stay here.
 MapSectionsExtract.SECTIONS = {
   [88]  = { id = "MAPSEC_PALLET_TOWN", name = "PALLET TOWN", theme = "marble" },
   [89]  = { id = "MAPSEC_VIRIDIAN_CITY", name = "VIRIDIAN CITY", theme = "marble" },
@@ -121,7 +124,15 @@ MapSectionsExtract.SECTIONS = {
 local Versions = require("src.import.gba.versions")
 local TextIR = require("src.core.game3.scripting.text_ir")
 
+-- Reverse index: symbolic MAPSEC_* name -> numeric mapsec.  Built once; only
+-- `name` is ever overlaid from the ROM, so `id` stays a stable key.
+MapSectionsExtract.ID_TO_SECTION = {}
+for secId, info in pairs(MapSectionsExtract.SECTIONS) do
+  MapSectionsExtract.ID_TO_SECTION[info.id] = secId
+end
+
 local _mapToSecCache = nil
+local generatedLoaded = false
 
 local function decode_name_from_rom(rom, off, maxLen)
   maxLen = maxLen or 32
@@ -143,7 +154,7 @@ end
 --- Extract authentic place names directly from ROM's sMapNames pointer table.
 function MapSectionsExtract.extractNamesFromRom(rom)
   if not rom or not rom.u32 then return end
-  local base = Versions.MAPSEC_NAMES or 0x3F1CAC
+  local base = Versions.MAPSEC_NAME_POINTERS or 0x3F1CAC
   local count = Versions.KANTO_MAPSEC_COUNT or 109
   local start = Versions.KANTO_MAPSEC_START or 88
   for i = 0, count - 1 do
@@ -204,6 +215,22 @@ local function load_generated_sections()
   end
 end
 load_generated_sections()
+
+--- Overlay ROM-derived section names onto SECTIONS, once.
+function MapSectionsExtract.ensureGenerated()
+  if generatedLoaded then return end
+  generatedLoaded = true
+  pcall(function()
+    local CacheFs = require("src.import.CacheFs")
+    local MapPreviewExtract = require("src.import.gba.map_preview_extract")
+    local names = MapPreviewExtract.loadNames(CacheFs)
+    if not names then return end
+    for secId, name in pairs(names) do
+      local info = MapSectionsExtract.SECTIONS[secId]
+      if info and name and name ~= "" then info.name = name end
+    end
+  end)
+end
 
 local function normalize_map_name(mapId)
   if type(mapId) ~= "string" then return "" end
@@ -277,6 +304,7 @@ end
 
 --- Get section info for mapsec ID, applying Celadon Dept Store override rule.
 function MapSectionsExtract.getInfo(secId, mapId, floorNum)
+  MapSectionsExtract.ensureGenerated()
   secId = tonumber(secId)
 
   if (not secId or secId < 88) and mapId then
@@ -299,18 +327,29 @@ function MapSectionsExtract.getInfo(secId, mapId, floorNum)
       end
     end
     if not secId or secId < 88 then
-      -- Try direct matching against SECTIONS
+      -- Match against SECTIONS.  pairs() order is arbitrary, so a plain
+      -- substring test let "ROUTE_22" land on MAPSEC_ROUTE_2 (name "ROUTE 2").
+      -- Pick the exact match, else the longest match, so the result is stable.
+      local bestId, bestLen
       for id, info in pairs(MapSectionsExtract.SECTIONS) do
         local secKey = info.id:sub(8)
-        if norm == secKey or norm:find("^" .. secKey) or norm:find(secKey, 1, true) then
-          secId = id
+        if norm == secKey then
+          bestId, bestLen = id, #secKey
           break
         end
+        if (norm:find("^" .. secKey) or norm:find(secKey, 1, true))
+          and (not bestLen or #secKey > bestLen) then
+          bestId, bestLen = id, #secKey
+        end
       end
+      if bestId then secId = bestId end
     end
   end
 
-  local info = (secId and MapSectionsExtract.SECTIONS[secId])
+  -- `resolved` tells callers whether the map was actually identified; the
+  -- Pallet Town table below is the historical default for anything unknown.
+  local found = secId and MapSectionsExtract.SECTIONS[secId]
+  local info = found
     or { id = "MAPSEC_PALLET_TOWN", name = "PALLET TOWN", theme = "marble" }
 
   local name = info.name
@@ -344,6 +383,7 @@ function MapSectionsExtract.getInfo(secId, mapId, floorNum)
     rawName = rawName,
     theme = theme,
     floorNum = floor,
+    resolved = found ~= nil,
   }
 end
 
