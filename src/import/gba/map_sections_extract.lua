@@ -202,17 +202,28 @@ function MapSectionsExtract.getInfo(secId, mapId, floorNum)
 
   if (not secId or secId < 88) and mapId then
     local norm = normalize_map_name(mapId)
-    -- Try direct matching against SECTIONS
+    -- Match against SECTIONS.  pairs() order is arbitrary, so a plain
+    -- substring test let "ROUTE_22" land on MAPSEC_ROUTE_2 (name "ROUTE 2").
+    -- Pick the exact match, else the longest match, so the result is stable.
+    local bestId, bestLen
     for id, info in pairs(MapSectionsExtract.SECTIONS) do
       local secKey = info.id:sub(8)
-      if norm == secKey or norm:find("^" .. secKey) or norm:find(secKey, 1, true) then
-        secId = id
+      if norm == secKey then
+        bestId, bestLen = id, #secKey
         break
       end
+      if (norm:find("^" .. secKey) or norm:find(secKey, 1, true))
+        and (not bestLen or #secKey > bestLen) then
+        bestId, bestLen = id, #secKey
+      end
     end
+    if bestId then secId = bestId end
   end
 
-  local info = (secId and MapSectionsExtract.SECTIONS[secId])
+  -- `resolved` tells callers whether the map was actually identified; the
+  -- Pallet Town table below is the historical default for anything unknown.
+  local found = secId and MapSectionsExtract.SECTIONS[secId]
+  local info = found
     or { id = "MAPSEC_PALLET_TOWN", name = "PALLET TOWN", theme = "marble" }
 
   local name = info.name
@@ -244,6 +255,7 @@ function MapSectionsExtract.getInfo(secId, mapId, floorNum)
     rawName = info.name,
     theme = theme,
     floorNum = floor,
+    resolved = found ~= nil,
   }
 end
 
