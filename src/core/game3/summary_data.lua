@@ -307,8 +307,19 @@ local function get_descriptions()
   return _descs
 end
 
+-- Descriptions are keyed by the English name.  A translation mod renames
+-- moves and abilities, so the name the caller shows is looked past: the ROM's
+-- own name for that number is what the key was built from.
+local function rom_name(field, id, shown)
+  local Pokemon = package.loaded["src.core.game3.pokemon"]
+  local english = type(Pokemon) == "table" and Pokemon._cache and Pokemon[field]
+    and Pokemon[field](id)
+  return english or shown
+end
+
 function SummaryData.abilityDescription(abilityId, abilityName)
   local d = get_descriptions()
+  abilityName = rom_name("romAbilityName", abilityId, abilityName)
   if d and d.ABILITIES and abilityName then
     local const = "ABILITY_" .. abilityName:upper():gsub("%s+", "_"):gsub("[^%w_]", "")
     if d.ABILITIES[const] then
@@ -320,6 +331,7 @@ end
 
 function SummaryData.moveDescription(moveId, moveName)
   local d = get_descriptions()
+  moveName = rom_name("romMoveName", moveId, moveName)
   if d and d.MOVES and moveName then
     local const = "MOVE_" .. moveName:upper():gsub("%s+", "_"):gsub("[^%w_]", "")
     if d.MOVES[const] then

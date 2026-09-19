@@ -22,6 +22,11 @@ Pokemon._abilities = nil
 Pokemon._abilityNames = nil
 Pokemon._speciesMeta = nil
 Pokemon._moveNames = nil
+-- The ROM's English move and ability names, copied at install before a mod
+-- renames entries of _moveNames/_abilityNames in place.  Anything keyed by
+-- the English name (the summary's descriptions) reads these.
+Pokemon._romMoveNames = nil
+Pokemon._romAbilityNames = nil
 Pokemon._learnsets = nil
 Pokemon._eggMoves = nil
 Pokemon._evolutions = nil
@@ -61,6 +66,13 @@ local function resolve_cache(cache)
       return nil
     end,
   }
+end
+
+local function copy_names(names)
+  if type(names) ~= "table" then return nil end
+  local out = {}
+  for k, v in pairs(names) do out[k] = v end
+  return out
 end
 
 local function load_lua(cache, rel)
@@ -125,6 +137,8 @@ function Pokemon.install(cache)
   Pokemon._abilityNames = nil
   Pokemon._speciesMeta = nil
   Pokemon._moveNames = nil
+  Pokemon._romMoveNames = nil
+  Pokemon._romAbilityNames = nil
   Pokemon._learnsets = nil
   Pokemon._eggMoves = nil
   Pokemon._evolutions = nil
@@ -146,6 +160,8 @@ function Pokemon.install(cache)
   Pokemon._abilityNames = load_lua(c, root .. "/ability_names.lua")
   Pokemon._speciesMeta = load_lua(c, root .. "/meta.lua")
   Pokemon._moveNames = load_lua(c, root .. "/move_names.lua")
+  Pokemon._romMoveNames = copy_names(Pokemon._moveNames)
+  Pokemon._romAbilityNames = copy_names(Pokemon._abilityNames)
   Pokemon._learnsets = load_lua(c, root .. "/learnsets.lua")
   Pokemon._eggMoves = load_lua(c, root .. "/egg_moves.lua")
   Pokemon._evolutions = load_lua(c, root .. "/evolutions.lua")
@@ -206,6 +222,8 @@ function Pokemon.invalidate()
   Pokemon._abilityNames = nil
   Pokemon._speciesMeta = nil
   Pokemon._moveNames = nil
+  Pokemon._romMoveNames = nil
+  Pokemon._romAbilityNames = nil
   Pokemon._learnsets = nil
   Pokemon._eggMoves = nil
   Pokemon._evolutions = nil
@@ -469,6 +487,22 @@ function Pokemon.applyStats(mon)
   mon.spa = st.spAtk
   mon.spd = st.spDef
   return mon
+end
+
+-- The ROM's English name for a move or ability number, whatever a mod renamed
+-- it to; nil when the pack has none.
+function Pokemon.romMoveName(num)
+  num = tonumber(num)
+  if not num then return nil end
+  if not Pokemon._moveNames then Pokemon.install(Pokemon._cache) end
+  return Pokemon._romMoveNames and Pokemon._romMoveNames[num]
+end
+
+function Pokemon.romAbilityName(abilityId)
+  abilityId = tonumber(abilityId)
+  if not abilityId then return nil end
+  if not Pokemon._abilityNames then Pokemon.install(Pokemon._cache) end
+  return Pokemon._romAbilityNames and Pokemon._romAbilityNames[abilityId]
 end
 
 function Pokemon.moveName(moveId)
