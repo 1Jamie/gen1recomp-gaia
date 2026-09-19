@@ -24,7 +24,8 @@ Versions.ROM_SIZE = 16777216
 -- v90: fanfare audio cues, emote cues (0x62-0x66), pause menu YES/NO exit & main menu launcher exit
 -- v91: ROM-native Help topics, context lists, text and chrome.
 -- v93: original furniture/sign scripts and metatile interaction behaviors.
-Versions.CACHE_VERSION = 98
+-- v99: gEggMoves → pokemon/egg_moves.lua (hidden-mon egg moves were inert).
+Versions.CACHE_VERSION = 99
 Versions.NATIVE_VERSION = 5
 Versions.OW_VERSION = 1
 Versions.ANIM_VERSION = 1
@@ -97,6 +98,15 @@ Versions.MOVE_NAMES = 0x247094            -- gMoveNames
 Versions.MOVE_NAME_LENGTH = 12            -- +1 EOS → 13-byte stride
 Versions.MOVE_DESCRIPTIONS = 0x4886E8     -- gMoveDescriptionPointers (354 pointers)
 Versions.LEVEL_UP_LEARNSETS = 0x25D7B4    -- gLevelUpLearnsets pointer table
+-- gEggMoves (pokefirered/src/data/pokemon/egg_moves.h).  Not a pointer table:
+-- one flat u16 stream of `{ species + EGG_MOVES_SPECIES_OFFSET, move…, 0xFFFF }`
+-- runs, each run ended by EGG_MOVES_TERMINATOR; the table simply stops after the
+-- last run, so the following symbol's data ends the scan.  Only species that
+-- actually have an egg move appear, so it is sparse.
+Versions.EGG_MOVES = 0x25EF0C             -- gEggMoves (FireRed USA 1.0)
+Versions.EGG_MOVES_SPECIES_OFFSET = 20000
+Versions.EGG_MOVES_TERMINATOR = 0xFFFF
+Versions.EGG_MOVES_MAX = 16               -- per species; the ROM's real max is 8
 Versions.EVOLUTION_TABLE = 0x259754       -- gEvolutionTable
 Versions.EVOS_PER_MON = 5
 Versions.EVOLUTION_ENTRY_SIZE = 8         -- method,u16 param,u16 target,u16 pad
