@@ -2100,7 +2100,10 @@ local function start_post_catch_flow(catchRes)
             gender = gender,
             personality = personality,
             seed = ename,
-            title = "YOUR POKEMON'S NICKNAME?",
+            -- pret naming_screen.c:1712 DrawMonTextEntryBox: gSpeciesNames[mon]
+            -- + gText_PkmnsNickname. The hand-written "YOUR POKEMON'S NICKNAME?"
+            -- was 141px wide and spilled over the frame's right edge.
+            title = Naming.monTitle(Pokemon.name(sp)),
             onDone = function(nick)
               if nick and nick ~= "" and nick ~= ename then
                 if mon then mon.nickname = nick end
