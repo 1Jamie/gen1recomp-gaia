@@ -4,6 +4,7 @@ local Extract = require("src.import.gba.extract_island1")
 local PokemonExtract = require("src.import.gba.pokemon_extract")
 local Versions = require("src.import.gba.versions")
 local ModRuntime = require("src.mods.Runtime")
+local Strings = require("src.core.Strings")
 
 local Pokemon = {}
 
@@ -228,7 +229,7 @@ function Pokemon.name(species)
   if not Pokemon._names then Pokemon.install(Pokemon._cache) end
   local n = Pokemon._names and Pokemon._names[species]
   if n and n ~= "" and n ~= "??????????" then return n end
-  return string.format("POKéMON %03d", species)
+  return Strings("POKéMON %03d", species)
 end
 
 function Pokemon.keyName(species)
@@ -308,7 +309,7 @@ function Pokemon.abilityName(abilityId)
   if not Pokemon._abilityNames then Pokemon.install(Pokemon._cache) end
   local n = Pokemon._abilityNames and Pokemon._abilityNames[abilityId]
   if n and n ~= "" then return n end
-  return string.format("ABILITY %d", abilityId)
+  return Strings("ABILITY %d", abilityId)
 end
 
 function Pokemon.speciesMeta(species)
@@ -490,7 +491,7 @@ function Pokemon.moveName(moveId)
   if not Pokemon._moveNames then Pokemon.install(Pokemon._cache) end
   local n = Pokemon._moveNames and Pokemon._moveNames[num]
   if n and n ~= "" then return n end
-  return string.format("MOVE %d", num)
+  return Strings("MOVE %d", num)
 end
 
 function Pokemon.learnset(species)
