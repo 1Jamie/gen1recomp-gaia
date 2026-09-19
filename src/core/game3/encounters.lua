@@ -10,6 +10,7 @@ local Encounters = {}
 Encounters._tables = {} -- mapId or "group:num" → { land = { rate, slots }, ... }
 Encounters._pendingWild = nil
 Encounters._prevGrass = false -- pret first-step-into-grass gate
+Encounters._stepsSinceLastEncounter = 0 -- pret sWildEncounterData.stepsSinceLastEncounter
 Encounters._logged = false
 Encounters._loaded = false
 
@@ -17,6 +18,21 @@ Encounters._loaded = false
 local LAND_WEIGHTS = { 20, 20, 10, 10, 10, 10, 5, 5, 4, 4, 1, 1 }
 local WATER_WEIGHTS = { 60, 30, 5, 4, 1 }
 local MAX_ENCOUNTER_RATE = 1600 -- pret wild_encounter.c (FireRed)
+
+-- Ids the encounter-rate modifiers below key off (pret constants/abilities.h,
+-- constants/items.h, constants/flags.h).
+local ABILITY_STENCH = 1
+local ABILITY_ILLUMINATE = 35
+local ITEM_CLEANSE_TAG = 190
+local FLAG_SYS_WHITE_FLUTE_ACTIVE = 0x803
+local FLAG_SYS_BLACK_FLUTE_ACTIVE = 0x804
+
+-- pret GetMapBaseEncounterCooldown returns 0xFF when the map has no encounter
+-- data for that tile type, which aborts the check instead of granting a grace
+-- period (the roll would fail anyway).
+local COOLDOWN_NONE = 0xFF
+local COOLDOWN_BASE_LEAK = 5 -- pret: encRate = 5 * 256
+local COOLDOWN_SCALE = 256 -- pret keeps minSteps/encRate scaled so the modifiers stay fractional
 
 local function log(msg)
   print("[game3/encounters] " .. tostring(msg))
@@ -186,6 +202,130 @@ local function table_for(mapId)
   return Encounters._tables[tostring(mapId)]
 end
 
+--- The area `terrain` rolls on, resolved the same way rollLand/rollWater do.
+--- The cooldown needs the rate before the roll happens, and must not consume
+--- RNG to get it.
+local function area_for(mapId, terrain)
+  local t = table_for(mapId)
+  if terrain == "water" then
+    return normalize_area(t and t.water, 15)
+  end
+  return normalize_area(t and t.land) or normalize_area(t and t.grass)
+end
+
+-- ---------------------------------------------------------------------------
+-- Wild encounter grace period (pret wild_encounter.c).
+--
+-- FireRed is the only generation with a step cooldown between wild battles:
+-- HandleWildEncounterCooldown refuses the roll for a map-dependent number of
+-- steps after the last encounter, then lets a small percentage per step
+-- through so the wait is soft rather than a hard floor.
+-- ---------------------------------------------------------------------------
+
+--- pret GetMapBaseEncounterCooldown: how many steps after a battle are immune,
+--- derived from the area's own encounter rate. Rates at 80+ get no grace period
+--- at all; below that the wait grows as the rate drops.
+function Encounters.mapBaseCooldown(terrain, rate)
+  if terrain ~= "land" and terrain ~= "water" then return COOLDOWN_NONE end
+  if rate == nil then return COOLDOWN_NONE end
+  rate = tonumber(rate) or 0
+  if rate >= 80 then return 0 end
+  if rate < 10 then return 8 end
+  return 8 - math.floor(rate / 10)
+end
+
+--- pret GetLeadMonIndex: the lead party slot, eggs excluded.
+local function lead_mon()
+  local ok, Runtime = pcall(require, "src.core.game3.runtime")
+  local session = ok and Runtime and Runtime.getSession and Runtime.getSession()
+  local party = session and session.party
+  if type(party) ~= "table" then return nil end
+  for i = 1, #party do
+    local mon = party[i]
+    if type(mon) == "table" and not mon.isEgg and not mon.egg then return mon end
+  end
+  return nil
+end
+
+--- pret GetFluteEncounterRateModType: 1 = White Flute, 2 = Black Flute.
+local function flute_mod_type()
+  local okS, Space = pcall(require, "src.core.game3.scripting.space")
+  if not okS or not Space or not Space.store then return 0 end
+  local okF, Flags = pcall(require, "src.core.game3.scripting.flags")
+  if not okF or not Flags or not Flags.getFlag then return 0 end
+  if Flags.getFlag(Space.store, nil, FLAG_SYS_WHITE_FLUTE_ACTIVE) then return 1 end
+  if Flags.getFlag(Space.store, nil, FLAG_SYS_BLACK_FLUTE_ACTIVE) then return 2 end
+  return 0
+end
+
+--- pret IsLeadMonHoldingCleanseTag.
+local function lead_holds_cleanse_tag()
+  local mon = lead_mon()
+  if not mon then return false end
+  return (tonumber(mon.item or mon.heldItem) or 0) == ITEM_CLEANSE_TAG
+end
+
+--- pret GetAbilityEncounterRateModType: Stench 1 (rarer), Illuminate 2 (commoner).
+local function ability_mod_type()
+  local mon = lead_mon()
+  if not mon then return 0 end
+  local ability = tonumber(mon.abilityId or mon.ability) or 0
+  if ability == ABILITY_STENCH then return 1 end
+  if ability == ABILITY_ILLUMINATE then return 2 end
+  return 0
+end
+
+--- The fully modified (minSteps, leak) pair pret computes inside
+--- HandleWildEncounterCooldown. nil means "no encounter data here".
+function Encounters.cooldownMinSteps(terrain, rate)
+  local minSteps = Encounters.mapBaseCooldown(terrain, rate)
+  if minSteps == COOLDOWN_NONE then return nil end
+
+  minSteps = minSteps * COOLDOWN_SCALE
+  local leak = COOLDOWN_BASE_LEAK * COOLDOWN_SCALE
+  local flute = flute_mod_type()
+  if flute == 1 then
+    minSteps = minSteps - math.floor(minSteps / 2)
+    leak = leak + math.floor(leak / 2)
+  elseif flute == 2 then
+    minSteps = minSteps * 2
+    leak = math.floor(leak / 2)
+  end
+  if lead_holds_cleanse_tag() then
+    minSteps = minSteps + math.floor(minSteps / 3)
+    leak = leak - math.floor(leak / 3)
+  end
+  local ability = ability_mod_type()
+  if ability == 1 then
+    minSteps = minSteps * 2
+    leak = math.floor(leak / 2)
+  elseif ability == 2 then
+    minSteps = math.floor(minSteps / 2)
+    leak = leak * 2
+  end
+  return math.floor(minSteps / COOLDOWN_SCALE), math.floor(leak / COOLDOWN_SCALE)
+end
+
+--- pret HandleWildEncounterCooldown. TRUE means this step may roll for an
+--- encounter. Runs on every step onto an encounter tile -- including the steps
+--- the dice roll would have denied, which is what advances the counter.
+function Encounters.handleCooldown(terrain, rate)
+  local minSteps, leak = Encounters.cooldownMinSteps(terrain, rate)
+  if minSteps == nil then return false end
+
+  if Encounters._stepsSinceLastEncounter >= minSteps then return true end
+  Encounters._stepsSinceLastEncounter = Encounters._stepsSinceLastEncounter + 1
+  return (Rng.Random() % 100) < leak
+end
+
+--- pret ResetEncounterRateModifiers, reached from RestartWildEncounterImmunitySteps
+--- on map load (overworld.c) and on battle start (battle_setup.c). Resetting when
+--- the battle starts is what re-arms the grace period, including for wild battles
+--- nothing stepped into (scripts, fishing).
+function Encounters.resetRateModifiers()
+  Encounters._stepsSinceLastEncounter = 0
+end
+
 local function roll_area(mapId, areaKey, weights, enterFromOther, fallbackRate)
   local t = table_for(mapId)
   local area = normalize_area(t and t[areaKey], fallbackRate)
@@ -226,10 +366,18 @@ local function vanilla_step(mapId, terrain, opts)
   if enterFromOther == nil then
     enterFromOther = not Encounters._prevGrass
   end
+  -- pret TryStandardWildEncounter consults the cooldown before the rate test.
+  local area = area_for(mapId, terrain)
+  if not Encounters.handleCooldown(terrain, area and area.rate) then return nil end
+  local enc
   if terrain == "water" then
-    return Encounters.rollWater(mapId, enterFromOther)
+    enc = Encounters.rollWater(mapId, enterFromOther)
+  else
+    enc = Encounters.rollLand(mapId, nil, enterFromOther)
   end
-  return Encounters.rollLand(mapId, nil, enterFromOther)
+  -- pret sets stepsSinceLastEncounter = 0 once an encounter actually starts.
+  if enc then Encounters.resetRateModifiers() end
+  return enc
 end
 
 local function mod_encounter(enc)
@@ -277,7 +425,9 @@ function Encounters.onStep(mapId, terrain, opts)
   if enc and wantsSpecies then
     enc = ModRuntime.call("encounter.species", same_encounter, enc, ctx)
   end
-  return engine_encounter(enc)
+  enc = engine_encounter(enc)
+  if enc then Encounters.resetRateModifiers() end
+  return enc
 end
 
 function Encounters.noteGrass(onGrass)
