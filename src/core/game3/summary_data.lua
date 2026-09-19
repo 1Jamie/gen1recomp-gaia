@@ -265,7 +265,7 @@ function SummaryData.formatTrainerMemo(mon, playerState)
   local isFateful = not not (mon.fatefulEncounter or mon.metLocation == 255)
   local isHatched = (mon.metLevel == 0 or mon.hatched)
 
-  local locName = mon.metLocationName or "PALLET TOWN"
+  local locName = Strings(mon.metLocationName or "PALLET TOWN")
   if isTrade then
     locName = Strings("a trade")
   end

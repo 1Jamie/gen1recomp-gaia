@@ -40,6 +40,15 @@ check(rival and rival.dialogs.defeat == "WHAT?\nUnbelievable!\n\nI picked the wr
 check(ItemsData.POCKET_LABEL.KEY_ITEMS == "KEY ITEMS", "POCKET_LABEL keeps the English source")
 check(Strings(ItemsData.POCKET_LABEL.KEY_ITEMS) == "OBJETS RARES", "POCKET_LABEL translates at the caller")
 
+-- Map section names live in src/import/gba/map_sections_extract.lua; the
+-- popup translates the name and words the floor through Strings().
+Strings.load({ strings = { ["LAVENDER TOWN"] = "LAVANVILLE", ["3F"] = "2E" } })
+local MapNamePopup = require("src.ui.game3.map_name_popup")
+MapNamePopup.dismiss()
+MapNamePopup.show({ regionMapSectionId = 92, floorNum = 3, showMapName = 1 })
+check(MapNamePopup._name == "LAVANVILLE 2E", "the map name popup translates the place and its floor")
+MapNamePopup.dismiss()
+
 Strings.load({})
 
 print(("game3_strings_module_tables_test: %s (%d failed)"):format(failed == 0 and "PASS" or "FAIL", failed))
