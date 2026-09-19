@@ -9,6 +9,7 @@ local Window = require("src.ui.game3.window")
 local Chrome = require("src.ui.game3.chrome")
 local FrlgFont = require("src.ui.game3.frlg_font")
 local MapSectionsExtract = require("src.import.gba.map_sections_extract")
+local Strings = require("src.core.Strings")
 
 local SaveMenu = {}
 
@@ -172,7 +173,7 @@ function SaveMenu.draw()
   if not SaveMenu.open then return end
   local session = SaveMenu._session or {}
   local name = tostring(session.name or session.playerName or "RED")
-  local map = SaveMenu.locationName(session)
+  local map = Strings(SaveMenu.locationName(session))
   local badges = count_badges(session)
   local caught = count_caught(session.dex) or tonumber(session.caughtMonsCount) or 0
   local hours = tonumber(session.playTimeHours or session.hours) or 0
@@ -187,27 +188,27 @@ function SaveMenu.draw()
   local mapX = 1 * 8 + math.max(0, math.floor((headerW - mapW) / 2))
   FrlgFont.draw(map, mapX, 1 * 8 + 2, { maxWidth = headerW, colors = FrlgFont.COLOR.NORMAL })
   -- PLAYER
-  FrlgFont.draw("PLAYER", 1 * 8 + 4, 1 * 8 + 18, { colors = FrlgFont.COLOR.NORMAL })
+  FrlgFont.draw(Strings("PLAYER"), 1 * 8 + 4, 1 * 8 + 18, { colors = FrlgFont.COLOR.NORMAL })
   FrlgFont.draw(name, 1 * 8 + 56, 1 * 8 + 18, { colors = FrlgFont.COLOR.NORMAL })
   -- BADGES
-  FrlgFont.draw("BADGES", 1 * 8 + 4, 1 * 8 + 32, { colors = FrlgFont.COLOR.NORMAL })
+  FrlgFont.draw(Strings("BADGES"), 1 * 8 + 4, 1 * 8 + 32, { colors = FrlgFont.COLOR.NORMAL })
   FrlgFont.draw(tostring(badges), 1 * 8 + 56, 1 * 8 + 32, { colors = FrlgFont.COLOR.NORMAL })
   -- POKéDEX
-  FrlgFont.draw("POKéDEX", 1 * 8 + 4, 1 * 8 + 46, { colors = FrlgFont.COLOR.NORMAL })
+  FrlgFont.draw(Strings("POKéDEX"), 1 * 8 + 4, 1 * 8 + 46, { colors = FrlgFont.COLOR.NORMAL })
   FrlgFont.draw(tostring(caught), 1 * 8 + 56, 1 * 8 + 46, { colors = FrlgFont.COLOR.NORMAL })
   -- TIME
-  FrlgFont.draw("TIME", 1 * 8 + 4, 1 * 8 + 60, { colors = FrlgFont.COLOR.NORMAL })
+  FrlgFont.draw(Strings("TIME"), 1 * 8 + 4, 1 * 8 + 60, { colors = FrlgFont.COLOR.NORMAL })
   FrlgFont.draw(string.format("%d:%02d", hours, mins), 1 * 8 + 56, 1 * 8 + 60, { colors = FrlgFont.COLOR.NORMAL })
 
   -- 2. Bottom Dialogue Window (pret WindowFunc_DrawDialogueFrame at (2, 15, 26, 4))
   Chrome.dialogueFrame()
-  local msg = "Would you like to SAVE\nthe game?"
+  local msg = Strings("Would you like to SAVE\nthe game?")
   if SaveMenu._phase == "overwrite" then
-    msg = "There is already a saved file.\nIs it okay to overwrite it?"
+    msg = Strings("There is already a saved file.\nIs it okay to overwrite it?")
   elseif SaveMenu._phase == "saving" then
-    msg = "SAVING…\nDON'T TURN OFF THE POWER."
+    msg = Strings("SAVING…\nDON'T TURN OFF THE POWER.")
   elseif SaveMenu._phase == "saved" then
-    msg = name .. " saved\nthe game."
+    msg = Strings("%s saved\nthe game.", name)
   end
   FrlgFont.draw(msg, 2 * 8 + 4, 15 * 8 + 2, { linePitch = 15, colors = FrlgFont.COLOR.NORMAL })
 
@@ -222,8 +223,8 @@ function SaveMenu.draw()
     local rowY2 = popY * 8 + 18
     local curY = (SaveMenu.cursor == 1) and rowY1 or rowY2
     Window.cursorPx(popX * 8 + 1, curY)
-    FrlgFont.draw("YES", popX * 8 + 9, rowY1, { colors = FrlgFont.COLOR.NORMAL })
-    FrlgFont.draw("NO", popX * 8 + 9, rowY2, { colors = FrlgFont.COLOR.NORMAL })
+    FrlgFont.draw(Strings("YES"), popX * 8 + 9, rowY1, { colors = FrlgFont.COLOR.NORMAL })
+    FrlgFont.draw(Strings("NO"), popX * 8 + 9, rowY2, { colors = FrlgFont.COLOR.NORMAL })
   end
 end
 
