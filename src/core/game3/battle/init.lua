@@ -15,6 +15,7 @@ local EvoSeq = require("src.core.game3.battle.evo_seq")
 local IntroSeq = require("src.core.game3.battle.intro_seq")
 local CatchSeq = require("src.core.game3.battle.catch_seq")
 local Experience = require("src.core.game3.battle.experience")
+local Pokemon = require("src.core.game3.pokemon")
 local Evolution = require("src.core.game3.evolution")
 local LearnMove = require("src.core.game3.battle.learn_move")
 local Task = require("src.core.game3.task")
@@ -2213,7 +2214,7 @@ function Battle.update(dt, game)
   if Battle._phase == "startfx" then
     if Anim.busy() then return end
     if not Ui.pump() then return end
-    if StartFxSeq.update() then
+    if AnimSeq.update() then
       Battle._phase = "command"
       if Battle._auto then
         begin_turn_with(Commands.playerAction(Battle._st, 1, 1))
