@@ -385,7 +385,7 @@ function Battle.start(opts)
   local st = State.new({
     wild = opts.wild,
     double = double or nil,
-    playerIndex = double and State.firstUsable(playerParty) or nil,
+    playerIndex = opts.playerIndex or State.firstUsable(playerParty) or 1,
     playerParty = playerParty,
     foeMon = foeMon,
     foeParty = foeParty,

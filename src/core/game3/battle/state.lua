@@ -231,13 +231,16 @@ State.firstUsable = first_usable
 function State.new(opts)
   opts = opts or {}
   local playerParty = opts.playerParty or {}
-  local pi = opts.playerIndex or 1
+  local pi = opts.playerIndex or first_usable(playerParty) or 1
   local foeMon = opts.foeMon
+  local foeParty = opts.foeParty or { foeMon }
+  local ei = opts.foeIndex or first_usable(foeParty) or 1
+  local eMon = foeMon or (foeParty and foeParty[ei]) or (foeParty and foeParty[1])
   local st = {
     kind = opts.wild and "wild" or "trainer",
     wild = opts.wild and true or false,
     playerParty = playerParty,
-    foeParty = opts.foeParty or { foeMon },
+    foeParty = foeParty,
     player = nil,
     enemy = nil,
     playerSide = { hazards = {}, id = "player" },
@@ -262,8 +265,7 @@ function State.new(opts)
   st.moveTarget = {}
   local pMon = playerParty[pi]
   st.player = State.makeBattler(pMon, "player", { partyIndex = pi, id = 0 })
-  local eMon = foeMon or st.foeParty[1]
-  st.enemy = State.makeBattler(eMon, "enemy", { partyIndex = 1, id = 1 })
+  st.enemy = State.makeBattler(eMon, "enemy", { partyIndex = ei, id = 1 })
   if not st.double then
     State.trackParticipant(st, st.enemy, pi)
     return st
