@@ -105,6 +105,9 @@ REQUIRED = {
     # looked up at runtime, so they only reach a catalog while their literals
     # stay visible to the harvester rather than hiding behind a local.
     "You have no coins.", "You don't have a\nCOIN CASE.",
+    # The Bug-Catching Contest confirmation, one key rather than the two
+    # half-sentences it used to be drawn as.
+    "Would you like to\nend the Contest?",
 }
 
 
