@@ -133,29 +133,37 @@ do
   local b = freshBattle()
   local originalAsleep = Data.text._FastAsleepText
   local originalConfused = Data.text._IsConfusedText
-  Data.text._FastAsleepText = "{USER}\npioupiou zzz"
-  Data.text._IsConfusedText = "{USER}\ntourneboule"
-  b.rng = function() return 255 end -- sleep: stay asleep; confusion: no self-hit
-  local seq = capture(b)
-  b.player.mon.status = "SLP"
-  b.player.sleepTurns = 3
-  b:statusInterrupt(b.player, b.enemy)
-  eq(seq[1].kind, "anim", "translated sleep text still plays SLP_PLAYER_ANIM")
-  eq(seq[1].name, "SLP_PLAYER_ANIM", "translated sleep picks the right anim")
-  check(not seq[2].text:find("is fast asleep!", 1, true),
-        "translated sleep text carries no English substring")
+  -- Restored through pcall: these are shared Data.text globals, and
+  -- tests/run_tests.lua keeps the process alive after a suite raises
+  -- (runSuites pcalls each file), so a check that blew up here would leave
+  -- "pioupiou zzz" installed for every later parity suite.
+  local ok, err = pcall(function()
+    Data.text._FastAsleepText = "{USER}\npioupiou zzz"
+    Data.text._IsConfusedText = "{USER}\ntourneboule"
+    b.rng = function() return 255 end -- sleep: stay asleep; confusion: no self-hit
+    local seq = capture(b)
+    b.player.mon.status = "SLP"
+    b.player.sleepTurns = 3
+    b:statusInterrupt(b.player, b.enemy)
+    check(seq[1] and seq[1].kind == "anim",
+          "translated sleep text still plays SLP_PLAYER_ANIM")
+    check(seq[1] and seq[1].name == "SLP_PLAYER_ANIM",
+          "translated sleep picks the right anim")
+    check(seq[2] and not seq[2].text:find("is fast asleep!", 1, true),
+          "translated sleep text carries no English substring")
 
-  seq = capture(b)
-  b.player.mon.status = nil
-  b.player.confusedTurns = 3
-  b:statusInterrupt(b.player, b.enemy)
-  check(seq[2] and seq[2].name == "CONF_PLAYER_ANIM",
-        "translated confusion text still plays CONF_PLAYER_ANIM")
-  check(not seq[1].text:find("is confused!", 1, true),
-        "translated confusion text carries no English substring")
-
+    seq = capture(b)
+    b.player.mon.status = nil
+    b.player.confusedTurns = 3
+    b:statusInterrupt(b.player, b.enemy)
+    check(seq[2] and seq[2].name == "CONF_PLAYER_ANIM",
+          "translated confusion text still plays CONF_PLAYER_ANIM")
+    check(seq[1] and not seq[1].text:find("is confused!", 1, true),
+          "translated confusion text carries no English substring")
+  end)
   Data.text._FastAsleepText = originalAsleep
   Data.text._IsConfusedText = originalConfused
+  check(ok, "the translated-label block ran to the end: " .. tostring(err))
 end
 
 -- Confusion that does not self-hit falls through into the disabled-move
@@ -200,6 +208,37 @@ do
   eq(seq[2].name, "CONF_PLAYER_ANIM", "confusion still plays its own anim")
   check(seq[3] and seq[3].kind == "text" and seq[3].text:find("paralyzed!", 1, true),
         "the fully-paralyzed text still reaches the screen, not swallowed")
+end
+
+-- The one rules change in this commit: PAR's own roll clears bide, thrash,
+-- charge and trapping (core.asm:3459-3464), while a block that came from
+-- anywhere else leaves them in place.  statusBlockedId is what tells the two
+-- apart now that the "fully paralyzed" substring no longer can.
+do
+  local b = freshBattle()
+  b.rng = function() return 0 end -- PAR: fully paralyzed
+  capture(b)
+  b.player.mon.status = "PAR"
+  b.player.thrashTurns = 2
+  b.player.bideTurns = 2
+  check(b:statusInterrupt(b.player, b.enemy) == true, "full paralysis interrupts")
+  check(b.player.thrashTurns == nil and b.player.bideTurns == nil,
+        "and clears the volatiles it clears on the cart")
+end
+
+-- A flinch on a paralyzed battler blocks the move too, but it is not the
+-- paralysis roll, so the volatiles stay: mon.status == "PAR" alone would get
+-- this wrong.
+do
+  local b = freshBattle()
+  b.rng = function() return 255 end -- PAR: not fully paralyzed
+  capture(b)
+  b.player.mon.status = "PAR"
+  b.player.flinched = true
+  b.player.thrashTurns = 2
+  check(b:statusInterrupt(b.player, b.enemy) == true, "a flinch interrupts as well")
+  check(b.player.thrashTurns == 2,
+        "but leaves the volatiles alone, unlike the paralysis roll")
 end
 
 S.finish()

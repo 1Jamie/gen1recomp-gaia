@@ -330,7 +330,10 @@ function Status.beforeMove(battler, rng, battle, selectedMoveId)
     local canMove, statusMsgs, selfHit, kind = handler(battler, rng, battle)
     for _, m in ipairs(statusMsgs or {}) do msgs[#msgs + 1] = m end
     if kind then onomatopoeiaKind, onomatopoeiaIndex = kind, #msgs end
-    if not canMove then statusBlockedId = record.id end
+    -- `record.id` is optional in the statuses registry (src/mods/Schemas.lua),
+    -- and a mod's `override` replaces the record outright rather than merging,
+    -- so fall back on the key the record was looked up under.
+    if not canMove then statusBlockedId = record.id or mon.status end
     return canMove, selfHit
   end
   if handler and priority > VOLATILE_PRIORITY then
