@@ -103,8 +103,20 @@ function MultichoiceExtract.run(rom, cache, opts)
   local cacheRoot = opts.cacheRoot or "data/generated/gba"
   local rel = cacheRoot .. "/scripts/multichoice.lua"
 
+  local wrote = false
   if cache and cache.write then
     cache:write(rel, content)
+    wrote = true
+  end
+  if not wrote then
+    local okC, CacheFs = pcall(require, "src.import.CacheFs")
+    if okC and CacheFs and CacheFs.write then
+      local ok = pcall(CacheFs.write, rel, content)
+      if ok then wrote = true end
+    end
+  end
+  if not wrote and love and love.filesystem and love.filesystem.write then
+    pcall(love.filesystem.write, rel, content)
   end
 
   local f = io.open(rel, "wb") or io.open("data/generated/gba/scripts/multichoice.lua", "wb")

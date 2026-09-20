@@ -263,6 +263,13 @@ function RomExtractorGen3:runPokemonExtract(sha1)
     if not mpOk then
       print("[map_preview] warn: " .. tostring(mpErr))
     end
+    local RegionMapExtract = require("src.import.gba.region_map_extract")
+    local rmOk, rmErr = pcall(RegionMapExtract.run, rom, cache, {
+      cacheRoot = GBA_ROOT,
+    })
+    if not rmOk then
+      print("[region_map] warn: " .. tostring(rmErr))
+    end
     return pRes
   end)
 

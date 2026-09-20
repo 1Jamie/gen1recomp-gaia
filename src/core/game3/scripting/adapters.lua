@@ -271,6 +271,14 @@ function Adapters.host(mod, game, world)
             tr.i = tr.i + 1
             if act.kind == "step" then
               if ent and ent.scriptStep then ent:scriptStep(act.dir) end
+            elseif act.kind == "jump" then
+              if ent and ent.scriptJump then
+                ent:scriptJump(act.dir, act.distance or 1)
+              elseif ent and ent.scriptStep then
+                for _ = 1, (act.distance or 1) do
+                  ent:scriptStep(act.dir)
+                end
+              end
             elseif act.kind == "turn" then
               if ent and ent.scriptFace then
                 ent:scriptFace(act.dir)
@@ -785,14 +793,9 @@ function Adapters.host(mod, game, world)
           npc.cellX, npc.cellY = x, y
           if npc.x then npc.x = x * 16 end
           if npc.y then npc.y = y * 16 end
-          if npc.def then
-            npc.def.x, npc.def.y = x, y
-          end
         end
       elseif op == "copyobjectxytoperm" then
-        if npc.cellX and npc.cellY and npc.def then
-          npc.def.x, npc.def.y = npc.cellX, npc.cellY
-        end
+        -- Instance template copy on live NPC; do not poison global mapDef.objects.
       elseif op == "setobjectmovementtype" then
         -- Cosmetic on host; facing types 7–10 are FACE_*.
         local mt = tonumber(row[2]) or 0

@@ -574,7 +574,7 @@ assert_true(StorageChromeExtract.ready(nil, storageRoot), "StorageChromeExtract 
 
 local manifestChunk = assert(loadfile(chromeDir .. "/manifest.lua"))
 local manifest = manifestChunk()
-assert_eq(manifest.version, 2, "Manifest version is 2")
+assert_eq(manifest.version, 3, "Manifest version is 3")
 assert_true(manifest.textures.cursor ~= nil, "Manifest includes cursor texture")
 assert_true(manifest.textures.party_drawer_bg ~= nil, "Manifest includes party_drawer_bg")
 assert_true(manifest.textures.scrolling_bg ~= nil, "Manifest includes scrolling_bg")

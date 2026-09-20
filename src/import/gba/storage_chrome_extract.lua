@@ -8,7 +8,7 @@ local BattleAnimExtract = require("src.import.gba.battle_anim_extract")
 local StorageChromeExtract = {}
 
 StorageChromeExtract.CACHE_SUB = "pokemon/storage"
-StorageChromeExtract.FORMAT_VERSION = 2
+StorageChromeExtract.FORMAT_VERSION = 3
 
 StorageChromeExtract.WALLPAPER_NAMES = {
   "forest", "city", "desert", "savanna",
@@ -79,6 +79,15 @@ local function write_file(cache, path, data)
   if cache and cache.write then
     cache:write(path, data)
     return true
+  end
+  local okC, CacheFs = pcall(require, "src.import.CacheFs")
+  if okC and CacheFs and CacheFs.write then
+    local ok = pcall(CacheFs.write, path, data)
+    if ok then return true end
+  end
+  if love and love.filesystem and love.filesystem.write then
+    local ok = pcall(love.filesystem.write, path, data)
+    if ok then return true end
   end
   local dir = path:match("^(.*)/[^/]+$")
   if dir then ensure_dir(dir) end
@@ -230,7 +239,28 @@ function StorageChromeExtract.ready(cache, root)
     return false
   end
 
-  if not valid_file(outDir .. "/manifest.lua", 20) then return false end
+  local manifestData = nil
+  if cache and cache.read then
+    manifestData = cache:read(outDir .. "/manifest.lua")
+  end
+  if not manifestData then
+    local okC, CacheFs = pcall(require, "src.import.CacheFs")
+    if okC and CacheFs and CacheFs.readActive then
+      manifestData = CacheFs.readActive(outDir .. "/manifest.lua")
+    end
+  end
+  if not manifestData and love and love.filesystem and love.filesystem.read then
+    local ok, d = pcall(love.filesystem.read, outDir .. "/manifest.lua")
+    if ok then manifestData = d end
+  end
+  if not manifestData then
+    local f = io.open(outDir .. "/manifest.lua", "rb")
+    if f then manifestData = f:read("*a"); f:close() end
+  end
+  if not manifestData then return false end
+  local v = tonumber(manifestData:match("version%s*=%s*(%d+)"))
+  if v ~= StorageChromeExtract.FORMAT_VERSION then return false end
+
   for _, tex in ipairs(StorageChromeExtract.TEXTURE_FILES) do
     if not valid_file(outDir .. "/" .. tex.file, 30) then return false end
   end
@@ -285,9 +315,9 @@ function StorageChromeExtract.extract(rom, opts)
   end
 
   emit("cursor", "cursor.png",
-    (StorageChromeExtract.bakeSheet(sheet.handCursor, sheetLen.handCursor, pal.misc1, 4)))
+    (StorageChromeExtract.bakeSheet(sheet.handCursor, sheetLen.handCursor, pal.misc2, 4)))
   emit("cursor_shadow", "cursor_shadow.png",
-    (StorageChromeExtract.bakeSheet(sheet.handCursorShadow, sheetLen.handCursorShadow, pal.misc1, 2)))
+    (StorageChromeExtract.bakeSheet(sheet.handCursorShadow, sheetLen.handCursorShadow, pal.misc2, 2)))
   emit("arrow", "box_scroll_arrow.png",
     (StorageChromeExtract.bakeSheet(sheet.boxScrollArrow, sheetLen.boxScrollArrow, pal.misc2, 1)))
   emit("waveform", "waveform.png",
@@ -310,26 +340,42 @@ function StorageChromeExtract.extract(rom, opts)
   if mapOff.menu then
     emit("frame", "interface_frame.png", bakeBg1(mapOff.menu))
   end
-  if mapOff.pkmnData then
-    emit("button_party", "button_party.png", bakeBg1(mapOff.pkmnData))
+  if mapOff.partyMenu then
+    local s = mapOff.partyMenu
+    local drawer = read_tilemap(rom, s)
+    if drawer then
+      -- Party tab button is the bottom 2 rows (rows 20..21, 12x2 tiles) of party_menu
+      local buttonPartyEntries = {}
+      for r = 0, 1 do
+        for c = 0, 11 do
+          buttonPartyEntries[r * 12 + c + 1] = drawer[(20 + r) * 12 + c + 1] or 0
+        end
+      end
+      emit("button_party", "button_party.png",
+        StorageChromeExtract.bakeTilemap(buttonPartyEntries, 12, 2, menuTiles, bgPals, 0, bgBase))
+
+      emit("party_drawer_bg", "party_drawer_bg.png", bakeBg1(s, drawer))
+      local filled = mapOff.partySlotFilled and read_tilemap(rom, mapOff.partySlotFilled)
+      if filled then
+        emit("party_drawer_full", "party_drawer_full.png", bakeBg1(s, fill_party_slots(drawer, filled)))
+      end
+    end
   end
   if mapOff.closeBoxButton then
-    emit("button_close", "button_close.png", bakeBg1(mapOff.closeBoxButton))
+    local closeEntries = read_tilemap(rom, mapOff.closeBoxButton)
+    if closeEntries then
+      -- Normal CLOSE BOX button is the top 2 rows (9x2 tiles)
+      local normalClose = {}
+      for i = 1, 18 do normalClose[i] = closeEntries[i] or 0 end
+      emit("button_close", "button_close.png",
+        StorageChromeExtract.bakeTilemap(normalClose, 9, 2, menuTiles, bgPals, 0, bgBase))
+    end
   end
   if mapOff.partySlotFilled then
     emit("party_slot_filled", "party_slot_filled.png", bakeBg1(mapOff.partySlotFilled))
   end
   if mapOff.partySlotEmpty then
     emit("party_slot_empty", "party_slot_empty.png", bakeBg1(mapOff.partySlotEmpty))
-  end
-  if mapOff.partyMenu then
-    local s = mapOff.partyMenu
-    local drawer = read_tilemap(rom, s)
-    emit("party_drawer_bg", "party_drawer_bg.png", bakeBg1(s, drawer))
-    local filled = mapOff.partySlotFilled and read_tilemap(rom, mapOff.partySlotFilled)
-    if drawer and filled then
-      emit("party_drawer_full", "party_drawer_full.png", bakeBg1(s, fill_party_slots(drawer, filled)))
-    end
   end
 
   local manifestWallpapers = {}

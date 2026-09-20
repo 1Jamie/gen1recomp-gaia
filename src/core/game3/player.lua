@@ -417,6 +417,22 @@ function Player.scriptStep(dir)
   return true
 end
 
+--- Forced script jump (applymovement localId 0xFF) — hops over ledges / gaps.
+function Player.scriptJump(dir, distance)
+  if Player.moving then return false end
+  distance = distance or 1
+  local d = DELTA[dir or Player.facing]
+  if not d then return false end
+  Player.facing = dir or Player.facing
+  pcall(function()
+    local Audio = require("src.core.game3.audio")
+    local SE = require("src.core.game3.se_ids")
+    if Audio.playSe and SE.SE_LEDGE then Audio.playSe(SE.SE_LEDGE) end
+  end)
+  beginStep(Player.cellX + d[1] * distance, Player.cellY + d[2] * distance, false, true)
+  return true
+end
+
 function Player.scriptFace(dir)
   if DELTA[dir] then Player.facing = dir end
 end
