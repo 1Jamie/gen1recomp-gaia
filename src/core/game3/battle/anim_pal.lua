@@ -4,6 +4,9 @@ local floor = math.floor
 
 local AnimPal = {}
 
+local _lastSentPal = {}
+local _lastOpaque0 = nil
+
 AnimPal.unfaded = {}
 AnimPal.faded = {}
 AnimPal.loaded = {}
@@ -248,8 +251,6 @@ function AnimPal.resolve(colors, opts, out)
 end
 
 local resolved = {}
-local _lastSentPal = {}
-local _lastOpaque0 = nil
 
 function AnimPal.send(colors, opts)
   local sh = AnimPal.shader()
