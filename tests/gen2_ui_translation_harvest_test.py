@@ -101,6 +101,10 @@ REQUIRED = {
     "%s.\nIs that right?", "Sorry! You need\nmore coins.",
     "Welcome to the\nGAME CORNER.", "Do you need some\ngame coins?",
     "Thank you!\nHere are 50 coins.", "Whoops! Your COIN\nCASE is full.",
+    # The Game Corner's two refusals (src/script/gen2/Specials.lua): both are
+    # looked up at runtime, so they only reach a catalog while their literals
+    # stay visible to the harvester rather than hiding behind a local.
+    "You have no coins.", "You don't have a\nCOIN CASE.",
 }
 
 
