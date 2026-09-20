@@ -7,6 +7,7 @@ local FrlgFont = require("src.ui.game3.frlg_font")
 local ItemsData = require("src.core.game3.items_data")
 local Bag = require("src.core.game3.bag")
 local MoneyBox = require("src.ui.game3.money_box")
+local Strings = require("src.core.Strings")
 
 local ShopMenu = {}
 
@@ -77,7 +78,7 @@ end
 local function stock_rows(items)
   local rows = {}
   for _, id in ipairs(items or {}) do
-    local name = ItemsData.displayName(id) or ("ITEM " .. tostring(id))
+    local name = ItemsData.displayName(id) or Strings("ITEM %s", tostring(id))
     local price = buy_price(id)
     local desc = ItemsData.description(id)
     rows[#rows + 1] = { id = id, name = name, price = price, description = desc }
@@ -117,7 +118,7 @@ function ShopMenu.show(opts)
   ShopMenu._items = opts.items or {}
   ShopMenu._session = opts.session
   ShopMenu._onClose = opts.onClose
-  ShopMenu._status = "Welcome! How may I serve you?"
+  ShopMenu._status = Strings("Welcome! How may I serve you?")
   local okMB, MoneyBox = pcall(require, "src.ui.game3.money_box")
   if okMB and MoneyBox and MoneyBox.hide then MoneyBox.hide() end
   local okC, Chrome = pcall(require, "src.ui.game3.chrome")
@@ -196,7 +197,7 @@ local function begin_buy_qty(item)
   local session = ShopMenu._session
   local curMoney = money_of(session)
   if item.price > curMoney then
-    ShopMenu._status = "You don't have enough money."
+    ShopMenu._status = Strings("You don't have enough money.")
     ShopMenu.mode = "buy_msg"
     ShopMenu._pending = nil
     se(5) -- pokefirered/src/shop.c:888
@@ -205,7 +206,7 @@ local function begin_buy_qty(item)
   ShopMenu._pending = item
   ShopMenu.qty = 1
   ShopMenu.mode = "buy_qty"
-  ShopMenu._status = string.format("%s? Certainly.\nHow many would you like?", item.name)
+  ShopMenu._status = Strings("%s? Certainly.\nHow many would you like?", item.name)
   se(5)
 end
 
@@ -214,7 +215,7 @@ local function begin_sell_qty(item)
   ShopMenu._pending = item
   ShopMenu.qty = 1
   ShopMenu.mode = "sell_qty"
-  ShopMenu._status = string.format("I can pay ¥%d for that.\nHow many would you like to sell?", item.price)
+  ShopMenu._status = Strings("I can pay ¥%d for that.\nHow many would you like to sell?", item.price)
   se(5)
 end
 
@@ -225,7 +226,7 @@ local function commit_buy()
   local cost = (p.price or 0) * ShopMenu.qty
   local curMoney = money_of(session)
   if cost > curMoney then
-    ShopMenu._status = "You don't have enough money."
+    ShopMenu._status = Strings("You don't have enough money.")
     ShopMenu.mode = "buy_msg"
     ShopMenu._pending = nil
     return
@@ -236,14 +237,14 @@ local function commit_buy()
     bag = session.bag
   end
   if not Bag.canAdd(bag, p.id, ShopMenu.qty) then
-    ShopMenu._status = "There is no room in your BAG."
+    ShopMenu._status = Strings("There is no room in your BAG.")
     ShopMenu.mode = "buy_msg"
     ShopMenu._pending = nil
     return
   end
   local ok = Bag.add(bag, p.id, ShopMenu.qty)
   if not ok then
-    ShopMenu._status = "There is no room in your BAG."
+    ShopMenu._status = Strings("There is no room in your BAG.")
     ShopMenu.mode = "buy_msg"
     ShopMenu._pending = nil
     return
@@ -262,9 +263,9 @@ local function commit_buy()
   end
 
   if premierBonus > 0 then
-    ShopMenu._status = "Here you are! Thank you!\nI'll also include a PREMIER BALL!"
+    ShopMenu._status = Strings("Here you are! Thank you!\nI'll also include a PREMIER BALL!")
   else
-    ShopMenu._status = "Here you are!\nThank you!"
+    ShopMenu._status = Strings("Here you are!\nThank you!")
   end
 
   queue_shop_se(ShopMenu._status, session.money) -- pokefirered/src/shop.c:999
@@ -283,7 +284,7 @@ local function commit_sell()
   local rt=package.loaded["src.core.game3.runtime"]
   Q.event(session,"SoldItemsIncludingItem",
     {D0=Q.location(rt and rt._game,session),D1=ItemsData.displayName(p.id),D2=earn})
-  ShopMenu._status = string.format("Turned over the %s and\nreceived ¥%d.", p.name, earn)
+  ShopMenu._status = Strings("Turned over the %s and\nreceived ¥%d.", p.name, earn)
   ShopMenu.mode = "sell_msg"
   ShopMenu._pending = nil
   queue_shop_se(ShopMenu._status, session.money) -- pokefirered/src/item_menu.c:1931
@@ -385,7 +386,7 @@ function ShopMenu.handleInput(input)
       ShopMenu.mode = "buy_confirm"
       ShopMenu.yesNoCursor = 1
       local totalCost = unit * ShopMenu.qty
-      ShopMenu._status = string.format("%s? And you wanted %d?\nThat will be ¥%d. OK?", p and p.name or "ITEM", ShopMenu.qty, totalCost)
+      ShopMenu._status = Strings("%s? And you wanted %d?\nThat will be ¥%d. OK?", p and p.name or "ITEM", ShopMenu.qty, totalCost)
       se(5)
     elseif input:wasPressed("b") then
       ShopMenu.mode = "buy"
@@ -416,7 +417,7 @@ function ShopMenu.handleInput(input)
       ShopMenu.mode = "sell_confirm"
       ShopMenu.yesNoCursor = 1
       local totalEarn = (p and p.price or 0) * ShopMenu.qty
-      ShopMenu._status = string.format("%s? And you wanted to sell %d?\nI can pay ¥%d. OK?", p and p.name or "ITEM", ShopMenu.qty, totalEarn)
+      ShopMenu._status = Strings("%s? And you wanted to sell %d?\nI can pay ¥%d. OK?", p and p.name or "ITEM", ShopMenu.qty, totalEarn)
       se(5)
     elseif input:wasPressed("b") then
       ShopMenu.mode = "sell"
@@ -445,7 +446,7 @@ function ShopMenu.handleInput(input)
         do_fade_transition(function()
           ShopMenu.mode = "root"
           ShopMenu.cursor = 1
-          ShopMenu._status = "Is there anything else I can do?"
+          ShopMenu._status = Strings("Is there anything else I can do?")
         end)
       else
         begin_buy_qty(rows[ShopMenu.cursor])
@@ -455,7 +456,7 @@ function ShopMenu.handleInput(input)
       do_fade_transition(function()
         ShopMenu.mode = "root"
         ShopMenu.cursor = 1
-        ShopMenu._status = "Is there anything else I can do?"
+        ShopMenu._status = Strings("Is there anything else I can do?")
       end)
     end
     return
@@ -479,7 +480,7 @@ function ShopMenu.handleInput(input)
         do_fade_transition(function()
           ShopMenu.mode = "root"
           ShopMenu.cursor = 2
-          ShopMenu._status = "Is there anything else I can do?"
+          ShopMenu._status = Strings("Is there anything else I can do?")
         end)
       else
         begin_sell_qty(rows[ShopMenu.cursor])
@@ -489,7 +490,7 @@ function ShopMenu.handleInput(input)
       do_fade_transition(function()
         ShopMenu.mode = "root"
         ShopMenu.cursor = 2
-        ShopMenu._status = "Is there anything else I can do?"
+        ShopMenu._status = Strings("Is there anything else I can do?")
       end)
     end
     return
@@ -521,7 +522,7 @@ function ShopMenu.handleInput(input)
       elseif e.id == "sell" then
         local sellRows = bag_sell_rows(ShopMenu._session and ShopMenu._session.bag)
         if #sellRows < 1 then
-          ShopMenu._status = "You don't have anything to sell."
+          ShopMenu._status = Strings("You don't have anything to sell.")
           se(5) -- pokefirered/src/menu.c:376
         else
           se(5)
@@ -555,7 +556,7 @@ function ShopMenu.draw()
     for i, e in ipairs(ShopMenu.ROOT) do
       local yPx = 10 + (i - 1) * 16
       if i == ShopMenu.cursor then Window.cursorPx(20, yPx) end
-      Window.printPx(e.label, 28, yPx)
+      Window.printPx(Strings(e.label), 28, yPx)
     end
 
     -- Bottom Clerk Dialogue Window
@@ -582,7 +583,7 @@ function ShopMenu.draw()
 
   -- Top-left Money Window (Window 0: tile 1, 1, 8, 3 with border)
   Window.stdFrame(Window.template(1, 1, 8, 3))
-  Window.printPx("MONEY", 8, 8)
+  Window.printPx(Strings("MONEY"), 8, 8)
   local moneyStr = string.format("¥%d", money_of(session))
   local mw = (FrlgFont.measure and FrlgFont.measure(moneyStr, { small = true })) or (6 * #moneyStr)
   Window.printPx(moneyStr, math.max(8, 72 - mw), 20, { small = true })
@@ -668,7 +669,7 @@ function ShopMenu.draw()
       inBagCount = Bag.get(session.bag, activeId)
     end
     Window.stdFrame(Window.template(1, 11, 13, 2))
-    Window.printPx("IN BAG:", 12, 89, { small = true })
+    Window.printPx(Strings("IN BAG:"), 12, 89, { small = true })
     local countStr = tostring(inBagCount)
     local cw = (FrlgFont.measure and FrlgFont.measure(countStr, { small = true })) or (6 * #countStr)
     Window.printPx(countStr, math.max(64, 106 - cw), 89, { small = true })
@@ -694,8 +695,8 @@ function ShopMenu.draw()
   -- YES / NO Confirmation Pop-up (Standard GBA tile 21, 9, 6, 4)
   if ShopMenu.mode == "buy_confirm" or ShopMenu.mode == "sell_confirm" then
     Window.stdFrame(Window.template(21, 9, 6, 4))
-    Window.printPx("YES", 184, 76)
-    Window.printPx("NO", 184, 92)
+    Window.printPx(Strings("YES"), 184, 76)
+    Window.printPx(Strings("NO"), 184, 92)
     Window.cursorPx(174, ShopMenu.yesNoCursor == 2 and 92 or 76)
   end
 end
