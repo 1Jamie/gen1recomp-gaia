@@ -21,6 +21,7 @@ local Pokemon = require("src.core.game3.pokemon")
 local Window = require("src.ui.game3.window")
 local Types = require("src.core.game3.battle.types")
 local BallOpen = require("src.core.game3.battle.ball_open")
+local Oak = require("src.core.game3.battle.oak_advice")
 
 local Ui = {}
 
@@ -1127,6 +1128,8 @@ local function handle_double_input(input)
           Ui._selReturn = "menu"
           Ui._mode = "selmsg"
           Ui.push(why)
+          -- pokefirered/src/battle_controller_oak_old_man.c:1782
+          Oak.say(st, "noRunning")
         else
           Ui._pendingCommand = Commands.playerAction(st, Ui._menuIndex, nil, id)
           Ui._mode = "none"
@@ -1284,6 +1287,8 @@ function Ui.handleInput(input)
           Ui._selReturn = "menu"
           Ui._mode = "selmsg"
           Ui.push(why)
+          -- pokefirered/src/battle_controller_oak_old_man.c:1782
+          Oak.say(Ui._st, "noRunning")
         else
           Ui._pendingCommand = Commands.playerAction(Ui._st, Ui._menuIndex, nil)
           Ui._mode = "none"

@@ -259,8 +259,8 @@ function SummaryMenu.handleInput(input)
         local chosenMove = moves[SummaryMenu._moveCursor]
         local moveId = chosenMove and chosenMove.id
         if moveId and Pokemon.isHmMove(moveId) then
-          pcall(function() require("src.core.game3.audio").playSe(9) end)
-          -- pokefirered/src/pokemon_summary_screen.c:3897
+          pcall(function() require("src.core.game3.audio").playSe(26) end)
+          -- pokefirered/src/pokemon_summary_screen.c:3864
           SummaryMenu._hmNotice = true
         else
           pcall(function() require("src.core.game3.audio").playSe(5) end)
@@ -279,7 +279,7 @@ function SummaryMenu.handleInput(input)
         if cb then cb(nil) end
       end
     elseif input:wasPressed("b") then
-      pcall(function() require("src.core.game3.audio").playSe(9) end)
+      -- pokefirered/src/pokemon_summary_screen.c:3868
       local cb = SummaryMenu._onSelectMove
       SummaryMenu._onSelectMove = nil
       SummaryMenu.close()

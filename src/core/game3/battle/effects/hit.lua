@@ -5,6 +5,7 @@ local Types = require("src.core.game3.battle.types")
 local Rules = require("src.core.game3.battle.rules")
 local Secondary = require("src.core.game3.battle.effects.secondary")
 local HeldItems = require("src.core.game3.battle.held_items")
+local Oak = require("src.core.game3.battle.oak_advice")
 local ModRuntime = require("src.mods.Runtime")
 
 local E = EffectIds
@@ -94,6 +95,10 @@ function Hit.dealDamage(M, dmg, info)
   M.hpDealt = dealt
   M.hitsLanded = (M.hitsLanded or 0) + 1
   dealt_event(M, target, dealt, info, false)
+  -- pokefirered/src/battle_controller_opponent.c:304
+  if Oak.active(M.st) and dealt > 0 and (target.side == "enemy") and user.side == "player" then
+    Oak.sayOnce(M.st, Oak.FLAG_INFLICT_DMG, "inflictingDamage", function(t) M:say(t) end)
+  end
   return dealt
 end
 

@@ -1263,6 +1263,7 @@ function Adapters.host(mod, game, world)
         victoryText = battleOpts.victoryText or (foe and foe.victoryText),
         earlyRival = battleOpts.earlyRival,
         rivalFlags = battleOpts.rivalFlags,
+        firstBattle = battleOpts.firstBattle or (foe and foe.firstBattle),
         noWhiteout = battleOpts.noWhiteout,
         double = battleOpts.double,
         done = function(result)

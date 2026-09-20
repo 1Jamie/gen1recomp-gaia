@@ -7,11 +7,17 @@
 
 local Versions = require("src.import.gba.versions")
 local TextIR = require("src.core.game3.scripting.text_ir")
+local Lz77 = require("src.import.gba.lz77")
 
 local PokedexChromeExtract = {}
 
 PokedexChromeExtract.CACHE_SUB = "pokemon/pokedex"
-PokedexChromeExtract.FORMAT_VERSION = 2
+PokedexChromeExtract.FORMAT_VERSION = 3
+PokedexChromeExtract.TILE_SHEET_COLS = 8
+PokedexChromeExtract.TILE_SHEETS = {
+  kanto = "dex_tiles_kanto.rgba",
+  national = "dex_tiles_national.rgba",
+}
 
 local function default_cache_root()
   local ok, Extract = pcall(require, "src.import.gba.extract_island1")
@@ -285,6 +291,165 @@ function PokedexChromeExtract.extractOrders(rom, cache, root)
   return true
 end
 
+-- include/pokedex.h:19
+PokedexChromeExtract.DEX_AREA_NAMES = {
+  [0] = "DEX_AREA_NONE",
+  "DEX_AREA_PALLET_TOWN", "DEX_AREA_VIRIDIAN_CITY", "DEX_AREA_PEWTER_CITY",
+  "DEX_AREA_CERULEAN_CITY", "DEX_AREA_LAVENDER_TOWN", "DEX_AREA_VERMILION_CITY",
+  "DEX_AREA_CELADON_CITY", "DEX_AREA_FUCHSIA_CITY", "DEX_AREA_CINNABAR_ISLAND",
+  "DEX_AREA_INDIGO_PLATEAU", "DEX_AREA_SAFFRON_CITY",
+  "DEX_AREA_ROUTE_1", "DEX_AREA_ROUTE_2", "DEX_AREA_ROUTE_3", "DEX_AREA_ROUTE_4",
+  "DEX_AREA_ROUTE_5", "DEX_AREA_ROUTE_6", "DEX_AREA_ROUTE_7", "DEX_AREA_ROUTE_8",
+  "DEX_AREA_ROUTE_9", "DEX_AREA_ROUTE_10", "DEX_AREA_ROUTE_11", "DEX_AREA_ROUTE_12",
+  "DEX_AREA_ROUTE_13", "DEX_AREA_ROUTE_14", "DEX_AREA_ROUTE_15", "DEX_AREA_ROUTE_16",
+  "DEX_AREA_ROUTE_17", "DEX_AREA_ROUTE_18", "DEX_AREA_ROUTE_19", "DEX_AREA_ROUTE_20",
+  "DEX_AREA_ROUTE_21", "DEX_AREA_ROUTE_22", "DEX_AREA_ROUTE_23", "DEX_AREA_ROUTE_24",
+  "DEX_AREA_ROUTE_25",
+  "DEX_AREA_VIRIDIAN_FOREST", "DEX_AREA_DIGLETTS_CAVE", "DEX_AREA_MT_MOON",
+  "DEX_AREA_CERULEAN_CAVE", "DEX_AREA_ROCK_TUNNEL", "DEX_AREA_POWER_PLANT",
+  "DEX_AREA_POKEMON_TOWER", "DEX_AREA_SAFARI_ZONE", "DEX_AREA_SEAFOAM_ISLANDS",
+  "DEX_AREA_POKEMON_MANSION", "DEX_AREA_VICTORY_ROAD",
+  "DEX_AREA_ONE_ISLAND", "DEX_AREA_TWO_ISLAND", "DEX_AREA_THREE_ISLAND",
+  "DEX_AREA_FOUR_ISLAND", "DEX_AREA_FIVE_ISLAND", "DEX_AREA_SIX_ISLAND",
+  "DEX_AREA_SEVEN_ISLAND",
+  "DEX_AREA_KINDLE_ROAD", "DEX_AREA_TREASURE_BEACH", "DEX_AREA_CAPE_BRINK",
+  "DEX_AREA_BOND_BRIDGE", "DEX_AREA_THREE_ISLE_PATH", "DEX_AREA_RESORT_GORGEOUS",
+  "DEX_AREA_WATER_LABYRINTH", "DEX_AREA_FIVE_ISLE_MEADOW", "DEX_AREA_MEMORIAL_PILLAR",
+  "DEX_AREA_OUTCAST_ISLAND", "DEX_AREA_GREEN_PATH", "DEX_AREA_WATER_PATH",
+  "DEX_AREA_RUIN_VALLEY", "DEX_AREA_TRAINER_TOWER", "DEX_AREA_CANYON_ENTRANCE",
+  "DEX_AREA_SEVAULT_CANYON", "DEX_AREA_TANOBY_RUINS", "DEX_AREA_MT_EMBER",
+  "DEX_AREA_BERRY_FOREST", "DEX_AREA_ICEFALL_CAVE", "DEX_AREA_LOST_CAVE",
+  "DEX_AREA_ALTERING_CAVE", "DEX_AREA_PATTERN_BUSH", "DEX_AREA_DOTTED_HOLE",
+  "DEX_AREA_TANOBY_CHAMBER",
+}
+
+-- src/pokedex_area_markers.c:28
+PokedexChromeExtract.MARKER_SHAPES = {
+  [0] = "MARKER_CIRCULAR",
+  [1] = "MARKER_SMALL_H",
+  [2] = "MARKER_SMALL_V",
+  [3] = "MARKER_MED_H",
+  [4] = "MARKER_MED_V",
+  [5] = "MARKER_LARGE_H",
+  [6] = "MARKER_LARGE_V",
+}
+
+-- src/pokedex_area_markers.c:101, src/wild_pokemon_area.c:25
+function PokedexChromeExtract.extractAreaMarkers(rom, cache, root)
+  local MapSections = require("src.import.gba.map_sections_extract")
+  local base = Versions.DEX_AREA_MARKERS
+  local stride = Versions.DEX_AREA_MARKER_ENTRY_SIZE or 4
+  local count = Versions.DEX_AREA_COUNT or 80
+  if not base then return false end
+
+  local names = PokedexChromeExtract.DEX_AREA_NAMES
+  local shapes = PokedexChromeExtract.MARKER_SHAPES
+
+  local markers, order = {}, {}
+  for id = 1, count - 1 do
+    local key = names[id]
+    if key then
+      local off = base + id * stride
+      local shapeId = get_byte(rom, off)
+      local x = get_byte(rom, off + 1)
+      local y = get_byte(rom, off + 2)
+      if x >= 128 then x = x - 256 end
+      if y >= 128 then y = y - 256 end
+      local shape = shapes[shapeId]
+      if shape and not (x == 0 and y == 0 and shapeId == 0) then
+        markers[key] = { x = x, y = y, shape = shape }
+        order[#order + 1] = key
+      end
+    end
+  end
+
+  local mapsecToArea, secOrder = {}, {}
+  for _, tbl in ipairs(Versions.DEX_AREA_MAPSEC_TABLES or {}) do
+    for i = 0, (tbl.count or 0) - 1 do
+      local secId = get_u16(rom, tbl.off + i * 4)
+      local areaId = get_u16(rom, tbl.off + i * 4 + 2)
+      local section = MapSections.SECTIONS and MapSections.SECTIONS[secId]
+      local areaKey = names[areaId]
+      if section and section.id and areaKey and markers[areaKey] and not mapsecToArea[section.id] then
+        mapsecToArea[section.id] = areaKey
+        secOrder[#secOrder + 1] = section.id
+      end
+    end
+  end
+
+  table.sort(order)
+  table.sort(secOrder)
+  local lines = {
+    "-- Auto-generated FRLG Pokédex area markers from ROM. DO NOT EDIT DIRECTLY.",
+    "return {",
+    "  markers = {",
+  }
+  for _, key in ipairs(order) do
+    local m = markers[key]
+    lines[#lines + 1] = string.format("    [\"%s\"] = { x = %d, y = %d, shape = \"%s\" },",
+      key, m.x, m.y, m.shape)
+  end
+  lines[#lines + 1] = "  },"
+  lines[#lines + 1] = "  mapsecToArea = {"
+  for _, secId in ipairs(secOrder) do
+    lines[#lines + 1] = string.format("    [\"%s\"] = \"%s\",", secId, mapsecToArea[secId])
+  end
+  lines[#lines + 1] = "  },"
+  lines[#lines + 1] = "}"
+  lines[#lines + 1] = ""
+
+  write_file(cache, root .. "/area_markers.lua", table.concat(lines, "\n"))
+  return true
+end
+
+function PokedexChromeExtract.bakeTileSheet(gfx, palette)
+  local cols = PokedexChromeExtract.TILE_SHEET_COLS
+  local tileCount = math.floor(Lz77.len(gfx) / 32)
+  local rows = math.ceil(tileCount / cols)
+  local w, h = cols * 8, rows * 8
+  local rgb = {}
+  for i = 0, 15 do
+    local c = (palette[i] or 0) % 32768
+    rgb[i] = string.char(
+      math.floor((c % 32) * 255 / 31 + 0.5),
+      math.floor((math.floor(c / 32) % 32) * 255 / 31 + 0.5),
+      math.floor((math.floor(c / 1024) % 32) * 255 / 31 + 0.5),
+      255)
+  end
+  local chunks = {}
+  for i = 1, w * h do chunks[i] = rgb[0] end
+  for t = 0, tileCount - 1 do
+    local baseX = (t % cols) * 8
+    local baseY = math.floor(t / cols) * 8
+    for row = 0, 7 do
+      for bx = 0, 3 do
+        local byte = gfx[t * 32 + row * 4 + bx + 1] or 0
+        local o = (baseY + row) * w + baseX + bx * 2 + 1
+        chunks[o] = rgb[byte % 16]
+        chunks[o + 1] = rgb[math.floor(byte / 16) % 16]
+      end
+    end
+  end
+  return table.concat(chunks), w, h
+end
+
+-- src/pokedex_screen.c:897
+function PokedexChromeExtract.extractTileSheets(rom, cache, root)
+  local function get(i) return get_byte(rom, i) end
+  for variant, file in pairs(PokedexChromeExtract.TILE_SHEETS) do
+    local src = Versions.POKEDEX_BG_TILES and Versions.POKEDEX_BG_TILES[variant]
+    if src then
+      local gfx = Lz77.decompress(get, src.gfx)
+      local palette = {}
+      for i = 0, 15 do
+        palette[i] = get_u16(rom, src.pal + i * 2)
+      end
+      write_file(cache, root .. "/" .. file, (PokedexChromeExtract.bakeTileSheet(gfx, palette)))
+    end
+  end
+  return true
+end
+
 function PokedexChromeExtract.run(rom, cache, opts)
   opts = opts or {}
   local cacheRoot = opts.cacheRoot or default_cache_root()
@@ -302,6 +467,8 @@ function PokedexChromeExtract.run(rom, cache, opts)
 
   if opts.progress then opts.progress("pokedex_orders", 2, 3) end
   PokedexChromeExtract.extractOrders(rom, cache, root)
+  PokedexChromeExtract.extractAreaMarkers(rom, cache, root)
+  PokedexChromeExtract.extractTileSheets(rom, cache, root)
 
   local manifest = string.format(
     "return { format = %d, count = %d, version = 2 }\n",
@@ -351,6 +518,9 @@ function PokedexChromeExtract.ready(cache, cacheRoot)
     and valid_file(root .. "/entries.lua", 20)
     and valid_file(root .. "/categories.lua", 20)
     and valid_file(root .. "/orders.lua", 20)
+    and valid_file(root .. "/area_markers.lua", 20)
+    and valid_file(root .. "/" .. PokedexChromeExtract.TILE_SHEETS.kanto, 64)
+    and valid_file(root .. "/" .. PokedexChromeExtract.TILE_SHEETS.national, 64)
 end
 
 return PokedexChromeExtract

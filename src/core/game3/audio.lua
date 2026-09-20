@@ -142,6 +142,7 @@ function Audio.install(cache, opts)
   Audio._pack = pack
   Audio._meta = pack.index
   Audio._ready = true
+  Audio._seRawClear()
   if Audio._fanfareRoot ~= Audio._root then
     Audio._fanfareSd = {}
     Audio._fanfareSrc = {}
@@ -510,6 +511,43 @@ function Audio.isBgmStopped()
   return Audio._currentSong == nil
 end
 
+Audio.SE_RAW_MAX_FRAMES = 1500000
+
+function Audio._seRawClear()
+  Audio._seRaw = {}
+  Audio._seRawFrames = 0
+  Audio._seRawTick = 0
+end
+
+function Audio._seRawGet(id)
+  local e = Audio._seRaw and Audio._seRaw[id]
+  if not e then return nil end
+  Audio._seRawTick = (Audio._seRawTick or 0) + 1
+  e.tick = Audio._seRawTick
+  return e
+end
+
+function Audio._seRawPut(id, loop, rawL, rawR)
+  if type(rawL) ~= "table" then return end
+  local n = #rawL
+  if n > Audio.SE_RAW_MAX_FRAMES then return end
+  if not Audio._seRaw then Audio._seRawClear() end
+  local prev = Audio._seRaw[id]
+  if prev then Audio._seRawFrames = Audio._seRawFrames - prev.frames end
+  Audio._seRawTick = Audio._seRawTick + 1
+  Audio._seRaw[id] = { loop = loop, rawL = rawL, rawR = rawR, frames = n, tick = Audio._seRawTick }
+  Audio._seRawFrames = Audio._seRawFrames + n
+  while Audio._seRawFrames > Audio.SE_RAW_MAX_FRAMES do
+    local oldId, oldTick
+    for k, e in pairs(Audio._seRaw) do
+      if k ~= id and (oldTick == nil or e.tick < oldTick) then oldId, oldTick = k, e.tick end
+    end
+    if oldId == nil then break end
+    Audio._seRawFrames = Audio._seRawFrames - Audio._seRaw[oldId].frames
+    Audio._seRaw[oldId] = nil
+  end
+end
+
 function Audio.playSe(id, opts)
   opts = opts or {}
   local SE = require("src.core.game3.se_ids")
@@ -529,27 +567,37 @@ function Audio.playSe(id, opts)
   local mplay = tonumber(info.player) or 1
   Audio._stopSePlayer(mplay)
 
-  local slot = { voices = {} }
-  -- SE must run the M4A sequencer (SE_SELECT is CGB pulse, not voice0 PCM).
-  local ok = Player.start(Audio._pack, Audio._cache, slot, id, { forceSeq = true })
-  if not ok then
-    warn_once("se:" .. tostring(id), "SE " .. tostring(id) .. " missing")
-    return false
-  end
+  local memoable = opts.loop == nil and opts.maxSec == nil
+  local hit = memoable and Audio._seRawGet(id) or nil
+  local loop, rawL, rawR
+  if hit then
+    loop, rawL, rawR = hit.loop, hit.rawL, hit.rawR
+  else
+    local slot = { voices = {} }
+    -- SE must run the M4A sequencer (SE_SELECT is CGB pulse, not voice0 PCM).
+    local ok = Player.start(Audio._pack, Audio._cache, slot, id, { forceSeq = true })
+    if not ok then
+      warn_once("se:" .. tostring(id), "SE " .. tostring(id) .. " missing")
+      return false
+    end
 
-  local loop = opts.loop
-  if loop == nil then
-    -- SE_LOW_HEALTH and any track with GOTO before FINE are hardware loops.
-    loop = (id == SE.SE_LOW_HEALTH) or Audio._songHasGoto(slot)
+    loop = opts.loop
+    if loop == nil then
+      -- SE_LOW_HEALTH and any track with GOTO before FINE are hardware loops.
+      loop = (id == SE.SE_LOW_HEALTH) or Audio._songHasGoto(slot)
+    end
+
+    rawL, rawR = Player.bakeSlot(slot, {
+      raw = true,
+      -- pokefirered/src/battle_anim_special.c:1200
+      maxSec = opts.maxSec or ((loop or id == SE.SE_EXP) and 2.5 or 6.0),
+      stopOnGoto = loop and true or false,
+    })
+    if memoable then Audio._seRawPut(id, loop and true or false, rawL, rawR) end
   end
 
   local pan = Audio.normalizePan(opts.pan)
   local master = (Audio._sfxVolume or 1) * (opts.volume or 1)
-  local rawL, rawR = Player.bakeSlot(slot, {
-    raw = true,
-    maxSec = opts.maxSec or ((loop or id == SE.SE_EXP) and 2.5 or 2.0),
-    stopOnGoto = loop and true or false,
-  })
   local sd = Audio._buildSeSoundData(rawL, rawR, master, pan, Audio._mono)
   if sd and love and love.audio and love.audio.newSource then
     local src = love.audio.newSource(sd, "static")
@@ -1173,6 +1221,7 @@ function Audio.endSession()
   end
   Audio._fanfareSrc = {}
   Audio._fanfareSd = {}
+  Audio._seRawClear()
   Audio._fanfareRoot = nil
   Audio._fanfareRestore = nil
   Audio._fanfareDeferred = nil

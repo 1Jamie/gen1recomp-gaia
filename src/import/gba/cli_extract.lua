@@ -376,9 +376,7 @@ end
 if pokedexOnly then
   local Rom = require("src.import.gba.rom")
   local PokedexExtract = require("src.import.gba.pokedex_chrome_extract")
-  local outRoot = os.getenv("HOME")
-    and (os.getenv("HOME") .. "/.local/share/love/pokemon-love2d/firered")
-    or "."
+  local outRoot = outDir
   local packCache = FileIO.makeCache(outRoot)
   local rom = assert(Rom.open(imports, "firered"))
   print("Extracting Pokédex data from ROM →", outRoot .. "/data/generated/gba/pokemon/pokedex")

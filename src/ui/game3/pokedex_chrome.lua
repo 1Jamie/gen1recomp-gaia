@@ -156,6 +156,17 @@ function PokedexChrome.install(cache)
     end
   end
 
+  local sheets = {
+    { key = "kanto", file = "dex_tiles_kanto.rgba" },
+    { key = "national", file = "dex_tiles_national.rgba" },
+  }
+  PokedexChrome._sheets = {}
+  for _, s in ipairs(sheets) do
+    PokedexChrome._sheets[s.key] = read_bytes(root .. "/" .. s.file)
+    PokedexChrome._images["dex_data_bg_" .. s.key] = nil
+    PokedexChrome._images["dex_area_bg_" .. s.key] = nil
+  end
+
   local kpBytes = read_bytes("data/generated/gba/keypad_icons.rgba")
   if kpBytes then
     PokedexChrome._images["keypad_icons"] = rgba_to_image(kpBytes, 128, 32)
@@ -381,64 +392,158 @@ function PokedexChrome.drawPaperBg(w, h)
   love.graphics.setColor(1, 1, 1, 1)
 end
 
---- Draw authentic FRLG Pokédex Detailed Data Screen card background (240x160)
-function PokedexChrome.drawDataCardBg()
-  if not (love and love.graphics) then return end
-  local img = PokedexChrome.getImage("dex_data_bg")
-  if not img then
-    local candidates = {
-      "pokemon/pokedex/dex_data_bg.png",
-      "data/generated/gba/pokemon/pokedex/dex_data_bg.png",
-    }
-    for _, p in ipairs(candidates) do
-      local ok, newImg = pcall(love.graphics.newImage, p)
-      if ok and newImg then
-        if newImg.setFilter then newImg:setFilter("nearest", "nearest") end
-        img = newImg
-        PokedexChrome._images["dex_data_bg"] = img
-        break
+local CARD_SHEET_COLS = 8
+
+local function card_layout(left, top, width, height, divTile)
+  local L = {
+    left = left, top = top, width = width, height = height,
+    divTile = divTile,
+    x = left * 8,
+    y = top * 8,
+    w = (width + 2) * 8,
+    h = (height + 2) * 8,
+    borderLeft = left * 8 + 1,
+    borderRight = (left + 1 + width) * 8 + 5,
+    borderTop = top * 8 + 1,
+    borderBottom = (top + 1 + height) * 8 + 5,
+    borderThickness = 2,
+  }
+  if divTile then
+    L.dividerY = divTile * 8
+    L.upperY = L.borderTop + 2
+    L.upperH = L.dividerY - L.upperY
+    L.lowerY = L.dividerY + 8
+    L.lowerH = L.borderBottom - L.lowerY
+  else
+    L.upperY = L.borderTop + 2
+    L.upperH = L.borderBottom - L.upperY
+  end
+  return L
+end
+
+-- pokefirered/src/pokedex_screen.c:2926
+function PokedexChrome.dataCardLayout()
+  local left, top, width, height = 0, 2, 28, 14
+  return card_layout(left, top, width, height, (top + 1) + (math.floor(height / 2) + 1))
+end
+
+-- pokefirered/src/pokedex_screen.c:2999
+function PokedexChrome.areaCardLayout()
+  return card_layout(0, 2, 28, 14, nil)
+end
+
+-- pokefirered/src/pokedex_screen.c:2641
+function PokedexChrome.cardTilemap(L)
+  local grid = {}
+  local function put(tile, col, row, w, h, flipH, flipV)
+    if w <= 0 or h <= 0 then return end
+    for r = row, row + h - 1 do
+      grid[r] = grid[r] or {}
+      for c = col, col + w - 1 do
+        grid[r][c] = { tile = tile, flipH = flipH or false, flipV = flipV or false }
       end
     end
   end
 
+  local left, top, width, height = L.left, L.top, L.width, L.height
+  local right = left + 1 + width
+  local bottom = top + 1 + height
+
+  if L.divTile then
+    local divY = L.divTile
+    put(4, left, top, 1, 1)
+    put(5, left + 1, top, width, 1)
+    put(4, right, top, 1, 1, true, false)
+    put(10, left, bottom, 1, 1)
+    put(11, left + 1, bottom, width, 1)
+    put(10, right, bottom, 1, 1, true, false)
+    put(6, left, top + 1, 1, divY - top - 1)
+    put(7, left, divY, 1, 1)
+    put(9, left, divY + 1, 1, top + height - divY)
+    put(6, right, top + 1, 1, divY - top - 1, true, false)
+    put(7, right, divY, 1, 1, true, false)
+    put(9, right, divY + 1, 1, top + height - divY, true, false)
+    put(1, left + 1, top + 1, width, divY - top - 1)
+    put(8, left + 1, divY, width, 1)
+    put(2, left + 1, divY + 1, width, top + height - divY)
+  else
+    put(4, left, top, 1, 1)
+    put(4, right, top, 1, 1, true, false)
+    put(4, left, bottom, 1, 1, false, true)
+    put(4, right, bottom, 1, 1, true, true)
+    put(5, left + 1, top, width, 1)
+    put(5, left + 1, bottom, width, 1, false, true)
+    put(6, left, top + 1, 1, height)
+    put(6, right, top + 1, 1, height, true, false)
+    put(1, left + 1, top + 1, width, height)
+  end
+
+  return grid
+end
+
+function PokedexChrome.composeCard(L, sheet, w, h)
+  w = w or 240
+  h = h or 160
+  local sheetW = CARD_SHEET_COLS * 8
+  if type(sheet) ~= "string" or #sheet < sheetW * 8 * 4 then return nil end
+  local sheetTiles = math.floor(#sheet / (sheetW * 8 * 4)) * CARD_SHEET_COLS
+  local grid = PokedexChrome.cardTilemap(L)
+  local blank = { tile = 0, flipH = false, flipV = false }
+  local out = {}
+  for py = 0, h - 1 do
+    local cols = grid[math.floor(py / 8)]
+    local ty = py % 8
+    for px = 0, w - 1 do
+      local cell = (cols and cols[math.floor(px / 8)]) or blank
+      local tile = cell.tile
+      if tile >= sheetTiles then tile = 0 end
+      local tx = px % 8
+      local sx = (tile % CARD_SHEET_COLS) * 8 + (cell.flipH and (7 - tx) or tx)
+      local sy = math.floor(tile / CARD_SHEET_COLS) * 8 + (cell.flipV and (7 - ty) or ty)
+      local o = (sy * sheetW + sx) * 4
+      out[py * w + px + 1] = sheet:sub(o + 1, o + 4)
+    end
+  end
+  return table.concat(out)
+end
+
+-- pokefirered/src/pokedex_screen.c:896
+function PokedexChrome.cardSheet()
+  if not PokedexChrome._installed then PokedexChrome.install() end
+  local sheets = PokedexChrome._sheets or {}
+  if PokedexData.isNationalUnlocked() and sheets.national then
+    return sheets.national, "national"
+  end
+  if sheets.kanto then return sheets.kanto, "kanto" end
+  return nil
+end
+
+local function draw_card(key, layoutFn)
+  if not (love and love.graphics) then return end
+  local sheet, variant = PokedexChrome.cardSheet()
+  local img
+  if sheet then
+    key = key .. "_" .. variant
+    img = PokedexChrome._images[key]
+    if not img then
+      img = rgba_to_image(PokedexChrome.composeCard(layoutFn(), sheet), 240, 160)
+      PokedexChrome._images[key] = img
+    end
+  end
   if img then
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.draw(img, 0, 0)
     return
   end
-
-  -- Fallback if image not found
   PokedexChrome.drawPaperBg()
 end
 
---- Draw authentic FRLG Pokédex Page 2 Area & Size Screen card background (240x160)
+function PokedexChrome.drawDataCardBg()
+  draw_card("dex_data_bg", PokedexChrome.dataCardLayout)
+end
+
 function PokedexChrome.drawAreaCardBg()
-  if not (love and love.graphics) then return end
-  local img = PokedexChrome.getImage("dex_area_bg")
-  if not img then
-    local candidates = {
-      "pokemon/pokedex/dex_area_bg.png",
-      "data/generated/gba/pokemon/pokedex/dex_area_bg.png",
-    }
-    for _, p in ipairs(candidates) do
-      local ok, newImg = pcall(love.graphics.newImage, p)
-      if ok and newImg then
-        if newImg.setFilter then newImg:setFilter("nearest", "nearest") end
-        img = newImg
-        PokedexChrome._images["dex_area_bg"] = img
-        break
-      end
-    end
-  end
-
-  if img then
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(img, 0, 0)
-    return
-  end
-
-  -- Fallback if image not found
-  PokedexChrome.drawPaperBg()
+  draw_card("dex_area_bg", PokedexChrome.areaCardLayout)
 end
 
 --- Load trainer front sprite (Red/Leaf) for Size Comparison

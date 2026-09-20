@@ -273,7 +273,7 @@ function RegionMap.handleInput(input)
 
   -- Close on B or SELECT
   if input:wasPressed("b") or input:wasPressed("select") then
-    se(9)
+    -- pokefirered/src/region_map.c:2826
     RegionMap.close()
     return
   end
@@ -295,11 +295,11 @@ function RegionMap.handleInput(input)
   -- A button action
   if input:wasPressed("a") then
     if RegionMap.cursorX == CANCEL_BUTTON_X and RegionMap.cursorY == CANCEL_BUTTON_Y then
-      se(9)
+      se(240) -- pokefirered/src/region_map.c:2798
       RegionMap.close()
       return
     elseif RegionMap.cursorX == SWITCH_BUTTON_X and RegionMap.cursorY == SWITCH_BUTTON_Y then
-      se(5)
+      se(240) -- pokefirered/src/region_map.c:2805
       return
     else
       local dSec = RegionMap.currentDungeonSec()

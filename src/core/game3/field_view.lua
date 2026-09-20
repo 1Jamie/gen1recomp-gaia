@@ -672,6 +672,11 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
       batch:clear()
     end
     local cellsByPair = {}
+    local voidHas, voidPrimary = nil, nil
+    if voidMode ~= "map" and voidMode ~= "black" then
+      voidHas = function(m) return NativeTileset.hasMid(pair, m) end
+      voidPrimary = VoidFill.primaryFor(pair)
+    end
     for row = 0, rows - 1 do
       for col = 0, cols - 1 do
         local mid, srcPair, isVoid = layout:midAt(cx0 + col, cy0 + row), pair, false
@@ -681,7 +686,7 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
         end
         local skip = false
         if isVoid and voidMode ~= "map" then
-          local fill = VoidFill.midFor(mapDef, voidMode)
+          local fill = VoidFill.fillAt(voidMode, cx0 + col, cy0 + row, voidHas, voidPrimary)
           if fill == false then
             skip = true
           elseif fill then

@@ -269,6 +269,11 @@ function BattleItems.use(st, adapter, bag, session, itemId, partySlot, battlerId
     end
     local b2 = st.double and st.battlers and st.battlers[2]
     if b2 and b2.partyIndex == partySlot then sync_player_battler(st, 2) end
+    -- pokefirered/src/battle_controller_oak_old_man.c:394
+    if num == 13 then
+      local Oak = require("src.core.game3.battle.oak_advice")
+      Oak.sayOnce(st, Oak.FLAG_HP_RESTORE, "keepAnEyeOnHp", say)
+    end
     return "heal", msgs, true, false
   end
 

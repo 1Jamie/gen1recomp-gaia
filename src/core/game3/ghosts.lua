@@ -40,15 +40,17 @@ local function contextFor(entry, pool)
     blocks = function(tx, ty, exceptId)
       for _, lid in ipairs(pool.order or {}) do
         local eo = pool.byId[lid]
-        if eo and lid ~= exceptId and eo.visible and not eo.hidden then
+        if eo and lid ~= exceptId and eo.visible and not eo.hidden and not eo.passable then
           if eo.cellX == tx and eo.cellY == ty then return true end
           if eo.moving and eo.targetX == tx and eo.targetY == ty then return true end
         end
       end
-      return false
+      return Objects().playerBlocks(tx + (entry.ox or 0), ty + (entry.oy or 0))
     end,
   }
 end
+
+Ghosts._contextFor = contextFor
 
 function Ghosts.sync()
   local M = Map()

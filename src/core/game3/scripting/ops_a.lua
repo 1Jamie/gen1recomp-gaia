@@ -852,6 +852,8 @@ local function dispatch(vm, row)
     local battleType = tonumber(row.type) or 0
     local rivalFlags = tonumber(row.flags or row.localId) or 0
     local earlyRival = (battleType == 9) -- TRAINER_BATTLE_EARLY_RIVAL
+    -- pokefirered/src/battle_setup.c:899
+    local tutorialBattle = earlyRival and (rivalFlags % 4) ~= 0
     local eventScript = row.eventScript
     local trainerFlag = Flags.trainerFlagId(trainerId)
     local VsSeeker = require("src.core.game3.vs_seeker")
@@ -996,6 +998,7 @@ local function dispatch(vm, row)
           trainerId = opponentA,
           earlyRival = earlyRival,
           rivalFlags = rivalFlags,
+          firstBattle = tutorialBattle,
           noWhiteout = earlyRival and (rivalFlags % 2 == 1),
           defeatText = defeatText,
           victoryText = victoryText,

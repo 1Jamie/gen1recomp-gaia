@@ -912,6 +912,8 @@ function Game3:returnToTitle()
   if Runtime.isActive() then
     Runtime.stop(nil, self)
   end
+  local Objects = package.loaded["src.core.game3.objects"]
+  if Objects and Objects.reset then pcall(Objects.reset) end
   self.phase = "boot"
   self.session = nil
 
@@ -953,7 +955,7 @@ function Game3:reset()
   end
   local Ghosts = package.loaded["src.core.game3.ghosts"]
   if Ghosts and Ghosts.clear then pcall(Ghosts.clear) end
-  for _, name in ipairs({ "src.core.game3.oam", "src.core.game3.bg" }) do
+  for _, name in ipairs({ "src.core.game3.oam", "src.core.game3.bg", "src.core.game3.objects" }) do
     local mod = package.loaded[name]
     if mod and mod.reset then pcall(mod.reset) end
   end

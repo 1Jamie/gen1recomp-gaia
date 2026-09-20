@@ -801,7 +801,7 @@ function PartyMenu.handleInput(input)
       PartyMenu._yesNoPrompt = nil
       if cb then cb(yes) end
     elseif input:wasPressed("b") then
-      se(9)
+      se(5) -- pokefirered/src/party_menu.c:5001
       local cb = PartyMenu._yesNoCallback
       PartyMenu._yesNoCallback = nil
       PartyMenu._yesNoPrompt = nil
@@ -829,7 +829,7 @@ function PartyMenu.handleInput(input)
         PartyMenu._forgetPrompt = nil
         if cb then cb(idx - 1) end
       elseif input:wasPressed("b") then
-        se(9)
+        se(5) -- pokefirered/src/party_menu.c:5001
         local cb = PartyMenu._forgetCallback
         PartyMenu._forgetCallback = nil
         PartyMenu._forgetMoves = nil
@@ -871,7 +871,7 @@ function PartyMenu.handleInput(input)
     end
     if input:wasPressed("a") then
       if PartyMenu.cursor == 7 then
-        se(9)
+        se(5) -- pokefirered/src/party_menu.c:1246
         PartyMenu.switchFrom = nil
         PartyMenu.mode = "list"
       else
@@ -881,7 +881,7 @@ function PartyMenu.handleInput(input)
         PartyMenu.mode = "list"
       end
     elseif input:wasPressed("b") then
-      se(9)
+      se(5) -- pokefirered/src/party_menu.c:1246
       PartyMenu.switchFrom = nil
       PartyMenu.mode = "list"
     end
@@ -900,7 +900,7 @@ function PartyMenu.handleInput(input)
       local act = actions[PartyMenu.itemActionCursor]
       if act == "TAKE" then
         local ok, reason, msgText = ItemUse.takeFromMon(PartyMenu._session, PartyMenu._bag, PartyMenu.cursor)
-        if ok then se(5) else se(9) end
+        se(5) -- pokefirered/src/party_menu.c:3594
         PartyMenu.showMessage(msgText, function()
           PartyMenu.mode = "list"
         end)
@@ -913,11 +913,11 @@ function PartyMenu.handleInput(input)
           end,
         })
       else
-        se(9)
+        se(5) -- pokefirered/src/party_menu.c:3733
         PartyMenu.mode = "list"
       end
     elseif input:wasPressed("b") then
-      se(9)
+      se(5) -- pokefirered/src/party_menu.c:3083
       PartyMenu.mode = "list"
     end
     return
@@ -988,7 +988,7 @@ function PartyMenu.handleInput(input)
           local cost = math.floor(maxHp / 5)
           local curHp = mon and (mon.hp or 0) or 0
           if curHp <= cost or cost <= 0 then
-            se(9)
+            se(5) -- pokefirered/src/party_menu.c:3910
             PartyMenu.showMessage("Not enough HP!", function()
               PartyMenu.mode = "list"
             end)
@@ -1024,7 +1024,7 @@ function PartyMenu.handleInput(input)
           }
           local res = FieldMoves.fromMenu(act, ctx)
           if not res or not res.ok then
-            se(9)
+            se(5) -- pokefirered/src/party_menu.c:3910
             PartyMenu.showMessage((res and res.text) or "Can't use that here.", function()
               PartyMenu.mode = "list"
             end)
@@ -1039,11 +1039,11 @@ function PartyMenu.handleInput(input)
           return
         end
       else
-        se(9)
+        se(5) -- pokefirered/src/party_menu.c:3393
         PartyMenu.mode = PartyMenu._previousMode or "list"
       end
     elseif input:wasPressed("b") then
-      se(9)
+      se(5) -- pokefirered/src/party_menu.c:3393
       PartyMenu.mode = PartyMenu._previousMode or "list"
     end
     return
@@ -1066,14 +1066,14 @@ function PartyMenu.handleInput(input)
     end
     if input:wasPressed("a") then
       if PartyMenu.cursor == 7 then
-        se(9)
+        se(5) -- pokefirered/src/party_menu.c:1246
         PartyMenu.mode = "list"
       else
         local userMon = PartyMenu._party and PartyMenu._party[PartyMenu._softboiledDonorSlot]
         local targetMon = PartyMenu._party and PartyMenu._party[PartyMenu.cursor]
         local ok, userHp, targetHp = FieldMoves.softboiledTransfer(userMon, targetMon)
         if not ok then
-          se(9)
+          se(5) -- pokefirered/src/party_menu.c:4490
           PartyMenu.showMessage("It won't have any effect.", function()
             PartyMenu.mode = "softboiled"
           end)
@@ -1083,7 +1083,7 @@ function PartyMenu.handleInput(input)
         end
       end
     elseif input:wasPressed("b") then
-      se(9)
+      se(5) -- pokefirered/src/party_menu.c:1246
       PartyMenu.mode = "list"
     end
     return
@@ -1141,7 +1141,7 @@ function PartyMenu.handleInput(input)
     end
     if input:wasPressed("a") then
       if PartyMenu.cursor == 7 then
-        se(9)
+        se(5) -- pokefirered/src/party_menu.c:1246
         if PartyMenu._onSelect then
           PartyMenu._onSelect(nil)
         else
@@ -1157,7 +1157,7 @@ function PartyMenu.handleInput(input)
       if not mon then return end
 
       if mon.isEgg then
-        se(9)
+        se(26) -- pokefirered/src/party_menu.c:1223
         PartyMenu.showMessage("An EGG can't be used on.", function()
           PartyMenu.mode = "use"
         end)
@@ -1168,7 +1168,7 @@ function PartyMenu.handleInput(input)
       if ItemsData.isTm(PartyMenu._item) then
         local status, preflightMsg, moveId, moveName = ItemUse.checkTmPreflight(mon, PartyMenu._item)
         if status == "knows" or status == "incompatible" or status == "invalid" then
-          se(9)
+          se(5) -- pokefirered/src/party_menu.c:5001
           PartyMenu.showMessage(preflightMsg, function()
             PartyMenu.mode = "use"
           end)
@@ -1254,7 +1254,7 @@ function PartyMenu.handleInput(input)
         local lvl = tonumber(mon.level) or 1
         local hp = tonumber(mon.hp) or 0
         if lvl >= 100 or hp <= 0 then
-          se(9)
+          se(5) -- pokefirered/src/party_menu.c:5028
           PartyMenu.showMessage("It won't have any effect.", function()
             PartyMenu.mode = "use"
           end)
@@ -1368,7 +1368,7 @@ function PartyMenu.handleInput(input)
         local Evolution = require("src.core.game3.evolution")
         local toSpecies = Evolution.itemTarget(mon, PartyMenu._item, PartyMenu._session)
         if not toSpecies then
-          se(9)
+          se(5) -- pokefirered/src/party_menu.c:4490
           PartyMenu.showMessage("It won't have any effect.", function()
             PartyMenu.mode = "use"
           end)
@@ -1420,13 +1420,13 @@ function PartyMenu.handleInput(input)
           end)
         end
       else
-        se(9)
+        se(5) -- pokefirered/src/party_menu.c:4490
         PartyMenu.showMessage(msgText or "It won't have any effect.", function()
           PartyMenu.mode = "use"
         end)
       end
     elseif input:wasPressed("b") or input:wasPressed("start") then
-      se(9)
+      se(5) -- pokefirered/src/party_menu.c:1246
       PartyMenu.close()
     end
     return
@@ -1449,25 +1449,25 @@ function PartyMenu.handleInput(input)
     end
     if input:wasPressed("a") then
       if PartyMenu.cursor == 7 then
-        se(9)
+        se(5) -- pokefirered/src/party_menu.c:1246
         PartyMenu.close()
       else
         local mon = PartyMenu._party and PartyMenu._party[PartyMenu.cursor]
         if mon and mon.isEgg then
-          se(9)
+          se(26) -- pokefirered/src/party_menu.c:1223
           PartyMenu.showMessage("An EGG can't hold an item.", function()
             PartyMenu.close()
           end)
         else
           local ok, reason, msgText = ItemUse.giveToMon(PartyMenu._session, PartyMenu._bag, PartyMenu._item, PartyMenu.cursor)
-          if ok then se(5) else se(9) end
+          se(5) -- pokefirered/src/party_menu.c:1190
           PartyMenu.showMessage(msgText, function()
             PartyMenu.close()
           end)
         end
       end
     elseif input:wasPressed("b") or input:wasPressed("start") then
-      se(9)
+      se(5) -- pokefirered/src/party_menu.c:1246
       PartyMenu.close()
     end
     return
@@ -1490,7 +1490,7 @@ function PartyMenu.handleInput(input)
     end
     if input:wasPressed("a") then
       if PartyMenu.cursor == 7 then
-        se(9)
+        se(5) -- pokefirered/src/party_menu.c:1246
         PartyMenu.close()
       else
         se(5)
@@ -1505,7 +1505,7 @@ function PartyMenu.handleInput(input)
         if cb then cb(PartyMenu.cursor, PartyMenu._party and PartyMenu._party[PartyMenu.cursor]) end
       end
     elseif input:wasPressed("b") or input:wasPressed("start") then
-      se(9)
+      se(5) -- pokefirered/src/party_menu.c:1246
       PartyMenu.close()
     end
     return
@@ -1527,7 +1527,7 @@ function PartyMenu.handleInput(input)
   end
   if input:wasPressed("a") then
     if PartyMenu.cursor == 7 then
-      se(9)
+      se(5) -- pokefirered/src/party_menu.c:1246
       PartyMenu.close()
       return
     end
@@ -1560,7 +1560,7 @@ function PartyMenu.handleInput(input)
     PartyMenu.mode = "action"
     PartyMenu.actionCursor = 1
   elseif input:wasPressed("b") or input:wasPressed("start") then
-    se(9)
+    se(5) -- pokefirered/src/party_menu.c:1246
     PartyMenu.close()
   end
 end

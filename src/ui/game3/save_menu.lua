@@ -67,7 +67,7 @@ function SaveMenu.show(opts)
   SaveMenu._game = opts.game
   SaveMenu._onClose = opts.onClose
   Stack.push("save", SaveMenu, { hideBelow = true })
-  se(6) -- SE_WIN_OPEN
+  -- pokefirered/src/start_menu.c:605
 end
 
 function SaveMenu.close()
@@ -75,7 +75,6 @@ function SaveMenu.close()
   Stack.pop("save")
   local cb = SaveMenu._onClose
   SaveMenu._onClose = nil
-  se(9) -- SE_EXIT
   if cb then cb() end
 end
 
@@ -109,7 +108,7 @@ function SaveMenu.confirm()
   if SaveMenu._phase == "saved" then
     SaveMenu.close()
     local StartMenu = require("src.ui.game3.start_menu")
-    if StartMenu.isOpen() then StartMenu.close() end
+    if StartMenu.isOpen() then StartMenu.close(true) end -- pokefirered/src/start_menu.c:583
     return
   end
   if SaveMenu._phase == "saving" then
@@ -126,6 +125,7 @@ function SaveMenu.confirm()
       do_save()
     end
   else -- NO
+    se(5) -- pokefirered/src/menu.c:376
     SaveMenu.close()
   end
 end

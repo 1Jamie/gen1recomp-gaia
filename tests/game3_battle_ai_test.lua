@@ -449,10 +449,34 @@ do
     playerParty = { { species = 1, level = 5, hp = 20, maxHp = 20, moves = { 33 }, pp = { 35 } } },
     foeMon = { species = 4, level = 5, hp = 20, maxHp = 20, moves = { 33 }, pp = { 35 } },
   })
-  stFirst.firstBattle = true
   stFirst.aiFlags = 0x80000000
   local actFirst = Ai.chooseMove(stFirst, { pack = pack })
-  check(actFirst and actFirst.kind == "move", "firstBattle (0x80000000) evaluates safely without sign overflow")
+  check(actFirst and actFirst.kind == "move", "aiFlags 0x80000000 evaluates safely without sign overflow")
+
+  -- pokefirered/src/battle_ai_script_commands.c:331
+  local stTut = State.new({
+    wild = false,
+    playerParty = { { species = 19, level = 5, hp = 5, maxHp = 40, moves = { 33 }, pp = { 35 } } },
+    foeMon = {
+      species = 4, level = 5, hp = 20, maxHp = 20,
+      moves = { 52, 45 },
+      pp = { 25, 40 },
+    },
+  })
+  stTut.player.type1 = 0
+  stTut.enemy.type1 = 10
+  stTut.firstBattle = true
+  stTut.aiFlags = 7
+  local actTut = Ai.chooseMove(stTut, {
+    pack = pack,
+    rng = function(a, b)
+      if a and b then return a end
+      return 0
+    end,
+  })
+  check(actTut and actTut.scores ~= nil, "firstBattle trainer battle executed AI scripts")
+  check(actTut and actTut.scores and actTut.scores[1] > actTut.scores[2],
+    "firstBattle keeps the trainer's own aiFlags (7) instead of AI_SCRIPT_FIRST_BATTLE")
 end
 
 print("[test] 16. GetBattleOutcome (special 0xB6) and B_OUTCOME constants")

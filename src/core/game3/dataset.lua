@@ -234,8 +234,11 @@ end
 
 --- Point extract roots at the engine firered cache and install native tilesets.
 function Dataset.mountExtractRoots()
-  Extract.CACHE_ROOT = "data/generated/gba"
-  Extract.NATIVE_ROOT = "data/generated/gba/native"
+  local root = Dataset.cacheRootOverride
+    or os.getenv("POKEPORT_GBA_CACHE")
+    or "data/generated/gba"
+  Extract.CACHE_ROOT = root
+  Extract.NATIVE_ROOT = root .. "/native"
 end
 
 --- Bind LayoutNative handles onto map defs (FieldView needs midLayout).

@@ -21,6 +21,7 @@ local LearnMove = require("src.core.game3.battle.learn_move")
 local Task = require("src.core.game3.task")
 local Trainers = require("src.core.game3.scripting.trainers")
 local SwitchSeq = require("src.core.game3.battle.switch_seq")
+local Oak = require("src.core.game3.battle.oak_advice")
 local ModRuntime = require("src.mods.Runtime")
 
 local Battle = {}
@@ -477,6 +478,10 @@ function Battle.start(opts)
   st.trainerPartySize = trainerInfo and trainerInfo.partySize
   st.defeatText = opts.defeatText
   st.victoryText = opts.victoryText
+  st.earlyRival = opts.earlyRival or false
+  st.rivalFlags = tonumber(opts.rivalFlags) or 0
+  -- pokefirered/src/battle_main.c:3783
+  st.rivalHealAfter = st.earlyRival and (st.rivalFlags % 2 == 1)
   st.wildScripted = opts.wildScripted or (opts.foe and opts.foe.wildScripted) or false
   st.legendary = opts.legendary or (opts.foe and opts.foe.legendary) or false
   st.safari = opts.safari or (opts.foe and opts.foe.safari) or false
@@ -487,7 +492,6 @@ function Battle.start(opts)
   st.aiFlags = opts.aiFlags
     or (st.safari and 0x40000000)
     or (st.roamer and 0x20000000)
-    or (st.firstBattle and 0x80000000)
     or (st.legendary and 7) -- CHECK_BAD_MOVE | TRY_TO_FAINT | CHECK_VIABILITY
     or (st.wildScripted and 1) -- CHECK_BAD_MOVE
     or (trainerInfo and trainerInfo.aiFlags)
@@ -520,14 +524,8 @@ function Battle.start(opts)
           song = Audio.role("battleWild") or 298
         end
       else
-        local classId = trainerInfo and trainerInfo.classId
-        if classId == 90 then
-          song = Audio.role("battleChampion") or 299
-        elseif classId == 84 or classId == 87 then
-          song = Audio.role("battleGymLeader") or 296
-        else
-          song = Audio.role("battleTrainer") or 297
-        end
+        local role, fallback = Trainers.getBattleMusicRole(trainerId)
+        song = Audio.role(role) or fallback
       end
     end
     if song then
@@ -562,6 +560,11 @@ function Battle.start(opts)
     end
     if not st.double then
       Ui.push("Go! " .. State.displayName(st.player) .. "!")
+    end
+    -- pokefirered/src/battle_controller_oak_old_man.c:626
+    if Oak.active(st) and not st.oakIntroDone then
+      st.oakIntroDone = true
+      Oak.say(st, "forPetesSake")
     end
   end
 
@@ -739,6 +742,19 @@ local function send_out_enemy_next(nextEnemyIdx)
   end
 end
 
+-- pokefirered/src/battle_main.c:3781
+function D.pushBattleLost(st)
+  if st and st.earlyRival then
+    -- pokefirered/data/battle_scripts_1.s:2953
+    if st.victoryText and st.victoryText ~= "" then Ui.push(st.victoryText) end
+    -- pokefirered/src/battle_controller_oak_old_man.c:1780
+    Oak.say(st, "howDisappointing")
+    if st.rivalHealAfter then return end
+  end
+  Ui.push("You have no more\nPOKéMON left!")
+  Ui.push(string.format("%s blacked out!", ((st and st.playerName) or "PLAYER")))
+end
+
 local function handle_player_faint(opts)
   opts = opts or {}
   local st = Battle._st
@@ -750,8 +766,7 @@ local function handle_player_faint(opts)
   if not hasLiving then
     Battle._pendingEnd = "lose"
     Battle._phase = "ending"
-    Ui.push("You have no more\nPOKéMON left!")
-    Ui.push(string.format("%s blacked out!", (st.playerName or "PLAYER")))
+    D.pushBattleLost(st)
     return
   end
 
@@ -801,9 +816,13 @@ end
 local function begin_trainer_win(st)
   Battle._pendingEnd = "win"
   local Audio = require("src.core.game3.audio")
-  local role = (st and st.wild) and "victoryWild" or "victoryTrainer"
-  local song = Audio.role(role) or ((st and st.wild) and 311 or 310)
-  Audio.playSong(song)
+  local role, fallback
+  if st and st.wild then
+    role, fallback = "victoryWild", 311
+  else
+    role, fallback = Trainers.getVictoryMusicRole(st and st.trainerId)
+  end
+  Audio.playSong(Audio.role(role) or fallback)
 
   local pname = st.playerName or "PLAYER"
   local function push_defeated()
@@ -837,6 +856,8 @@ local function begin_trainer_win(st)
       })
       if gained > 0 then
         Ui.push(Prize.moneyMessage(session.name or pname, gained))
+        -- pokefirered/src/battle_controller_oak_old_man.c:1776
+        Oak.say(st, "winEarnsPrize")
       end
     end
   end
@@ -1845,8 +1866,7 @@ end
 function D.lose()
   Battle._pendingEnd = "lose"
   Battle._phase = "ending"
-  Ui.push("You have no more\nPOKéMON left!")
-  Ui.push(string.format("%s blacked out!", (Battle._st and Battle._st.playerName or "PLAYER")))
+  D.pushBattleLost(Battle._st)
 end
 
 -- pokefirered/src/battle_script_commands.c:4855
@@ -2293,6 +2313,12 @@ function Battle.update(dt, game)
   if Battle._phase == "intro" then
     if not Ui.pump() then return end
     if IntroSeq.update() then
+      -- pokefirered/src/battle_controller_oak_old_man.c:626
+      local stIntro = Battle._st
+      if stIntro and Oak.active(stIntro) and not stIntro.oakIntroDone then
+        stIntro.oakIntroDone = true
+        if Oak.say(stIntro, "forPetesSake") then return end
+      end
       if begin_start_effects() then return end
       Battle._phase = "command"
       if Battle._auto then

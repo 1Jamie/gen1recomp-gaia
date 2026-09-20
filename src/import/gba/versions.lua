@@ -27,7 +27,7 @@ Versions.ROM_SIZE = 16777216
 -- v99: gEggMoves → pokemon/egg_moves.lua (hidden-mon egg moves were inert).
 -- v100: location preview screens (sMapPreviewScreenData artwork) + ROM-derived
 --       mapsec names and sDungeonInfo dungeon descriptions.
-Versions.CACHE_VERSION = 101
+Versions.CACHE_VERSION = 102
 Versions.NATIVE_VERSION = 5
 Versions.OW_VERSION = 1
 Versions.ANIM_VERSION = 1
@@ -127,6 +127,64 @@ Versions.POKEDEX_ORDERS = {
   weight = 0x4442F6,
   height = 0x4445FA,
   type = 0x4448FE,
+}
+-- src/pokedex_screen.c:144
+Versions.POKEDEX_BG_TILES = {
+  kanto = { gfx = 0x440274, pal = 0x4404C8 },
+  national = { gfx = 0x4403AC, pal = 0x4406E0 },
+}
+
+-- src/pokedex_area_markers.c:101
+Versions.DEX_AREA_MARKERS = 0x463580
+Versions.DEX_AREA_MARKER_ENTRY_SIZE = 4
+Versions.DEX_AREA_COUNT = 80
+-- src/pokemon_storage_system_data.c:51
+-- src/pokemon_storage_system_tasks.c:169
+-- src/pokemon_storage_system_graphics.c:79
+-- src/graphics.c:1214
+Versions.STORAGE_PALETTES = {
+  misc1 = 0x3D2BCC,
+  misc2 = 0x3CE7F0,
+  menu = 0x3CE5DC,
+  scrollingBg = 0x3CE738,
+  interface = 0xE9C3F8,
+  partyMenu = 0xE9C3D8,
+  interfaceNoMon = 0xE9C418,
+}
+-- src/pokemon_storage_system_tasks.c:219
+Versions.STORAGE_BG1_BASE_TILE = 0x100
+Versions.STORAGE_SHEETS = {
+  handCursor = { off = 0x3D2BEC, size = 2048 },
+  handCursorShadow = { off = 0x3D33EC, size = 128 },
+  boxScrollArrow = { off = 0x3D2AD0, size = 128 },
+  waveform = { off = 0x3CE810, size = 448 },
+  scrollingBg = { off = 0x3CE438, lz = true },
+  menu = { off = 0xE9C438, lz = true },
+}
+Versions.STORAGE_TILEMAPS = {
+  menu = { off = 0x3CE5FC, lz = true, w = 32, h = 20 },
+  pkmnData = { off = 0x3CE6F8, w = 8, h = 4 },
+  closeBoxButton = { off = 0x3CE778, w = 9, h = 4 },
+  partySlotFilled = { off = 0x3CE7C0, w = 4, h = 3 },
+  partySlotEmpty = { off = 0x3CE7D8, w = 4, h = 3 },
+  partyMenu = { off = 0xE9CAEC, lz = true, w = 12, h = 22 },
+}
+-- src/pokemon_storage_system_graphics.c:168
+Versions.STORAGE_WALLPAPERS = 0x3D2A10
+Versions.STORAGE_WALLPAPER_COUNT = 16
+Versions.STORAGE_WALLPAPER_W = 20
+Versions.STORAGE_WALLPAPER_H = 18
+
+-- src/wild_pokemon_area.c:25
+Versions.DEX_AREA_MAPSEC_TABLES = {
+  { off = 0x464148, count = 55 },
+  { off = 0x464224, count = 4 },
+  { off = 0x464234, count = 2 },
+  { off = 0x46423C, count = 5 },
+  { off = 0x464250, count = 2 },
+  { off = 0x464258, count = 7 },
+  { off = 0x464274, count = 7 },
+  { off = 0x464290, count = 11 },
 }
 
 -- Region map & location preview screens (pokefirered src/region_map.c,

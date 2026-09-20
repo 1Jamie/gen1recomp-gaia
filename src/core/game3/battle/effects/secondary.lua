@@ -1,4 +1,5 @@
 local Types = require("src.core.game3.battle.types")
+local Oak = require("src.core.game3.battle.oak_advice")
 
 local Secondary = {}
 
@@ -100,6 +101,10 @@ function Secondary.changeStat(ad, battler, stat, delta, flags)
   end
   if not flags.noMsg then
     ad:say(stat_text(ad, battler, stat, delta))
+    -- pokefirered/src/battle_controller_oak_old_man.c:1768
+    if Oak.active(ad._st) and delta < 0 and battler.side == "enemy" then
+      Oak.sayOnce(ad._st, Oak.FLAG_STAT_CHG, "loweringStats", function(t) ad:say(t) end)
+    end
   end
   return "worked"
 end

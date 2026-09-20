@@ -343,6 +343,12 @@ function AnimVm:visualCount()
     local t = AnimTasks._pool[i]
     if t.active and t._g4kind ~= "sound" and t._g4kind ~= "aux" and not t._uncounted then n = n + 1 end
   end
+  -- pokefirered/src/battle_anim.c:400
+  AnimSprites.init()
+  for i = 1, AnimSprites.MAX do
+    local s = AnimSprites._pool[i]
+    if s.active and s._g4counted then n = n + 1 end
+  end
   return n
 end
 

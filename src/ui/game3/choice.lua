@@ -116,7 +116,7 @@ function Choice.cancel()
   if Choice.ignoreBPress then
     return
   end
-  pcall(function() require("src.core.game3.audio").playSe(9) end)
+  pcall(function() require("src.core.game3.audio").playSe(5) end) -- pokefirered/src/menu_helpers.c:57
   local cb = Choice.done
   local kind = Choice.kind
   Choice.active = false

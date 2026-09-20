@@ -415,7 +415,7 @@ local function handle_menu_input(input)
       BagMenu.mode = "list"
       clamp_cursor()
     elseif input:wasPressed("b") then
-      se(9)
+      se(5) -- pokefirered/src/item_menu.c:1540
       BagMenu.mode = "action"
     end
     return
@@ -480,7 +480,7 @@ local function handle_menu_input(input)
                 local mon = liveParty and liveParty[realSlot]
                 local canUse, err = BattleItems.canUseOn(st, row.id, realSlot, mon)
                 if not canUse then
-                  se(9)
+                  se(5) -- pokefirered/src/party_menu.c:4490
                   PartyMenu.showMessage(err or "It won't have any effect.", function()
                     PartyMenu.mode = "use"
                   end)
@@ -652,7 +652,7 @@ local function handle_menu_input(input)
         BagMenu.mode = "list"
       end
     elseif input:wasPressed("b") then
-      se(9)
+      se(5) -- pokefirered/src/item_menu.c:1453
       BagMenu.mode = "list"
     end
     return

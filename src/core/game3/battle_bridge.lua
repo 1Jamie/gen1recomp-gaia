@@ -285,6 +285,8 @@ function BattleBridge.start(mod, game, foe, opts)
     trainerId = opts.trainerId or (foe and foe.trainerId),
     defeatText = opts.defeatText or (foe and foe.defeatText),
     victoryText = opts.victoryText or (foe and foe.victoryText),
+    earlyRival = opts.earlyRival,
+    rivalFlags = opts.rivalFlags,
     rivalName = opts.rivalName or session.rivalName or (save and save.rivalName),
     playerGender = opts.playerGender or gender,
     onDone = function(result)
@@ -316,14 +318,11 @@ function BattleBridge.start(mod, game, foe, opts)
     else
       local tid = (so and so.trainerId) or (o and o.trainerId) or (o and o.foe and o.foe.trainerId)
       local okTr, Trainers = pcall(require, "src.core.game3.scripting.trainers")
-      local info = okTr and Trainers and tid and Trainers.info(tid)
-      local classId = info and info.classId
-      if classId == 90 then
-        return Audio.role("battleChampion") or 299
-      elseif classId == 84 or classId == 87 then
-        return Audio.role("battleGymLeader") or 296
+      if not (okTr and Trainers and Trainers.getBattleMusicRole) then
+        return Audio.role("battleTrainer") or 297
       end
-      return Audio.role("battleTrainer") or 297
+      local role, fallback = Trainers.getBattleMusicRole(tid)
+      return Audio.role(role) or fallback
     end
   end
 

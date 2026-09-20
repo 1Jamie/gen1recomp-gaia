@@ -215,6 +215,26 @@ function Pokedex.show(dex, opts)
   se("SE_PIN")
 end
 
+-- pokefirered/src/pokedex_screen.c:3260
+local HABITAT_CATEGORIES = {
+  "grassland", "forest", "waters_edge", "sea", "cave",
+  "mountain", "rough_terrain", "urban", "rare",
+}
+
+function Pokedex.categoryForSpecies(speciesId)
+  local sp = tonumber(speciesId)
+  if not sp then return nil end
+  PokedexData.init()
+  for _, catKey in ipairs(HABITAT_CATEGORIES) do
+    for pageIdx, page in ipairs(PokedexData.getCategoryPages(catKey)) do
+      for _, member in ipairs(page) do
+        if member == sp then return catKey, pageIdx end
+      end
+    end
+  end
+  return nil
+end
+
 function Pokedex.showRegistration(speciesId, opts)
   opts = opts or {}
   Pokedex.open = true
@@ -233,6 +253,16 @@ function Pokedex.showRegistration(speciesId, opts)
   Pokedex.screen = "registration"
   Pokedex.dataPage = 1
 
+  -- pokefirered/src/pokedex_screen.c:3316
+  local catKey, pageIdx = Pokedex.categoryForSpecies(Pokedex._regSpecies)
+  if catKey then
+    Pokedex.currentCategory = catKey
+    Pokedex.categoryPage = pageIdx or 1
+    Pokedex.subScreenPrev = "category_grid"
+  else
+    Pokedex.subScreenPrev = "mode_select"
+  end
+
   Stack.push("pokedex", Pokedex, { hideBelow = true })
   play_cry(Pokedex._regSpecies)
 end
@@ -243,7 +273,6 @@ function Pokedex.close()
   local cb = Pokedex._onClose
   Pokedex._onClose = nil
   Pokedex._regSpecies = nil
-  se("SE_FLEE")
   if cb then cb() end
 end
 
@@ -524,10 +553,7 @@ end
 
 local function handle_data_input(input)
   if input:wasPressed("a") then
-    if Pokedex.screen == "registration" then
-      Pokedex.isOpen_ = false
-      if Pokedex._onDone then Pokedex._onDone() end
-    elseif Pokedex.dataPage == 1 then
+    if Pokedex.dataPage == 1 then
       Pokedex.dataPage = 2
       se("SE_SELECT")
     else
@@ -836,6 +862,14 @@ local function draw_ordered_list()
   PokedexChrome.drawControlInfo("{DPAD_UPDOWN}PICK {A_BUTTON}OK {B_BUTTON}CANCEL", 236, 146)
 end
 
+-- pokefirered/src/pokedex_screen.c:2960
+function Pokedex.controlInfoForDataPage(screen)
+  if screen == "registration" then
+    return nil, "{A_BUTTON}NEXT"
+  end
+  return "{START_BUTTON}CRY", "{A_BUTTON}NEXT DATA {B_BUTTON}CANCEL"
+end
+
 --- 3. Detailed Data Entry Screen (Page 1: Specs & Flavor Text, Page 2: Size Chart & Area Map)
 local function draw_data_screen()
   local dex = Pokedex._dex
@@ -929,12 +963,11 @@ local function draw_data_screen()
     end
 
     -- 5. Bottom Bar Controls
-    PokedexChrome.drawControlInfoLeft("{START_BUTTON}CRY", 8, 146)
-    if Pokedex.screen == "registration" then
-      PokedexChrome.drawControlInfo("{A_BUTTON}OK", 236, 146)
-    else
-      PokedexChrome.drawControlInfo("{A_BUTTON}NEXT DATA {B_BUTTON}CANCEL", 236, 146)
+    local cryHint, controlInfo = Pokedex.controlInfoForDataPage(Pokedex.screen)
+    if cryHint then
+      PokedexChrome.drawControlInfoLeft(cryHint, 8, 146)
     end
+    PokedexChrome.drawControlInfo(controlInfo, 236, 146)
 
   else
     -- ================= PAGE 2: SIZE CHART & AREA MAP =================

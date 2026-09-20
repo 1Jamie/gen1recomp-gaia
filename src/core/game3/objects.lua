@@ -185,7 +185,14 @@ function Objects.clear()
   Objects._mapId = nil
   Objects._defs = nil
   Objects._bounds = nil
-  -- Keep _perm across maps (templates are per-mapId keyed).
+end
+
+-- pokefirered/src/overworld.c:405
+function Objects.reset()
+  Objects.clear()
+  Objects._perm = {}
+  Objects._templateMt = {}
+  Objects._logged = false
 end
 
 function Objects.hasMap()
@@ -381,6 +388,8 @@ function Objects.loadMap(game, mapId, mapDef)
   if not sameMap then
     Objects._tracks = {}
     Objects._templateMt = {}
+    -- pokefirered/src/overworld.c:405
+    Objects._perm[mapId] = nil
   end
   Objects._byId = {}
   Objects._order = {}
@@ -398,10 +407,7 @@ function Objects.loadMap(game, mapId, mapDef)
   end
   Objects._defs = defs or {}
   Objects._bounds = layoutBounds(mapDef)
-  -- House 1F never uses setobjectxyperm; clear stale perm + repair Mom template
-  -- left by the old Map.load bug (Pallet ON_TRANSITION hit Mom as localId 1).
   if mapId == "FR_PLAYERS_HOUSE_1F" then
-    Objects._perm[mapId] = nil
     for _, def in ipairs(Objects._defs) do
       if tonumber(def.localId or def.index) == 1 then
         def.x, def.y = 8, 4
@@ -498,6 +504,15 @@ function Objects.blocks(tx, ty, exceptLocalId)
       end
     end
   end
+  return false
+end
+
+-- pokefirered/src/event_object_movement.c:4899
+function Objects.playerBlocks(tx, ty)
+  local P = Player()
+  if not P then return false end
+  if P.cellX == tx and P.cellY == ty then return true end
+  if P.moving and P.targetX == tx and P.targetY == ty then return true end
   return false
 end
 
@@ -819,9 +834,7 @@ local function idleTick(eo, game, ctx)
     else
       local Coll = Collision()
       ok = Coll.canEnter(game, tx, ty, {})
-      -- Don't collide with player.
-      local P = Player()
-      if P.cellX == tx and P.cellY == ty then ok = false end
+      if Objects.playerBlocks(tx, ty) then ok = false end
       if Objects.blocks(tx, ty, eo.localId) then ok = false end
     end
     if ok then
