@@ -91,6 +91,12 @@ function Window.stdFrame(tpl)
   Chrome.stdFrame(L, Top, W, H)
 end
 
+-- pokefirered/src/text_window.c:80
+function Window.fixedStdFrame(tpl)
+  Chrome.fixedStdFrame(tpl.left or tpl.tilemapLeft, tpl.top or tpl.tilemapTop,
+    tpl.w or tpl.width, tpl.h or tpl.height)
+end
+
 function Window.userFrame(tpl, frameType)
   Chrome.userFrame(frameType, tpl.left or tpl.tilemapLeft, tpl.top or tpl.tilemapTop,
     tpl.w or tpl.width, tpl.h or tpl.height)

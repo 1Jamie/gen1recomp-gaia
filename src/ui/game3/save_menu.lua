@@ -197,7 +197,8 @@ function SaveMenu.draw()
   local mins = tonumber(session.playTimeMinutes or session.minutes) or 0
 
   -- 1. Top-Left Save Stats Box (pret sSaveStatsWindowTemplate at (1, 1, 14, 9))
-  Window.stdFrame(Window.template(1, 1, 14, 9))
+  -- pokefirered/src/start_menu.c:971
+  Window.fixedStdFrame(Window.template(1, 1, 14, 9))
   -- Location Header.  pret start_menu.c PrintSaveStats centres it in the
   -- 14-tile window: x = (112 - GetStringWidth(FONT_NORMAL, text)) / 2.
   local headerW = 14 * 8

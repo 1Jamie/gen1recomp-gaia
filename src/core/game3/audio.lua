@@ -512,6 +512,9 @@ function Audio.isBgmStopped()
 end
 
 Audio.SE_RAW_MAX_FRAMES = 1500000
+-- pokefirered/src/m4a_1.s:751
+Audio.SE_LOOP_MAX_SEC = 2.5
+Audio.SE_ONESHOT_MAX_SEC = 30
 
 function Audio._seRawClear()
   Audio._seRaw = {}
@@ -587,12 +590,20 @@ function Audio.playSe(id, opts)
       loop = (id == SE.SE_LOW_HEALTH) or Audio._songHasGoto(slot)
     end
 
+    -- pokefirered/src/battle_anim_special.c:1200
+    local cut = (loop or id == SE.SE_EXP)
+    local maxSec = opts.maxSec
+      or (cut and Audio.SE_LOOP_MAX_SEC or Audio.SE_ONESHOT_MAX_SEC)
     rawL, rawR = Player.bakeSlot(slot, {
       raw = true,
-      -- pokefirered/src/battle_anim_special.c:1200
-      maxSec = opts.maxSec or ((loop or id == SE.SE_EXP) and 2.5 or 6.0),
+      maxSec = maxSec,
       stopOnGoto = loop and true or false,
     })
+    if not cut and opts.maxSec == nil and type(rawL) == "table"
+      and #rawL >= math.floor(Mix.SAMPLE_RATE * maxSec) then
+      warn_once("selen:" .. tostring(id),
+        "SE " .. tostring(id) .. " hit the " .. tostring(maxSec) .. "s bake ceiling")
+    end
     if memoable then Audio._seRawPut(id, loop and true or false, rawL, rawR) end
   end
 

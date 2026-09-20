@@ -79,16 +79,8 @@ function Game3:_enterField(session, reason)
   session._questNewScene=true
   if reason == "continue" then session._questMap=session.map end
   require("src.core.game3.map")._announced = nil
+  -- pokefirered/src/fieldmap.c:100
   Runtime.start(nil, self, session, { reason = reason or "new_game" })
-  -- Runtime.start already Map.loads unless alreadyOnMap; keep explicit reload for
-  -- session x/y/facing in case start opts change.
-  local Map = require("src.core.game3.map")
-  Map.load(nil, self, session.map, {
-    x = session.x,
-    y = session.y,
-    facing = session.facing,
-  })
-  -- Map.load plays header / index mapSongs BGM.
 end
 
 function Game3:load(opts)
@@ -919,6 +911,8 @@ function Game3:returnToTitle()
   end
   local Objects = package.loaded["src.core.game3.objects"]
   if Objects and Objects.reset then pcall(Objects.reset) end
+  local Field = package.loaded["src.core.game3.field"]
+  if Field and Field.clearMetatiles then pcall(Field.clearMetatiles) end
   self.phase = "boot"
   self.session = nil
 
@@ -964,6 +958,8 @@ function Game3:reset()
     local mod = package.loaded[name]
     if mod and mod.reset then pcall(mod.reset) end
   end
+  local Field = package.loaded["src.core.game3.field"]
+  if Field and Field.clearMetatiles then pcall(Field.clearMetatiles) end
   Display.release()
   if self.touchControls then
     pcall(function() self.touchControls:setHotkeyHandler(nil) end)

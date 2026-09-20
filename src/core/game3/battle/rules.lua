@@ -1,6 +1,7 @@
 -- Game3 battle rules (owned). Crit / weather mods / residual phase labels.
 
 local Capabilities = require("src.core.game3.battle.capabilities")
+local Oak = require("src.core.game3.battle.oak_advice")
 local Strings = require("src.core.Strings")
 
 local Rules = {}
@@ -238,7 +239,9 @@ local function rollZeroTo(rng, den)
 end
 
 -- pokefirered/src/battle_script_commands.c:1199
-function Rules.crit.roll(attacker, moveOrId, highCrit, rng)
+function Rules.crit.roll(attacker, moveOrId, highCrit, rng, st)
+  -- pokefirered/src/battle_script_commands.c:1200
+  if Oak.active(st) and not Oak.testFlag(st, Oak.FLAG_INFLICT_DMG) then return false end
   local stage = Rules.crit.stage(attacker, moveOrId, highCrit)
   local den = Rules.crit.CHANCE[stage] or 2
   return rollZeroTo(rng, den) == 0

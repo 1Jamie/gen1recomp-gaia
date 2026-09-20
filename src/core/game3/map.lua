@@ -365,6 +365,8 @@ function Map.load(mod, game, mapId, opts)
     Space.attachEventsToMaps({ [mapId] = def }, Space.bundle)
   end
 
+  -- pokefirered/src/fieldmap.c:93
+  require("src.core.game3.field").clearMetatiles(def and def.midLayout)
   local Collision = require("src.core.game3.collision")
   if def then Collision.bindMap(game, mapId, def) end
 

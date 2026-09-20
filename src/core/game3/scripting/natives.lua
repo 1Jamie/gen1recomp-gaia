@@ -76,7 +76,55 @@ Natives.B_OUTCOME = {
 }
 Natives.outcome_to_code = outcome_to_code
 
+-- pokefirered/src/field_specials.c:557
+local VERMILION_TRASH_ADJACENT = {
+  [1] = { 1, 5 },
+  [2] = { 1, 5, -1 },
+  [3] = { 1, 5, -1 },
+  [4] = { 1, 5, -1 },
+  [5] = { 5, -1 },
+  [6] = { -5, 1, 5 },
+  [7] = { -5, 1, 5, -1 },
+  [8] = { -5, 1, 5, -1 },
+  [9] = { -5, 1, 5, -1 },
+  [10] = { -5, 5, -1 },
+  [11] = { -5, 1 },
+  [12] = { -5, 1, -1 },
+  [13] = { -5, 1, -1 },
+  [14] = { -5, 1, -1 },
+  [15] = { -5, -1 },
+}
+
+-- pokefirered/src/field_specials.c:552 SetVermilionTrashCans
+function Natives.setVermilionTrashCans(random)
+  local first = (random() % 15) + 1
+  local second = first
+  local deltas = VERMILION_TRASH_ADJACENT[first]
+  if deltas then
+    second = (second + deltas[(random() % #deltas) + 1]) % 65536
+  end
+  if second > 15 then
+    if first % 5 == 1 then
+      second = first + 1
+    elseif first % 5 == 0 then
+      second = first - 1
+    else
+      second = first + 1
+    end
+  end
+  return first, second
+end
+
 Natives.ALLOW = {
+  -- pokefirered/src/field_specials.c:552
+  ["special:" .. Std.SPECIAL.SetVermilionTrashCans] = function(ctx)
+    local Rng = require("src.core.game3.rng")
+    local first, second = Natives.setVermilionTrashCans(Rng.Random)
+    local Flags = flagsMod()
+    Flags.setVar(nil, ctx, 0x8004, first)
+    Flags.setVar(nil, ctx, 0x8005, second)
+    return false
+  end,
   -- pokefirered/src/battle_setup.c:865
   ["special:" .. Std.SPECIAL.Script_HasTrainerBeenFought] = function(ctx)
     local Flags = flagsMod()

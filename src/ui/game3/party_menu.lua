@@ -1,6 +1,7 @@
 -- Party menu — pret PARTY_LAYOUT_SINGLE (windows + FONT_SMALL + OAM sprites).
 
 local Stack = require("src.ui.game3.stack")
+local Chrome = require("src.ui.game3.chrome")
 local Window = require("src.ui.game3.window")
 local FrlgFont = require("src.ui.game3.frlg_font")
 local PartyChrome = require("src.ui.game3.party_chrome")
@@ -582,6 +583,75 @@ local function apply_battle_order(party, overlay, opts)
   return view, viewOverlay, o
 end
 
+-- pokefirered/src/party_menu.c:1944
+local OAK_DIM_TARGET = 6
+local OAK_DIM_DELAY = 4
+local OAK_TEXT_OPTS = { maxWidth = Chrome.DLG_W * 8, linePitch = 15, colors = FrlgFont.COLOR.NORMAL }
+
+local function set_oak_page(page)
+  PartyMenu._oakPage = page
+  local text = (PartyMenu._oakPages or {})[page]
+  PartyMenu._oakWrapped = text and FrlgFont.wrap(text, Chrome.DLG_W * 8) or nil
+end
+
+local function end_oak_advice()
+  PartyMenu._oakPages = nil
+  PartyMenu._oakWrapped = nil
+  PartyMenu._oakFx = nil
+  PartyMenu.mode = PartyMenu._oakReturn or "list"
+  PartyMenu._oakReturn = nil
+end
+
+local function oak_ramp(fx, key, target)
+  if fx[key] == target then return true end
+  fx.counter = fx.counter + 1
+  if fx.counter > OAK_DIM_DELAY then
+    fx.counter = 0
+    fx[key] = fx[key] + ((fx[key] < target) and 1 or -1)
+  end
+  return fx[key] == target
+end
+
+local function tick_oak_advice()
+  local fx = PartyMenu._oakFx
+  if not fx then return end
+  if fx.phase == "darken" then
+    if oak_ramp(fx, "y", OAK_DIM_TARGET) then fx.phase = "text" end
+  elseif fx.phase == "lighten" then
+    -- pokefirered/src/party_menu.c:1970
+    if oak_ramp(fx, "slot", 0) then
+      fx.phase = "text"
+      set_oak_page((PartyMenu._oakPage or 1) + 1)
+    end
+  elseif fx.phase == "normal" then
+    -- pokefirered/src/party_menu.c:2001
+    fx.slot = math.min(fx.slot, fx.y)
+    if oak_ramp(fx, "y", 0) then end_oak_advice() end
+  end
+end
+
+-- pokefirered/src/party_menu.c:5832
+local function begin_oak_advice(opts)
+  PartyMenu._oakPages = nil
+  PartyMenu._oakPage = 1
+  PartyMenu._oakReturn = nil
+  PartyMenu._oakWrapped = nil
+  PartyMenu._oakFx = nil
+  if not (opts and opts.battle) then return end
+  local BattleUi = package.loaded["src.core.game3.battle.ui"]
+  local st = BattleUi and BattleUi._st
+  if not st then return end
+  local okOak, Oak = pcall(require, "src.core.game3.battle.oak_advice")
+  if not okOak or not Oak then return end
+  local pages = Oak.take(st, Oak.FLAG_PARTY_MENU, "partyMenu")
+  if not pages then return end
+  PartyMenu._oakPages = pages
+  PartyMenu._oakReturn = PartyMenu.mode
+  PartyMenu.mode = "oak"
+  PartyMenu._oakFx = { phase = "darken", y = 0, slot = OAK_DIM_TARGET, counter = 0 }
+  set_oak_page(1)
+end
+
 function PartyMenu.show(sessionParty, moveOverlay, opts)
   if type(moveOverlay) == "table" and opts == nil and (moveOverlay.mode or moveOverlay.session or moveOverlay.battle or moveOverlay.onSelect or moveOverlay.activeSlot) then
     opts = moveOverlay
@@ -621,6 +691,7 @@ function PartyMenu.show(sessionParty, moveOverlay, opts)
   PartyMenu._lastSelectedSlot = 1
   if not Pokemon._names then Pokemon.install(nil) end
   PartyChrome.install(nil)
+  begin_oak_advice(opts)
   Stack.push("party", PartyMenu, { hideBelow = true })
   sync_all_oam()
 end
@@ -740,6 +811,7 @@ function PartyMenu.startHpAnim(slot, startHp, targetHp, maxHp, onDone)
 end
 
 function PartyMenu.update(dt)
+  if PartyMenu.mode == "oak" then tick_oak_advice() end
   local anim = PartyMenu._hpAnim
   if anim then
     dt = dt or (1 / 60)
@@ -786,6 +858,26 @@ function PartyMenu.handleInput(input)
     if input:wasPressed("a") or input:wasPressed("b") or input:wasPressed("start") then
       se(5)
       PartyMenu.dismissMessage()
+    end
+    return
+  end
+
+  -- pokefirered/src/party_menu.c:1936
+  if PartyMenu.mode == "oak" then
+    local fx = PartyMenu._oakFx
+    if not fx then
+      end_oak_advice()
+    elseif fx.phase == "text" and (input:wasPressed("a") or input:wasPressed("b")) then
+      se(5)
+      local page = (PartyMenu._oakPage or 1) + 1
+      if page > #(PartyMenu._oakPages or {}) then
+        PartyMenu._oakWrapped = nil
+        fx.phase = "normal"
+      elseif page == 2 and fx.slot > 0 then
+        fx.phase = "lighten"
+      else
+        set_oak_page(page)
+      end
     end
     return
   end
@@ -1650,7 +1742,35 @@ function PartyMenu.draw()
     end
   end
 
-  if PartyMenu.mode == "message" then
+  if PartyMenu.mode == "oak" then
+    -- pokefirered/src/party_menu.c:1944
+    local fx = PartyMenu._oakFx
+    local y = fx and fx.y or 0
+    local slotY = fx and math.min(fx.slot, y) or 0
+    local win = slot_win(1)
+    if y > 0 and win then
+      local T = Display.TILE or 8
+      local sx, sy, sw, sh = win.left * T, win.top * T, win.w * T, win.h * T
+      love.graphics.setColor(0, 0, 0, y / 16)
+      love.graphics.rectangle("fill", 0, 0, Display.W, sy)
+      love.graphics.rectangle("fill", 0, sy, sx, sh)
+      love.graphics.rectangle("fill", sx + sw, sy, Display.W - sx - sw, sh)
+      love.graphics.rectangle("fill", 0, sy + sh, Display.W, Display.H - sy - sh)
+      if slotY > 0 then
+        -- pokefirered/src/party_menu.c:1970
+        love.graphics.setColor(0, 0, 0, slotY / 16)
+        love.graphics.rectangle("fill", sx, sy, sw, sh)
+      end
+      love.graphics.setColor(1, 1, 1, 1)
+    end
+    if fx and fx.phase ~= "darken" and fx.phase ~= "normal" then
+      -- pokefirered/src/party_menu.c:2604
+      Chrome.dialogueFrame()
+      if PartyMenu._oakWrapped then
+        FrlgFont.draw(PartyMenu._oakWrapped, Chrome.DLG_LEFT * 8, Chrome.DLG_TOP * 8 + 1, OAK_TEXT_OPTS)
+      end
+    end
+  elseif PartyMenu.mode == "message" then
     Window.stdFrame(Window.template(1, 15, 28, 4))
     if PartyMenu._messageText then
       local wrapped = FrlgFont.wrap(PartyMenu._messageText, 216)

@@ -772,7 +772,7 @@ local function dispatch(vm, row)
       return true
     end
     if op == "setmetatile" and a.setMetatile then
-      a.setMetatile(row[1], row[2], row[3], row[4])
+      a.setMetatile(row[1], row[2], row[3], (tonumber(row[4]) or 0) ~= 0)
     elseif op == "dofieldeffect" and a.doFieldEffect then
       a.doFieldEffect(row[1])
     end

@@ -259,6 +259,24 @@ function Space.onMapEnter(mod, mapId, game, world)
   return vm
 end
 
+-- pokefirered/src/fieldmap.c:93
+function Space.runOnLoad(mapId)
+  if not Space.vm then return false end
+  mapId = mapId or Space.mapId
+  local ev = Space.bundle and Space.bundle.events and Space.bundle.events[mapId]
+  local ms = ev and ev.mapScripts
+  local key = ms and ms.onLoad
+  if type(key) ~= "string" then return false end
+  local vm = Space.vm
+  if vm:isRunning() then return false end
+  vm:start(key)
+  for _ = 1, 256 do
+    if not vm:isRunning() then break end
+    vm:tick()
+  end
+  return true
+end
+
 --- ON_TRANSITION + schedule ON_FRAME. Call only after Objects.loadMap for mapId
 -- so setobjectxyperm / removeobject hit the destination map's localIds (pret order).
 function Space.runEnterScripts(mod, mapId, game, world)
@@ -278,6 +296,8 @@ function Space.runEnterScripts(mod, mapId, game, world)
     -- VAR_OBJ_GFX_ID_* / setobjectxyperm applied — refresh NPC sprites.
     Space.refreshObjectGraphics()
   end
+  -- pokefirered/src/overworld.c:807
+  Space.runOnLoad(mapId)
   -- ON_FRAME (Bill intro etc.) — defer while Gen2 MAPSETUP is still white.
   if not vm:isRunning() then
     Space.scheduleOnFrame(world)

@@ -114,7 +114,7 @@ function PokedexChrome.install(cache)
 
   local textures = {
     { key = "paper_bg", file = "paper_bg.rgba", w = 240, h = 160 },
-    { key = "caught_marker", file = "caught_marker.rgba", w = 8, h = 8, trans = function(r, g, b) return (r == 156 and g == 156 and b == 189) or (r == 156 and g == 156) end },
+    { key = "caught_marker", file = "caught_marker.rgba", w = 8, h = 8 },
     { key = "mini_page", file = "mini_page.rgba", w = 64, h = 40 },
     { key = "blit_wide_ellipse", file = "blit_wide_ellipse.rgba", w = 88, h = 16 },
     { key = "map_kanto", file = "map_kanto.rgba", w = 96, h = 72 },
@@ -168,6 +168,18 @@ function PokedexChrome.install(cache)
     PokedexChrome._images["dex_area_bg_" .. s.key] = nil
   end
 
+  PokedexChrome._images.trainer_red = nil
+  PokedexChrome._images.trainer_leaf = nil
+  PokedexChrome._colors = nil
+  local colorBytes = read_bytes(root .. "/chrome.lua")
+  if colorBytes then
+    local chunk = loadstring and loadstring(colorBytes) or load(colorBytes)
+    if chunk then
+      local ok, tbl = pcall(chunk)
+      if ok and type(tbl) == "table" then PokedexChrome._colors = tbl end
+    end
+  end
+
   local kpBytes = read_bytes("data/generated/gba/keypad_icons.rgba")
   if kpBytes then
     PokedexChrome._images["keypad_icons"] = rgba_to_image(kpBytes, 128, 32)
@@ -180,6 +192,21 @@ end
 function PokedexChrome.getImage(key)
   if not PokedexChrome._installed then PokedexChrome.install() end
   return PokedexChrome._images[key]
+end
+
+function PokedexChrome.getColor(key)
+  if not PokedexChrome._installed then PokedexChrome.install() end
+  local c = PokedexChrome._colors and PokedexChrome._colors[key]
+  if type(c) ~= "table" or not c[3] then return nil end
+  return c[1] / 255, c[2] / 255, c[3] / 255, (c[4] or 255) / 255
+end
+
+-- src/pokedex_area_markers.c:219
+function PokedexChrome.getMarkerBlend()
+  if not PokedexChrome._installed then PokedexChrome.install() end
+  local c = PokedexChrome._colors and PokedexChrome._colors.marker_blend
+  if type(c) ~= "table" or not c[2] then return nil end
+  return c[1] / 16, c[2] / 16
 end
 
 local KEYPAD_ICON_QUADS = nil
@@ -547,18 +574,19 @@ function PokedexChrome.drawAreaCardBg()
   draw_card("dex_area_bg", PokedexChrome.areaCardLayout)
 end
 
+-- src/trainer_pokemon_sprites.c:276, include/constants/trainers.h:156
+PokedexChrome.TRAINER_PIC_IDS = { male = 135, female = 136 }
+
 --- Load trainer front sprite (Red/Leaf) for Size Comparison
 function PokedexChrome.getTrainerPic(gender)
   local key = (gender == "female") and "trainer_leaf" or "trainer_red"
-  if not PokedexChrome._images[key] then
-    local file = (gender == "female") and "data/generated/gba/trainers/leaf_front_pic.png" or "data/generated/gba/trainers/red_front_pic.png"
-    local ok, img = pcall(love.graphics.newImage, file)
-    if ok and img then
-      if img.setFilter then img:setFilter("nearest", "nearest") end
-      PokedexChrome._images[key] = img
-    end
+  if PokedexChrome._images[key] == nil then
+    local picId = (gender == "female") and PokedexChrome.TRAINER_PIC_IDS.female or PokedexChrome.TRAINER_PIC_IDS.male
+    local bytes = read_bytes(cache_root() .. "/trainers/front/" .. picId .. ".rgba")
+      or read_bytes("data/generated/gba/trainers/front/" .. picId .. ".rgba")
+    PokedexChrome._images[key] = bytes and rgba_to_image(bytes, 64, 64) or false
   end
-  return PokedexChrome._images[key]
+  return PokedexChrome._images[key] or nil
 end
 
 --- Draw sprite as solid silhouette with authentic charcoal palette (#4A4A4A)
@@ -587,7 +615,8 @@ function PokedexChrome.drawSilhouette(img, x, y, scaleX, scaleY, originX, origin
   if PokedexChrome._silhouetteShader then
     love.graphics.setShader(PokedexChrome._silhouetteShader)
   end
-  love.graphics.setColor(74 / 255, 74 / 255, 74 / 255, 1)
+  local sr, sg, sb = PokedexChrome.getColor("silhouette")
+  love.graphics.setColor(sr or 74 / 255, sg or 74 / 255, sb or 74 / 255, 1)
   love.graphics.draw(img, x, y, 0, scaleX, scaleY, originX, originY)
   if PokedexChrome._silhouetteShader then
     love.graphics.setShader()
@@ -860,27 +889,43 @@ function PokedexChrome.drawMap(mapKey, x, y, scale)
   end
 end
 
---- Draw Area Route Marker (Steady slightly transparent red overlay)
-function PokedexChrome.drawAreaMarker(shape, x, y)
-  if not (love and love.graphics) then return end
+local AREA_MARKER_KEYS = {
+  MARKER_CIRCULAR = "marker_0",
+  MARKER_SMALL_H = "marker_1",
+  MARKER_SMALL_V = "marker_2",
+  MARKER_MED_H = "marker_3",
+  MARKER_MED_V = "marker_4",
+  MARKER_LARGE_H = "marker_5",
+  MARKER_LARGE_V = "marker_6",
+}
 
-  local shapeMap = {
-    MARKER_CIRCULAR = "marker_0",
-    MARKER_SMALL_H = "marker_1",
-    MARKER_SMALL_V = "marker_2",
-    MARKER_MED_H = "marker_3",
-    MARKER_MED_V = "marker_4",
-    MARKER_LARGE_H = "marker_5",
-    MARKER_LARGE_V = "marker_6",
-  }
-  local imgKey = shapeMap[shape] or "marker_0"
-  local img = PokedexChrome.getImage(imgKey)
-
-  love.graphics.setColor(1, 0.3, 0.3, 0.75)
+local function paint_area_marker(img, x, y)
   if img then
     love.graphics.draw(img, x, y)
   else
     love.graphics.ellipse("fill", x + 4, y + 4, 4, 4)
+  end
+end
+
+--- Draw Area Route Marker (Steady slightly transparent red overlay)
+function PokedexChrome.drawAreaMarker(shape, x, y)
+  if not (love and love.graphics) then return end
+
+  local img = PokedexChrome.getImage(AREA_MARKER_KEYS[shape] or "marker_0")
+  local mr, mg, mb, ma = PokedexChrome.getColor("marker")
+  local eva, evb = PokedexChrome.getMarkerBlend()
+  if mr and eva then
+    -- src/pokedex_area_markers.c:219
+    local mode, alphaMode = love.graphics.getBlendMode()
+    love.graphics.setColor(0, 0, 0, 1 - evb)
+    paint_area_marker(img, x, y)
+    love.graphics.setBlendMode("add", "alphamultiply")
+    love.graphics.setColor(mr * eva, mg * eva, mb * eva, 1)
+    paint_area_marker(img, x, y)
+    love.graphics.setBlendMode(mode, alphaMode)
+  else
+    love.graphics.setColor(mr or 1, mg or 0.3, mb or 0.3, ma or 0.75)
+    paint_area_marker(img, x, y)
   end
   love.graphics.setColor(1, 1, 1, 1)
 end

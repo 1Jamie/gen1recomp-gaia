@@ -60,6 +60,7 @@ Std.SPECIAL = {
   StartLegendaryBattle = 0x138, -- 312 (pokefirered/data/specials.inc:323)
   StartRegiBattle = 0x139, -- 313 (pokefirered/data/specials.inc:324)
   StartSouthernIslandBattle = 0x143, -- 323 (pokefirered/data/specials.inc:334)
+  SetVermilionTrashCans = 0x15B, -- 347 (pokefirered/data/specials.inc:358)
   -- Engine-extension specials (not cart indices) for shared primitives.
   FadeScreen = 0xF001,
   OpenNaming = 0xF002,

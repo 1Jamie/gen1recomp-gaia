@@ -12,6 +12,22 @@ Field._session = nil
 Field.locked = false
 Field.weather = 0
 Field.metatileOverrides = {}
+Field._overrideLayouts = {}
+
+-- pokefirered/src/fieldmap.c:103
+function Field.clearMetatiles(layout)
+  for _, written in pairs(Field._overrideLayouts) do
+    if written.clearOverrides then written:clearOverrides() end
+  end
+  if layout and layout.clearOverrides then layout:clearOverrides() end
+  Field.metatileOverrides = {}
+  Field._overrideLayouts = {}
+end
+
+function Field.metatileOverrideAt(mapId, x, y)
+  local bucket = mapId and Field.metatileOverrides[mapId]
+  return bucket and bucket[y * 1024 + x] or nil
+end
 
 function Field.start(mod, game, session)
   Field._mod = mod
@@ -20,7 +36,7 @@ function Field.start(mod, game, session)
   Field.running = true
   Field.locked = false
   Field.weather = 0
-  Field.metatileOverrides = {}
+  Field.clearMetatiles()
   local PcAnim = package.loaded["src.core.game3.pc_anim"]
   if PcAnim then PcAnim.reset() end
   if session then
@@ -763,12 +779,36 @@ function Field.setWeather(id)
   Weather.apply(Field.weather)
 end
 
+local function passableColl(mapDef, pair, mid)
+  local Interaction = require("src.core.game3.scripting.interaction_scripts")
+  local behaviors = pair and Interaction.behaviors and Interaction.behaviors[pair]
+  local beh = behaviors and behaviors[mid]
+  if beh ~= nil then
+    local ScriptColl = require("src.core.game3.scripting.collision")
+    return (ScriptColl.fromCell(mid, 0, beh, mapDef.kind))
+  end
+  local okR, Register = pcall(require, "src.import.gba.register")
+  local midIndex = okR and Register and Register._midIndex
+  local row = midIndex and pair and midIndex[pair] and midIndex[pair][mid]
+  return row and row.coll or 0x00
+end
+
+-- pokefirered/src/scrcmd.c:2103
 function Field.setMetatile(x, y, metatile, isImpassable)
-  Field.metatileOverrides[#Field.metatileOverrides + 1] = {
-    x = x, y = y, metatile = metatile, impassable = isImpassable,
-  }
+  x, y = tonumber(x) or 0, tonumber(y) or 0
+  isImpassable = isImpassable == true or (tonumber(isImpassable) or 0) ~= 0
   local session = Field._session
   local mapId = session and session.map
+  if mapId then
+    local bucket = Field.metatileOverrides[mapId]
+    if not bucket then
+      bucket = {}
+      Field.metatileOverrides[mapId] = bucket
+    end
+    bucket[y * 1024 + x] = {
+      x = x, y = y, metatile = metatile, impassable = isImpassable,
+    }
+  end
   if ModRuntime.wants("world.block_replaced") then
     ModRuntime.emit("world.block_replaced", { mapId = mapId, bx = x, by = y, block = metatile })
   end
@@ -776,16 +816,13 @@ function Field.setMetatile(x, y, metatile, isImpassable)
   local data = game and game.data and game.data.maps
   local mapDef = mapId and data and data[mapId]
   local mid = tonumber(metatile) or 0
-  local coll = isImpassable and 0x07 or 0x00
   if mapDef and mapDef.midLayout then
-    local pair = mapDef.pair or mapDef.midLayout.pair
-    local okR, Register = pcall(require, "src.import.gba.register")
-    local midIndex = okR and Register and Register._midIndex
-    if midIndex and pair and midIndex[pair] and midIndex[pair][mid] then
-      coll = midIndex[pair][mid].coll or coll
-      if isImpassable then coll = 0x07 end
-    end
-    mapDef.midLayout:applyOverride(x, y, mid, coll, 0)
+    local layout = mapDef.midLayout
+    local pair = mapDef.pair or layout.pair
+    local coll = isImpassable and 0x07 or passableColl(mapDef, pair, mid)
+    -- pokefirered/src/fieldmap.c:407
+    layout:applyOverride(x, y, mid, coll, layout:elevAt(x, y))
+    Field._overrideLayouts[mapId] = layout
     local Collision = require("src.core.game3.collision")
     Collision.bindMap(game, mapId, mapDef)
     local FieldView = package.loaded["src.core.game3.field_view"]

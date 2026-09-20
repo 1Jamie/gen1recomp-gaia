@@ -150,7 +150,15 @@ function Collision.installWarps(mapDef)
         cur = Collision._grid[i]
         local beh = Collision.behavior(x, y)
         local repair = beh == nil or Collision.isWarpMetatileBehavior(beh)
-        if repair and (cur == nil or cur == 0x07 or cur == 0xff) then
+        -- pokefirered/src/field_control_avatar.c:860
+        if beh ~= nil and repair and cur == 0x00 then
+          local ScriptColl = require("src.core.game3.scripting.collision")
+          local seeded = ScriptColl.fromCell(layout and layout:midAt(x, y) or 0, 0, beh, mapDef.kind)
+          if isWarpBehavior(seeded) then
+            Collision._grid[i] = seeded
+            cur = seeded
+          end
+        elseif repair and (cur == nil or cur == 0x07 or cur == 0xff) then
           Collision._grid[i] = COLL_DOOR
           cur = COLL_DOOR
           if layout and layout.applyOverride then
@@ -422,11 +430,14 @@ end
 
 local function overrideBlocks(tx, ty)
   local Field = package.loaded["src.core.game3.field"]
-  if not (Field and Field.metatileOverrides) then return false end
-  for _, o in ipairs(Field.metatileOverrides) do
-    if o.impassable and o.x == tx and o.y == ty then return true end
+  if not (Field and Field.metatileOverrideAt) then return false end
+  local mapId = Collision._mapId
+  if not mapId then
+    local session = Field._session
+    mapId = session and session.map
   end
-  return false
+  local o = Field.metatileOverrideAt(mapId, tx, ty)
+  return o ~= nil and o.impassable == true
 end
 
 --- Can the avatar enter cell (tx, ty) on foot?

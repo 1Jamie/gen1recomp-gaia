@@ -749,7 +749,7 @@ function Hit.beatUp(M)
       if user.expHelpingHand then dmg = math.floor(dmg * 15 / 10) end
       local name = (mon.nickname and mon.nickname ~= "") and mon.nickname or Pokemon.name(sp)
       M:say(Strings("%s's attack!", tostring(name)))
-      local crit = Rules.crit.roll(user, M.move, nil, ad:rng())
+      local crit = Rules.crit.roll(user, M.move, nil, ad:rng(), M.st)
       if crit then dmg = dmg * 2 end
       local r = roll(ad, 85, 100)
       dmg = math.floor(dmg * r / 100)

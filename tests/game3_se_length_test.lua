@@ -67,20 +67,50 @@ local function bake_seconds(id, maxSec)
   return #L / Mix.SAMPLE_RATE
 end
 
+-- pokefirered/src/m4a_1.s:751
+local longest, longestId = 0, nil
+for id = 0, 400 do
+  local info = Player.songInfo(pack, id)
+  if info and info.kind == "se" and not info.hasGoto then
+    local s = bake_seconds(id, 60)
+    if s and s > longest then longest, longestId = s, id end
+  end
+end
+check(longest > 0, "measured the pack's one-shot SE cues")
+check((tonumber(Audio.SE_ONESHOT_MAX_SEC) or 0) > longest,
+  string.format("SE_ONESHOT_MAX_SEC %.1fs clears the longest one-shot (id %s, %.3fs)",
+    Audio.SE_ONESHOT_MAX_SEC or -1, tostring(longestId), longest))
+check(Audio.SE_LOOP_MAX_SEC == 2.5, "looping cues keep pret's 2.5s slice")
+
 Audio._ready = true
 Audio._pack = pack
 Audio._cache = cache
-local prodMax = nil
 local realBake = Player.bakeSlot
-Player.bakeSlot = function(slot, opts) prodMax = opts and opts.maxSec; return { 0 }, { 0 } end
-pcall(Audio.playSe, 319)
-Player.bakeSlot = realBake
+local function production_max(id)
+  local seen = nil
+  Player.bakeSlot = function(slot, opts) seen = opts and opts.maxSec; return { 0 }, { 0 } end
+  Audio._seRawClear()
+  pcall(Audio.playSe, id)
+  Player.bakeSlot = realBake
+  Audio._seRawClear()
+  return seen
+end
+local prodMax = production_max(319)
 check(type(prodMax) == "number", "Audio.playSe passes a numeric maxSec (" .. tostring(prodMax) .. ")")
 
-local CUES = { 319, 165, 204, 227, 249 }
+-- pokefirered/src/battle_anim_special.c:1200
+local SE = require("src.core.game3.se_ids")
+check(production_max(SE.SE_EXP) == Audio.SE_LOOP_MAX_SEC,
+  "SE_EXP keeps the 2.5s slice (" .. tostring(production_max(SE.SE_EXP)) .. ")")
+check(production_max(SE.SE_LOW_HEALTH) == Audio.SE_LOOP_MAX_SEC,
+  "SE_LOW_HEALTH keeps the 2.5s slice (" .. tostring(production_max(SE.SE_LOW_HEALTH)) .. ")")
+
+-- pokefirered/include/constants/songs.h:89, :102, :284
+local CUES = { 319, 165, 204, 227, 249, 276, 85, 98 }
 for _, id in ipairs(CUES) do
-  local natural = bake_seconds(id, 30)
-  local production = bake_seconds(id, prodMax)
+  local natural = bake_seconds(id, 60)
+  local idMax = production_max(id)
+  local production = idMax and bake_seconds(id, idMax)
   if not natural then
     print("[skip] id " .. id .. " not in this pack")
   else

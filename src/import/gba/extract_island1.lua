@@ -114,7 +114,16 @@ local DYNAMIC_MIDS_BY_PAIR = {
   },
 }
 
-local function unique_mids_by_pair(grids)
+local function script_mids_by_pair(scriptBundle, grids)
+  local NativePack = require("src.import.gba.native_pack")
+  if not scriptBundle then return {} end
+  return NativePack.scriptMidsByPair(scriptBundle.scripts, scriptBundle.events, function(mapId)
+    local grid = grids[mapId]
+    return grid and (grid.pair or "sevii_outdoor") or nil
+  end)
+end
+
+local function unique_mids_by_pair(grids, scriptMids)
   local byPair = {}
   for _, grid in pairs(grids) do
     local pair = grid.pair or "sevii_outdoor"
@@ -125,6 +134,12 @@ local function unique_mids_by_pair(grids)
     end
     for _, cell in ipairs(grid.cells) do
       seen[cell.mid] = true
+    end
+  end
+  for pair, mids in pairs(scriptMids or {}) do
+    local seen = byPair[pair]
+    if seen then
+      for mid in pairs(mids) do seen[mid] = true end
     end
   end
   for pair, extraMids in pairs(DYNAMIC_MIDS_BY_PAIR) do
@@ -315,9 +330,11 @@ function Extract.run(imports, cache, progressCb)
       borders[mapId] = Maps.loadBorder(rom, version, mapId)
     end
   end
+  local extractedScripts = require("src.import.gba.extract_scripts").extractFromRom(rom, version)
+  local scriptMids = script_mids_by_pair(extractedScripts, grids)
   rom:clearCache()
 
-  local midsByPair = unique_mids_by_pair(grids)
+  local midsByPair = unique_mids_by_pair(grids, scriptMids)
   local totalMids = 0
   for _, list in pairs(midsByPair) do totalMids = totalMids + #list end
 
@@ -376,7 +393,7 @@ function Extract.run(imports, cache, progressCb)
   local NativePack = require("src.import.gba.native_pack")
   NativePack.writeExtract(
     cache, Extract.CACHE_ROOT, bundles, grids, borders, pairNames, midIndex,
-    Tileset.behaviorOf, Collision.fromCell)
+    Tileset.behaviorOf, Collision.fromCell, scriptMids)
 
   -- OW sprites + tileset anims + encounters + audio + chrome from ROM
   do
@@ -386,7 +403,7 @@ function Extract.run(imports, cache, progressCb)
     require("src.import.gba.object_interactions_extract").writeExtract(rom2, cache, Extract.CACHE_ROOT, version)
     local midLists = {}
     for _, pairName in ipairs(pairNames) do
-      midLists[pairName] = NativePack.collectMidsForPair(grids, borders, pairName)
+      midLists[pairName] = NativePack.collectMidsForPair(grids, borders, pairName, scriptMids)
     end
     local AnimPack = require("src.import.gba.tileset_anim_pack")
     AnimPack.writeExtract(rom2, cache, Extract.CACHE_ROOT, bundles, midLists, version)
@@ -563,7 +580,8 @@ function Extract.run(imports, cache, progressCb)
   -- game3 scripts/events/text/movements from ROM MapEvents + BFS
   local ExtractScripts = require("src.import.gba.extract_scripts")
   rom = assert(Rom.open(imports, importId))
-  local scriptBundle = ExtractScripts.writeBundleFromRom(rom, cache, Extract.CACHE_ROOT, version)
+  local scriptBundle = ExtractScripts.writeBundleFromRom(
+    rom, cache, Extract.CACHE_ROOT, version, extractedScripts)
 
   -- Extract full trainer parties, AI flags, dialogs, and sprites
   do
@@ -2019,6 +2037,8 @@ function Extract.runNativeOnly(imports, cache, progressCb)
       borders[mapId] = Maps.loadBorder(rom, version, mapId)
     end
   end
+  local scriptMids = script_mids_by_pair(
+    require("src.import.gba.extract_scripts").extractFromRom(rom, version), grids)
   rom:clearCache()
 
   local midIndex = {}
@@ -2034,7 +2054,7 @@ function Extract.runNativeOnly(imports, cache, progressCb)
   local NativePack = require("src.import.gba.native_pack")
   NativePack.writeExtract(
     cache, Extract.CACHE_ROOT, bundles, grids, borders, pairNames, midIndex,
-    Tileset.behaviorOf, Collision.fromCell)
+    Tileset.behaviorOf, Collision.fromCell, scriptMids)
 
   do
     local rom2 = assert(Rom.open(imports, importId))
@@ -2043,7 +2063,7 @@ function Extract.runNativeOnly(imports, cache, progressCb)
     require("src.import.gba.object_interactions_extract").writeExtract(rom2, cache, Extract.CACHE_ROOT, version)
     local midLists = {}
     for _, pairName in ipairs(pairNames) do
-      midLists[pairName] = NativePack.collectMidsForPair(grids, borders, pairName)
+      midLists[pairName] = NativePack.collectMidsForPair(grids, borders, pairName, scriptMids)
     end
     local AnimPack = require("src.import.gba.tileset_anim_pack")
     AnimPack.writeExtract(rom2, cache, Extract.CACHE_ROOT, bundles, midLists, version)

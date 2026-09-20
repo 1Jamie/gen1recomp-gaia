@@ -170,7 +170,11 @@ end
 eq(Extractor.ready(fakeCache, "root"), false, "a cache without the tile sheets is not ready")
 fake["root/pokemon/pokedex/dex_tiles_kanto.rgba"] = string.rep("x", 64)
 fake["root/pokemon/pokedex/dex_tiles_national.rgba"] = string.rep("x", 64)
-eq(Extractor.ready(fakeCache, "root"), true, "tile sheets complete the cache")
+for _, f in ipairs({ Extractor.CHROME_FILE, "map_kanto.rgba", "mini_page.rgba",
+  "blit_wide_ellipse.rgba", "marker_0.rgba", "cat_icon_grassland.rgba" }) do
+  fake["root/pokemon/pokedex/" .. f] = string.rep("x", 64)
+end
+eq(Extractor.ready(fakeCache, "root"), true, "tile sheets and chrome graphics complete the cache")
 
 print("[test] 5. Data card tilemap lays the pret tiles")
 local g = PokedexChrome.cardTilemap(L)

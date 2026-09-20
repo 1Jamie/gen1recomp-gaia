@@ -27,8 +27,8 @@ Versions.ROM_SIZE = 16777216
 -- v99: gEggMoves → pokemon/egg_moves.lua (hidden-mon egg moves were inert).
 -- v100: location preview screens (sMapPreviewScreenData artwork) + ROM-derived
 --       mapsec names and sDungeonInfo dungeon descriptions.
-Versions.CACHE_VERSION = 102
-Versions.NATIVE_VERSION = 5
+Versions.CACHE_VERSION = 103
+Versions.NATIVE_VERSION = 6
 Versions.OW_VERSION = 1
 Versions.ANIM_VERSION = 1
 -- Audio pack (M4A banks / DirectSound samples / cries).
@@ -133,6 +133,64 @@ Versions.POKEDEX_BG_TILES = {
   kanto = { gfx = 0x440274, pal = 0x4404C8 },
   national = { gfx = 0x4403AC, pal = 0x4406E0 },
 }
+
+-- src/pokedex_screen.c:143
+Versions.POKEDEX_CHROME_GFX = {
+  { file = "mini_page.rgba", gfx = 0x440124, lz = true, w = 64, h = 40 },
+  { file = "map_kanto.rgba", gfx = 0x443620, lz = true, w = 96, h = 72 },
+  { file = "map_one_island.rgba", gfx = 0x443910, lz = true, w = 32, h = 24 },
+  { file = "map_two_island.rgba", gfx = 0x443988, lz = true, w = 32, h = 24 },
+  { file = "map_three_island.rgba", gfx = 0x4439FC, lz = true, w = 32, h = 24 },
+  { file = "map_four_island.rgba", gfx = 0x443A78, lz = true, w = 32, h = 32 },
+  { file = "map_five_island.rgba", gfx = 0x443AF8, lz = true, w = 32, h = 32 },
+  { file = "map_six_island.rgba", gfx = 0x443BB0, lz = true, w = 32, h = 32 },
+  { file = "map_seven_island.rgba", gfx = 0x443C54, lz = true, w = 32, h = 32 },
+  { file = "caught_marker.rgba", gfx = 0x443600, w = 8, h = 8 },
+  { file = "blit_wide_ellipse.rgba", gfx = 0x443D00, w = 88, h = 16 },
+}
+
+-- src/pokedex_screen.c:158
+Versions.POKEDEX_CATEGORY_ICONS = {
+  { file = "cat_icon_cave.rgba", gfx = 0x4408E0, pal = 0x443420 },
+  { file = "cat_icon_urban.rgba", gfx = 0x440BD8, pal = 0x443440 },
+  { file = "cat_icon_cancel.rgba", gfx = 0x440EF0, pal = 0x443460 },
+  { file = "cat_icon_forest.rgba", gfx = 0x44112C, pal = 0x443480 },
+  { file = "cat_icon_grassland.rgba", gfx = 0x4414BC, pal = 0x4434A0 },
+  { file = "cat_icon_qmark.rgba", gfx = 0x441808, pal = 0x4434C0 },
+  { file = "cat_icon_mountain.rgba", gfx = 0x441A40, pal = 0x4434E0 },
+  { file = "cat_icon_rare.rgba", gfx = 0x441D54, pal = 0x443500 },
+  { file = "cat_icon_sea.rgba", gfx = 0x442004, pal = 0x443520 },
+  { file = "cat_icon_numerical.rgba", gfx = 0x44223C, pal = 0x443540 },
+  { file = "cat_icon_rough_terrain.rgba", gfx = 0x4424E4, pal = 0x443560 },
+  { file = "cat_icon_waters_edge.rgba", gfx = 0x442838, pal = 0x443580 },
+  { file = "cat_icon_type.rgba", gfx = 0x442BC0, pal = 0x4435A0 },
+  { file = "cat_icon_lightest.rgba", gfx = 0x442EF8, pal = 0x4435C0 },
+  { file = "cat_icon_smallest.rgba", gfx = 0x44318C, pal = 0x4435E0 },
+  -- src/graphics.c:1211
+  { file = "cat_icon_abc.rgba", gfx = 0xE9C16C, pal = 0xE9C14C },
+}
+Versions.POKEDEX_CATEGORY_ICON_W = 64
+Versions.POKEDEX_CATEGORY_ICON_H = 48
+
+-- src/pokedex_area_markers.c:39
+Versions.POKEDEX_AREA_MARKER_GFX = 0x46343C
+-- src/pokedex_area_markers.c:41
+Versions.POKEDEX_AREA_MARKER_SHAPES = {
+  { file = "marker_0.rgba", tile = 0, w = 8, h = 8 },
+  { file = "marker_1.rgba", tile = 1, w = 16, h = 8 },
+  { file = "marker_2.rgba", tile = 3, w = 8, h = 16 },
+  { file = "marker_3.rgba", tile = 5, w = 32, h = 16 },
+  { file = "marker_4.rgba", tile = 13, w = 16, h = 32 },
+  { file = "marker_5.rgba", tile = 21, w = 32, h = 16 },
+  { file = "marker_6.rgba", tile = 29, w = 16, h = 32 },
+}
+-- src/pokedex_screen.c:815
+Versions.POKEDEX_SILHOUETTE_PAL = 0x452368
+-- src/pokedex_area_markers.c:237
+Versions.POKEDEX_MARKER_BLEND_TILE = 15
+-- src/pokedex_area_markers.c:219
+Versions.POKEDEX_MARKER_BLEND_EVA = 12
+Versions.POKEDEX_MARKER_BLEND_EVB = 8
 
 -- src/pokedex_area_markers.c:101
 Versions.DEX_AREA_MARKERS = 0x463580

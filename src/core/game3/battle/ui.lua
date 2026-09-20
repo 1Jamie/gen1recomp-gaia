@@ -200,6 +200,9 @@ function Ui.reset(opts)
   Ui._bounce = { hb = {}, mon = {} }
   Ui._preview = nil
   Ui._partnerAction = nil
+  Ui._oak = nil
+  Ui._oakTexts = nil
+  if Message and Message.isHeld and Message.isHeld() then Message.close() end
   if not Ui._headless then
     pcall(BattleChrome.install, nil)
   end
@@ -214,13 +217,30 @@ function Ui.bindSession(session)
   Ui._session = session
 end
 
+-- pokefirered/src/battle_controller_oak_old_man.c:647
+function Ui.markVoiceover(text)
+  if type(text) ~= "string" or text == "" then return end
+  Ui._oakTexts = Ui._oakTexts or {}
+  Ui._oakTexts[text] = true
+end
+
+function Ui.isVoiceoverText(text)
+  return type(text) == "string" and Ui._oakTexts ~= nil and Ui._oakTexts[text] == true
+end
+
 function Ui.push(text, cb)
   if not text or text == "" then
     if cb then cb() end
     return
   end
   Ui._log[#Ui._log + 1] = text
-  Ui._queue[#Ui._queue + 1] = cb and { text = text, cb = cb } or text
+  if Ui.isVoiceoverText(text) then
+    Ui._queue[#Ui._queue + 1] = { text = text, cb = cb, oak = true }
+  elseif cb or type(text) == "table" then
+    Ui._queue[#Ui._queue + 1] = { text = text, cb = cb }
+  else
+    Ui._queue[#Ui._queue + 1] = text
+  end
 end
 
 -- pokefirered/src/battle_script_commands.c:2041
@@ -229,13 +249,35 @@ function Ui.pushTimed(text, waitFrames, cb)
     if cb then cb() end
     return
   end
+  -- pokefirered/src/battle_controller_oak_old_man.c:780
+  if Ui.isVoiceoverText(text) then return Ui.push(text, cb) end
   Ui._log[#Ui._log + 1] = text
   Ui._queue[#Ui._queue + 1] = { text = text, cb = cb, timed = true, wait = waitFrames or 64 }
 end
 
 local function message_blocking()
   if not (Message and Message.isOpen and Message.isOpen()) then return false end
+  if Message.isHeld and Message.isHeld() then return false end
   return not Ui._linger
+end
+
+-- pokefirered/src/battle_controller_oak_old_man.c:759
+local OAK_DIM_TARGET = 8
+local OAK_DIM_DELAY = 4
+
+local function oak_state()
+  local f = Ui._oak
+  if not f then
+    f = { y = 0, target = 0, counter = 0, pending = nil }
+    Ui._oak = f
+  end
+  return f
+end
+
+function Ui.voiceoverDim()
+  local f = Ui._oak
+  if not f or f.y <= 0 then return 0 end
+  return f.y / 16
 end
 
 function Ui.busy()
@@ -245,6 +287,7 @@ function Ui.busy()
   if message_blocking() then return true end
   if Ui._showing then return true end
   if #Ui._queue > 0 then return true end
+  if Ui._oak and (Ui._oak.pending or Ui._oak.y > 0) then return true end
   return false
 end
 
@@ -254,6 +297,7 @@ function Ui.dialogPending()
   if Ui._timed then return true end
   if message_blocking() then return true end
   if Ui._showing then return true end
+  if Ui._oak and (Ui._oak.pending or Ui._oak.y > 0) then return true end
   return #Ui._queue > 0
 end
 
@@ -568,6 +612,12 @@ local function show_next()
     return
   end
   Ui._linger = false
+  if item and item.oak and Message and Message.show then
+    -- pokefirered/src/battle_controller_oak_old_man.c:744
+    Ui._showing = true
+    oak_state().pending = { text = text, cb = cb }
+    return
+  end
   if item and item.timed and Message and Message.show then
     Ui._showing = true
     Ui._timed = { frames = 0, wait = item.wait or 64, cb = cb }
@@ -587,6 +637,57 @@ local function show_next()
   elseif cb then
     cb()
   end
+end
+
+local function oak_wants_dim()
+  local f = oak_state()
+  if f.pending then return true end
+  if Message and Message.isOpen and Message.isOpen()
+      and Message.frameKind and Message.frameKind() == "voiceover"
+      and not (Message.isHeld and Message.isHeld()) then
+    return true
+  end
+  local nxt = Ui._queue[1]
+  return type(nxt) == "table" and nxt.oak == true
+end
+
+-- pokefirered/src/battle_controller_oak_old_man.c:793
+local function drop_held_voiceover()
+  if Message and Message.isHeld and Message.isHeld() and Message.frameKind() == "voiceover" then
+    Message.close()
+  end
+end
+
+-- pokefirered/src/battle_controller_oak_old_man.c:744
+local function tick_oak()
+  local f = oak_state()
+  f.target = oak_wants_dim() and OAK_DIM_TARGET or 0
+  if f.y ~= f.target then
+    f.counter = f.counter + 1
+    if f.counter > OAK_DIM_DELAY then
+      f.counter = 0
+      f.y = f.y + ((f.y < f.target) and 1 or -1)
+    end
+    if f.y == 0 then drop_held_voiceover() end
+    return true
+  end
+  f.counter = 0
+  if f.target == 0 then drop_held_voiceover() end
+  if f.pending then
+    local p = f.pending
+    f.pending = nil
+    Ui._showing = true
+    Message.show(p.text, {
+      frame = "voiceover",
+      hold = true,
+      done = function()
+        Ui._showing = false
+        if p.cb then p.cb() end
+      end,
+    })
+    return true
+  end
+  return false
 end
 
 local function tick_timed()
@@ -612,8 +713,10 @@ function Ui.pump()
     end
     Ui._showing = false
     Ui._timed = nil
+    Ui._oak = nil
     return true
   end
+  if tick_oak() then return false end
   if tick_timed() then return false end
   if open_pending_yesno() then return false end
   if message_blocking() then
@@ -2017,6 +2120,14 @@ function Ui.draw(w, h)
     draw_action_menu(st)
   elseif Ui._mode == "moves" or Ui._mode == "target" then
     draw_move_menu(st)
+  end
+
+  -- pokefirered/src/battle_controller_oak_old_man.c:759
+  local oakDim = Ui.voiceoverDim()
+  if oakDim > 0 then
+    love.graphics.setColor(0, 0, 0, oakDim)
+    love.graphics.rectangle("fill", 0, 0, w, h)
+    love.graphics.setColor(1, 1, 1, 1)
   end
 
   local BagMenu = package.loaded["src.ui.game3.bag_menu"]

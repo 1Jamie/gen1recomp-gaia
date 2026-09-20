@@ -14,7 +14,7 @@ Message._page = 1
 Message._done = nil
 Message._stay = false
 Message._choice = nil
-Message._frame = "dialogue" -- "dialogue" | "sign" | "battle"
+Message._frame = "dialogue"
 
 -- Typewriter state for the current page.
 Message._revealed = 0
@@ -50,6 +50,9 @@ function Message.setFrame(kind)
     Message._frame = "sign"
   elseif kind == "battle" then
     Message._frame = "battle"
+  elseif kind == "voiceover" then
+    -- pokefirered/src/battle_bg.c:359
+    Message._frame = "voiceover"
   else
     Message._frame = "dialogue"
   end
@@ -67,10 +70,15 @@ function Message.show(text, opts)
   end
   Message.open = true
   Message._stay = opts.stay and true or false
+  Message._hold = opts.hold and true or false
+  Message._held = false
   Message._done = opts.done
   Message._choice = nil
   if opts.frame == "sign" or opts.sign then
     Message._frame = "sign"
+  elseif opts.frame == "voiceover" then
+    -- pokefirered/src/battle_controller_oak_old_man.c:2238
+    Message._frame = "voiceover"
   elseif opts.frame == "battle" or opts.battle then
     Message._frame = "battle"
   else
@@ -188,7 +196,20 @@ function Message.advance()
   if Message._stay then
     return
   end
+  -- pokefirered/src/battle_controller_oak_old_man.c:780
+  if Message._hold then
+    if Message._held then return end
+    Message._held = true
+    local done = Message._done
+    Message._done = nil
+    if done then done() end
+    return
+  end
   Message.close()
+end
+
+function Message.isHeld()
+  return Message.open and Message._held == true
 end
 
 function Message.close()
@@ -198,6 +219,8 @@ function Message.close()
   Message._page = 1
   Message._done = nil
   Message._stay = false
+  Message._hold = false
+  Message._held = false
   Message._choice = nil
   Message._revealed = 0
   Message._total = 0
@@ -240,6 +263,9 @@ function Message.draw()
   if not Message.open then return end
   if Message._frame == "sign" then
     Chrome.signFrame()
+  elseif Message._frame == "voiceover" then
+    -- pokefirered/src/battle_controller_oak_old_man.c:2238
+    Chrome.dialogueFrame()
   elseif Message._frame == "battle" then
     -- Battle textbox chrome is drawn by battle Ui; text only here.
   else
@@ -269,7 +295,7 @@ function Message.drawText()
     colors = (Message._frame == "battle") and FrlgFont.COLOR.WHITE or (Message._colors or FrlgFont.COLOR.NORMAL),
   })
 
-  if Message._waiting and not Message._stay then
+  if Message._waiting and not Message._stay and not Message._held then
     local t = love and love.timer and love.timer.getTime and love.timer.getTime() or 0
     -- Red arrow has 4 vertical bounce frames (0..3) in down_arrows.png
     local bounceSeq = { 0, 1, 2, 3, 2, 1 }

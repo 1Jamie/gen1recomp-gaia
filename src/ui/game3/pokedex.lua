@@ -170,6 +170,21 @@ function Pokedex.maxSpecies()
   return Dex.KANTO_MAX or 151
 end
 
+-- pokefirered/src/pokedex_screen.c:3113
+function Pokedex.silhouetteScale(romScale)
+  local s = tonumber(romScale) or 256
+  if s <= 0 then s = 256 end
+  return 256 / s
+end
+
+-- pokefirered/src/trainer_pokemon_sprites.c:276
+function Pokedex.playerGender()
+  local s = Pokedex._session
+  local g = s and (s.gender or s.playerGender)
+  if g == "female" or g == 1 then return "female" end
+  return "male"
+end
+
 function Pokedex.show(dex, opts)
   opts = opts or {}
   Pokedex.open = true
@@ -630,8 +645,9 @@ local function handle_size_input(input)
   end
 end
 
+-- pokefirered/src/pokedex_screen.c:3427
 local function handle_registration_input(input)
-  if input:wasPressed("a") or input:wasPressed("b") or input:wasPressed("start") then
+  if input:wasPressed("a") or input:wasPressed("b") then
     Pokedex.close()
   end
 end
@@ -1026,50 +1042,49 @@ local function draw_data_screen()
     end
 
     -- 4. Left Bottom: SIZE Title & Size Comparison Silhouettes
+    -- pokefirered/src/pokedex_screen.c:648
     local sizeW = FrlgFont.measure(Strings("SIZE"), { small = true })
-    FrlgFont.draw(Strings("SIZE"), 16 + math.floor((80 - sizeW) / 2), 54, { small = true, colors = upperColors })
+    FrlgFont.draw(Strings("SIZE"), 16 + math.floor((80 - sizeW) / 2), 60, { small = true, colors = upperColors })
 
     if isCaught then
-      -- Trainer Silhouette (64x64) at x=48, y=72
-      local trainerImg = PokedexChrome.getTrainerPic("male")
-      if trainerImg then
-        PokedexChrome.drawSilhouette(trainerImg, 48, 72 + (entry.trainerOffset or 0))
-      end
-
-      -- Pokémon Silhouette (64x64 scaled by 256 / pokemonScale)
+      -- pokefirered/src/pokedex_screen.c:3107
       local pic = Pokemon.frontPic and Pokemon.frontPic(sp)
       if pic and pic.image then
-        local rawScale = entry.pokemonScale or 256
-        if rawScale <= 0 then rawScale = 256 end
-        local pScale = 256 / rawScale
-        local originX = 32
-        local originY = 32
-        local drawX = 40
-        local drawY = 104 + (entry.pokemonOffset or 0)
-        PokedexChrome.drawSilhouette(pic.image, drawX, drawY, pScale, pScale, originX, originY)
+        PokedexChrome.drawSilhouette(pic.image, 40, 104 + (entry.pokemonOffset or 0),
+          Pokedex.silhouetteScale(entry.pokemonScale), Pokedex.silhouetteScale(entry.pokemonScale), 32, 32)
+      end
+
+      -- pokefirered/src/pokedex_screen.c:3114
+      local trainerImg = PokedexChrome.getTrainerPic(Pokedex.playerGender())
+      if trainerImg then
+        PokedexChrome.drawSilhouette(trainerImg, 80, 104 + (entry.trainerOffset or 0),
+          Pokedex.silhouetteScale(entry.trainerScale), Pokedex.silhouetteScale(entry.trainerScale), 32, 32)
       end
     end
 
     -- 5. Right: AREA Title & Region Map
+    -- pokefirered/src/pokedex_screen.c:658
     local areaW = FrlgFont.measure(Strings("AREA"), { small = true })
-    FrlgFont.draw(Strings("AREA"), 136 + math.floor((96 - areaW) / 2), 54, { small = true, colors = upperColors })
+    FrlgFont.draw(Strings("AREA"), 136 + math.floor((96 - areaW) / 2), 52, { small = true, colors = upperColors })
 
+    -- pokefirered/src/pokedex_screen.c:678
     local mapX, mapY = 136, 64
     PokedexChrome.drawMap("kanto", mapX, mapY)
 
-    -- Route Area Markers
-    local areas = PokedexData.getWildAreasForSpecies(sp)
-
-    if #areas > 0 then
-      for _, aKey in ipairs(areas) do
-        if PokedexData.getAreaMapKey(aKey) == "kanto" then
-          local m = PokedexData.getAreaMarker(aKey)
-          if m then
-            PokedexChrome.drawAreaMarker(m.shape, mapX + (m.x - 32), mapY + m.y)
-          end
+    -- pokefirered/src/pokedex_screen.c:3129
+    local drawn = 0
+    for _, aKey in ipairs(PokedexData.getWildAreasForSpecies(sp)) do
+      if PokedexData.getAreaMapKey(aKey) == "kanto" then
+        local m = PokedexData.getAreaMarker(aKey)
+        if m then
+          PokedexChrome.drawAreaMarker(m.shape, mapX + (m.x - 32), mapY + m.y)
+          drawn = drawn + 1
         end
       end
-    else
+    end
+
+    -- pokefirered/src/pokedex_screen.c:3130
+    if drawn == 0 then
       -- Area Unknown Wide Ellipse
       local ellipseImg = PokedexChrome.getImage("blit_wide_ellipse")
       if ellipseImg then
@@ -1077,7 +1092,7 @@ local function draw_data_screen()
         love.graphics.draw(ellipseImg, mapX + 4, mapY + 28)
       end
       local unkW = FrlgFont.measure(Strings("AREA UNKNOWN"), { small = true })
-      FrlgFont.draw(Strings("AREA UNKNOWN"), mapX + math.floor((96 - unkW) / 2), mapY + 30, {
+      FrlgFont.draw(Strings("AREA UNKNOWN"), mapX + math.floor((96 - unkW) / 2), mapY + 29, {
         small = true,
         colors = upperColors,
       })
