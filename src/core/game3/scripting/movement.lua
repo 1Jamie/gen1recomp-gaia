@@ -57,6 +57,10 @@ function Movement.decodeAction(b)
   if b >= 0x08 and b <= 0x13 then
     return { kind = "step", dir = DIR[(b - 0x08) % 4] }
   end
+  -- Jump 2 cells (0x14–0x17): MOVEMENT_ACTION_JUMP_2_DOWN/UP/LEFT/RIGHT (e.g. ledge hop)
+  if b >= 0x14 and b <= 0x17 then
+    return { kind = "jump", dir = DIR[b - 0x14], distance = 2 }
+  end
   -- Delay 1 / 2 / 4 / 8 / 16 frames (scaled up for host step rate).
   if b >= 0x18 and b <= 0x1C then
     local frames = ({ [0x18] = 2, [0x19] = 4, [0x1A] = 8, [0x1B] = 16, [0x1C] = 32 })[b]
@@ -74,6 +78,28 @@ function Movement.decodeAction(b)
   end
   if b >= 0x39 and b <= 0x3C then
     return { kind = "step", dir = DIR[b - 0x39] }
+  end
+  -- Jump special (0x46–0x49)
+  if b >= 0x46 and b <= 0x49 then
+    return { kind = "jump", dir = DIR[b - 0x46], distance = 1 }
+  end
+  -- Jump 1 cell (0x4E–0x51): MOVEMENT_ACTION_JUMP_DOWN/UP/LEFT/RIGHT
+  if b >= 0x4E and b <= 0x51 then
+    return { kind = "jump", dir = DIR[b - 0x4E], distance = 1 }
+  end
+  -- Jump in place / face (0x52–0x59)
+  if b >= 0x52 and b <= 0x55 then
+    return { kind = "turn", dir = DIR[b - 0x52] }
+  end
+  if b >= 0x56 and b <= 0x59 then
+    return { kind = "turn", dir = DIR[b - 0x56] }
+  end
+  if b == 0x5A then
+    return { kind = "face_original" }
+  end
+  -- Jump special with effect (0xA6–0xA9)
+  if b >= 0xA6 and b <= 0xA9 then
+    return { kind = "jump", dir = DIR[b - 0xA6], distance = 1 }
   end
   if b == 0x60 then return { kind = "hide" } end
   if b == 0x61 then return { kind = "show" } end

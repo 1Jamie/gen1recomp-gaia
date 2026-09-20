@@ -24,6 +24,10 @@ local SwitchSeq = require("src.core.game3.battle.switch_seq")
 local Oak = require("src.core.game3.battle.oak_advice")
 local ModRuntime = require("src.mods.Runtime")
 local Strings = require("src.core.Strings")
+local Audio = require("src.core.game3.audio")
+local SE = require("src.core.game3.se_ids")
+local BattleChrome = require("src.ui.game3.battle_chrome")
+local Fade = require("src.ui.game3.fade")
 
 local Battle = {}
 
@@ -63,19 +67,16 @@ end
 
 -- pokefirered/src/battle_interface.c:2168
 local function hp_bar_red(hp, maxHp)
-  local ok, BattleChrome = pcall(require, "src.ui.game3.battle_chrome")
-  if not ok or not BattleChrome or not BattleChrome.hpBarLevel then return false end
+  if not BattleChrome or not BattleChrome.hpBarLevel then return false end
   return BattleChrome.hpBarLevel(hp, maxHp) == "red"
 end
 
 local function stop_low_hp_song()
   if not Battle._lowHpSong then return end
   Battle._lowHpSong = false
-  pcall(function()
-    local Audio = require("src.core.game3.audio")
-    local SE = require("src.core.game3.se_ids")
+  if Audio and Audio.stopSe and SE then
     Audio.stopSe(SE.SE_LOW_HEALTH)
-  end)
+  end
 end
 
 --- pret HandleLowHpMusicChange / HandleBattleLowHpMusicChange
@@ -93,11 +94,9 @@ local function update_low_hp_music()
   local red = hp_bar_red(hp, maxHp)
   if red and not Battle._lowHpSong then
     Battle._lowHpSong = true
-    pcall(function()
-      local Audio = require("src.core.game3.audio")
-      local SE = require("src.core.game3.se_ids")
+    if Audio and Audio.playSe and SE then
       Audio.playSe(SE.SE_LOW_HEALTH, { loop = true })
-    end)
+    end
   elseif not red then
     stop_low_hp_song()
   end

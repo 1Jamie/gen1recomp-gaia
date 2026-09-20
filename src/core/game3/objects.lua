@@ -71,7 +71,8 @@ local function Space()
 end
 
 function Objects.isPlayer(localId)
-  return tonumber(localId) == Objects.PLAYER_LOCAL_ID
+  local id = tonumber(localId)
+  return id == Objects.PLAYER_LOCAL_ID or id == 0xFF or id == 0x800F
 end
 
 local function facingFromDef(def)
@@ -584,6 +585,23 @@ function Objects.scriptStep(eo, dir)
   return true
 end
 
+function Objects.scriptJump(eo, dir, distance)
+  if not eo then return false end
+  local P = Player()
+  if eo == P then
+    return P.scriptJump and P.scriptJump(dir, distance)
+  end
+  if eo.moving then return false end
+  distance = distance or 1
+  local d = DELTA[dir]
+  if not d then return false end
+  eo.facing = dir
+  beginStep(eo, eo.cellX + d[1] * distance, eo.cellY + d[2] * distance)
+  eo.frozen = true
+  eo.scriptBusy = true
+  return true
+end
+
 function Objects.scriptFace(eo, dir)
   if not eo then return end
   local P = Player()
@@ -637,8 +655,29 @@ local function advanceTrack(lid, tr, game)
       elseif eo then
         Objects.scriptStep(eo, act.dir)
       end
+    elseif act.kind == "jump" then
+      if eo == Player() then
+        if Player().scriptJump then
+          Player().scriptJump(act.dir, act.distance or 1)
+        elseif Player().scriptStep then
+          for _ = 1, (act.distance or 1) do
+            Player().scriptStep(act.dir)
+          end
+        end
+      elseif eo then
+        if Objects.scriptJump then
+          Objects.scriptJump(eo, act.dir, act.distance or 1)
+        else
+          Objects.scriptStep(eo, act.dir)
+        end
+      end
     elseif act.kind == "turn" then
       Objects.scriptFace(eo, act.dir)
+    elseif act.kind == "face_original" then
+      if eo and eo ~= Player() and eo.def then
+        local origFace = facingFromDef(eo.def)
+        Objects.scriptFace(eo, origFace)
+      end
     elseif act.kind == "bow" then
       if eo and eo ~= Player() then
         eo.bowFrames = act.frames or 48

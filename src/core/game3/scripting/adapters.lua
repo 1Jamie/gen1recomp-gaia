@@ -271,6 +271,14 @@ function Adapters.host(mod, game, world)
             tr.i = tr.i + 1
             if act.kind == "step" then
               if ent and ent.scriptStep then ent:scriptStep(act.dir) end
+            elseif act.kind == "jump" then
+              if ent and ent.scriptJump then
+                ent:scriptJump(act.dir, act.distance or 1)
+              elseif ent and ent.scriptStep then
+                for _ = 1, (act.distance or 1) do
+                  ent:scriptStep(act.dir)
+                end
+              end
             elseif act.kind == "turn" then
               if ent and ent.scriptFace then
                 ent:scriptFace(act.dir)

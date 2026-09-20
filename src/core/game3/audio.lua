@@ -1,8 +1,8 @@
--- Game3 audio façade: numeric pret song/SE/cry IDs → in-process M4A / DirectSound.
-
 local Sample = require("src.core.game3.m4a_sample")
 local Mix = require("src.core.game3.m4a_mix")
 local Player = require("src.core.game3.m4a_player")
+local SE = require("src.core.game3.se_ids")
+local ffiOk, ffi = pcall(require, "ffi")
 
 local Audio = {}
 
@@ -550,7 +550,6 @@ end
 
 function Audio.playSe(id, opts)
   opts = opts or {}
-  local SE = require("src.core.game3.se_ids")
   id = SE.resolve(id)
   if id == nil then
     return false
@@ -664,8 +663,7 @@ function Audio._buildSeSoundData(L, R, master, pan, mono)
   local gainL, gainR = Audio._seGains(pan)
   local gl, gr = master * gainL, master * gainR
   local ptr
-  local ffiOk, ffi = pcall(require, "ffi")
-  if ffiOk and sd.getFFIPointer then
+  if ffiOk and ffi and sd.getFFIPointer then
     local okP, p = pcall(sd.getFFIPointer, sd)
     if okP and p then ptr = ffi.cast("int16_t *", p) end
   end

@@ -23,6 +23,12 @@ local Types = require("src.core.game3.battle.types")
 local BallOpen = require("src.core.game3.battle.ball_open")
 local Oak = require("src.core.game3.battle.oak_advice")
 local Strings = require("src.core.Strings")
+local Anim = require("src.core.game3.battle.anim")
+local PicCoords = require("src.core.game3.battle.pic_coords")
+local TrainerPic = require("src.core.game3.trainer_pic")
+local Audio = require("src.core.game3.audio")
+local SE = require("src.core.game3.se_ids")
+local bit = require("bit")
 
 local Ui = {}
 
@@ -62,11 +68,6 @@ local BATTLE_YESNO = { left = 24, top = 9, style = "battle" }
 -- pret sBattlerCoords (singles) — CreateSprite CENTER before pic y_offset
 local ENEMY_MON = { x = 176, y = 40 }
 local PLAYER_MON = { x = 72, y = 80 }
-
-local PicCoords = nil
-pcall(function()
-  PicCoords = require("src.core.game3.battle.pic_coords")
-end)
 
 --- pret GetBattlerSpriteFinal_Y (a3=TRUE / BATTLER_COORD_Y_PIC_OFFSET).
 local SPECIES_CASTFORM = 385
@@ -1523,7 +1524,6 @@ local function draw_mon_sprite(battler, base, back, id)
   if not battler then return end
   local side = back and "player" or "enemy"
   local key = id or side
-  local Anim = require("src.core.game3.battle.anim")
   local pres = Anim.present(key)
   if pres and (pres.visible == false or pres.blinkHidden or pres.battlerInvisible or pres.invisible) then return end
   if id and Ui.targetHidden(id) then return end
@@ -1911,7 +1911,6 @@ function Ui.draw(w, h)
   w = w or Display.W
   h = h or Display.H
 
-  local Anim = require("src.core.game3.battle.anim")
   local st = Ui._st
   local stage = Anim.stage and Anim.stage()
 
