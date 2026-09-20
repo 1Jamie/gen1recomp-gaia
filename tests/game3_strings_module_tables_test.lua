@@ -49,6 +49,18 @@ MapNamePopup.show({ regionMapSectionId = 92, floorNum = 3, showMapName = 1 })
 check(MapNamePopup._name == "LAVANVILLE 2E", "the map name popup translates the place and its floor")
 MapNamePopup.dismiss()
 
+-- easy_chat's footer buttons are the same shape: a module-level table read
+-- once per frame by the draw loop.
+Strings.load({ strings = { ["DEL. ALL"] = "TOUT EFF.", ["CANCEL"] = "RETOUR" } })
+local EasyChat = require("src.ui.game3.easy_chat")
+local footer = EasyChat.FOOTER_BTNS
+check(footer ~= nil and footer[1].label == "DEL. ALL",
+  "the easy chat footer keeps the English source")
+check(footer ~= nil and Strings(footer[1].label) == "TOUT EFF.",
+  "and translates at the caller")
+check(footer ~= nil and Strings(footer[2].label) == "RETOUR",
+  "for every button in the table")
+
 Strings.load({})
 
 print(("game3_strings_module_tables_test: %s (%d failed)"):format(failed == 0 and "PASS" or "FAIL", failed))
