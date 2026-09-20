@@ -386,6 +386,7 @@ function ExtractScripts.loadBundle(cache, root, opts)
   if scripts and events then
     local objects=load_lua(root .. "/objects/pack.lua")
     require("src.core.game3.scripting.interaction_scripts").install(objects)
+    require("src.core.game3.encounters").installEncounterTypes(objects and objects.encounterTypes)
     if objects then
       text=text or {};movements=movements or {}
       for k,v in pairs(objects.scripts or {}) do scripts[k]=v end

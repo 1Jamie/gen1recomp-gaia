@@ -133,18 +133,18 @@ function StepEvents.onStepTaken(session, game)
   local hapSteps = (tonumber(session.vars[0x403F] or session.happinessSteps) or 0) + 1
   if hapSteps >= 128 then
     hapSteps = 0
+    -- pokefirered/src/field_control_avatar.c:699
+    local ctx = { mapSec = Pokemon.currentMapSec(session) }
     for _, mon in ipairs(party) do
-      if not (mon.isEgg or (type(mon.egg) == "boolean" and mon.egg)) then
-        local curHap = tonumber(mon.friendship or mon.happiness) or 70
-        if curHap < 255 then
-          mon.friendship = math.min(255, curHap + 1)
-          mon.happiness = mon.friendship
-        end
-      end
+      Pokemon.adjustFriendship(mon, Pokemon.FRIENDSHIP_EVENT_WALKING, ctx)
     end
   end
   session.vars[0x403F] = hapSteps
   session.happinessSteps = hapSteps
+
+  -- pokefirered/src/field_specials.c:2068
+  local massage = tonumber(session.vars[0x4025]) or 0
+  if massage < 500 then session.vars[0x4025] = massage + 1 end
 
   -- pokefirered/src/field_control_avatar.c:658
   local vsChargeDone = false
@@ -177,6 +177,9 @@ function StepEvents.onStepTaken(session, game)
         anyPoisonDamage = true
         mon.hp = math.max(0, hp - 1)
         if mon.hp == 0 then
+          -- pokefirered/src/field_poison.c:36
+          Pokemon.adjustFriendship(mon, Pokemon.FRIENDSHIP_EVENT_FAINT_OUTSIDE_BATTLE,
+            { mapSec = Pokemon.currentMapSec(session) })
           mon.status = nil
           mon.statusNum = 0
           faintedMons[#faintedMons + 1] = {

@@ -8,10 +8,25 @@ local Strings = require("src.core.Strings")
 
 local ItemUse = {}
 
+-- pokefirered/src/data/pokemon/item_effects.h:80
+local HERB_HEAL = { [30] = 50, [31] = 200 }
+local ITEM_REVIVAL_HERB = 33
+
+-- pokefirered/src/data/pokemon/item_effects.h:81
+local BITTER_MEDICINE_FRIENDSHIP = {
+  [30] = { -5, -5, -10 },
+  [31] = { -10, -10, -15 },
+  [32] = { -5, -5, -10 },
+  [33] = { -15, -15, -20 },
+}
+ItemUse.BITTER_MEDICINE_FRIENDSHIP = BITTER_MEDICINE_FRIENDSHIP
+ItemUse.ITEM_REVIVAL_HERB = ITEM_REVIVAL_HERB
+
 local function heal_amount(id)
   local n = ItemsData.HEAL_AMOUNT[id]
   if n then return n end
   local num = ItemsData.toNumericId(id) or tonumber(id)
+  if num and HERB_HEAL[num] then return HERB_HEAL[num] end
   if num and ItemsData.HEAL_AMOUNT[num] then return ItemsData.HEAL_AMOUNT[num] end
   -- Pack holdEffectParam: Potion=20, Super=50, Hyper=200, Full Restore=255→full
   local info = ItemsData.info(id)
@@ -298,6 +313,9 @@ function ItemUse.useTm(session, bag, id, partySlot)
 
   local function finish_consume(learned)
     if learned then
+      -- pokefirered/src/party_menu.c:4287
+      Pokemon.adjustFriendship(mon, Pokemon.FRIENDSHIP_EVENT_LEARN_TMHM,
+        { mapSec = Pokemon.currentMapSec(session) })
       require("src.core.game3.quest_log_recorder").event(session,
         isHm and "MonLearnedMoveFromHM" or "MonLearnedMoveFromTM",{monName,moveName})
     end
@@ -373,9 +391,51 @@ function ItemUse.useRareCandy(session, mon)
   Pokemon.applyStats(mon)
   local newMax = tonumber(mon.maxHp) or tonumber(mon.maxhp) or oldMax
   mon.hp = math.min(newMax, oldHp + math.max(0, newMax - oldMax))
+  -- pokefirered/src/data/pokemon/item_effects.h:200 sItemEffect_RareCandy
+  Pokemon.itemFriendship(mon, Pokemon.VITAMIN_FRIENDSHIP_CHANGE,
+    { mapSec = Pokemon.currentMapSec(session) })
   ItemUse.levelUpEvent(mon, mon.level)
   local t = Strings("%s grew to\nLv. %d!", Pokemon.displayMonName(mon), mon.level)
   return true, "level", t
+end
+
+-- pokefirered/src/data/pokemon/item_effects.h:168
+local VITAMIN_STAT = {
+  [63] = "hp", [64] = "atk", [65] = "def", [66] = "spe", [67] = "spa", [70] = "spd",
+}
+local VITAMIN_ADD_EV = 10
+
+local function vitamin_stat_name(key)
+  -- pokefirered/src/strings.c:248
+  if key == "hp" then return Strings("HP") end
+  if key == "atk" then return Strings("ATTACK") end
+  if key == "def" then return Strings("DEFENSE") end
+  if key == "spe" then return Strings("SPEED") end
+  if key == "spa" then return Strings("SP. ATK") end
+  return Strings("SP. DEF")
+end
+
+function ItemUse.useVitamin(session, mon, itemId)
+  if not mon then return false, "none", Strings("There's no POKéMON!") end
+  local num = ItemsData.toNumericId(itemId) or tonumber(itemId)
+  local key = VITAMIN_STAT[num]
+  if not key then
+    return false, "no_effect", Strings("It won't have any effect.")
+  end
+  -- pokefirered/src/party_menu.c:4405 NotUsingHPEVItemOnShedinja
+  if key == "hp" and (tonumber(mon.species or mon.speciesId) or 0) == 303 then
+    return false, "no_effect", Strings("It won't have any effect.")
+  end
+  local gained = Pokemon.raiseEvFromItem(mon, key, VITAMIN_ADD_EV)
+  if not gained or gained <= 0 then
+    return false, "no_effect", Strings("It won't have any effect.")
+  end
+  Pokemon.itemFriendship(mon, Pokemon.VITAMIN_FRIENDSHIP_CHANGE,
+    { mapSec = Pokemon.currentMapSec(session) })
+  -- pokefirered/src/strings.c:298 gText_PkmnBaseVar2StatIncreased
+  local t = Strings("%s's base %s\nstat was raised.",
+    Pokemon.displayMonName(mon), vitamin_stat_name(key))
+  return true, "vitamin", t
 end
 
 function ItemUse.useEvolutionStone(session, mon, itemId, bag)
@@ -501,12 +561,13 @@ local function useField(session, bag, id, partySlot)
       ok, _, text = ItemUse.useEvolutionStone(session, mon, id, bag)
     elseif use == "level" then
       ok, _, text = ItemUse.useRareCandy(session, mon)
-    elseif use == "revive" then
+    -- pokefirered/src/pokemon.c:4258
+    elseif use == "revive" or num == ITEM_REVIVAL_HERB then
       if num == 45 then -- Sacred Ash
         ok = ItemUse.reviveAll(party)
         text = Strings("All POKéMON's HP was\nfully restored!")
       else
-        local max = num == 25 or tostring(id) == "MAX_REVIVE"
+        local max = num == 25 or num == ITEM_REVIVAL_HERB or tostring(id) == "MAX_REVIVE"
         ok = ItemUse.revive(mon, max)
         text = Strings("%s's HP was\nrestored!", monName)
       end
@@ -529,7 +590,7 @@ local function useField(session, bag, id, partySlot)
     elseif use == "pp" then
       return false, "pp", Strings("It won't have any effect.")
     elseif use == "vitamin" then
-      return false, "vitamin", Strings("It won't have any effect.")
+      ok, _, text = ItemUse.useVitamin(session, mon, id)
     else
       local healOk, restored = ItemUse.healMon(session, mon, id)
       ok = healOk
@@ -541,6 +602,11 @@ local function useField(session, bag, id, partySlot)
     end
 
     if ok then
+      -- pokefirered/src/pokemon.c:4481
+      if BITTER_MEDICINE_FRIENDSHIP[num] then
+        Pokemon.itemFriendship(mon, BITTER_MEDICINE_FRIENDSHIP[num],
+          { mapSec = Pokemon.currentMapSec(session) })
+      end
       Bag.remove(bag, id, 1)
       return true, use, text or Strings("It restored health!")
     end

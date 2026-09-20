@@ -479,7 +479,7 @@ do
     "firstBattle keeps the trainer's own aiFlags (7) instead of AI_SCRIPT_FIRST_BATTLE")
 end
 
-print("[test] 16. GetBattleOutcome (special 0xB6) and B_OUTCOME constants")
+print("[test] 16. GetBattleOutcome (special 0xB4) and B_OUTCOME constants")
 do
   local Natives = require("src.core.game3.scripting.natives")
   local Flags = require("src.core.game3.scripting.flags")
@@ -494,7 +494,7 @@ do
 
   local ctx = { specialVars = {} }
   ctx.lastBattleOutcome = Natives.B_OUTCOME.CAUGHT
-  Natives.special(ctx, 0xB6, nil)
+  Natives.special(ctx, 0xB4, nil)
   check(Flags.getVar(nil, ctx, 0x800D) == 7, "GetBattleOutcome writes CAUGHT (7) to VAR_RESULT (0x800D)")
 end
 

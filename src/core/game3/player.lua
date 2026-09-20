@@ -338,6 +338,16 @@ function Player.tryMove(dir, game, run)
     return "escalator_busy"
   end
 
+  -- pokefirered/src/field_control_avatar.c:825 TryArrowWarp
+  if Collision.isArrowWarp
+      and Collision.isArrowWarp(game, Player.cellX, Player.cellY, dir) then
+    local Warp = require("src.core.game3.warp")
+    if Warp.isBusy() then return "arrow_busy" end
+    if Collision.tryWarpAt(game, Player.cellX, Player.cellY, dir, { arrow = true }) then
+      return "arrow_warp"
+    end
+  end
+
   local ok, why = Collision.canEnter(game, tx, ty, {
     fromX = Player.cellX,
     fromY = Player.cellY,
@@ -507,12 +517,19 @@ local function finishStep(game)
     Field.tryCoordEvents(game, Player.cellX, Player.cellY)
   end
 
-  -- Wild encounters on grass/water when step completes (pret StandardWildEncounter).
+  -- pokefirered/src/field_control_avatar.c:209
+  if not Field.locked then
+    local okTs, TrainerSight = pcall(require, "src.core.game3.trainer_sight")
+    if okTs and TrainerSight and TrainerSight.check then
+      TrainerSight.check(game)
+    end
+  end
+
+  -- pokefirered/src/wild_encounter.c:757
   local onGrass = Collision.isGrass and Collision.isGrass(Player.cellX, Player.cellY)
   local onWater = Player.surfing and (Collision.isWater and Collision.isWater(Player.cellX, Player.cellY))
   local okE, Encounters = pcall(require, "src.core.game3.encounters")
-  local triggeredBattle = false
-  if (onGrass or onWater) and okE and Encounters and Encounters.onStep then
+  if okE and Encounters and Encounters.onStep then
     local Battle = package.loaded["src.core.game3.battle"]
     local busy = (Battle and Battle.isActive and Battle.isActive()) or Field.locked
     local Space = package.loaded["src.core.game3.scripting.space"]
@@ -525,28 +542,15 @@ local function finishStep(game)
         local Map = package.loaded["src.core.game3.map"]
         mapId = Map and Map.current
       end
-      local enterFromOther = not (Encounters._prevGrass)
-      local terrain = onWater and "water" or "land"
-      local enc = Encounters.onStep(mapId, terrain, { enterFromOther = enterFromOther })
+      local enc = Encounters.onStep(mapId, nil, { x = Player.cellX, y = Player.cellY })
       if enc then
-        -- Repel gating: pokefirered/src/wild_encounter.c:215
-        local repelSteps = tonumber(session and (session.repelSteps or (session.vars and session.vars[0x4020]))) or 0
-        local leadLevel = 1
-        if session and session.party and session.party[1] then
-          leadLevel = tonumber(session.party[1].level) or 1
-        end
-        local repelled = (repelSteps > 0) and (tonumber(enc.level) or 1) <= leadLevel
-        if not repelled then
-          local Runtime = package.loaded["src.core.game3.runtime"]
-          local BattleBridge = require("src.core.game3.battle_bridge")
-          local mod = Runtime and Runtime._mod
-          local g = game or (Runtime and Runtime._game)
-          local okB, errB = BattleBridge.startWild(mod, g, enc, {})
-          if not okB then
-            print("[game3/encounters] startWild failed: " .. tostring(errB))
-          else
-            triggeredBattle = true
-          end
+        local Runtime = package.loaded["src.core.game3.runtime"]
+        local BattleBridge = require("src.core.game3.battle_bridge")
+        local mod = Runtime and Runtime._mod
+        local g = game or (Runtime and Runtime._game)
+        local okB, errB = BattleBridge.startWild(mod, g, enc, {})
+        if not okB then
+          print("[game3/encounters] startWild failed: " .. tostring(errB))
         end
       end
     end
@@ -558,14 +562,6 @@ local function finishStep(game)
     local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
     if okFx and FieldEffects and FieldEffects.tallGrassAt then
       FieldEffects.tallGrassAt(Player.cellX, Player.cellY, true)
-    end
-  end
-
-  -- Trainer line of sight check on step completion (if not entering wild battle)
-  if not triggeredBattle and not Field.locked then
-    local okTs, TrainerSight = pcall(require, "src.core.game3.trainer_sight")
-    if okTs and TrainerSight and TrainerSight.check then
-      TrainerSight.check(game)
     end
   end
 end

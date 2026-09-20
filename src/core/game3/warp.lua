@@ -487,7 +487,30 @@ function Warp.startTeleport(mod, game, destMap, destX, destY)
   return true
 end
 
+-- pokefirered/src/overworld.c:898 MetatileBehavior_IsSurfableInSeafoamIslands
+local function seafoamSurfLanding(destMap, x, y)
+  local up = string.upper(tostring(destMap or ""))
+  if not (up:find("SEAFOAM_ISLANDS_B3F") or up:find("SEAFOAM_ISLANDS_B4F")) then
+    return false
+  end
+  local Collision = require("src.core.game3.collision")
+  return Collision.isSurfable ~= nil
+    and Collision.isSurfable(Collision.behavior(x, y)) == true
+end
+
+-- pokefirered/src/field_effect.c:1285
+local function seafoamSurfArrival(Player)
+  local Flags = require("src.core.game3.scripting.flags")
+  local Space = require("src.core.game3.scripting.space")
+  Flags.setVar(Space.store, nil, "VAR_TEMP_1", 1)
+  Player.surfing = true
+end
+
+-- pokefirered/src/field_effect.c:1200
+local FALL_START_Y = -112
+
 --- Complete fall hole sequence (Mt. Moon, Seafoam drop holes)
+-- pokefirered/data/scripts/hole.inc:23 EventScript_DoFallWarp
 function Warp.startFall(mod, game, destMap, destX, destY)
   if Warp._busy then return false end
   destMap, destX, destY = announce(game, destMap, destX, destY, "fall")
@@ -500,36 +523,76 @@ function Warp.startFall(mod, game, destMap, destX, destY)
   local Fade = require("src.ui.game3.fade")
   local Audio = package.loaded["src.core.game3.audio"] or require("src.core.game3.audio")
   local SE = require("src.core.game3.se_ids")
-
-  if Audio and Audio.playSe then
-    pcall(function() Audio.playSe(SE.SE_FALL or 37) end)
-  end
+  local Task = require("src.core.game3.task")
 
   local toMode, fromMode = warpFadeModes(Fade, game, destMap)
 
-  Fade.begin(toMode, 1, function()
-    local Map = require("src.core.game3.map")
-    Map.load(mod, game, destMap, {
-      x = destX,
-      y = destY,
-      facing = "down",
-      depth1Connections = true,
-    })
-    Player.setVisible(true)
-
+  local function playSe(id)
     if Audio and Audio.playSe then
-      pcall(function() Audio.playSe(SE.SE_LEDGE or 10) end)
+      pcall(function() Audio.playSe(id) end)
     end
+  end
 
-    Fade.begin(fromMode, 1, function()
-      Warp._busy = false
-      if Field and Field.unlock and not (package.loaded["src.core.game3.scripting.space"]
-          and package.loaded["src.core.game3.scripting.space"].vm
-          and package.loaded["src.core.game3.scripting.space"].vm.isRunning
-          and package.loaded["src.core.game3.scripting.space"].vm:isRunning()) then
-        Field.unlock()
+  local function finish()
+    Warp._busy = false
+    if Field and Field.unlock and not (package.loaded["src.core.game3.scripting.space"]
+        and package.loaded["src.core.game3.scripting.space"].vm
+        and package.loaded["src.core.game3.scripting.space"].vm.isRunning
+        and package.loaded["src.core.game3.scripting.space"].vm:isRunning()) then
+      Field.unlock()
+    end
+  end
+
+  -- pokefirered/src/field_effect.c:1215 FallWarpEffect_4
+  local function dropIn()
+    local y2 = FALL_START_Y
+    local speed, travelled = 1, 0
+    Player.facing = "down"
+    Player.spriteYOffset = y2
+    Player.setVisible(true)
+    playSe(SE.SE_FALL or 37)
+    Task.spawn(function()
+      y2 = y2 + speed
+      if speed < 8 then
+        travelled = travelled + speed
+        if travelled % 16 ~= 0 then speed = speed * 2 end
       end
+      if y2 >= 0 then
+        Player.spriteYOffset = 0
+        playSe(SE.SE_M_STRENGTH or 207)
+        if seafoamSurfLanding(destMap, destX, destY) then
+          seafoamSurfArrival(Player)
+        end
+        Player.syncSavePosition(game)
+        return true
+      end
+      Player.spriteYOffset = y2
+      return false
+    end, { onDone = finish })
+  end
+
+  -- pokefirered/data/scripts/hole.inc:24
+  Task.spawn(function(t)
+    if t.frames == 20 then
+      Player.setVisible(false)
+      playSe(SE.SE_FALL or 37)
+    end
+    if t.frames < 80 then return false end
+    Fade.begin(toMode, 1, function()
+      local Map = require("src.core.game3.map")
+      Map.load(mod, game, destMap, {
+        x = destX,
+        y = destY,
+        facing = "down",
+        depth1Connections = true,
+      })
+      Player.setVisible(false)
+      Player.spriteYOffset = FALL_START_Y
+      Fade.begin(fromMode, 1, function()
+        dropIn()
+      end)
     end)
+    return true
   end)
   return true
 end

@@ -36,6 +36,13 @@ local function se(id)
   pcall(function() require("src.core.game3.audio").playSe(id) end)
 end
 
+-- pokefirered/include/constants/items.h:97
+function PartyMenu.itemIsEvolutionStone(item)
+  if item == nil or ItemsData.isTm(item) then return false end
+  return ItemsData.fieldUseKind(item) == "evo"
+end
+local is_evolution_stone = PartyMenu.itemIsEvolutionStone
+
 local function nav_up(cur, n)
   if cur == 1 then
     return 7
@@ -118,10 +125,12 @@ local SLOT_SPRITES = {
 local INFO_LEFT = {
   nick = { 24, 11 }, level = { 32, 20 }, gender = { 64, 20 },
   hp = { 38, 36 }, hpMax = { 53, 36 }, hpBar = { 24, 35 },
+  desc = { 12, 34 },
 }
 local INFO_RIGHT = {
   nick = { 22, 3 }, level = { 32, 12 }, gender = { 64, 12 },
   hp = { 102, 12 }, hpMax = { 117, 12 }, hpBar = { 88, 10 },
+  desc = { 77, 4 },
 }
 
 -- pokefirered/src/data/party_menu.h:192
@@ -1104,6 +1113,8 @@ function PartyMenu.handleInput(input)
           local isWater = Collision.isWater and Collision.isWater(fx, fy)
           local isGrass = Collision.isGrass and Collision.isGrass(fx, fy)
           local mapDef = Map.currentDef()
+          -- pokefirered/src/party_menu.c:4118
+          local facingBeh = Collision.behavior and Collision.behavior(fx, fy)
           local ctx = {
             party = PartyMenu._party,
             mon = mon,
@@ -1111,6 +1122,8 @@ function PartyMenu.handleInput(input)
             session = PartyMenu._session,
             facingObject = facingObj,
             isFacingWater = isWater,
+            isFacingWaterfall = FieldMoves.isWaterfallBehavior(facingBeh),
+            facing = P.facing,
             isSurfing = P.surfing == true,
             hasCuttableGrass = isGrass or (Collision.isGrass and Collision.isGrass(P.cellX, P.cellY)),
             mapType = mapDef and mapDef.type,
@@ -1457,7 +1470,7 @@ function PartyMenu.handleInput(input)
       end
 
       -- Case 3: Evolution Stone
-      if ItemsData.isEvolutionStone(PartyMenu._item) then
+      if is_evolution_stone(PartyMenu._item) then
         local Evolution = require("src.core.game3.evolution")
         local toSpecies = Evolution.itemTarget(mon, PartyMenu._item, PartyMenu._session)
         if not toSpecies then
@@ -1678,14 +1691,26 @@ local function hp_bar(hp, maxHp, px, py, width)
 end
 
 -- BG + text only; OAM sprites flushed by Display.present.
+-- pokefirered/src/party_menu.c:848 DisplayPartyPokemonDataForMoveTutorOrEvolutionItem
+local function slot_description(mon)
+  local item = PartyMenu._item
+  if not item or PartyMenu._battle then return nil end
+  if PartyMenu.mode ~= "use" and PartyMenu.mode ~= "message" then return nil end
+  if not is_evolution_stone(item) then return nil end
+  local Evolution = require("src.core.game3.evolution")
+  if Evolution.itemCheck(mon, item) then return nil end
+  return Strings("No use.")
+end
+
 local function draw_filled_slot(i, mon, selected)
   local win = slot_win(i)
   if not win then return end
   local T = Display.TILE or 8
   local baseX, baseY = win.left * T, win.top * T
   local info = slot_info(i)
+  local desc = slot_description(mon)
 
-  PartyChrome.drawSlot(win.kind, win.left, win.top, selected)
+  PartyChrome.drawSlot(win.kind, win.left, win.top, selected, desc ~= nil)
 
   local name = Pokemon.displayName(mon)
   party_print(name, baseX + info.nick[1], baseY + info.nick[2], 56)
@@ -1699,6 +1724,11 @@ local function draw_filled_slot(i, mon, selected)
     elseif gender == "F" then
       FrlgFont.draw("♀", baseX + info.gender[1], baseY + info.gender[2], { colors = FrlgFont.COLOR.PARTY_FEMALE, small = true })
     end
+  end
+
+  if desc then
+    party_print(desc, baseX + info.desc[1], baseY + info.desc[2], 64)
+    return
   end
 
   local hp = tonumber(mon.hp) or 0

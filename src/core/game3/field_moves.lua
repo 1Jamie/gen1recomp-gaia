@@ -51,10 +51,17 @@ FieldMoves.BADGE_FLAGS = {
 }
 
 -- System flags
+-- include/constants/flags.h:1330
 FieldMoves.SYS_FLAGS = {
-  FLASH_ACTIVE  = 0x803, -- FLAG_SYS_FLASH_ACTIVE
-  USE_STRENGTH  = 0x804, -- FLAG_SYS_USE_STRENGTH
-  USE_SURF      = 0x805, -- FLAG_SYS_USE_SURF
+  WHITE_FLUTE_ACTIVE = 0x803,
+  BLACK_FLUTE_ACTIVE = 0x804,
+  USE_STRENGTH  = 0x805,
+  FLASH_ACTIVE  = 0x806,
+}
+
+-- src/event_data.c:49
+FieldMoves.TEMP_SYS_FLAGS = {
+  0x803, 0x804, 0x805,
 }
 
 -- Graphics IDs for interactable field objects
@@ -87,12 +94,18 @@ FieldMoves.CUT_GRASS_METATILES = {
 }
 
 -- Metatile terrain / collision behaviors
+-- include/constants/metatile_behaviors.h:14
 FieldMoves.BEHAVIORS = {
   GRASS      = { [0x01] = true, [0x02] = true, [0x03] = true },
-  WATER      = { [0x10] = true, [0x11] = true, [0x12] = true, [0x13] = true, [0x14] = true, [0x15] = true },
-  WATERFALL  = { [0x13] = true, [0x21] = true },
-  DEEP_WATER = { [0x14] = true, [0x22] = true },
+  WATER      = { [0x10] = true, [0x11] = true, [0x12] = true, [0x13] = true, [0x15] = true },
+  WATERFALL  = { [0x13] = true },
+  DEEP_WATER = { [0x12] = true },
 }
+
+-- src/metatile_behavior.c:594
+function FieldMoves.isWaterfallBehavior(beh)
+  return beh ~= nil and FieldMoves.BEHAVIORS.WATERFALL[beh] == true
+end
 
 -- Map Types (matching pret include/constants/map_types.h)
 FieldMoves.MAP_TYPES = {
@@ -413,6 +426,7 @@ function FieldMoves.rockSmashFromMenu(ctx)
 end
 
 --- Waterfall from Party Menu
+-- src/party_menu.c:4118
 function FieldMoves.waterfallFromMenu(ctx)
   if not FieldMoves.hasBadge(ctx, "WATERFALL") then
     return { ok = false, text = FieldMoves.TEXT.BADGE_REQUIRED, badge = "WATERFALL" }
@@ -423,13 +437,11 @@ function FieldMoves.waterfallFromMenu(ctx)
   end
 
   local mon = ctx.mon or FieldMoves.partyMoveUser(ctx.party, "WATERFALL")
-  local monName = FieldMoves.getMonName(mon)
 
   return {
     ok = true,
     action = "waterfall",
     mon = mon,
-    text = FieldMoves.TEXT.USED_WATERFALL:gsub("{STR_VAR_1}", monName),
   }
 end
 
@@ -693,15 +705,17 @@ function FieldMoves.trySurfOW(ctx)
 end
 
 --- Waterfall Collision Interaction (EventScript_Waterfall)
+-- src/field_control_avatar.c:608, data/scripts/field_moves.inc:178
 function FieldMoves.tryWaterfallOW(ctx)
-  if not ctx.isSurfing or not ctx.isFacingWaterfall or ctx.facing ~= "up" then
+  if not ctx.isFacingWaterfall then
     return { ok = false }
   end
 
   local mon, slot = FieldMoves.partyMoveUser(ctx.party, "WATERFALL")
   local hasBadge = FieldMoves.hasBadge(ctx, "WATERFALL")
+  local surfingNorth = ctx.isSurfing and ctx.facing == "up"
 
-  if not mon or not hasBadge then
+  if not mon or not hasBadge or not surfingNorth then
     return {
       ok = false,
       text = FieldMoves.TEXT.CANT_WATERFALL,

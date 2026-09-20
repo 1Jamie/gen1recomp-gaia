@@ -27,7 +27,7 @@ Versions.ROM_SIZE = 16777216
 -- v99: gEggMoves → pokemon/egg_moves.lua (hidden-mon egg moves were inert).
 -- v100: location preview screens (sMapPreviewScreenData artwork) + ROM-derived
 --       mapsec names and sDungeonInfo dungeon descriptions.
-Versions.CACHE_VERSION = 103
+Versions.CACHE_VERSION = 105
 Versions.NATIVE_VERSION = 6
 Versions.OW_VERSION = 1
 Versions.ANIM_VERSION = 1
@@ -281,6 +281,26 @@ Versions.MAPSEC_COUNT = 109
 Versions.DUNGEON_INFO = 0x3F1B3C
 Versions.DUNGEON_INFO_COUNT = 19
 Versions.DUNGEON_INFO_ENTRY_SIZE = 12
+
+-- src/region_map.c:393-427
+Versions.REGION_MAP_GFX = 0x3EF61C
+Versions.REGION_MAP_PAL = 0x3EF2DC
+Versions.REGION_MAP_PAL_BANKS = 5
+Versions.REGION_MAP_KANTO_TILEMAP = 0x3F089C
+-- src/region_map.c:1495-1510
+Versions.REGION_MAP_TILEMAP_W = 30
+Versions.REGION_MAP_TILEMAP_H = 20
+-- src/region_map.c:747-755
+Versions.REGION_MAP_CURSOR_GFX = 0x3EF4E0
+Versions.REGION_MAP_CURSOR_PAL = 0x3EF25C
+-- src/region_map.c:790-807
+Versions.REGION_MAP_DUNGEON_ICON_GFX = 0x3F18D8
+Versions.REGION_MAP_MISC_ICON_PAL = 0x3EF2BC
+-- src/region_map.c:3375-3408
+Versions.REGION_MAP_PLAYER_RED_GFX = 0x3EF524
+Versions.REGION_MAP_PLAYER_RED_PAL = 0x3EF27C
+Versions.REGION_MAP_PLAYER_LEAF_GFX = 0x3EF59C
+Versions.REGION_MAP_PLAYER_LEAF_PAL = 0x3EF29C
 
 -- Multichoice list table (FireRed USA 1.0). gMultichoiceLists (65 lists).
 Versions.MULTICHOICE_LISTS = 0x3E04B0

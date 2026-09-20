@@ -78,9 +78,19 @@ function Game3:_enterField(session, reason)
   end
   session._questNewScene=true
   if reason == "continue" then session._questMap=session.map end
-  require("src.core.game3.map")._announced = nil
+  local Map = require("src.core.game3.map")
+  Map._announced = nil
+  Map._nextEnterVia = (reason == "continue") and "continue" or "new_game"
   -- pokefirered/src/fieldmap.c:100
   Runtime.start(nil, self, session, { reason = reason or "new_game" })
+  Map._nextEnterVia = nil
+  if reason == "continue" then
+    -- pokefirered/src/overworld.c:1717
+    local okS, Space = pcall(require, "src.core.game3.scripting.space")
+    if okS and Space and Space.runOnReturnToField then
+      Space.runOnReturnToField()
+    end
+  end
 end
 
 function Game3:load(opts)

@@ -12,7 +12,7 @@ local function T(ascii)
   return TextIR.fromAscii(ascii)
 end
 
--- specials.inc indices (FireRed)
+-- 0-based def_special order of pokefirered/data/specials.inc
 Std.SPECIAL = {
   HealPlayerParty = 0x00,
   SetUsedPkmnCenterQuestLogEvent = 0x169,
@@ -20,22 +20,21 @@ Std.SPECIAL = {
   GetQuestLogState = 0x187,
   QuestLog_CutRecording = 0x188,
   ShowPokemonStorageSystemPC = 0x3C,
-  BufferMonNickname = 0x7D, -- 125 (0x7C / 124 in some FRLG scripts)
-  BufferMonNickname_FR = 0x7C, -- 124
-  ChangePokemonNickname = 0x9E, -- 158 in FireRed (pokefirered)
-  ChangePokemonNickname_Alt = 0x9F, -- 159 (Emerald/aliases)
-  -- ShowRegionMap / Sevii town map (Tier A special → game3 region UI).
-  ShowRegionMap = 0xAF,
-  FieldShowRegionMap = 0xFB, -- 251 (pokefirered special FieldShowRegionMap)
+  BufferMonNickname = 0x7C, -- pokefirered/data/specials.inc:135
+  IsMonOTIDNotPlayers = 0x7D, -- pokefirered/data/specials.inc:136
+  ChangePokemonNickname = 0x9E, -- pokefirered/data/specials.inc:169
+  ChoosePartyMon = 0x9F, -- pokefirered/data/specials.inc:170
+  ChooseMonForMoveTutor = 0x18D, -- pokefirered/data/specials.inc:408
+  FieldShowRegionMap = 0xFB, -- pokefirered/data/specials.inc:262 ShowTownMap
   AnimatePcTurnOn = 0xD6,
   AnimatePcTurnOff = 0xD7,
   BedroomPC = 0xF9, -- pokefirered/data/specials.inc:260
   PlayerPC = 0xFA,
   CreatePCMenu = 0x106,
   EnterHallOfFame = 0x110, -- 272 (special HallOfFame / GameClear)
-  EnableNationalPokedex = 0x179, -- 377
-  SetUnlockedPokedexFlags = 0x18B, -- 395
-  IsNationalPokedexEnabled = 0x19D, -- 413
+  EnableNationalPokedex = 0x16F, -- pokefirered/data/specials.inc:378
+  SetUnlockedPokedexFlags = 0x181, -- pokefirered/data/specials.inc:396
+  IsNationalPokedexEnabled = 0x193, -- pokefirered/data/specials.inc:414
   Script_SetHelpContext = 0x17D,
   BackupHelpContext = 0x17E,
   RestoreHelpContext = 0x17F,
@@ -54,18 +53,69 @@ Std.SPECIAL = {
   SetBattledTrainerFlag = 0x18F, -- pokefirered/data/specials.inc:410
   ShowEasyChatScreen = 0x5F, -- 95 pokefirered/data/specials.inc:106
   ShowEasyChatMessage = 0x60, -- 96 pokefirered/data/specials.inc:107
-  GetBattleOutcome = 0xB6, -- 182 (pokefirered/data/specials.inc:191)
-  StartOldManTutorialBattle = 0xA8, -- 168 (pokefirered/data/specials.inc:168)
+  GetBattleOutcome = 0xB4, -- pokefirered/data/specials.inc:191
+  GetLeadMonFriendship = 0xE6, -- pokefirered/data/specials.inc:241
+  DaisyMassageServices = 0x197, -- pokefirered/data/specials.inc:418
+  GetDaycareState = 0xB6, -- pokefirered/data/specials.inc:193
+  StartOldManTutorialBattle = 0x9D, -- pokefirered/data/specials.inc:168
   StartGroudonKyogreBattle = 0x137, -- 311 (pokefirered/data/specials.inc:322)
   StartLegendaryBattle = 0x138, -- 312 (pokefirered/data/specials.inc:323)
   StartRegiBattle = 0x139, -- 313 (pokefirered/data/specials.inc:324)
   StartSouthernIslandBattle = 0x143, -- 323 (pokefirered/data/specials.inc:334)
   SetVermilionTrashCans = 0x15B, -- 347 (pokefirered/data/specials.inc:358)
+  NameRaterWasNicknameChanged = 0x7B, -- pokefirered/data/specials.inc:134
+  CalculatePlayerPartyCount = 0x83, -- pokefirered/data/specials.inc:142
+  CountPartyNonEggMons = 0x84, -- pokefirered/data/specials.inc:143
+  CountPartyAliveNonEggMons_IgnoreVar0x8004Slot = 0x85, -- pokefirered/data/specials.inc:144
+  BufferBigGuyOrBigGirlString = 0x94, -- pokefirered/data/specials.inc:159
+  SetHiddenItemFlag = 0x96, -- pokefirered/data/specials.inc:161
+  GetSelectedMonNicknameAndSpecies = 0xBA, -- pokefirered/data/specials.inc:197
+  IsEnoughForCostInVar0x8005 = 0xC5, -- pokefirered/data/specials.inc:208
+  SubtractMoneyFromVar0x8005 = 0xC6, -- pokefirered/data/specials.inc:209
+  GetPokedexCount = 0xD4, -- pokefirered/data/specials.inc:223
+  GetRandomSlotMachineId = 0x11E, -- pokefirered/data/specials.inc:297
+  IsThereRoomInAnyBoxForMorePokemon = 0x130, -- pokefirered/data/specials.inc:315
+  GetPartyMonSpecies = 0x147, -- pokefirered/data/specials.inc:338
+  IsSelectedMonEgg = 0x148, -- pokefirered/data/specials.inc:339
+  HasAllKantoMons = 0x14F, -- pokefirered/data/specials.inc:346
+  IsMonOTNameNotPlayers = 0x150, -- pokefirered/data/specials.inc:347
+  DoesPartyHaveEnigmaBerry = 0x153, -- pokefirered/data/specials.inc:350
+  GetStarterSpecies = 0x162, -- pokefirered/data/specials.inc:365
+  SetSeenMon = 0x163, -- pokefirered/data/specials.inc:366
+  ShouldShowBoxWasFullMessage = 0x165, -- pokefirered/data/specials.inc:368
+  DoesPlayerPartyContainSpecies = 0x17C, -- pokefirered/data/specials.inc:391
+  GetPCBoxToSendMon = 0x18A, -- pokefirered/data/specials.inc:405
+  HasAtLeastOneBerry = 0x19B, -- pokefirered/data/specials.inc:422
+  GetPlayerFacingDirection = 0x1AA, -- pokefirered/data/specials.inc:437
+  DoSeagallopFerryScene = 0x17B, -- pokefirered/data/specials.inc:390
+  DrawSeagallopDestinationMenu = 0x1A7, -- pokefirered/data/specials.inc:434
+  GetSelectedSeagallopDestination = 0x1A8, -- pokefirered/data/specials.inc:435
+  GetSeagallopNumber = 0x1A9, -- pokefirered/data/specials.inc:436
+  IsPlayerLeftOfVermilionSailor = 0x1AD, -- pokefirered/data/specials.inc:440
+  IsBadEggInParty = 0x1AE, -- pokefirered/data/specials.inc:441
+  HasAllMons = 0x1B0, -- pokefirered/data/specials.inc:443
+  IsPlayerNotInTrainerTowerLobby = 0x1B1, -- pokefirered/data/specials.inc:444
+  PlayerPartyContainsSpeciesWithPlayerID = 0x1B4, -- pokefirered/data/specials.inc:447
+  IsDodrioInParty = 0x1B6, -- pokefirered/data/specials.inc:449
+  BufferUnionRoomPlayerName = 0x183, -- pokefirered/data/specials.inc:398
   -- Engine-extension specials (not cart indices) for shared primitives.
   FadeScreen = 0xF001,
   OpenNaming = 0xF002,
   PlayCry = 0xF003,
 }
+
+Std.SPECIAL_ALIASES = {
+  FieldShowRegionMap = "ShowTownMap", -- pokefirered/data/specials.inc:262
+}
+
+Std.SPECIAL_ENGINE_BASE = 0xF000
+
+Std.SPECIAL_NAME_BY_ID = {}
+for name, id in pairs(Std.SPECIAL) do
+  if id < Std.SPECIAL_ENGINE_BASE then
+    Std.SPECIAL_NAME_BY_ID[id] = Std.SPECIAL_ALIASES[name] or name
+  end
+end
 
 Std.TEXT = {
   Text_TownMap = T([[

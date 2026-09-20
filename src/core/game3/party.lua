@@ -39,13 +39,14 @@ function Party.writeBack(hostParty, sessionParty)
   end
 end
 
---- Field-wise battle writeback onto an opaque mon (HP/status/exp/level/PP/moves).
---- Never touches dvs / ivs / evs / statexp.
 function Party.applyBattleFields(opaqueMon, fields)
   if type(opaqueMon) ~= "table" or type(fields) ~= "table" then return end
+  if fields.friendship ~= nil then
+    fields.happiness = fields.friendship
+  end
   for _, key in ipairs({
     "hp", "maxHp", "status", "sleep", "level", "exp",
-    "happiness", "item", "heldItem",
+    "happiness", "friendship", "evs", "pokerus", "item", "heldItem",
     "species", "speciesId", "name", "growthRate",
     "attack", "defense", "speed", "spAtk", "spDef",
     "atk", "def", "spe", "spa", "spd",
@@ -213,6 +214,9 @@ function Party.giveMon(session, species, level, nickname)
     gender = gender,
     happiness = friendship,
     friendship = friendship,
+    -- pokefirered/src/pokemon.c:1815 CreateBoxMon
+    metLocation = Pokemon.currentMapSec and Pokemon.currentMapSec(session) or nil,
+    pokerus = 0,
     ot = session.name or session.playerName or "RED",
     otName = session.name or session.playerName or "RED",
     otId = session.trainerId or session.id or session.playerId or 12345,

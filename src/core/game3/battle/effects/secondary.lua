@@ -323,6 +323,7 @@ function Secondary.set(M, eff, primary, certain, affectsUser)
   elseif eff == "WRAP" then
     if (effBattler.expTrapTurns or 0) > 0 then return false end
     local Rules = require("src.core.game3.battle.rules")
+    if Rules.partialTrap.active and not Rules.partialTrap.active() then return false end
     effBattler.expTrapTurns = Rules.partialTrap.rollTurns(ad:rng())
     effBattler.expTrapMove = M.mnum
     effBattler.expTrapMoveName = M.moveName

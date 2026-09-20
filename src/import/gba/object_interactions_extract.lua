@@ -47,18 +47,29 @@ function E.read(rom,version)
   local order,entries=Catalog.allOrder(census)
   Catalog.registerOrder(rom,version,order,entries)
   pack.behaviors={}
+  pack.encounterTypes={}
   local attrs={}
   local function attributes(name)
     if attrs[name] then return attrs[name] end
     local spec=assert((version.tilesets or V.TILESETS)[name])
     local out={}
-    for i=0,math.floor(spec.attr_bytes/4)-1 do out[i]=rom:u32(spec.attributes+i*4)%512 end
+    for i=0,math.floor(spec.attr_bytes/4)-1 do out[i]=rom:u32(spec.attributes+i*4) end
     attrs[name]=out;return out
   end
+  -- pokefirered/src/fieldmap.c:68
   for name,pair in pairs(version.tileset_pairs or V.TILESET_PAIRS) do
     local out={};pack.behaviors[name]=out
-    for mid,beh in pairs(attributes(pair.primary)) do out[mid]=beh end
-    for mid,beh in pairs(attributes(pair.secondary)) do out[mid+640]=beh end
+    local enc={};pack.encounterTypes[name]=enc
+    for mid,w in pairs(attributes(pair.primary)) do
+      out[mid]=w%512
+      local e=math.floor(w/0x1000000)%8
+      if e~=0 then enc[mid]=e end
+    end
+    for mid,w in pairs(attributes(pair.secondary)) do
+      out[mid+640]=w%512
+      local e=math.floor(w/0x1000000)%8
+      if e~=0 then enc[mid+640]=e end
+    end
   end
   return pack
 end

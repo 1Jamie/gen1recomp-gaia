@@ -226,6 +226,12 @@ function BattleItems.use(st, adapter, bag, session, itemId, partySlot, battlerId
     })[stat] or stat)
     local pname = battler.mon and (battler.mon.nickname or battler.mon.name) or "POKéMON"
     say(Strings("%s's %s\nrose!", pname, label))
+    -- pokefirered/src/data/pokemon/item_effects.h:225
+    if battler.mon then
+      local Pokemon = require("src.core.game3.pokemon")
+      Pokemon.itemFriendship(battler.mon, Pokemon.STAT_BOOST_FRIENDSHIP_CHANGE,
+        { mapSec = Pokemon.currentMapSec(session) })
+    end
     return "xitem", msgs, true, false
   end
 
@@ -247,8 +253,9 @@ function BattleItems.use(st, adapter, bag, session, itemId, partySlot, battlerId
     end
     local ok = false
     local mk = ItemsData.medicineKind(itemId)
-    if mk == "revive" or use == "revive" then
-      local max = num == 25
+    -- pokefirered/src/pokemon.c:4258
+    if mk == "revive" or use == "revive" or num == ItemUse.ITEM_REVIVAL_HERB then
+      local max = num == 25 or num == ItemUse.ITEM_REVIVAL_HERB
       if num == 45 then
         ok = ItemUse.reviveAll(party)
       else
@@ -262,6 +269,12 @@ function BattleItems.use(st, adapter, bag, session, itemId, partySlot, battlerId
     if not ok then
       say(Strings("It won't have any effect."))
       return "error", msgs, false, false
+    end
+    -- pokefirered/src/pokemon.c:4481
+    if num and ItemUse.BITTER_MEDICINE_FRIENDSHIP[num] then
+      local Pokemon = require("src.core.game3.pokemon")
+      Pokemon.itemFriendship(mon, ItemUse.BITTER_MEDICINE_FRIENDSHIP[num],
+        { mapSec = Pokemon.currentMapSec(session) })
     end
     Bag.remove(bag, itemId, 1)
     say(Strings("%s used\nthe %s!", tostring(session and session.name or "RED"), name))

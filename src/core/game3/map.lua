@@ -432,8 +432,12 @@ function Map.load(mod, game, mapId, opts)
         or (opts.heal and "respawn") or (fromMapId and "warp" or "boot"),
     })
   end
+  -- pokefirered/src/overworld.c:1717
+  local enterVia = opts.enterVia or Map._nextEnterVia
+  Map._nextEnterVia = nil
   if Space and Space.runEnterScripts then
-    Space.runEnterScripts(mod or Runtime._mod, mapId, game, world)
+    Space.runEnterScripts(mod or Runtime._mod, mapId, game, world,
+      { seamless = opts.seamless, enterVia = enterVia })
   elseif Space and Space.onMapEnter then
     Space.onMapEnter(mod or Runtime._mod, mapId, game, world)
   end

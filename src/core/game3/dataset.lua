@@ -23,8 +23,9 @@ local function diskFallback(rel)
     prefixes[#prefixes + 1] = "firered/"
   end
   local roots = {}
+  local sandboxed = (os.getenv("POKEPORT_IDENTITY") or "") ~= ""
   local home = os.getenv("HOME")
-  if home then
+  if home and not sandboxed then
     roots[#roots + 1] = home .. "/.local/share/love/pokemon-love2d"
   end
   if love and love.filesystem and love.filesystem.getSaveDirectory then
@@ -32,7 +33,7 @@ local function diskFallback(rel)
     if type(sd) == "string" and sd ~= "" then
       roots[#roots + 1] = sd
       local parent = sd:match("^(.*)/[^/]+$")
-      if parent then roots[#roots + 1] = parent .. "/pokemon-love2d" end
+      if parent and not sandboxed then roots[#roots + 1] = parent .. "/pokemon-love2d" end
     end
   end
   for _, root in ipairs(roots) do

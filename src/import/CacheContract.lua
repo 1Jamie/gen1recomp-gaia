@@ -187,6 +187,20 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/gba/ow/7.rgba",
     "data/generated/gba/pokemon/manifest.lua",
     "data/generated/gba/pokemon/names.lua",
+    "data/generated/gba/pokemon/front/1.rgba",
+    "data/generated/gba/pokemon/front/200.rgba",
+    "data/generated/gba/pokemon/front/411.rgba",
+    "data/generated/gba/pokemon/back/1.rgba",
+    "data/generated/gba/pokemon/back/200.rgba",
+    "data/generated/gba/pokemon/back/411.rgba",
+    "data/generated/gba/pokemon/icons/1.rgba",
+    "data/generated/gba/pokemon/icons/200.rgba",
+    "data/generated/gba/pokemon/icons/411.rgba",
+    "data/generated/gba/region_map/kanto_map.png",
+    "data/generated/gba/region_map/cursor.png",
+    "data/generated/gba/region_map/player_red.png",
+    "data/generated/gba/region_map/map_sections.lua",
+    "data/generated/gba/scripts/multichoice.lua",
     "data/generated/gba/pokemon/stats.lua",
     "data/generated/gba/pokemon/learnsets.lua",
     "data/generated/gba/pokemon/move_names.lua",
@@ -373,11 +387,24 @@ function CacheContract.readMarker(version, fs)
   return marker
 end
 
+function CacheContract.cacheVersionCurrent(version, fs)
+  if GameVersion.generation(version) ~= 3 then return true end
+  fs = fs or require("src.import.CacheFs")
+  local okV, Versions = pcall(require, "src.import.gba.versions")
+  if not okV or not Versions or not Versions.CACHE_VERSION then return true end
+  local ok, raw = withVersionPrefix(version, fs, function()
+    return fs.read("data/generated/gba/meta.json")
+  end)
+  if not ok or type(raw) ~= "string" then return false end
+  return raw:find('"cache_version"%s*:%s*' .. tostring(Versions.CACHE_VERSION)) ~= nil
+end
+
 function CacheContract.isReady(version, fs)
   fs = fs or require("src.import.CacheFs")
   if CacheContract.sourceTreeHasData(version) then return true end
   local marker, readError = CacheContract.readMarker(version, fs)
   if readError or not CacheContract.markerMatches(version, marker) then return false end
+  if not CacheContract.cacheVersionCurrent(version, fs) then return false end
   return CacheContract.allRequiredFilesExist(version, fs)
 end
 

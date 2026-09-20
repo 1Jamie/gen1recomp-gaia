@@ -1,14 +1,21 @@
--- Bake Kanto Region Map background, cursor, and map section grid from ROM / pret assets.
+-- Bake Kanto Region Map background, cursor and marker sprites from the ROM.
 -- Outputs to data/generated/gba/region_map/:
---   kanto_map.rgba (240x160)
---   cursor.rgba (16x16)
---   player_red.rgba (16x16), player_leaf.rgba (16x16)
---   map_sections.lua
+--   kanto_map.png (240x160)
+--   cursor.png (16x16), dungeon_icon.png (8x8)
+--   player_red.png (16x16), player_leaf.png (16x16)
 
 local RegionMapExtract = {}
 
 RegionMapExtract.CACHE_SUB = "region_map"
-RegionMapExtract.FORMAT_VERSION = 1
+RegionMapExtract.FORMAT_VERSION = 2
+
+RegionMapExtract.FILES = {
+  "kanto_map.png",
+  "cursor.png",
+  "dungeon_icon.png",
+  "player_red.png",
+  "player_leaf.png",
+}
 
 local function default_cache_root()
   local ok, Extract = pcall(require, "src.import.gba.extract_island1")
@@ -315,6 +322,146 @@ function RegionMapExtract.resolveLocation(mapId, mapSec)
   end
 
   return { x = 4, y = 11, name = "PALLET TOWN", mapsec = "MAPSEC_PALLET_TOWN" }
+end
+
+local function readBytes(rom, off, len)
+  local out = {}
+  for i = 1, len do out[i] = rom:get(off + i - 1) or 0 end
+  return out
+end
+
+-- src/region_map.c:1495-1510
+local function bakeBgPixels(BgBake, gfx, banks, map, mapW, W, H)
+  local tileCount = math.floor(BgBake.byteLen(gfx) / 32)
+  local pixels = {}
+  for i = 1, W * H * 4 do pixels[i] = 0 end
+  local tile, tmp = {}, {}
+  for ty = 0, math.floor(H / 8) - 1 do
+    for tx = 0, math.floor(W / 8) - 1 do
+      local mi = (ty * mapW + tx) * 2 + 1
+      local entry = (map[mi] or 0) + (map[mi + 1] or 0) * 256
+      local tileId = entry % 1024
+      local hflip = math.floor(entry / 1024) % 2 == 1
+      local vflip = math.floor(entry / 2048) % 2 == 1
+      local bank = banks[math.floor(entry / 4096) % 16] or banks[0] or {}
+      if tileId < tileCount then
+        local base = tileId * 32
+        for i = 1, 32 do tile[i] = gfx[base + i] or 0 end
+        for i = 1, 64 do tmp[i] = 0 end
+        BgBake.decodeTile4bpp(tile, tmp, 0, 0, 8, hflip, vflip)
+        for row = 0, 7 do
+          for col = 0, 7 do
+            local r, g, b = BgBake.bgr555ToRgb8(bank[tmp[row * 8 + col + 1] or 0] or 0)
+            local o = ((ty * 8 + row) * W + tx * 8 + col) * 4
+            pixels[o + 1], pixels[o + 2], pixels[o + 3], pixels[o + 4] = r, g, b, 255
+          end
+        end
+      end
+    end
+  end
+  return pixels
+end
+
+local function bakeSpritePixels(BgBake, gfx, bank, tilesW, tilesH, frame)
+  local W, H = tilesW * 8, tilesH * 8
+  local pixels = {}
+  for i = 1, W * H * 4 do pixels[i] = 0 end
+  local first = (frame or 0) * tilesW * tilesH
+  local tile, tmp = {}, {}
+  for t = 0, tilesW * tilesH - 1 do
+    local tx, ty = t % tilesW, math.floor(t / tilesW)
+    local base = (first + t) * 32
+    for i = 1, 32 do tile[i] = gfx[base + i] or 0 end
+    for i = 1, 64 do tmp[i] = 0 end
+    BgBake.decodeTile4bpp(tile, tmp, 0, 0, 8, false, false)
+    for row = 0, 7 do
+      for col = 0, 7 do
+        local idx = tmp[row * 8 + col + 1] or 0
+        local r, g, b = BgBake.bgr555ToRgb8(bank[idx] or 0)
+        local o = ((ty * 8 + row) * W + tx * 8 + col) * 4
+        pixels[o + 1], pixels[o + 2], pixels[o + 3] = r, g, b
+        pixels[o + 4] = (idx == 0) and 0 or 255
+      end
+    end
+  end
+  return pixels, W, H
+end
+
+function RegionMapExtract.ready(cache, cacheRoot)
+  local root = (cacheRoot or default_cache_root()) .. "/" .. RegionMapExtract.CACHE_SUB
+  for _, name in ipairs(RegionMapExtract.FILES) do
+    local rel = root .. "/" .. name
+    local have = false
+    if cache and cache.read then
+      local data = cache:read(rel)
+      have = (data ~= nil and #data > 8)
+    elseif cache and cache.exists then
+      have = cache:exists(rel) and true or false
+    end
+    if not have then return false end
+  end
+  return true
+end
+
+function RegionMapExtract.run(rom, cache, opts)
+  opts = opts or {}
+  local Versions = require("src.import.gba.versions")
+  local Lz77 = require("src.import.gba.lz77")
+  local BgBake = require("src.import.gba.bg_bake")
+  local encodePng = require("src.import.gba.battle_anim_extract").encodePng
+  local root = (opts.cacheRoot or default_cache_root()) .. "/" .. RegionMapExtract.CACHE_SUB
+  local get = function(i) return rom:get(i) end
+
+  local written = {}
+  local function put(name, pixels, w, h)
+    local png = encodePng(pixels, w, h)
+    if not png or #png < 8 then
+      error("region_map: could not encode " .. name)
+    end
+    local ok, err = cache:write(root .. "/" .. name, png)
+    if ok == false then
+      error("region_map: could not write " .. name .. ": " .. tostring(err))
+    end
+    written[#written + 1] = name
+  end
+
+  -- src/region_map.c:1111-1135
+  local gfx = Lz77.decompress(get, Versions.REGION_MAP_GFX)
+  local tilemap = Lz77.decompress(get, Versions.REGION_MAP_KANTO_TILEMAP)
+  local banks = BgBake.loadPalBanks(
+    readBytes(rom, Versions.REGION_MAP_PAL, Versions.REGION_MAP_PAL_BANKS * 32),
+    Versions.REGION_MAP_PAL_BANKS)
+  local mapW = Versions.REGION_MAP_TILEMAP_W
+  local need = mapW * Versions.REGION_MAP_TILEMAP_H * 2
+  if Lz77.len(tilemap) < need then
+    error(("region_map: kanto tilemap is %d bytes, expected %d"):format(Lz77.len(tilemap), need))
+  end
+  put("kanto_map.png", bakeBgPixels(BgBake, gfx, banks, tilemap, mapW, 240, 160), 240, 160)
+
+  local sprites = {
+    -- src/region_map.c:2692-2713
+    { name = "cursor.png", gfx = Versions.REGION_MAP_CURSOR_GFX,
+      pal = Versions.REGION_MAP_CURSOR_PAL, w = 2, h = 2, frame = 0 },
+    -- src/region_map.c:3448, 3595-3601
+    { name = "dungeon_icon.png", gfx = Versions.REGION_MAP_DUNGEON_ICON_GFX,
+      pal = Versions.REGION_MAP_MISC_ICON_PAL, w = 1, h = 1, frame = 0 },
+    -- src/region_map.c:3375-3408
+    { name = "player_red.png", gfx = Versions.REGION_MAP_PLAYER_RED_GFX,
+      pal = Versions.REGION_MAP_PLAYER_RED_PAL, w = 2, h = 2, frame = 0 },
+    { name = "player_leaf.png", gfx = Versions.REGION_MAP_PLAYER_LEAF_GFX,
+      pal = Versions.REGION_MAP_PLAYER_LEAF_PAL, w = 2, h = 2, frame = 0 },
+  }
+  for _, s in ipairs(sprites) do
+    local tiles = Lz77.decompress(get, s.gfx)
+    local bank = BgBake.loadPalBanks(readBytes(rom, s.pal, 32), 1)[0]
+    local wanted = (s.frame + 1) * s.w * s.h * 32
+    if Lz77.len(tiles) < wanted then
+      error(("region_map: %s is %d bytes, expected %d"):format(s.name, Lz77.len(tiles), wanted))
+    end
+    put(s.name, bakeSpritePixels(BgBake, tiles, bank, s.w, s.h, s.frame))
+  end
+
+  return { root = root, files = written }
 end
 
 return RegionMapExtract

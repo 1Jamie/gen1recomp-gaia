@@ -10,6 +10,8 @@ local Encounters = {}
 Encounters._tables = {} -- mapId or "group:num" → { land = { rate, slots }, ... }
 Encounters._pendingWild = nil
 Encounters._prevGrass = false -- pret first-step-into-grass gate
+Encounters._prevMetatileBehavior = 0 -- pokefirered/src/wild_encounter.c:27
+Encounters._encounterTypes = nil -- pokefirered/src/fieldmap.c:68
 Encounters._stepsSinceLastEncounter = 0 -- pret sWildEncounterData.stepsSinceLastEncounter
 Encounters._encounterRateBuff = 0 -- pret sWildEncounterData.encounterRateBuff
 Encounters._logged = false
@@ -27,6 +29,11 @@ local ABILITY_ILLUMINATE = 35
 local ITEM_CLEANSE_TAG = 190
 local FLAG_SYS_WHITE_FLUTE_ACTIVE = 0x803
 local FLAG_SYS_BLACK_FLUTE_ACTIVE = 0x804
+
+-- pokefirered/include/global.fieldmap.h:40
+local TILE_ENCOUNTER_NONE = 0
+local TILE_ENCOUNTER_LAND = 1
+local TILE_ENCOUNTER_WATER = 2
 
 -- pret GetMapBaseEncounterCooldown returns 0xFF when the map has no encounter
 -- data for that tile type, which aborts the check instead of granting a grace
@@ -123,6 +130,56 @@ function Encounters.ensureLoaded()
   end
   Encounters.loadFromMod(nil)
   return Encounters._loaded
+end
+
+-- pokefirered/src/fieldmap.c:68
+function Encounters.installEncounterTypes(tbl)
+  Encounters._encounterTypes = (type(tbl) == "table" and next(tbl) ~= nil) and tbl or nil
+end
+
+local function collision_mod()
+  return package.loaded["src.core.game3.collision"]
+end
+
+-- pokefirered/src/fieldmap.c:385
+function Encounters.encounterTypeAt(cx, cy)
+  local types = Encounters._encounterTypes
+  if not types then return nil end
+  local Collision = collision_mod()
+  local mapDef = Collision and Collision._mapDef
+  local layout = mapDef and mapDef.midLayout
+  if not layout then return nil end
+  local pair = mapDef.pair or layout.pair
+  local forPair = pair and types[pair]
+  if not forPair then return nil end
+  return forPair[layout:midAt(cx, cy)] or TILE_ENCOUNTER_NONE
+end
+
+local function fallback_encounter_type(cx, cy)
+  local Collision = collision_mod()
+  if not Collision then return TILE_ENCOUNTER_NONE end
+  if Collision.isWater and Collision.isWater(cx, cy) then return TILE_ENCOUNTER_WATER end
+  if Collision.isGrass and Collision.isGrass(cx, cy) then return TILE_ENCOUNTER_LAND end
+  return TILE_ENCOUNTER_NONE
+end
+
+-- pokefirered/src/fieldmap.c:391
+local function behavior_at(cx, cy)
+  local Collision = collision_mod()
+  if not (Collision and Collision.behavior) then return nil end
+  return Collision.behavior(cx, cy) or 0
+end
+
+local TERRAIN_FOR_TYPE = {
+  [TILE_ENCOUNTER_LAND] = "land",
+  [TILE_ENCOUNTER_WATER] = "water",
+}
+
+-- pokefirered/src/wild_encounter.c:366,404
+function Encounters.terrainAt(cx, cy)
+  local t = Encounters.encounterTypeAt(cx, cy)
+  if t == nil then t = fallback_encounter_type(cx, cy) end
+  return TERRAIN_FOR_TYPE[t]
 end
 
 function Encounters.setWildBattle(species, level, item)
@@ -392,6 +449,23 @@ local function repel_active()
   return steps > 0
 end
 
+-- pokefirered/src/wild_encounter.c:601
+local function wild_level_allowed_by_repel(wildLevel)
+  if not repel_active() then return true end
+  local ok, Runtime = pcall(require, "src.core.game3.runtime")
+  local session = ok and Runtime and Runtime.getSession and Runtime.getSession()
+  local party = session and session.party
+  if type(party) ~= "table" then return false end
+  for i = 1, 6 do
+    local mon = party[i]
+    if type(mon) == "table" and (tonumber(mon.hp) or tonumber(mon.currentHp) or 1) > 0
+      and not mon.isEgg and not mon.egg then
+      return not ((tonumber(wildLevel) or 0) < (tonumber(mon.level) or 0))
+    end
+  end
+  return false
+end
+
 --- pret AddToWildEncounterRateBuff: bank a failed roll's rate so the next
 --- attempt is likelier. A Repel zeroes the bank instead of growing it.
 local function add_to_rate_buff(rate)
@@ -454,9 +528,15 @@ local function roll_area(mapId, areaKey, weights, enterFromOther, fallbackRate)
     add_to_rate_buff(area.rate)
     return nil
   end
+  -- pokefirered/src/wild_encounter.c:286
+  local level = level_of(entry)
+  if not wild_level_allowed_by_repel(level) then
+    add_to_rate_buff(area.rate)
+    return nil
+  end
   return {
     species = entry.species or entry[1],
-    level = level_of(entry),
+    level = level,
     item = entry.item,
   }
 end
@@ -519,7 +599,25 @@ end
 
 local function same_encounter(enc) return enc end
 
+-- pokefirered/src/wild_encounter.c:757
 function Encounters.onStep(mapId, terrain, opts)
+  opts = opts or {}
+  local x, y = opts.x, opts.y
+  local behavior = opts.behavior
+  if behavior == nil and x and y then behavior = behavior_at(x, y) end
+  if terrain == nil and x and y then terrain = Encounters.terrainAt(x, y) end
+
+  local prevBehavior = Encounters._prevMetatileBehavior
+  if behavior ~= nil then Encounters._prevMetatileBehavior = behavior end
+  if x and y and terrain == nil then return nil end
+
+  if opts.enterFromOther == nil and behavior ~= nil then
+    opts = {
+      enterFromOther = behavior ~= prevBehavior,
+      x = x, y = y, behavior = behavior,
+    }
+  end
+
   local wantsRoll = ModRuntime.wantsHook("encounter.roll")
   local wantsSpecies = ModRuntime.wantsHook("encounter.species")
   if not (wantsRoll or wantsSpecies) then

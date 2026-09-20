@@ -4,6 +4,7 @@
 local Party = require("src.core.game3.party")
 local PartyView = require("src.core.game3.battle.party_view")
 local Downgrade = require("src.core.game3.battle_downgrade")
+local Pokemon = require("src.core.game3.pokemon")
 local ModRuntime = require("src.mods.Runtime")
 
 local BattleBridge = {}
@@ -175,6 +176,9 @@ local function writeback(session, battleParty, remap, result, save, opts)
         speciesId = src.speciesId or src.species,
         name = src.name,
         growthRate = src.growthRate,
+        evs = src.evs,
+        friendship = src.friendship,
+        pokerus = src.pokerus,
         attack = src.attack or src.atk,
         defense = src.defense or src.def,
         speed = src.speed or src.spe,
@@ -222,6 +226,17 @@ function BattleBridge.start(mod, game, foe, opts)
   BattleBridge._remap = remap
   BattleBridge._battleParty = battleParty
 
+  -- pokefirered/src/battle_main.c:713
+  if not opts.wild and Pokemon.isLeagueTrainerClass(foe and foe.trainerClass) then
+    local ctx = { leagueBattle = true, mapSec = Pokemon.currentMapSec(session) }
+    for i, mon in ipairs(session.party or {}) do
+      if Pokemon.adjustFriendship(mon, Pokemon.FRIENDSHIP_EVENT_LEAGUE_BATTLE, ctx)
+          and battleParty[i] then
+        battleParty[i].friendship = Pokemon.friendshipOf(mon)
+      end
+    end
+  end
+
   local save = game and game.save
   local done = opts.done
 
@@ -230,6 +245,11 @@ function BattleBridge.start(mod, game, foe, opts)
   end
 
   local function finish(result)
+    -- pokefirered/src/battle_main.c:196
+    local okN, Natives = pcall(require, "src.core.game3.scripting.natives")
+    if okN and Natives and Natives.outcome_to_code then
+      session.battleOutcome = Natives.outcome_to_code(result or "win")
+    end
     writeback(session, battleParty, remap, result, save, opts)
     -- pokefirered/src/battle_main.c:3861
     if ModRuntime.wants("battle.ended") then
@@ -247,6 +267,11 @@ function BattleBridge.start(mod, game, foe, opts)
     local okF, Fade = pcall(require, "src.ui.game3.fade")
     if okF and Fade and Fade.begin and not opts.headless and opts.fade ~= false then
       Fade.begin(Fade.MODE.FROM_BLACK, 1)
+    end
+    -- pokefirered/src/battle_setup.c:432
+    local okS, Space = pcall(require, "src.core.game3.scripting.space")
+    if okS and Space and Space.returnToField then
+      pcall(Space.returnToField)
     end
     if done then done(result or "win") end
   end

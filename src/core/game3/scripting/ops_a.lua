@@ -493,29 +493,34 @@ local function dispatch(vm, row)
     end
     return false
   elseif op == "specialvar" then
-    if Natives.special(ctx, row[2], a) then
+    -- pokefirered/src/scrcmd.c:109
+    local yield, value, known = Natives.special(ctx, row[2], a)
+    if value == nil and not known then value = 0 end
+    if value ~= nil then
+      Flags.setVar(store, ctx, row[1], value)
+    end
+    if yield then
       return true
     end
     return false
   elseif op == "waitstate" then
-    -- Host specials / warps that set nativePoll or warpPending: wait out; else no-op.
-    if ctx.warpPending then
+    -- pokefirered/src/scrcmd.c:127
+    local task = ctx.stateWait
+    ctx.stateWait = nil
+    local inner = (ctx.mode == "native") and ctx.nativePoll or nil
+    if task or ctx.warpPending or inner then
       ctx.mode = "native"
       ctx.status = "waiting"
       ctx.nativePoll = function()
-        -- Drain Gen2 MAPSETUP fade (adapters.warp defers done until mapSetup clears).
-        if a.pollWarp then a.pollWarp() end
-        return not ctx.warpPending
+        if ctx.warpPending then
+          -- Drain Gen2 MAPSETUP fade (adapters.warp defers done until mapSetup clears).
+          if a.pollWarp then a.pollWarp() end
+          if ctx.warpPending then return false end
+        end
+        if task and not task() then return false end
+        if inner and not inner() then return false end
+        return true
       end
-      if ctx.nativePoll() then
-        ctx.mode = "bytecode"
-        ctx.status = "running"
-        ctx.nativePoll = nil
-        return false
-      end
-      return true
-    end
-    if ctx.mode == "native" and ctx.nativePoll then
       if ctx.nativePoll() then
         ctx.mode = "bytecode"
         ctx.status = "running"

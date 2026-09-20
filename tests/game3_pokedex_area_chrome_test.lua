@@ -32,7 +32,8 @@ local PokedexChrome = require("src.ui.game3.pokedex_chrome")
 local Pokedex = require("src.ui.game3.pokedex")
 
 print("[test] 1. versions.lua carries the area-page / size-page ROM offsets")
-eq(Versions.CACHE_VERSION, 103, "CACHE_VERSION bumped for the dex chrome import")
+check(Versions.CACHE_VERSION >= 103, "CACHE_VERSION at or past the dex chrome import ("
+  .. tostring(Versions.CACHE_VERSION) .. ")")
 eq(Extract.FORMAT_VERSION, 4, "pokedex FORMAT_VERSION bumped")
 
 local gfxByFile = {}
