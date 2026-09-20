@@ -51,6 +51,20 @@ local function promptText()
   return drawnText()
 end
 
+-- The status box above the menu, drawn while a Contest is running. Returns
+-- what reached the screen as "text@tileX" so a column can be asserted too.
+local function statusBox(mon)
+  local menu = StartMenu.new({ save = {} }, { save = {} })
+  menu.contest = true
+  menu.save = { bugContest = { active = true, balls = 15, caught = mon } }
+  menu.list = { draw = function() end }
+  drawn = {}
+  menu:drawContestStatus()
+  local out = {}
+  for _, d in ipairs(drawn) do out[#out + 1] = d.text .. "@" .. tostring(d.x / 8) end
+  return table.concat(out, "|")
+end
+
 -- StartGameCornerGame's first refusal: no coins at all.
 local function coinsRefusal()
   local shown
@@ -73,6 +87,11 @@ do
   T.eq(coinsRefusal(), "You have no coins.",
     "the Game Corner refusal is unchanged in English")
 
+  local box = statusBox(nil)
+  T.check(box:find("CAUGHT@1", 1, true) ~= nil, "the status box labels draw in English")
+  T.check(box:find("None@8", 1, true) ~= nil,
+    "with the empty-slot placeholder in the cart's own column")
+  T.check(box:find("BALLS:@1", 1, true) ~= nil, "and the ball counter's label")
 end
 
 -- ------------------------------------------------- a translation mod's turn
@@ -84,6 +103,9 @@ do
       ["You have no coins."] = "Vous n'avez pas de\njetons.",
       ["YES"] = "OUI",
       ["NO"] = "NON",
+      ["CAUGHT"] = "ATTRAPE",
+      ["BALLS:"] = "BALLES:",
+      ["contest.caught|None"] = "AUCUN",
     },
   })
 
@@ -97,6 +119,22 @@ do
   T.eq(coinsRefusal(), "Vous n'avez pas de\njetons.",
     "and the Game Corner refusal too")
 
+  local box = statusBox(nil)
+  T.check(box:find("ATTRAPE@1", 1, true) ~= nil, "the status box labels translate")
+  -- ATTRAPE fills the seven tiles CAUGHT left before the cart's x=8 column,
+  -- so the value moves one tile right to keep a space between them.
+  T.check(box:find("AUCUN@9", 1, true) ~= nil,
+    "and the placeholder starts after the label, with the context key applied")
+end
+
+-- A label wider than the cart's own pushes the value right instead of being
+-- drawn over by it.
+do
+  Strings.load({ strings = { ["CAUGHT"] = "GEFANGEN", ["BALLS:"] = "BAELLE:", ["None"] = "KEINES" } })
+  local box = statusBox(nil)
+  T.check(box:find("GEFANGEN@1", 1, true) ~= nil, "the wide label still starts at the cart's x")
+  T.check(box:find("KEINES@10", 1, true) ~= nil,
+    "and its value starts past it, not on top of it")
 end
 
 Strings.load({})

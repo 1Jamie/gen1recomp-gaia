@@ -21,6 +21,7 @@
 
 local BugContest = require("src.core.gen2.BugContest")
 local Chrome = require("src.ui.gen2.Chrome")
+local Font = require("src.render.Font")
 local Logger = require("src.core.Logger")
 local Runtime = require("src.mods.Runtime")
 local Sound = require("src.core.Sound")
@@ -344,18 +345,31 @@ end
 -- "None" placeholder are text, so they go through the catalog like the
 -- prompt below.  The caught mon's own name does not: it is a nickname or a
 -- species the `pokemon` registry already renames.
+-- The cart pins each value to its own column (x=8, 7, 8) because it knows how
+-- wide its own labels are.  A translated label can be wider -- "ATTRAPÉ" fills
+-- the 7 tiles CAUGHT leaves, "GEFANGEN" and "ATRAPADO" one more -- so the value
+-- starts after the label instead of drawing on top of it, keeping the cart's
+-- column whenever the label fits.
+local function valueColumn(label, cartColumn)
+  local labelTiles = math.ceil(Font.width(label) / 8)
+  return math.max(cartColumn, 1 + labelTiles + 1)
+end
+
 function StartMenu:drawContestStatus()
   Chrome.textbox(0, 0, 17, 5)
-  Chrome.print("CAUGHT", 1, 1)
+  local caught = Strings("CAUGHT")
+  local balls = Strings("BALLS:")
+  Chrome.print(caught, 1, 1)
   local mon = BugContest.caughtMon(self.save)
-  Chrome.print(mon and (mon.nickname or mon.name or mon.species) or "None",
-    8, 1)
+  Chrome.print(mon and (mon.nickname or mon.name or mon.species)
+    or Strings("None", "contest.caught"), valueColumn(caught, 8), 1)
   if mon then
-    Chrome.print("LEVEL", 1, 3)
-    Chrome.print(tostring(mon.level or 1), 7, 3)
+    local level = Strings("LEVEL")
+    Chrome.print(level, 1, 3)
+    Chrome.print(tostring(mon.level or 1), valueColumn(level, 7), 3)
   end
-  Chrome.print("BALLS:", 1, 5)
-  Chrome.print(tostring(BugContest.ballsLeft(self.save)), 8, 5)
+  Chrome.print(balls, 1, 5)
+  Chrome.print(tostring(BugContest.ballsLeft(self.save)), valueColumn(balls, 8), 5)
 end
 
 function StartMenu:draw()

@@ -108,6 +108,9 @@ REQUIRED = {
     # The Bug-Catching Contest confirmation, one key rather than the two
     # half-sentences it used to be drawn as.
     "Would you like to\nend the Contest?",
+    # and its status box above the menu. "None" carries a context there, since
+    # the bare key is also the import wizard's "no limit" label.
+    "CAUGHT", "LEVEL", "BALLS:",
 }
 
 
