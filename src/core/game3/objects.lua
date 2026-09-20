@@ -390,7 +390,7 @@ function Objects.loadMap(game, mapId, mapDef)
     Objects._tracks = {}
     Objects._templateMt = {}
     -- pokefirered/src/overworld.c:405
-    Objects._perm[mapId] = nil
+    Objects._perm = {}
   end
   Objects._byId = {}
   Objects._order = {}

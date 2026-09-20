@@ -793,14 +793,9 @@ function Adapters.host(mod, game, world)
           npc.cellX, npc.cellY = x, y
           if npc.x then npc.x = x * 16 end
           if npc.y then npc.y = y * 16 end
-          if npc.def then
-            npc.def.x, npc.def.y = x, y
-          end
         end
       elseif op == "copyobjectxytoperm" then
-        if npc.cellX and npc.cellY and npc.def then
-          npc.def.x, npc.def.y = npc.cellX, npc.cellY
-        end
+        -- Instance template copy on live NPC; do not poison global mapDef.objects.
       elseif op == "setobjectmovementtype" then
         -- Cosmetic on host; facing types 7–10 are FACE_*.
         local mt = tonumber(row[2]) or 0
