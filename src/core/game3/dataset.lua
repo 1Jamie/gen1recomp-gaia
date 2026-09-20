@@ -23,8 +23,13 @@ local function diskFallback(rel)
     prefixes[#prefixes + 1] = "firered/"
   end
   local roots = {}
-  local sandboxed = (os.getenv("POKEPORT_IDENTITY") or "") ~= ""
+  local identity = os.getenv("POKEPORT_IDENTITY") or ""
+  local sandboxed = identity ~= ""
   local home = os.getenv("HOME")
+  if home and sandboxed then
+    roots[#roots + 1] = home .. "/Library/Application Support/LOVE/" .. identity
+    roots[#roots + 1] = home .. "/.local/share/love/" .. identity
+  end
   if home and not sandboxed then
     roots[#roots + 1] = home .. "/.local/share/love/pokemon-love2d"
   end

@@ -119,8 +119,23 @@ function MultichoiceExtract.run(rom, cache, opts)
   local content = MultichoiceExtract.formatLua(lists)
   local rel = multichoice_path(opts.cacheRoot)
 
-  local ok, err = cache:write(rel, content)
-  if ok == false then
+  local wrote, err = false, nil
+  if cache and cache.write then
+    local ok, werr = cache:write(rel, content)
+    if ok == false then err = werr else wrote = true end
+  end
+  if not wrote then
+    local okC, CacheFs = pcall(require, "src.import.CacheFs")
+    if okC and CacheFs and CacheFs.write then
+      local ok, werr = pcall(CacheFs.write, rel, content)
+      if ok then wrote = true else err = err or werr end
+    end
+  end
+  if not wrote and love and love.filesystem and love.filesystem.write then
+    local ok, werr = pcall(love.filesystem.write, rel, content)
+    if ok then wrote = true else err = err or werr end
+  end
+  if not wrote then
     error("multichoice: could not write " .. rel .. ": " .. tostring(err))
   end
 

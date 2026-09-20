@@ -96,8 +96,20 @@ local function escape_lua(s)
 end
 
 local function write_file(cache, relPath, content)
+  local wrote = false
   if cache and cache.write then
     cache:write(relPath, content)
+    wrote = true
+  end
+  if not wrote then
+    local okC, CacheFs = pcall(require, "src.import.CacheFs")
+    if okC and CacheFs and CacheFs.write then
+      local ok = pcall(CacheFs.write, relPath, content)
+      if ok then wrote = true end
+    end
+  end
+  if not wrote and love and love.filesystem and love.filesystem.write then
+    pcall(love.filesystem.write, relPath, content)
   end
   local f = io.open(relPath, "wb") or io.open("data/generated/gba/" .. relPath:gsub("^data/generated/gba/", ""), "wb")
   if f then

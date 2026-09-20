@@ -500,6 +500,17 @@ function Extract.run(imports, cache, progressCb)
         print("[door_extract] warn: " .. tostring(errD))
       end
     end
+    do
+      local RegionMapExtract = require("src.import.gba.region_map_extract")
+      local okRm, errRm = pcall(RegionMapExtract.run, rom2, cache, {
+        cacheRoot = Extract.CACHE_ROOT,
+      })
+      if okRm then
+        print("[region_map] region map chrome extracted from ROM")
+      else
+        print("[region_map] warn: " .. tostring(errRm))
+      end
+    end
     rom2:clearCache()
   end
 
@@ -1827,6 +1838,9 @@ local function _dormant_quantize_run(imports, cache, progressCb)
       local MapPreviewExtract = require("src.import.gba.map_preview_extract")
       local okMp, errMp = pcall(MapPreviewExtract.run, rom2, cache, { cacheRoot = Extract.CACHE_ROOT })
       if not okMp then print("[map_preview] warn: " .. tostring(errMp)) end
+      local RegionMapExtract = require("src.import.gba.region_map_extract")
+      local okRm, errRm = pcall(RegionMapExtract.run, rom2, cache, { cacheRoot = Extract.CACHE_ROOT })
+      if not okRm then print("[region_map] warn: " .. tostring(errRm)) end
     end
     rom2:clearCache()
   end
