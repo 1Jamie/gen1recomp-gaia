@@ -20,6 +20,42 @@ local function runtimeActive()
   return Runtime and Runtime.isActive and Runtime.isActive()
 end
 
+-- pokefirered/include/constants/flags.h:1327
+local FLAG_SYS_SAFARI_MODE = 0x800
+
+-- pokefirered/src/battle_setup.c:239
+local function safari_mode_active(session)
+  if session and session.safari and session.safari.active then return true end
+  local okS, Space = pcall(require, "src.core.game3.scripting.space")
+  if not okS or not Space or not Space.store then return false end
+  local okF, Flags = pcall(require, "src.core.game3.scripting.flags")
+  if not okF or not Flags or not Flags.getFlag then return false end
+  return Flags.getFlag(Space.store, nil, FLAG_SYS_SAFARI_MODE) and true or false
+end
+
+local _battleScene = {}
+
+-- pokefirered/src/overworld.c:1270
+local function map_battle_scene(mapId)
+  if type(mapId) ~= "string" then return nil end
+  local hit = _battleScene[mapId]
+  if hit ~= nil then return hit or nil end
+  local scene = false
+  pcall(function()
+    local MapCatalog = require("src.import.gba.map_catalog")
+    local slot = MapCatalog.slotKeyFor and MapCatalog.slotKeyFor(mapId)
+    if not slot then return end
+    local CacheFs = require("src.import.CacheFs")
+    local raw = CacheFs.readActive("data/generated/gba/map_tree/maps/" .. slot .. "/header.json")
+    if type(raw) ~= "string" then return end
+    local h = require("src.link.Json").decode(raw)
+    if type(h) == "table" then scene = tonumber(h.battleType) or false end
+  end)
+  _battleScene[mapId] = scene
+  return scene or nil
+end
+BattleBridge.mapBattleScene = map_battle_scene
+
 local BADGE_LOSS_MULT = { 2, 4, 6, 9, 12, 16, 20, 25, 30 } -- index 0..8 badges
 local BADGE_FLAGS = {
   0x820, 0x821, 0x822, 0x823, 0x824, 0x825, 0x826, 0x827, -- FLAG_BADGE01..08
@@ -206,6 +242,35 @@ local function writeback(session, battleParty, remap, result, save, opts)
   Field.respawnAtHeal()
 end
 
+-- pokefirered/src/pokemon.c:5483
+local function league_trainer_class(foe, opts)
+  local tid = tonumber((opts and opts.trainerId) or (foe and foe.trainerId))
+  if tid then
+    local okT, Trainers = pcall(require, "src.core.game3.scripting.trainers")
+    local info = okT and Trainers and Trainers.info and Trainers.info(tid)
+    if info and info.class ~= nil then return info.class end
+  end
+  return foe and foe.trainerClass
+end
+
+-- pokefirered/src/battle_main.c:713
+function BattleBridge.applyLeagueFriendship(session, battleParty, foe, opts)
+  opts = opts or {}
+  if opts.wild or type(session) ~= "table" then return false end
+  if not Pokemon.isLeagueTrainerClass(league_trainer_class(foe, opts)) then return false end
+  local ctx = { leagueBattle = true, mapSec = Pokemon.currentMapSec(session) }
+  local changed = false
+  for i, mon in ipairs(session.party or {}) do
+    if Pokemon.adjustFriendship(mon, Pokemon.FRIENDSHIP_EVENT_LEAGUE_BATTLE, ctx) then
+      changed = true
+      if battleParty and battleParty[i] then
+        battleParty[i].friendship = Pokemon.friendshipOf(mon)
+      end
+    end
+  end
+  return changed
+end
+
 --- Start owned game3 battle (async). opts.done(result) when finished.
 -- opts.earlyRival / opts.rivalFlags / opts.noWhiteout: Oaks Lab tutorial loss.
 function BattleBridge.start(mod, game, foe, opts)
@@ -226,16 +291,7 @@ function BattleBridge.start(mod, game, foe, opts)
   BattleBridge._remap = remap
   BattleBridge._battleParty = battleParty
 
-  -- pokefirered/src/battle_main.c:713
-  if not opts.wild and Pokemon.isLeagueTrainerClass(foe and foe.trainerClass) then
-    local ctx = { leagueBattle = true, mapSec = Pokemon.currentMapSec(session) }
-    for i, mon in ipairs(session.party or {}) do
-      if Pokemon.adjustFriendship(mon, Pokemon.FRIENDSHIP_EVENT_LEAGUE_BATTLE, ctx)
-          and battleParty[i] then
-        battleParty[i].friendship = Pokemon.friendshipOf(mon)
-      end
-    end
-  end
+  BattleBridge.applyLeagueFriendship(session, battleParty, foe, opts)
 
   local save = game and game.save
   local done = opts.done
@@ -282,6 +338,20 @@ function BattleBridge.start(mod, game, foe, opts)
   local mapId = Map.current
   local mapDef = game and game.data and game.data.maps and mapId and game.data.maps[mapId]
   local mapKind = (mapDef and mapDef.kind) or opts.mapKind
+  local mapType = (mapDef and mapDef.mapType) or opts.mapType
+  local mapBattleScene = (mapDef and mapDef.battleType) or opts.mapBattleScene
+    or map_battle_scene(mapId)
+  -- pokefirered/src/battle_setup.c:471 PlayerGetDestCoords
+  local mapBehavior = opts.mapBehavior
+  if mapBehavior == nil then
+    local okC, Collision = pcall(require, "src.core.game3.collision")
+    local okP, Player = pcall(require, "src.core.game3.player")
+    if okC and okP and Collision.behavior then
+      local bx, by = Player.cellX, Player.cellY
+      if Player.moving then bx, by = Player.targetX, Player.targetY end
+      mapBehavior = Collision.behavior(bx, by)
+    end
+  end
 
   local gender = 0
   if session.gender == "female" or session.gender == "F" or session.gender == 1 then
@@ -290,12 +360,20 @@ function BattleBridge.start(mod, game, foe, opts)
     gender = 1
   end
 
+  local wildScripted = opts.wildScripted or (foe and foe.wildScripted)
+  local legendary = opts.legendary or (foe and foe.legendary)
+  local roamer = opts.roamer or (foe and foe.roamer)
+  -- pokefirered/src/battle_setup.c:237
+  local standardWild = opts.wild and not opts.trainerId
+    and not wildScripted and not legendary and not roamer
+    and not opts.firstBattle and not opts.oldManTutorial
   local startOpts = {
     wild = opts.wild,
-    wildScripted = opts.wildScripted or (foe and foe.wildScripted),
-    legendary = opts.legendary or (foe and foe.legendary),
-    safari = opts.safari or (foe and foe.safari),
-    roamer = opts.roamer or (foe and foe.roamer),
+    wildScripted = wildScripted,
+    legendary = legendary,
+    safari = opts.safari or (foe and foe.safari)
+      or (standardWild and safari_mode_active(session)) or nil,
+    roamer = roamer,
     firstBattle = opts.firstBattle or (foe and foe.firstBattle),
     oldManTutorial = opts.oldManTutorial or (foe and foe.oldManTutorial),
     aiFlags = opts.aiFlags or (foe and foe.aiFlags),
@@ -306,6 +384,9 @@ function BattleBridge.start(mod, game, foe, opts)
     fade = opts.fade,
     rng = opts.rng,
     mapKind = mapKind,
+    mapType = mapType,
+    mapBehavior = mapBehavior,
+    mapBattleScene = mapBattleScene,
     terrain = opts.terrain,
     trainerId = opts.trainerId or (foe and foe.trainerId),
     defeatText = opts.defeatText or (foe and foe.defeatText),

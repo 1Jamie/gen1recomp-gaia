@@ -19,6 +19,8 @@ local function yield_host(ctx, adapters, startFn)
   return not finished -- true = caller should yield
 end
 
+Natives.yieldHost = yield_host
+
 -- pokefirered/src/script.c:366
 function Natives.awaitState(ctx, task)
   if type(task) ~= "function" then return end
@@ -82,6 +84,19 @@ local function setStringVar(ctx, adapters, index, text)
   if ctx and ctx.stringVars then ctx.stringVars[index] = text end
 end
 
+-- pokefirered/src/party_menu_specials.c:38, pokefirered/src/party_menu.c:6317
+local function takeScreenForPartyMenu()
+  local okF, Fade = pcall(require, "src.ui.game3.fade")
+  if not (okF and Fade and Fade.begin and Fade.MODE) then return function() end end
+  local covered = not (Fade.isActive and Fade.isActive()) and (tonumber(Fade.t) or 0) >= 16
+  -- pokefirered/src/party_menu.c:6329 FadeInFromBlack
+  if not (covered and Fade.mode == Fade.MODE.TO_BLACK) then return function() end end
+  Fade.clear()
+  return function()
+    Fade.begin(Fade.MODE.FROM_BLACK, 1, function() end)
+  end
+end
+
 -- pokefirered/src/party_menu_specials.c:14
 function Natives.choosePartyMon(ctx, adapters, menuType)
   local party, session = partyOf()
@@ -89,9 +104,11 @@ function Natives.choosePartyMon(ctx, adapters, menuType)
     setSpecialVar(ctx, 0x8004, slot0)
   end
   if adapters and adapters.chooseParty then
+    local restore = takeScreenForPartyMenu()
     return yield_host(ctx, adapters, function(done)
       adapters.chooseParty({ menuType = menuType }, function(slot0)
         resolveTo(tonumber(slot0) or SLOT_CANCEL)
+        restore()
         done()
       end)
     end)
@@ -101,6 +118,7 @@ function Natives.choosePartyMon(ctx, adapters, menuType)
     resolveTo(SLOT_CANCEL)
     return false
   end
+  local restore = takeScreenForPartyMenu()
   return yield_host(ctx, adapters, function(done)
     local resolved = false
     PartyMenu.show(party, nil, {
@@ -112,6 +130,7 @@ function Natives.choosePartyMon(ctx, adapters, menuType)
       end,
       onClose = function()
         if not resolved then resolveTo(SLOT_CANCEL) end
+        restore()
         done()
       end,
     })
@@ -361,26 +380,6 @@ Natives.ALLOW = {
     end
     setSpecialVar(ctx, 0x4025, 0)
     return false
-  end,
-  -- pokefirered/src/daycare.c:1227
-  ["special:" .. Std.SPECIAL.GetDaycareState] = function(ctx)
-    local rt = package.loaded["src.core.game3.runtime"]
-    local session = rt and rt.getSession and rt.getSession()
-    local dc = session and session.daycare
-    local state = 0 -- pokefirered/include/constants/daycare.h:11
-    if dc then
-      if dc.eggPending then
-        state = 1
-      else
-        local n = 0
-        for i = 1, 2 do
-          if dc[i] or (dc.mons and dc.mons[i]) then n = n + 1 end
-        end
-        if n > 0 then state = n + 1 end
-      end
-    end
-    setResult(ctx, state)
-    return false, state
   end,
   -- pokefirered/src/battle_setup.c:320
   ["special:" .. Std.SPECIAL.StartMarowakBattle] = function(ctx, adapters)
@@ -730,15 +729,67 @@ Natives.ALLOW = {
   end,
 }
 
-Natives.Queries = require("src.core.game3.scripting.natives_queries")
-for id, handler in pairs(Natives.Queries.HANDLERS) do
-  Natives.ALLOW["special:" .. id] = handler
+local MODULE_DIR = "src/core/game3/scripting"
+local MODULE_PACKAGE = "src.core.game3.scripting."
+
+local KNOWN_MODULES = {
+  "natives_cutscene",
+  "natives_daycare",
+  "natives_elevator",
+  "natives_events",
+  "natives_listmenu",
+  "natives_queries",
+  "natives_seagallop",
+  "natives_trade",
+}
+Natives.KNOWN_MODULES = KNOWN_MODULES
+Natives.MODULE_DIR = MODULE_DIR
+
+local function collectModule(names, seen, entry)
+  local base = type(entry) == "string" and entry:match("^(natives_[%w_]+)%.lua$")
+  if base and not seen[base] then
+    seen[base] = true
+    names[#names + 1] = base
+  end
 end
 
-Natives.Seagallop = require("src.core.game3.scripting.natives_seagallop")
-for id, handler in pairs(Natives.Seagallop.HANDLERS) do
-  Natives.ALLOW["special:" .. id] = handler
+local function discoverModules()
+  local names, seen = {}, {}
+  local fs = type(love) == "table" and love.filesystem
+  if fs and fs.getDirectoryItems then
+    pcall(function()
+      for _, entry in ipairs(fs.getDirectoryItems(MODULE_DIR)) do
+        collectModule(names, seen, entry)
+      end
+    end)
+  elseif io and io.popen then
+    pcall(function()
+      local pipe = io.popen('ls -1 "' .. MODULE_DIR .. '" 2>/dev/null')
+      if not pipe then return end
+      for line in pipe:lines() do collectModule(names, seen, line) end
+      pipe:close()
+    end)
+  end
+  for _, base in ipairs(KNOWN_MODULES) do collectModule(names, seen, base .. ".lua") end
+  table.sort(names)
+  return names
 end
+
+Natives.MODULE_NAMES = discoverModules()
+Natives.MODULES = {}
+
+for _, base in ipairs(Natives.MODULE_NAMES) do
+  local ok, mod = pcall(require, MODULE_PACKAGE .. base)
+  if ok and type(mod) == "table" then
+    Natives.MODULES[base] = mod
+    for id, handler in pairs(mod.HANDLERS or {}) do
+      Natives.ALLOW["special:" .. id] = handler
+    end
+  end
+end
+
+Natives.Queries = Natives.MODULES["natives_queries"]
+Natives.Seagallop = Natives.MODULES["natives_seagallop"]
 
 function Natives.resetLog()
   Natives._logged = {}

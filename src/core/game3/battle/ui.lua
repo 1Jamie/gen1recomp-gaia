@@ -1202,6 +1202,13 @@ local function handle_double_input(input)
     if input:wasPressed("a") then
       play_select()
       Ui._actionCursor[id] = Ui._menuIndex
+      if st and st.safari then
+        -- pokefirered/src/battle_controller_safari.c:162
+        Ui._pendingCommand = Commands.playerAction(st, Ui._menuIndex, nil, id)
+        Ui._mode = "none"
+        end_all_bounces()
+        return true
+      end
       local kind = Commands.MENU[Ui._menuIndex]
       if kind == "FIGHT" then
         local act, msg = Commands.fightShortcut(st, id)
@@ -1361,6 +1368,12 @@ function Ui.handleInput(input)
     end
     if input:wasPressed("a") then
       play_select()
+      if Ui._st and Ui._st.safari then
+        -- pokefirered/src/battle_controller_safari.c:162
+        Ui._pendingCommand = Commands.playerAction(Ui._st, Ui._menuIndex, nil)
+        Ui._mode = "none"
+        return true
+      end
       local kind = Commands.MENU[Ui._menuIndex]
       if kind == "FIGHT" then
         local act, msg = Commands.fightShortcut(Ui._st)
@@ -1765,8 +1778,15 @@ local function draw_action_menu(st)
   -- cursor is a 1×2 BG pip whose ink lines up with printer y=2 text → draw at text Y.
   local ab = st and (is_double(st) and active_battler(st) or st.player)
   local name = ab and State.displayName(ab) or "POKéMON"
-  draw_prompt_text(Strings("What will\n%s do?", name), 10, 122)
   local labels = { Strings("FIGHT"), Strings("BAG"), Strings("POKéMON"), Strings("RUN") }
+  if st and st.safari then
+    -- pokefirered/src/battle_controller_safari.c:446
+    local pname = (st.playerName ~= nil and st.playerName ~= "" and st.playerName) or "RED"
+    draw_prompt_text(Strings("What will %s\nthrow?", pname), 10, 122)
+    labels = { Strings("BALL"), Strings("BAIT"), Strings("ROCK"), Strings("RUN") }
+  else
+    draw_prompt_text(Strings("What will\n%s do?", name), 10, 122)
+  end
   local positions = {
     { 136, 122 }, { 184, 122 },
     { 136, 138 }, { 184, 138 },
@@ -2089,7 +2109,8 @@ function Ui.draw(w, h)
   Anim.drawParticles(101, 199)
   -- pokefirered/src/battle_anim_mons.c:1908
   draw_player_trainer(stage)
-  if st then
+  -- pokefirered/src/battle_main.c:2565
+  if st and not st.safari then
     draw_mon_sprite(st.player, PLAYER_MON, true)
   end
   if screenFxActive then Anim.beginScreenEffect() end

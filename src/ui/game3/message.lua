@@ -36,18 +36,33 @@ local function split_pages(box)
   return pages
 end
 
+local function braille()
+  local ok, Braille = pcall(require, "src.ui.game3.braille")
+  if ok and type(Braille) == "table" then return Braille end
+  return nil
+end
+
 local function beginPage()
   local page = Message.currentPage() or ""
-  Message._total = FrlgFont.countChars(page)
+  local B = Message._frame == "braille" and braille()
+  Message._total = B and B.countGlyphs(page) or FrlgFont.countChars(page)
   Message._revealed = 0
   Message._delay = 0
   Message._waiting = (Message._total == 0)
   Message._speedUp = false
+  -- pokefirered/src/text_printer.c:91
+  if Message._frame == "braille" then
+    Message._revealed = Message._total
+    Message._waiting = true
+  end
 end
 
 function Message.setFrame(kind)
   if kind == "sign" then
     Message._frame = "sign"
+  elseif kind == "braille" then
+    -- pokefirered/src/scrcmd.c:1558
+    Message._frame = "braille"
   elseif kind == "battle" then
     Message._frame = "battle"
   elseif kind == "voiceover" then
@@ -76,6 +91,9 @@ function Message.show(text, opts)
   Message._choice = nil
   if opts.frame == "sign" or opts.sign then
     Message._frame = "sign"
+  elseif opts.frame == "braille" then
+    -- pokefirered/src/scrcmd.c:1558
+    Message._frame = "braille"
   elseif opts.frame == "voiceover" then
     -- pokefirered/src/battle_controller_oak_old_man.c:2238
     Message._frame = "voiceover"
@@ -130,6 +148,8 @@ function Message.show(text, opts)
   local maxW = (opts.frame == "battle" or opts.battle) and 212 or 208
   local ctx = opts.ctx or {}
   if not ctx.maxWidth then ctx.maxWidth = maxW end
+  -- pokefirered/src/scrcmd.c:1566
+  if Message._frame == "braille" then ctx.maxWidth = 4096 end
 
   local plain
   if type(text) == "table" then
@@ -289,6 +309,20 @@ function Message.drawText()
     baseY = Chrome.DLG_TOP * Display.TILE + 1
     maxW = Chrome.DLG_W * Display.TILE
   end
+  if Message._frame == "braille" then
+    -- pokefirered/src/scrcmd.c:1566
+    local B = braille()
+    if B then
+      B.drawText(page, baseX, baseY, {
+        maxWidth = maxW,
+        limitChars = Message._revealed,
+        colors = Message._colors or FrlgFont.COLOR.NORMAL,
+      })
+      B.drawCursor()
+      return
+    end
+  end
+
   local drawn, endX, endY = FrlgFont.draw(page, baseX, baseY, {
     maxWidth = maxW,
     limitChars = Message._revealed,

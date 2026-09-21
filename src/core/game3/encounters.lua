@@ -228,10 +228,10 @@ end
 --- pret ChooseWildMonLevel: lo + Random() % (hi - lo + 1).
 local function level_of(entry)
   if not entry then return 5 end
-  local lo = tonumber(entry.minLevel or entry.level or entry[2]) or 5
-  local hi = tonumber(entry.maxLevel or entry.level or entry[2]) or lo
-  if hi < lo then hi = lo end
-  if hi == lo then return lo end
+  local minLevel = tonumber(entry.minLevel or entry.level or entry[2]) or 5
+  local maxLevel = tonumber(entry.maxLevel or entry.level or entry[2]) or minLevel
+  local lo, hi = minLevel, maxLevel
+  if maxLevel < minLevel then lo, hi = maxLevel, minLevel end
   local mod = hi - lo + 1
   return lo + (Rng.Random() % mod)
 end
@@ -481,7 +481,7 @@ end
 --- that the dice roll compares against. Every encounter-rate modifier applies
 --- here as well as in the cooldown -- bike, banked buff, flute, Cleanse Tag,
 --- then ability, in pret's order.
-function Encounters.encounterRate(rate)
+function Encounters.encounterRate(rate, opts)
   local r = (tonumber(rate) or 0) * 16
   if bike_active() then r = math.floor(r * 80 / 100) end
   r = r + math.floor(Encounters._encounterRateBuff * 16 / 200)
@@ -492,11 +492,13 @@ function Encounters.encounterRate(rate)
     r = math.floor(r / 2)
   end
   if lead_holds_cleanse_tag() then r = math.floor(r * 2 / 3) end
-  local ability = ability_mod_type()
-  if ability == 1 then
-    r = math.floor(r / 2)
-  elseif ability == 2 then
-    r = r * 2
+  if not (opts and opts.ignoreAbility) then
+    local ability = ability_mod_type()
+    if ability == 1 then
+      r = math.floor(r / 2)
+    elseif ability == 2 then
+      r = r * 2
+    end
   end
   if r > MAX_ENCOUNTER_RATE then r = MAX_ENCOUNTER_RATE end
   return r
@@ -550,6 +552,85 @@ end
 function Encounters.rollWater(mapId, enterFromOther)
   Encounters.ensureLoaded()
   return roll_area(mapId, "water", WATER_WEIGHTS, enterFromOther, 15)
+end
+
+--- pokefirered/src/wild_encounter.c:446
+function Encounters.rollRocks(mapId)
+  Encounters.ensureLoaded()
+  local t = table_for(mapId)
+  local area = normalize_area(t and t.rocks, 20)
+  if not area or #area.slots == 0 then return nil end
+  if not rate_dice_roll(Encounters.encounterRate(area.rate, { ignoreAbility = true })) then
+    return nil
+  end
+  -- pokefirered/src/wild_encounter.c:269
+  local entry = pick_slot(area.slots, WATER_WEIGHTS)
+  if type(entry) ~= "table" then return nil end
+  local level = level_of(entry)
+  if not wild_level_allowed_by_repel(level) then return nil end
+  Encounters.resetRateModifiers()
+  return {
+    species = entry.species or entry[1],
+    level = level,
+    item = entry.item,
+  }
+end
+
+-- pokefirered/include/constants/items.h:457
+local ROD_OLD, ROD_GOOD, ROD_SUPER = 0, 1, 2
+
+local ROD_KINDS = {
+  [0] = ROD_OLD, [1] = ROD_GOOD, [2] = ROD_SUPER,
+  [262] = ROD_OLD, [263] = ROD_GOOD, [264] = ROD_SUPER,
+  old = ROD_OLD, good = ROD_GOOD, super = ROD_SUPER,
+  OLD_ROD = ROD_OLD, GOOD_ROD = ROD_GOOD, SUPER_ROD = ROD_SUPER,
+  ITEM_OLD_ROD = ROD_OLD, ITEM_GOOD_ROD = ROD_GOOD, ITEM_SUPER_ROD = ROD_SUPER,
+}
+
+-- pokefirered/src/data/wild_encounters.h:31
+local FISHING_TOTAL = 100
+local FISHING_WINDOWS = {
+  [ROD_OLD] = { { 70, 1 }, { 100, 2 } },
+  [ROD_GOOD] = { { 60, 3 }, { 80, 4 }, { 100, 5 } },
+  [ROD_SUPER] = { { 40, 6 }, { 80, 7 }, { 95, 8 }, { 99, 9 }, { 100, 10 } },
+}
+
+--- pokefirered/src/wild_encounter.c:117
+local function choose_fishing_index(rod)
+  local windows = FISHING_WINDOWS[rod] or FISHING_WINDOWS[ROD_OLD]
+  local rand = Rng.Random() % FISHING_TOTAL
+  for i = 1, #windows do
+    if rand < windows[i][1] then return windows[i][2] end
+  end
+  return 1
+end
+
+--- pokefirered/src/wild_encounter.c:509
+function Encounters.hasFishingMons(mapId)
+  Encounters.ensureLoaded()
+  local t = table_for(mapId)
+  local area = normalize_area(t and t.fishing, 0)
+  return area ~= nil and #area.slots > 0
+end
+
+--- pokefirered/src/wild_encounter.c:519
+function Encounters.rollFishing(mapId, rodKind)
+  Encounters.ensureLoaded()
+  local t = table_for(mapId)
+  local area = normalize_area(t and t.fishing, 0)
+  if not area or #area.slots == 0 then return nil end
+  local rod = ROD_KINDS[rodKind]
+  if rod == nil then rod = ROD_OLD end
+  local idx = choose_fishing_index(rod)
+  if idx > #area.slots then idx = #area.slots end
+  local entry = area.slots[idx]
+  if type(entry) ~= "table" then return nil end
+  Encounters.resetRateModifiers()
+  return {
+    species = entry.species or entry[1],
+    level = level_of(entry),
+    item = entry.item,
+  }
 end
 
 local function vanilla_step(mapId, terrain, opts)

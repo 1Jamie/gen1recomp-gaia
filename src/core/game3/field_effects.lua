@@ -92,6 +92,11 @@ function FieldEffects.install(cache)
   FieldEffects._anims = {}
   FieldEffects._surfClock = 0
   FieldEffects._logged = false
+  local okV, FieldView = pcall(require, "src.core.game3.field_view")
+  if okV and FieldView and FieldView.setCameraPanning then
+    FieldView.setCameraPanning(0, 0)
+    FieldView.setFlashRadius(nil)
+  end
   local ok, Heal = pcall(require, "src.core.game3.pokecenter_heal")
   if ok and Heal and Heal.install then Heal.install(cache) end
 end
@@ -100,6 +105,11 @@ function FieldEffects.invalidate()
   FieldEffects._sheets = {}
   FieldEffects._fx = nil
   FieldEffects._anims = {}
+  local okV, FieldView = pcall(require, "src.core.game3.field_view")
+  if okV and FieldView and FieldView.setCameraPanning then
+    FieldView.setCameraPanning(0, 0)
+    FieldView.setFlashRadius(nil)
+  end
   local ok, Heal = pcall(require, "src.core.game3.pokecenter_heal")
   if ok and Heal and Heal.invalidate then Heal.invalidate() end
 end
@@ -213,6 +223,37 @@ function FieldEffects.startRockSmash(targetObj, cx, cy, onDone)
   table.insert(FieldEffects._anims, anim)
 end
 
+local function fieldView()
+  local ok, FieldView = pcall(require, "src.core.game3.field_view")
+  if ok and type(FieldView) == "table" then return FieldView end
+  return nil
+end
+
+--- pokefirered/src/field_screen_effect.c:194
+function FieldEffects.animateFlashLevel(fromLevel, toLevel)
+  local FieldView = fieldView()
+  if not FieldView then return nil end
+  local from = FieldView.radiusForLevel(fromLevel)
+  local to = FieldView.radiusForLevel(toLevel)
+  if from == to then
+    FieldView.setFlashLevel(toLevel)
+    return nil
+  end
+  FieldView.setFlashRadius(from)
+  local anim = {
+    kind = "flash_level",
+    radius = from,
+    dest = to,
+    delta = (from < to) and 2 or -2,
+    level = tonumber(toLevel) or 0,
+    clear = (tonumber(toLevel) or 0) == 0,
+    state = 0,
+    timer = 0,
+  }
+  table.insert(FieldEffects._anims, anim)
+  return anim
+end
+
 --- Screen flash animation (Flash HM)
 function FieldEffects.startFlash(onDone)
   local anim = {
@@ -220,9 +261,34 @@ function FieldEffects.startFlash(onDone)
     alpha = 1.0,
     timer = 0,
     maxDur = 30,
+  }
+  table.insert(FieldEffects._anims, anim)
+  -- pokefirered/data/scripts/flash.inc:2
+  local FieldView = fieldView()
+  local levelAnim
+  if FieldView and FieldView.getFlashLevel and FieldView.getFlashLevel() ~= 0 then
+    levelAnim = FieldEffects.animateFlashLevel(FieldView.getFlashLevel(), 0)
+  end
+  -- pokefirered/src/field_screen_effect.c:202
+  if levelAnim then
+    levelAnim.onDone = onDone
+  else
+    anim.onDone = onDone
+  end
+  return levelAnim or anim
+end
+
+--- pokefirered/src/field_effect.c:1258
+function FieldEffects.startLandingShake(onDone)
+  local anim = {
+    kind = "camera_shake",
+    amp = 4,
+    ticks = 0,
+    timer = 0,
     onDone = onDone,
   }
   table.insert(FieldEffects._anims, anim)
+  return anim
 end
 
 --- Fly Bird takeoff and landing animations
@@ -413,6 +479,47 @@ function FieldEffects.step()
       anim.alpha = math.max(0, 1.0 - (anim.timer / anim.maxDur))
       if anim.timer >= anim.maxDur then
         finished = true
+      end
+    elseif anim.kind == "flash_level" then
+      -- pokefirered/src/field_screen_effect.c:119
+      local FieldView = fieldView()
+      if not FieldView then
+        finished = true
+      elseif anim.state == 2 then
+        FieldView.setFlashLevel(anim.level)
+        finished = true
+      else
+        FieldView.setFlashRadius(anim.radius)
+        if anim.state == 0 then
+          anim.state = 1
+        else
+          anim.state = 0
+          anim.radius = anim.radius + anim.delta
+          if anim.radius > anim.dest then
+            if anim.clear then
+              anim.state = 2
+            else
+              FieldView.setFlashLevel(anim.level)
+              finished = true
+            end
+          end
+        end
+      end
+    elseif anim.kind == "camera_shake" then
+      local FieldView = fieldView()
+      if not FieldView then
+        finished = true
+      elseif anim.amp == 0 then
+        -- pokefirered/src/field_camera.c:513
+        FieldView.setCameraPanning(0, 0)
+        finished = true
+      else
+        FieldView.setCameraPanning(0, anim.amp)
+        anim.amp = -anim.amp
+        anim.ticks = anim.ticks + 1
+        if anim.ticks % 4 == 0 then
+          anim.amp = math.floor(anim.amp / 2)
+        end
       end
     elseif anim.kind == "fly_takeoff" then
       anim.frame = math.floor(anim.timer / 4) % 4

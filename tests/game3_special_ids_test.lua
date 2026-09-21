@@ -107,7 +107,6 @@ for id = 0, pretCount - 1 do
   end
 end
 check(Natives.ALLOW["special:" .. 0x18B] == nil, "0x18B OpenMuseumFossilPic no longer sets dex flags")
-check(Natives.ALLOW["special:" .. 0x179] == nil, "0x179 GetNumLevelsGainedForRoute5DaycareMon unbound")
 check(Natives.ALLOW["special:" .. 0x19D] == nil, "0x19D RemoveBerryPowderVendorMenu unbound")
 check(Natives.ALLOW["special:" .. 0xA8] == nil, "0xA8 Script_SetPlayerGotFirstFans unbound")
 

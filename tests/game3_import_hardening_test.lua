@@ -120,7 +120,8 @@ local function loadExtractorWithStubs(pokeRun, sectionsRun)
   }
   for _, sibling in ipairs({
     "items_extract", "pokedex_chrome_extract", "storage_chrome_extract",
-    "text_chrome_extract", "trainer_card_extract", "map_preview_extract",
+    "text_chrome_extract", "trainer_card_extract", "seagallop_extract",
+    "map_preview_extract",
   }) do
     package.loaded["src.import.gba." .. sibling] = { run = function() return true end }
   end
@@ -217,7 +218,8 @@ package.loaded["src.import.gba.extract_audio"] = nil
 package.loaded["src.import.RomExtractorGen3"] = nil
 for _, sibling in ipairs({
   "items_extract", "pokedex_chrome_extract", "storage_chrome_extract",
-  "text_chrome_extract", "trainer_card_extract", "map_preview_extract",
+  "text_chrome_extract", "trainer_card_extract", "seagallop_extract",
+  "map_preview_extract",
 }) do
   package.loaded["src.import.gba." .. sibling] = nil
 end
@@ -309,6 +311,15 @@ local function readyCacheWith(skip, format, numSpecies)
     [ROOT .. "/pokemon/front/" .. last .. ".rgba"] = 64 * 64 * 4,
     [ROOT .. "/pokemon/back/" .. last .. ".rgba"] = 64 * 64 * 4,
     [ROOT .. "/pokemon/icons/" .. last .. ".rgba"] = iconBytes,
+    [ROOT .. "/chrome/fonts/braille.lua"] = 64,
+    [ROOT .. "/seagallop/manifest.lua"] = 64,
+    [ROOT .. "/seagallop/wb.rgba"] = 32 * 8 * 32 * 8 * 4,
+    [ROOT .. "/pokemon/pokedex/paper_bg.rgba"] = 240 * 160 * 4,
+    [ROOT .. "/pokemon/pokedex/footprints/1.rgba"] = 16 * 16 * 4,
+    [ROOT .. "/pokemon/pokedex/footprints/question_mark.rgba"] = 16 * 16 * 4,
+    [ROOT .. "/pokemon/battle/terrain_cave.rgba"] = 256 * 256 * 4,
+    [ROOT .. "/pokemon/battle/terrain_water.rgba"] = 256 * 256 * 4,
+    [ROOT .. "/pokemon/battle/terrain_champion.rgba"] = 256 * 256 * 4,
   }
   if skip then sizes[skip] = nil end
   return {
@@ -332,6 +343,28 @@ check(PokemonExtract.ready(readyCacheWith(nil, PokemonExtract.FORMAT_VERSION - 1
   "a cache written by an older species format is not ready")
 check(PokemonExtract.ready(readyCacheWith(nil, nil, 1), ROOT) == false,
   "a cache whose manifest counts fewer species than the ROM is not ready")
+
+local siblings = {
+  ROOT .. "/chrome/fonts/braille.lua",
+  ROOT .. "/seagallop/manifest.lua",
+  ROOT .. "/seagallop/wb.rgba",
+  ROOT .. "/pokemon/pokedex/paper_bg.rgba",
+  ROOT .. "/pokemon/pokedex/footprints/1.rgba",
+  ROOT .. "/pokemon/pokedex/footprints/question_mark.rgba",
+  ROOT .. "/pokemon/battle/terrain_cave.rgba",
+  ROOT .. "/pokemon/battle/terrain_water.rgba",
+  ROOT .. "/pokemon/battle/terrain_champion.rgba",
+}
+for _, rel in ipairs(siblings) do
+  check(PokemonExtract.ready(readyCacheWith(rel), ROOT) == false,
+    "an import interrupted before " .. rel .. " re-runs the pokemon block")
+end
+local requiredSet = {}
+for _, key in ipairs(CacheContract.requiredFiles("firered")) do requiredSet[key] = true end
+for _, rel in ipairs(siblings) do
+  check(requiredSet[rel] == true,
+    rel .. " is both a ready() sentinel and a contract-required key")
+end
 
 if failed > 0 then
   print("[test] FAILED " .. failed)

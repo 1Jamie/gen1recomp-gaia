@@ -187,14 +187,25 @@ function Schema.ensureMonBall(mon)
   mon.pokeball = tonumber(mon.pokeball) or 4
 end
 
+function Schema.ensureMonNumbering(mon)
+  if type(mon) ~= "table" then return end
+  local Pokemon = require("src.core.game3.pokemon")
+  if Pokemon.numberingOf(mon) then return end
+  local raw = mon.species or mon.speciesId or mon.id
+  if type(raw) == "string" or tonumber(raw) == nil then return end
+  mon.speciesNumbering = Pokemon.NUMBERING_INTERNAL
+end
+
 function Schema.ensureMonBalls(session)
   for _, mon in ipairs(session.party or {}) do
     Schema.ensureMonBall(mon)
+    Schema.ensureMonNumbering(mon)
   end
   local storage = session.storage
   for _, box in pairs(storage and storage.boxes or {}) do
     for _, mon in pairs(type(box) == "table" and box.mons or {}) do
       Schema.ensureMonBall(mon)
+      Schema.ensureMonNumbering(mon)
     end
   end
 end

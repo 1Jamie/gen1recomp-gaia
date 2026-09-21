@@ -2015,12 +2015,15 @@ function Engine.battleStartEffects(st, adapter)
     end
   end
   local order = Residuals.sortedBattlers(adapter)
-  for _, b in ipairs(order) do
-    if Abilities.switchIn(adapter, b) then did = true end
-  end
-  for _ = 1, 4 do
-    if not (Abilities.runIntimidate(adapter) or Abilities.runTrace(adapter)) then break end
-    did = true
+  -- pokefirered/src/battle_util.c:1678
+  if not st.safari then
+    for _, b in ipairs(order) do
+      if Abilities.switchIn(adapter, b) then did = true end
+    end
+    for _ = 1, 4 do
+      if not (Abilities.runIntimidate(adapter) or Abilities.runTrace(adapter)) then break end
+      did = true
+    end
   end
   for _, b in ipairs(order) do
     if HeldItems.onSwitchIn(adapter, b) then did = true end
@@ -2385,6 +2388,19 @@ function Engine.planTurnFromActions(st, adapter, playerAct, enemyAct)
     for k, v in pairs(enemyAct) do row[k] = v end
     row.user, row.battler = st.enemy, 1
     return row
+  end
+  -- pokefirered/src/battle_main.c:3537
+  if st.safari then
+    if st.player then st.player.expTurnOrder = 1 end
+    if st.enemy then st.enemy.expTurnOrder = 2 end
+    -- pokefirered/src/battle_controller_opponent.c:1364
+    actions[#actions + 1] = {
+      user = st.enemy, battler = 1,
+      kind = (enemyAct.kind == "run") and "run" or "watch",
+    }
+    st.turnOrder = { 0, 1 }
+    st.turnActions = actions
+    return actions, playerAct
   end
   if playerAct.kind == "run" or playerAct.kind == "bag" or playerAct.kind == "switch" then
     if st.player then st.player.expTurnOrder = 1 end

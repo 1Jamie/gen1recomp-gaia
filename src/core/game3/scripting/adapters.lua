@@ -70,6 +70,16 @@ function Adapters.stub(opts)
   a.askYesNo = opts.askYesNo or function(cb) if cb then cb(true) end end
   a.fadeScreen = opts.fadeScreen or function(_mode, _speed, done) if done then done() end end
   a.openNaming = opts.openNaming or function(_opts, done) if done then done("RED") end end
+  -- pokefirered/src/party_menu_specials.c:14
+  a.chooseParty = opts.chooseParty or function(_opts, done) if done then done(nil) end end
+  -- pokefirered/src/field_specials.c:1094
+  a.elevatorWindow = opts.elevatorWindow or function(floorLabel)
+    a.elevatorFloorLabel = floorLabel
+  end
+  -- pokefirered/src/field_specials.c:1113
+  a.elevatorWindowClose = opts.elevatorWindowClose or function()
+    a.elevatorFloorLabel = nil
+  end
   a.openEasyChat = opts.openEasyChat or function(o, done)
     local def = { 2601, 4128, 526, 2611 }
     if done then done(true, (o and o.words) or def) end
@@ -1000,6 +1010,49 @@ function Adapters.host(mod, game, world)
       end
       Fade.clear()
       Naming.open(opts)
+    end,
+    -- pokefirered/src/party_menu_specials.c:14
+    chooseParty = function(_opts, done)
+      local PartyMenu = require("src.ui.game3.party_menu")
+      local Message = require("src.ui.game3.message")
+      local Runtime = require("src.core.game3.runtime")
+      local g = resolveGame()
+      local session = (Runtime.getSession and Runtime.getSession())
+        or (g and g.session)
+      local party = session and session.party
+      if not (party and party[1]) then
+        if done then done(nil) end
+        return
+      end
+      if Message.isOpen and Message.isOpen() and Message.close then
+        Message.close()
+      end
+      local picked = nil
+      local function resume()
+        if done then done(picked) end
+        tick_vm()
+      end
+      PartyMenu.show(party, nil, {
+        mode = "choose",
+        session = session,
+        onSelect = function(slot)
+          local s = tonumber(slot)
+          if s and s >= 1 then picked = s - 1 end
+        end,
+        onClose = function()
+          if not Runtime.defer(resume) then resume() end
+        end,
+      })
+    end,
+    -- pokefirered/src/field_specials.c:1094
+    elevatorWindow = function(floorLabel)
+      local ok, Window = pcall(require, "src.ui.game3.elevator_window")
+      if ok and Window and Window.show then Window.show(floorLabel) end
+    end,
+    -- pokefirered/src/field_specials.c:1113
+    elevatorWindowClose = function()
+      local ok, Window = pcall(require, "src.ui.game3.elevator_window")
+      if ok and Window and Window.hide then Window.hide() end
     end,
     openEasyChat = function(opts, done)
       local EasyChat = require("src.ui.game3.easy_chat")

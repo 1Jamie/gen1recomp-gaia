@@ -260,6 +260,8 @@ function RomExtractorGen3:runPokemonExtract(sha1)
     TextChromeExtract.run(rom, cache, { cacheRoot = GBA_ROOT })
     local TrainerCardExtract = require("src.import.gba.trainer_card_extract")
     TrainerCardExtract.run(rom, cache, { cacheRoot = GBA_ROOT })
+    local SeagallopExtract = require("src.import.gba.seagallop_extract")
+    SeagallopExtract.run(rom, cache, { cacheRoot = GBA_ROOT })
     local MapPreviewExtract = require("src.import.gba.map_preview_extract")
     local mpOk, mpErr = pcall(MapPreviewExtract.run, rom, cache, {
       cacheRoot = GBA_ROOT,

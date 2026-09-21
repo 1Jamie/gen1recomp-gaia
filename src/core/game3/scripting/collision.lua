@@ -5,9 +5,11 @@ local Collision = {}
 -- pokefirered/src/metatile_behavior.c:5 sBehaviorSurfable
 local WATER_BEH = {
   [0x10] = true, [0x11] = true, [0x12] = true, [0x13] = true,
-  [0x15] = true, [0x16] = true, [0x17] = true, [0x1A] = true, [0x1B] = true,
+  [0x15] = true, [0x1A] = true, [0x1B] = true,
   [0x50] = true, [0x51] = true, [0x52] = true, [0x53] = true,
 }
+-- pokefirered/src/event_object_movement.c:8143
+local WALK_ON_WATER_BEH = { [0x16] = true, [0x17] = true }
 local JUMP_DIR = {
   [0x38] = "E", [0x39] = "W", [0x3A] = "N", [0x3B] = "S",
 }
@@ -89,8 +91,14 @@ function Collision.classify(mid, mapColl, behavior, kind)
   kind = kind or "route"
   local beh = behavior or 0
   if WATER_BEH[beh] then return "WATER", nil end
-  if beh == 0x02 then return "TALL_GRASS", nil end
-  if beh == 0x21 then return "SAND", nil end
+  if WALK_ON_WATER_BEH[beh] then
+    if (mapColl or 0) ~= 0 then return "BLOCKED", nil end
+    return "PATH", nil
+  end
+  -- pokefirered/src/metatile_behavior.c:432
+  if beh == 0x02 or beh == 0xD1 then return "TALL_GRASS", nil end
+  -- pokefirered/src/metatile_behavior.c:72
+  if beh == 0x21 or beh == 0x2B then return "SAND", nil end
   if JUMP_DIR[beh] then return "LEDGE", JUMP_DIR[beh] end
   if WARP_STAIR_BEH[beh] then return "STAIR", "WARP" end
   if STAIR_BEH[beh] then return "STAIR", nil end

@@ -21,6 +21,9 @@ RegionMap._snapIndex = 0
 RegionMap._images = {}
 RegionMap._session = nil
 RegionMap._onClose = nil
+RegionMap.mode = "normal"
+RegionMap._onPick = nil
+RegionMap._animFrame = 0
 
 local MAP_OFFSET_X = 28
 local MAP_OFFSET_Y = 28
@@ -30,6 +33,84 @@ local CANCEL_BUTTON_X = 21
 local CANCEL_BUTTON_Y = 13
 local SWITCH_BUTTON_X = 21
 local SWITCH_BUTTON_Y = 11
+
+-- pokefirered/src/region_map.c:37-43
+RegionMap.MAPSECTYPE = {
+  NONE = 0,
+  ROUTE = 1,
+  VISITED = 2,
+  NOT_VISITED = 3,
+  UNKNOWN = 4,
+}
+local SECTYPE = RegionMap.MAPSECTYPE
+
+-- pokefirered/src/region_map.c:2952
+local MAP_LAYER_FLAGS = {
+  MAPSEC_PALLET_TOWN = "FLAG_WORLD_MAP_PALLET_TOWN",
+  MAPSEC_VIRIDIAN_CITY = "FLAG_WORLD_MAP_VIRIDIAN_CITY",
+  MAPSEC_PEWTER_CITY = "FLAG_WORLD_MAP_PEWTER_CITY",
+  MAPSEC_CERULEAN_CITY = "FLAG_WORLD_MAP_CERULEAN_CITY",
+  MAPSEC_LAVENDER_TOWN = "FLAG_WORLD_MAP_LAVENDER_TOWN",
+  MAPSEC_VERMILION_CITY = "FLAG_WORLD_MAP_VERMILION_CITY",
+  MAPSEC_CELADON_CITY = "FLAG_WORLD_MAP_CELADON_CITY",
+  MAPSEC_FUCHSIA_CITY = "FLAG_WORLD_MAP_FUCHSIA_CITY",
+  MAPSEC_CINNABAR_ISLAND = "FLAG_WORLD_MAP_CINNABAR_ISLAND",
+  MAPSEC_INDIGO_PLATEAU = "FLAG_WORLD_MAP_INDIGO_PLATEAU_EXTERIOR",
+  MAPSEC_SAFFRON_CITY = "FLAG_WORLD_MAP_SAFFRON_CITY",
+  MAPSEC_ONE_ISLAND = "FLAG_WORLD_MAP_ONE_ISLAND",
+  MAPSEC_TWO_ISLAND = "FLAG_WORLD_MAP_TWO_ISLAND",
+  MAPSEC_THREE_ISLAND = "FLAG_WORLD_MAP_THREE_ISLAND",
+  MAPSEC_FOUR_ISLAND = "FLAG_WORLD_MAP_FOUR_ISLAND",
+  MAPSEC_FIVE_ISLAND = "FLAG_WORLD_MAP_FIVE_ISLAND",
+  MAPSEC_SEVEN_ISLAND = "FLAG_WORLD_MAP_SEVEN_ISLAND",
+  MAPSEC_SIX_ISLAND = "FLAG_WORLD_MAP_SIX_ISLAND",
+  MAPSEC_ROUTE_4_POKECENTER = "FLAG_WORLD_MAP_ROUTE4_POKEMON_CENTER_1F",
+  MAPSEC_ROUTE_10_POKECENTER = "FLAG_WORLD_MAP_ROUTE10_POKEMON_CENTER_1F",
+}
+
+-- pokefirered/src/region_map.c:3005
+local DUNGEON_LAYER_FLAGS = {
+  MAPSEC_VIRIDIAN_FOREST = "FLAG_WORLD_MAP_VIRIDIAN_FOREST",
+  MAPSEC_MT_MOON = "FLAG_WORLD_MAP_MT_MOON_1F",
+  MAPSEC_S_S_ANNE = "FLAG_WORLD_MAP_SSANNE_EXTERIOR",
+  MAPSEC_UNDERGROUND_PATH = "FLAG_WORLD_MAP_UNDERGROUND_PATH_NORTH_SOUTH_TUNNEL",
+  MAPSEC_UNDERGROUND_PATH_2 = "FLAG_WORLD_MAP_UNDERGROUND_PATH_EAST_WEST_TUNNEL",
+  MAPSEC_DIGLETTS_CAVE = "FLAG_WORLD_MAP_DIGLETTS_CAVE_B1F",
+  MAPSEC_KANTO_VICTORY_ROAD = "FLAG_WORLD_MAP_VICTORY_ROAD_1F",
+  MAPSEC_ROCKET_HIDEOUT = "FLAG_WORLD_MAP_ROCKET_HIDEOUT_B1F",
+  MAPSEC_SILPH_CO = "FLAG_WORLD_MAP_SILPH_CO_1F",
+  MAPSEC_POKEMON_MANSION = "FLAG_WORLD_MAP_POKEMON_MANSION_1F",
+  MAPSEC_KANTO_SAFARI_ZONE = "FLAG_WORLD_MAP_SAFARI_ZONE_CENTER",
+  MAPSEC_POKEMON_LEAGUE = "FLAG_WORLD_MAP_POKEMON_LEAGUE_LORELEIS_ROOM",
+  MAPSEC_ROCK_TUNNEL = "FLAG_WORLD_MAP_ROCK_TUNNEL_1F",
+  MAPSEC_SEAFOAM_ISLANDS = "FLAG_WORLD_MAP_SEAFOAM_ISLANDS_1F",
+  MAPSEC_POKEMON_TOWER = "FLAG_WORLD_MAP_POKEMON_TOWER_1F",
+  MAPSEC_CERULEAN_CAVE = "FLAG_WORLD_MAP_CERULEAN_CAVE_1F",
+  MAPSEC_POWER_PLANT = "FLAG_WORLD_MAP_POWER_PLANT",
+  MAPSEC_NAVEL_ROCK = "FLAG_WORLD_MAP_NAVEL_ROCK_EXTERIOR",
+  MAPSEC_MT_EMBER = "FLAG_WORLD_MAP_MT_EMBER_EXTERIOR",
+  MAPSEC_BERRY_FOREST = "FLAG_WORLD_MAP_THREE_ISLAND_BERRY_FOREST",
+  MAPSEC_ICEFALL_CAVE = "FLAG_WORLD_MAP_FOUR_ISLAND_ICEFALL_CAVE_ENTRANCE",
+  MAPSEC_ROCKET_WAREHOUSE = "FLAG_WORLD_MAP_FIVE_ISLAND_ROCKET_WAREHOUSE",
+  MAPSEC_TRAINER_TOWER_2 = "FLAG_WORLD_MAP_TRAINER_TOWER_LOBBY",
+  MAPSEC_DOTTED_HOLE = "FLAG_WORLD_MAP_SIX_ISLAND_DOTTED_HOLE_1F",
+  MAPSEC_LOST_CAVE = "FLAG_WORLD_MAP_FIVE_ISLAND_LOST_CAVE_ENTRANCE",
+  MAPSEC_PATTERN_BUSH = "FLAG_WORLD_MAP_SIX_ISLAND_PATTERN_BUSH",
+  MAPSEC_ALTERING_CAVE = "FLAG_WORLD_MAP_SIX_ISLAND_ALTERING_CAVE",
+  MAPSEC_TANOBY_CHAMBERS = "FLAG_WORLD_MAP_SEVEN_ISLAND_TANOBY_RUINS_MONEAN_CHAMBER",
+  MAPSEC_THREE_ISLE_PATH = "FLAG_WORLD_MAP_THREE_ISLAND_DUNSPARCE_TUNNEL",
+  MAPSEC_TANOBY_KEY = "FLAG_WORLD_MAP_SEVEN_ISLAND_SEVAULT_CANYON_TANOBY_KEY",
+  MAPSEC_BIRTH_ISLAND = "FLAG_WORLD_MAP_BIRTH_ISLAND_EXTERIOR",
+}
+
+-- pokefirered/include/constants/songs.h:5,106,245
+local SE_USE_ITEM = 1
+local SE_DEX_PAGE = 102
+local SE_M_HYPER_BEAM2 = 240
+
+-- pokefirered/src/region_map.c:784-787
+local FLY_ICON_FRAME0_TICKS = 30
+local FLY_ICON_CYCLE_TICKS = 90
 
 -- Dungeon Map Preview (GUIDE) geometry.  pret src/region_map.c:1941-2200.
 -- The baked artwork lives on BG2 and is revealed through hardware window 1, which
@@ -260,6 +341,110 @@ local function get_dungeon_icon_image()
   return img
 end
 
+-- pokefirered/src/region_map.c:3597-3601, :790-793
+local function get_dungeon_icon_visited_image()
+  if RegionMap._images["dungeon_icon_visited"] ~= nil then
+    return RegionMap._images["dungeon_icon_visited"] or nil
+  end
+  local img = try_load_image("data/generated/gba/region_map/dungeon_icon_visited.png")
+    or try_load_image("data/generated/gba/region_map/dungeon_icon_1.png")
+  RegionMap._images["dungeon_icon_visited"] = img or false
+  return img
+end
+
+-- pokefirered/src/region_map.c:425
+local function get_fly_icon_image()
+  if RegionMap._images["fly_icon"] ~= nil then
+    return RegionMap._images["fly_icon"] or nil
+  end
+  local img = try_load_image("data/generated/gba/region_map/fly_icon.png")
+  RegionMap._images["fly_icon"] = img or false
+  if img and love and love.graphics and love.graphics.newQuad then
+    local quads = {}
+    for frame = 0, 1 do
+      local ok, q = pcall(love.graphics.newQuad, 0, frame * 16, 16, 16,
+                          img:getWidth(), img:getHeight())
+      if ok then quads[frame] = q end
+    end
+    RegionMap._flyQuads = quads
+  end
+  return img
+end
+
+-- pokefirered/src/region_map.c:2952
+function RegionMap.isFlagSet(flagName)
+  local Flags = package.loaded["src.core.game3.scripting.flags"]
+  if not Flags then
+    local ok, mod = pcall(require, "src.core.game3.scripting.flags")
+    Flags = ok and mod or nil
+  end
+  local id = tonumber(flagName) or (Flags and Flags.IDS and Flags.IDS[flagName])
+  if not id then return false end
+  local Space = package.loaded["src.core.game3.scripting.space"]
+  local store = Space and Space.store
+  if store and Flags and Flags.getFlag then
+    local ok, val = pcall(Flags.getFlag, store, nil, id)
+    if ok and val == true then return true end
+  end
+  local session = RegionMap._session
+  if not session then
+    local Runtime = package.loaded["src.core.game3.runtime"]
+    session = Runtime and Runtime.getSession and Runtime.getSession()
+  end
+  if session and session.flags then
+    if session.flags[id] or session.flags[flagName] then return true end
+  end
+  return false
+end
+
+-- pokefirered/src/region_map.c:595-617
+function RegionMap.hasFlyDestinations()
+  return RegionMap.mode == "fly"
+end
+
+function RegionMap.isFlyMode()
+  return RegionMap.mode == "fly"
+end
+
+-- pokefirered/src/region_map.c:2952
+function RegionMap.mapsecType(sec)
+  if sec == nil then return SECTYPE.NONE end
+  if sec == "MAPSEC_ROUTE_4_POKECENTER" and not RegionMap.hasFlyDestinations() then
+    return SECTYPE.NONE
+  end
+  local flag = MAP_LAYER_FLAGS[sec]
+  if flag then
+    return RegionMap.isFlagSet(flag) and SECTYPE.VISITED or SECTYPE.NOT_VISITED
+  end
+  return SECTYPE.ROUTE
+end
+
+-- pokefirered/src/region_map.c:3005
+function RegionMap.dungeonMapsecType(sec)
+  if sec == nil then return SECTYPE.NONE end
+  local flag = DUNGEON_LAYER_FLAGS[sec]
+  if flag then
+    return RegionMap.isFlagSet(flag) and SECTYPE.VISITED or SECTYPE.NOT_VISITED
+  end
+  return SECTYPE.ROUTE
+end
+
+function RegionMap.currentMapSec()
+  local row = RegionExtract.KANTO_GRID[RegionMap.cursorY]
+  return row and row[RegionMap.cursorX] or nil
+end
+
+function RegionMap.selectedMapsecType()
+  return RegionMap.mapsecType(RegionMap.currentMapSec())
+end
+
+-- pokefirered/src/region_map.c:3956
+function RegionMap.canFlyToCursor()
+  if not RegionMap.hasFlyDestinations() then return false end
+  local t = RegionMap.selectedMapsecType()
+  return t == SECTYPE.VISITED or t == SECTYPE.UNKNOWN
+end
+
 local function get_player_image(female)
   local key = female and "player_leaf" or "player_red"
   if RegionMap._images[key] ~= nil then
@@ -286,6 +471,16 @@ function RegionMap.show(opts)
   RegionMap._snapIndex = 0
   RegionMap._session = opts.session
   RegionMap._onClose = opts.onClose
+  RegionMap.mode = (opts.mode == "fly") and "fly" or "normal"
+  RegionMap._onPick = opts.onPick
+  RegionMap._animFrame = 0
+  RegionMap._mapType = opts.mapType
+
+  -- pokefirered/src/region_map.c:3558, :3583
+  RegionMap._flyTargets = nil
+  RegionMap._dungeonIcons = nil
+  RegionMap._flyTargets = RegionMap.flyTargets()
+  RegionMap._dungeonIcons = RegionMap.dungeonIcons()
 
   PokedexChrome.install()
 
@@ -305,14 +500,26 @@ function RegionMap.show(opts)
   Stack.push("region_map", RegionMap, { hideBelow = true })
 end
 
-function RegionMap.close()
+-- pokefirered/src/region_map.c:4016-4019
+function RegionMap.close(picked)
+  local wasFly = RegionMap.mode == "fly"
   RegionMap.open = false
   RegionMap.previewDungeon = nil
   RegionMap.previewFrame = 0
+  RegionMap.mode = "normal"
+  RegionMap._flyTargets = nil
+  RegionMap._dungeonIcons = nil
   Stack.pop("region_map")
   local cb = RegionMap._onClose
   RegionMap._onClose = nil
-  if cb then cb() end
+  RegionMap._onPick = nil
+  if cb and not picked then cb(nil) end
+  if wasFly and not picked then
+    local PartyMenu = package.loaded["src.ui.game3.party_menu"]
+    if PartyMenu and PartyMenu.returnFromFlyMap then
+      pcall(PartyMenu.returnFromFlyMap)
+    end
+  end
 end
 
 function RegionMap.isOpen()
@@ -329,9 +536,92 @@ function RegionMap.currentLocationName()
   return nil
 end
 
+-- pokefirered/src/region_map.c:2946
+function RegionMap.dungeonSecAt(x, y)
+  local dRow = RegionExtract.DUNGEON_GRID[y]
+  local sec = dRow and dRow[x] or nil
+  if sec == "MAPSEC_CERULEAN_CAVE" and not RegionMap.isFlagSet("FLAG_SYS_CAN_LINK_WITH_RS") then
+    return nil
+  end
+  return sec
+end
+
 function RegionMap.currentDungeonSec()
-  local dRow = RegionExtract.DUNGEON_GRID[RegionMap.cursorY]
-  return dRow and dRow[RegionMap.cursorX] or nil
+  return RegionMap.dungeonSecAt(RegionMap.cursorX, RegionMap.cursorY)
+end
+
+-- pokefirered/src/region_map.c:3597-3601, :790-797, :804-807
+function RegionMap.dungeonIconFrame(dSec)
+  return RegionMap.dungeonMapsecType(dSec) == SECTYPE.VISITED and 1 or 0
+end
+
+-- pokefirered/src/region_map.c:3549
+function RegionMap.dungeonIconOffset(x, y)
+  local row = RegionExtract.KANTO_GRID[y]
+  local oSec = row and row[x]
+  local oType = RegionMap.mapsecType(oSec)
+  if (oType == SECTYPE.VISITED or oType == SECTYPE.NOT_VISITED)
+     and oSec ~= "MAPSEC_ROUTE_10_POKECENTER" then
+    return 2
+  end
+  return 0
+end
+
+-- pokefirered/src/region_map.c:3558
+local function computeFlyTargets()
+  local out = {}
+  if not RegionMap.hasFlyDestinations() then return out end
+  RegionExtract.ensureGenerated()
+  for y = 0, RegionExtract.MAP_HEIGHT - 1 do
+    local row = RegionExtract.KANTO_GRID[y]
+    if row then
+      for x = 0, RegionExtract.MAP_WIDTH - 1 do
+        local sec = row[x]
+        if RegionMap.mapsecType(sec) == SECTYPE.VISITED then
+          out[#out + 1] = { x = x, y = y, sec = sec }
+        end
+      end
+    end
+  end
+  return out
+end
+
+function RegionMap.flyTargets()
+  return RegionMap._flyTargets or computeFlyTargets()
+end
+
+-- pokefirered/src/region_map.c:3583
+local function computeDungeonIcons()
+  local out = {}
+  RegionExtract.ensureGenerated()
+  for y, dRow in pairs(RegionExtract.DUNGEON_GRID) do
+    for x in pairs(dRow) do
+      local dSec = RegionMap.dungeonSecAt(x, y)
+      if dSec then
+        local offset = RegionMap.dungeonIconOffset(x, y)
+        out[#out + 1] = {
+          px = 32 + x * CELL_SIZE + offset,
+          py = 32 + y * CELL_SIZE + offset,
+          frame = RegionMap.dungeonIconFrame(dSec),
+        }
+      end
+    end
+  end
+  return out
+end
+
+function RegionMap.dungeonIcons()
+  return RegionMap._dungeonIcons or computeDungeonIcons()
+end
+
+-- pokefirered/src/region_map.c:784-787
+function RegionMap.flyIconFrame()
+  local tick = (RegionMap._animFrame or 0) % FLY_ICON_CYCLE_TICKS
+  return tick < FLY_ICON_FRAME0_TICKS and 0 or 1
+end
+
+function RegionMap.dungeonIconVisitedImage()
+  return get_dungeon_icon_visited_image()
 end
 
 function RegionMap.currentDungeonName()
@@ -343,10 +633,24 @@ function RegionMap.currentDungeonName()
   return nil
 end
 
+-- pokefirered/src/region_map.c:3958-3963, include/constants/map_types.h:8,12
+function RegionMap.flyBlockedByMapType()
+  local mapType = RegionMap._mapType
+  if mapType == nil then
+    local okM, Map = pcall(require, "src.core.game3.map")
+    local def = okM and Map and Map.currentDef and Map.currentDef()
+    mapType = def and def.mapType
+  end
+  mapType = tonumber(mapType)
+  return mapType == 4 or mapType == 8
+end
+
 function RegionMap.handleInput(input)
   local function se(id)
     pcall(function() require("src.core.game3.audio").playSe(id) end)
   end
+
+  RegionMap._animFrame = (RegionMap._animFrame or 0) + 1
 
   -- If Dungeon Map Preview guide is open, A/B/Start/Select closes it
   if RegionMap.previewDungeon then
@@ -360,7 +664,9 @@ function RegionMap.handleInput(input)
   end
 
   -- Close on B or SELECT
-  if input:wasPressed("b") or input:wasPressed("select") then
+  -- pokefirered/src/region_map.c:2819, :968
+  if input:wasPressed("b")
+     or (input:wasPressed("select") and not RegionMap.hasFlyDestinations()) then
     -- pokefirered/src/region_map.c:2826
     RegionMap.close()
     return
@@ -386,8 +692,28 @@ function RegionMap.handleInput(input)
       se(240) -- pokefirered/src/region_map.c:2798
       RegionMap.close()
       return
-    elseif RegionMap.cursorX == SWITCH_BUTTON_X and RegionMap.cursorY == SWITCH_BUTTON_Y then
+    elseif RegionMap.cursorX == SWITCH_BUTTON_X and RegionMap.cursorY == SWITCH_BUTTON_Y
+           and not RegionMap.hasFlyDestinations() then
       se(240) -- pokefirered/src/region_map.c:2805
+      return
+    elseif RegionMap.hasFlyDestinations() then
+      -- pokefirered/src/region_map.c:3956
+      if RegionMap.canFlyToCursor() then
+        local sec = RegionMap.currentMapSec()
+        if RegionMap.flyBlockedByMapType() then
+          RegionMap.close()
+        else
+          se(SE_USE_ITEM)
+          local onPick = RegionMap._onPick
+          local onClose = RegionMap._onClose
+          RegionMap.close(true)
+          local handled = false
+          if onPick then
+            handled = pcall(onPick, sec, MapSectionsExtract.ID_TO_SECTION[sec])
+          end
+          if not handled and onClose then pcall(onClose, nil) end
+        end
+      end
       return
     else
       local dSec = RegionMap.currentDungeonSec()
@@ -420,8 +746,13 @@ function RegionMap.handleInput(input)
   end
 
   if RegionMap.cursorX ~= prevX or RegionMap.cursorY ~= prevY then
-    if (RegionMap.cursorX == CANCEL_BUTTON_X and RegionMap.cursorY == CANCEL_BUTTON_Y)
-       or (RegionMap.cursorX == SWITCH_BUTTON_X and RegionMap.cursorY == SWITCH_BUTTON_Y) then
+    -- pokefirered/src/region_map.c:3932-3936
+    if RegionMap.hasFlyDestinations()
+       and RegionMap.selectedMapsecType() == SECTYPE.VISITED then
+      se(SE_DEX_PAGE)
+    elseif (RegionMap.cursorX == CANCEL_BUTTON_X and RegionMap.cursorY == CANCEL_BUTTON_Y)
+       or (RegionMap.cursorX == SWITCH_BUTTON_X and RegionMap.cursorY == SWITCH_BUTTON_Y
+           and not RegionMap.hasFlyDestinations()) then
       se(11) -- SE_M_SPIT_UP
     elseif RegionMap.currentLocationName() or RegionMap.currentDungeonName() then
       se(5) -- SE_DEX_SCROLL
@@ -498,23 +829,36 @@ function RegionMap.draw()
 
   -- 2.5. Dungeon Markers (8x8 icons for Viridian Forest, Mt Moon, Diglett's Cave, etc.)
   local dungeonIcon = get_dungeon_icon_image()
-  for y, dRow in pairs(RegionExtract.DUNGEON_GRID) do
-    for x, dSec in pairs(dRow) do
-      local offset = 0
-      local row = RegionExtract.KANTO_GRID[y]
-      local oSec = row and row[x]
-      if oSec and (oSec:find("CITY", 1, true) or oSec:find("TOWN", 1, true)) then
-        offset = 2
-      end
-      local dx = 32 + x * CELL_SIZE + offset
-      local dy = 32 + y * CELL_SIZE + offset
-      if dungeonIcon then
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(dungeonIcon, dx, dy)
+  local dungeonIconVisited = get_dungeon_icon_visited_image()
+  for _, icon in ipairs(RegionMap.dungeonIcons()) do
+    local img = (icon.frame == 1 and dungeonIconVisited) or dungeonIcon
+    if img then
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.draw(img, icon.px, icon.py)
+    else
+      love.graphics.setColor(0.35, 0.70, 0.90, 1.0)
+      love.graphics.rectangle("fill", icon.px + 1, icon.py + 1, 6, 6)
+    end
+  end
+
+  -- pokefirered/src/region_map.c:3558
+  if RegionMap.hasFlyDestinations() then
+    local flyIcon = get_fly_icon_image()
+    local frame = RegionMap.flyIconFrame()
+    local quad = flyIcon and RegionMap._flyQuads and RegionMap._flyQuads[frame] or nil
+    for _, t in ipairs(RegionMap.flyTargets()) do
+      local fx = MAP_OFFSET_X + t.x * CELL_SIZE
+      local fy = MAP_OFFSET_Y + t.y * CELL_SIZE
+      love.graphics.setColor(1, 1, 1, 1)
+      if quad then
+        love.graphics.draw(flyIcon, quad, fx, fy)
+      elseif flyIcon then
+        love.graphics.draw(flyIcon, fx, fy)
       else
-        love.graphics.setColor(0.35, 0.70, 0.90, 1.0)
-        love.graphics.rectangle("fill", dx + 1, dy + 1, 6, 6)
+        love.graphics.setColor(1, 0.85, 0.25, frame == 0 and 1.0 or 0.55)
+        love.graphics.rectangle("line", fx + 0.5, fy + 0.5, 15, 15)
       end
+      love.graphics.setColor(1, 1, 1, 1)
     end
   end
 
@@ -572,6 +916,11 @@ function RegionMap.draw()
     PokedexChrome.drawControlInfoLeft(Strings("{A_BUTTON}CANCEL"), 192, 2)
   elseif RegionMap.cursorX == CANCEL_BUTTON_X and RegionMap.cursorY == CANCEL_BUTTON_Y then
     PokedexChrome.drawControlInfoLeft(Strings("{A_BUTTON}CANCEL"), 192, 2)
+  elseif RegionMap.hasFlyDestinations() then
+    -- pokefirered/src/region_map.c:3946-3953
+    if RegionMap.canFlyToCursor() then
+      PokedexChrome.drawControlInfoLeft(Strings("{A_BUTTON}OK"), 192, 2)
+    end
   elseif RegionMap.cursorX == SWITCH_BUTTON_X and RegionMap.cursorY == SWITCH_BUTTON_Y then
     PokedexChrome.drawControlInfoLeft(Strings("{A_BUTTON}SWITCH"), 192, 2)
   elseif RegionMap.currentDungeonName() then

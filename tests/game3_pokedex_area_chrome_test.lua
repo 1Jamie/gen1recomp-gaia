@@ -34,7 +34,7 @@ local Pokedex = require("src.ui.game3.pokedex")
 print("[test] 1. versions.lua carries the area-page / size-page ROM offsets")
 check(Versions.CACHE_VERSION >= 103, "CACHE_VERSION at or past the dex chrome import ("
   .. tostring(Versions.CACHE_VERSION) .. ")")
-eq(Extract.FORMAT_VERSION, 4, "pokedex FORMAT_VERSION bumped")
+eq(Extract.FORMAT_VERSION, 5, "pokedex FORMAT_VERSION bumped")
 
 local gfxByFile = {}
 for _, g in ipairs(Versions.POKEDEX_CHROME_GFX or {}) do gfxByFile[g.file] = g end
@@ -130,6 +130,13 @@ check(Extract.ready(fakeCache, "R") == false, "ready() is false without the chro
 for _, f in ipairs({ Extract.CHROME_FILE, "map_kanto.rgba", "mini_page.rgba",
   "blit_wide_ellipse.rgba", "marker_0.rgba", "cat_icon_grassland.rgba" }) do
   files[root .. "/" .. f] = string.rep("x", 4096)
+end
+check(Extract.ready(fakeCache, "R") == false, "ready() is false without the dex page assets")
+files[root .. "/" .. Extract.PAPER_BG_FILE] =
+  string.rep("x", Extract.PAPER_BG_W * Extract.PAPER_BG_H * 4)
+for _, f in ipairs({ "1.rgba", "bulbasaur.rgba", Extract.FOOTPRINT_QUESTION_MARK_FILE }) do
+  files[root .. "/" .. Extract.FOOTPRINT_SUB .. "/" .. f] =
+    string.rep("x", Extract.FOOTPRINT_W * Extract.FOOTPRINT_H * 4)
 end
 check(Extract.ready(fakeCache, "R") == true, "ready() is true once they are present")
 

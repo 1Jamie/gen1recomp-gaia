@@ -45,16 +45,18 @@ end
 
 local push_event = StepEvents.queueEvent
 
--- pokefirered/src/metatile_behavior.c:266
+-- pokefirered/src/field_control_avatar.c:658
 local function forced_step()
+  local ForcedMovement = package.loaded["src.core.game3.forced_movement"]
+    or require("src.core.game3.forced_movement")
+  if ForcedMovement.isForced() then return true end
   local Player = package.loaded["src.core.game3.player"]
   local Collision = package.loaded["src.core.game3.collision"]
   if not (Player and Collision and Collision.behavior) then return false end
   local ok, mb = pcall(Collision.behavior, Player.cellX, Player.cellY)
   mb = ok and tonumber(mb) or nil
   if not mb then return false end
-  return (mb >= 0x40 and mb <= 0x48) or (mb >= 0x50 and mb <= 0x53)
-    or mb == 0x13 or mb == 0x23 or (mb >= 0x54 and mb <= 0x57)
+  return ForcedMovement.isForcedMovementTile(mb)
 end
 
 local function party_is_wiped(party)
@@ -263,6 +265,18 @@ function StepEvents.onStepTaken(session, game)
     end
   end
   session.eggSteps = eggSteps
+
+  -- pokefirered/src/safari_zone.c:60 CB2_EndSafariBattle
+  local Field = package.loaded["src.core.game3.field"]
+  if Field and Field.pollSafariBalls and Field.pollSafariBalls(game) then
+    return
+  end
+
+  -- pokefirered/src/field_control_avatar.c:677
+  local okSafari, Safari = pcall(require, "src.core.game3.safari")
+  if okSafari and Safari and Safari.takeStep and Safari.takeStep(session, game) then
+    return
+  end
 
   StepEvents.onRepelStep(session, game)
 end

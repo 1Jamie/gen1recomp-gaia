@@ -1480,6 +1480,33 @@ function Pokemon.ghostPic()
   return pic_entry(Pokemon._front, "ghost", rgba)
 end
 
+Pokemon.NUMBERING_INTERNAL = "internal"
+Pokemon.NUMBERING_NATIONAL = "national"
+
+-- pokefirered/src/data/text/species_names.h:254
+function Pokemon.isInternalSpecies(n)
+  n = tonumber(n)
+  if not n or n < 1 then return false end
+  if not Pokemon._names then Pokemon.install(Pokemon._cache) end
+  local name = Pokemon._names and Pokemon._names[n]
+  if type(name) ~= "string" or name == "" then return false end
+  return name:match("^%?+$") == nil
+end
+
+function Pokemon.numberingOf(mon)
+  if type(mon) ~= "table" then return nil end
+  local tag = mon.speciesNumbering
+  if tag == Pokemon.NUMBERING_INTERNAL or tag == Pokemon.NUMBERING_NATIONAL then return tag end
+  return nil
+end
+
+function Pokemon.tagNumbering(mon, kind)
+  if type(mon) ~= "table" then return mon end
+  if kind ~= Pokemon.NUMBERING_NATIONAL then kind = Pokemon.NUMBERING_INTERNAL end
+  mon.speciesNumbering = kind
+  return mon
+end
+
 --- Resolve display species for a host/opaque mon table.
 -- Host mons use string ids ("KYOGRE"); FRLG scripts use internal SPECIES ints.
 function Pokemon.speciesOf(mon)
@@ -1497,21 +1524,13 @@ function Pokemon.speciesOf(mon)
   local n = tonumber(raw)
   if not n or n < 1 then return nil end
 
-  -- Prefer internal id when pack has that name; else try national → internal.
-  if not Pokemon._names then Pokemon.install(Pokemon._cache) end
-  if Pokemon._names and Pokemon._names[n] and Pokemon._names[n] ~= "??????????" then
-    -- Ambiguous for Gen3: national 382 is KYOGRE but internal 382 is ARON.
-    -- Host numeric ids in this project are Gen1/2 range or string names.
-    if n <= 251 then return n end
-    -- If national map says this number is a national dex, resolve.
-    local fromNat = Pokemon.speciesFromNational(n)
-    if fromNat and fromNat ~= n then
-      -- Heuristic: if name at n looks like a valid mon and equals national's
-      -- species name mismatch, prefer national mapping when n > 251.
-      return fromNat
-    end
-    return n
+  local numbering = Pokemon.numberingOf(mon)
+  if numbering == Pokemon.NUMBERING_NATIONAL then
+    return Pokemon.speciesFromNational(n) or n
   end
+  if numbering == Pokemon.NUMBERING_INTERNAL then return n end
+
+  if Pokemon.isInternalSpecies(n) then return n end
   return Pokemon.speciesFromNational(n) or n
 end
 

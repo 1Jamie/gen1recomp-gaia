@@ -253,6 +253,15 @@ local ENTER_BLOCKED = {
 }
 
 -- pokefirered/src/event_object_movement.c:4889 IsMetatileDirectionallyImpassable
+function Collision.directionallyImpassableOn(mapDef, fromX, fromY, tx, ty, dir)
+  local leave = LEAVE_BLOCKED[dir]
+  if not leave then return false end
+  if fromX and fromY and leave(Collision.behaviorOn(mapDef, fromX, fromY)) then
+    return true
+  end
+  return ENTER_BLOCKED[dir](Collision.behaviorOn(mapDef, tx, ty)) == true
+end
+
 function Collision.directionallyImpassable(fromX, fromY, tx, ty, dir)
   local leave = LEAVE_BLOCKED[dir]
   if not leave then return false end
@@ -270,6 +279,87 @@ local SURFABLE_BEH = {
 -- pokefirered/src/metatile_behavior.c:204
 function Collision.isSurfable(beh)
   return SURFABLE_BEH[beh] == true
+end
+
+-- pokefirered/include/constants/metatile_behaviors.h:20
+local MB_PUDDLE = 0x16
+local MB_SHALLOW_WATER = 0x17
+-- pokefirered/include/constants/metatile_behaviors.h:27
+local MB_STRENGTH_BUTTON = 0x20
+local MB_ICE = 0x23
+local MB_THIN_ICE = 0x26
+local MB_CRACKED_ICE = 0x27
+local MB_HOT_SPRINGS = 0x28
+-- pokefirered/include/constants/metatile_behaviors.h:62
+local MB_EASTWARD_CURRENT = 0x50
+local MB_WESTWARD_CURRENT = 0x51
+local MB_NORTHWARD_CURRENT = 0x52
+local MB_SOUTHWARD_CURRENT = 0x53
+local MB_SPIN_RIGHT = 0x54
+local MB_SPIN_LEFT = 0x55
+local MB_SPIN_UP = 0x56
+local MB_SPIN_DOWN = 0x57
+local MB_STOP_SPINNING = 0x58
+-- pokefirered/include/constants/metatile_behaviors.h:128
+local MB_CYCLING_ROAD_PULL_DOWN = 0xD0
+local MB_CYCLING_ROAD_PULL_DOWN_GRASS = 0xD1
+
+-- pokefirered/src/metatile_behavior.c:846
+function Collision.isStrengthButton(beh) return beh == MB_STRENGTH_BUTTON end
+
+-- pokefirered/src/metatile_behavior.c:102
+function Collision.isIce(beh) return beh == MB_ICE end
+
+-- pokefirered/src/metatile_behavior.c:502
+function Collision.isThinIce(beh) return beh == MB_THIN_ICE end
+
+-- pokefirered/src/metatile_behavior.c:510
+function Collision.isCrackedIce(beh) return beh == MB_CRACKED_ICE end
+
+-- pokefirered/src/metatile_behavior.c:586
+function Collision.isHotSprings(beh) return beh == MB_HOT_SPRINGS end
+
+-- pokefirered/src/metatile_behavior.c:350
+function Collision.isEastwardCurrent(beh) return beh == MB_EASTWARD_CURRENT end
+
+-- pokefirered/src/metatile_behavior.c:342
+function Collision.isWestwardCurrent(beh) return beh == MB_WESTWARD_CURRENT end
+
+-- pokefirered/src/metatile_behavior.c:326
+function Collision.isNorthwardCurrent(beh) return beh == MB_NORTHWARD_CURRENT end
+
+-- pokefirered/src/metatile_behavior.c:334
+function Collision.isSouthwardCurrent(beh) return beh == MB_SOUTHWARD_CURRENT end
+
+-- pokefirered/src/metatile_behavior.c:754
+function Collision.isSpinRight(beh) return beh == MB_SPIN_RIGHT end
+
+-- pokefirered/src/metatile_behavior.c:762
+function Collision.isSpinLeft(beh) return beh == MB_SPIN_LEFT end
+
+-- pokefirered/src/metatile_behavior.c:770
+function Collision.isSpinUp(beh) return beh == MB_SPIN_UP end
+
+-- pokefirered/src/metatile_behavior.c:778
+function Collision.isSpinDown(beh) return beh == MB_SPIN_DOWN end
+
+-- pokefirered/src/metatile_behavior.c:786
+function Collision.isStopSpinning(beh) return beh == MB_STOP_SPINNING end
+
+-- pokefirered/src/metatile_behavior.c:794
+function Collision.isSpinTile(beh)
+  return beh ~= nil and beh >= MB_SPIN_RIGHT and beh <= MB_SPIN_DOWN
+end
+
+-- pokefirered/src/metatile_behavior.c:668
+function Collision.isCyclingRoadPullDown(beh)
+  return beh ~= nil and beh >= MB_CYCLING_ROAD_PULL_DOWN
+    and beh <= MB_CYCLING_ROAD_PULL_DOWN_GRASS
+end
+
+-- pokefirered/src/metatile_behavior.c:676
+function Collision.isCyclingRoadPullDownGrass(beh)
+  return beh == MB_CYCLING_ROAD_PULL_DOWN_GRASS
 end
 
 -- pokefirered/include/constants/metatile_behaviors.h:72
@@ -561,11 +651,31 @@ function Collision.isGrass(cx, cy)
   return coll == 0x18 or coll == 0x14
 end
 
+-- pokefirered/src/event_object_movement.c:8346 IsElevationMismatchAt
+function Collision.elevationAt(cx, cy)
+  local layout = Collision._mapDef and Collision._mapDef.midLayout
+  if not (layout and layout.elevAt) then return nil end
+  if cx < 0 or cy < 0 or cx >= layout.width or cy >= layout.height then return nil end
+  return layout:elevAt(cx, cy)
+end
+
+-- pokefirered/src/field_player_avatar.c:597 CanStopSurfing
+local SURF_ELEVATION = 1
+local function atSurfElevation(cx, cy)
+  if Collision.elevationAt(cx, cy) ~= SURF_ELEVATION then return false end
+  local beh = Collision.behavior(cx, cy)
+  return beh == MB_PUDDLE or beh == MB_SHALLOW_WATER
+end
+
 function Collision.isWater(cx, cy)
   local P = permissions()
   local coll = Collision.cell(cx, cy)
-  if P and P.isWater then return P.isWater(coll) end
-  return coll == 0x29
+  if P and P.isWater then
+    if P.isWater(coll) then return true end
+  elseif coll == 0x29 then
+    return true
+  end
+  return atSurfElevation(cx, cy)
 end
 
 local function entityBlocks(game, tx, ty)

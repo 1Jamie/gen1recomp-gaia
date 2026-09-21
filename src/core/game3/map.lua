@@ -404,13 +404,9 @@ function Map.load(mod, game, mapId, opts)
     Space.activate(mod or Runtime._mod, mapId, game, world)
   end
 
-  -- Strength flag is map-instance local in FRLG (clears on map change / warp).
-  if Space and Space.store then
-    local Flags = require("src.core.game3.scripting.flags")
-    Flags.setFlag(Space.store, nil, 0x804, false)
-  end
-  if session and session.flags then
-    session.flags[0x804] = nil
+  -- pokefirered/src/overworld.c:805
+  if okFv and FieldView and FieldView.setDefaultFlashLevel then
+    FieldView.setDefaultFlashLevel(game, mapId)
   end
 
   if def then

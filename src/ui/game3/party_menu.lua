@@ -36,6 +36,36 @@ local function se(id)
   pcall(function() require("src.core.game3.audio").playSe(id) end)
 end
 
+-- pokefirered/src/item_use.c:614
+local function mapHeaderFlag(mapDef, key)
+  if mapDef == nil then return false end
+  if mapDef[key] ~= nil then return (tonumber(mapDef[key]) or 0) ~= 0 end
+  local mapId = mapDef.id
+  if type(mapId) ~= "string" then return false end
+  local okC, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+  local slot = okC and MapCatalog and MapCatalog.slotKeyFor and MapCatalog.slotKeyFor(mapId)
+  if not slot then return false end
+  local okD, Dataset = pcall(require, "src.core.game3.dataset")
+  if not (okD and Dataset and Dataset.cache) then return false end
+  local okCa, cache = pcall(Dataset.cache)
+  if not (okCa and cache and cache.read) then return false end
+  local okE, Extract = pcall(require, "src.import.gba.extract_island1")
+  local root = (okE and Extract and Extract.CACHE_ROOT) or "data/generated/gba"
+  local rel = "/map_tree/maps/" .. slot .. "/header.json"
+  local okR, raw = pcall(cache.read, cache, root .. rel)
+  if not (okR and type(raw) == "string") then
+    okR, raw = pcall(cache.read, cache, "data/generated/gba" .. rel)
+  end
+  if not (okR and type(raw) == "string") then return false end
+  local okJ, Json = pcall(require, "src.link.Json")
+  if not (okJ and Json and Json.decode) then return false end
+  local okH, h = pcall(Json.decode, raw)
+  if not (okH and type(h) == "table") then return false end
+  mapDef.cave = tonumber(h.cave) or 0
+  mapDef.allowEscaping = tonumber(h.allowEscaping) or 0
+  return (tonumber(mapDef[key]) or 0) ~= 0
+end
+
 -- pokefirered/include/constants/items.h:97
 function PartyMenu.itemIsEvolutionStone(item)
   if item == nil or ItemsData.isTm(item) then return false end
@@ -677,6 +707,7 @@ function PartyMenu.show(sessionParty, moveOverlay, opts)
   end
   destroy_party_oam()
   PartyMenu.open = true
+  PartyMenu._flyReturn = nil
   PartyMenu._party = sessionParty or (opts.session and opts.session.party)
   PartyMenu._overlay = moveOverlay or (opts.session and (opts.session.move_overlay or opts.session.moveOverlay))
   PartyMenu._session = opts.session
@@ -703,6 +734,16 @@ function PartyMenu.show(sessionParty, moveOverlay, opts)
   begin_oak_advice(opts)
   Stack.push("party", PartyMenu, { hideBelow = true })
   sync_all_oam()
+end
+
+-- pokefirered/src/region_map.c:4019
+function PartyMenu.returnFromFlyMap()
+  local ret = PartyMenu._flyReturn
+  PartyMenu._flyReturn = nil
+  if not ret or PartyMenu.open then return false end
+  PartyMenu.show(ret.party, nil, { session = ret.session })
+  PartyMenu.cursor = ret.slot or 1
+  return true
 end
 
 function PartyMenu.close()
@@ -1126,7 +1167,9 @@ function PartyMenu.handleInput(input)
             facing = P.facing,
             isSurfing = P.surfing == true,
             hasCuttableGrass = isGrass or (Collision.isGrass and Collision.isGrass(P.cellX, P.cellY)),
-            mapType = mapDef and mapDef.type,
+            mapType = mapDef and mapDef.mapType,
+            isCave = mapHeaderFlag(mapDef, "cave"),
+            canEscapeRope = mapHeaderFlag(mapDef, "allowEscaping"),
           }
           local res = FieldMoves.fromMenu(act, ctx)
           if not res or not res.ok then
@@ -1136,7 +1179,22 @@ function PartyMenu.handleInput(input)
             end)
           else
             se(5)
+            -- pokefirered/src/party_menu.c:3953
+            local flyReturn = nil
+            if res.action == "fly" then
+              flyReturn = {
+                party = PartyMenu._party,
+                session = PartyMenu._session,
+                slot = PartyMenu.cursor,
+              }
+            end
             PartyMenu.close()
+            PartyMenu._flyReturn = flyReturn
+            -- pokefirered/src/party_menu.c:3958
+            local StartMenu = package.loaded["src.ui.game3.start_menu"]
+            if StartMenu and StartMenu.isOpen and StartMenu.isOpen() then
+              StartMenu.close(true)
+            end
             local Field = package.loaded["src.core.game3.field"] or require("src.core.game3.field")
             if Field.executeFieldMove then
               Field.executeFieldMove(res)

@@ -277,6 +277,7 @@ function Evolution.apply(mon, newSpecies, session, bag, via)
   -- 1. Mutate species
   mon.species = newSpecies
   mon.speciesId = newSpecies
+  Pokemon.tagNumbering(mon, Pokemon.NUMBERING_INTERNAL)
 
   -- 2. Nickname update
   Evolution.renameMon(mon, preSpecies, newSpecies)
@@ -316,6 +317,7 @@ function Evolution.apply(mon, newSpecies, session, bag, via)
       end
       shedinja.species = shedId
       shedinja.speciesId = shedId
+      Pokemon.tagNumbering(shedinja, Pokemon.NUMBERING_INTERNAL)
       shedinja.name = Pokemon.name(shedId) or "SHEDINJA"
       shedinja.nickname = Pokemon.name(shedId) or "SHEDINJA"
       shedinja.heldItem = 0

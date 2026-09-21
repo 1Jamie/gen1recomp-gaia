@@ -868,11 +868,22 @@ local function idleTick(eo, game, ctx)
       return
     end
     local ok
+    -- pokefirered/src/event_object_movement.c:4830 GetCollisionAtCoords
     if ctx then
-      ok = ctx.canEnter(tx, ty) and not ctx.blocks(tx, ty, eo.localId)
+      local Coll = Collision()
+      ok = ctx.canEnter(tx, ty, eo.cellX, eo.cellY, dir)
+        and not ctx.blocks(tx, ty, eo.localId)
+      if ok and eo.mapDef and Coll.directionallyImpassableOn(
+          eo.mapDef, eo.cellX, eo.cellY, tx, ty, dir) then
+        ok = false
+      end
     else
       local Coll = Collision()
-      ok = Coll.canEnter(game, tx, ty, {})
+      -- pokefirered/src/event_object_movement.c:8346 IsElevationMismatchAt
+      local onWater = Coll.isWater(eo.cellX, eo.cellY)
+      ok = Coll.canEnter(game, tx, ty,
+        { fromX = eo.cellX, fromY = eo.cellY, dir = dir, surfing = onWater })
+      if ok and Coll.isWater(tx, ty) ~= onWater then ok = false end
       if Objects.playerBlocks(tx, ty) then ok = false end
       if Objects.blocks(tx, ty, eo.localId) then ok = false end
     end
@@ -905,10 +916,11 @@ function Objects.update(game)
 end
 
 function Objects.spawnFromDefs(defs, mapDef)
-  local pool = { byId = {}, order = {}, bounds = layoutBounds(mapDef) }
+  local pool = { byId = {}, order = {}, bounds = layoutBounds(mapDef), mapDef = mapDef }
   for _, def in ipairs(defs or {}) do
     local eo = newEventObject(def)
     if eo.localId > 0 then
+      eo.mapDef = mapDef
       pool.byId[eo.localId] = eo
       pool.order[#pool.order + 1] = eo.localId
     end

@@ -174,6 +174,13 @@ for _, f in ipairs({ Extractor.CHROME_FILE, "map_kanto.rgba", "mini_page.rgba",
   "blit_wide_ellipse.rgba", "marker_0.rgba", "cat_icon_grassland.rgba" }) do
   fake["root/pokemon/pokedex/" .. f] = string.rep("x", 64)
 end
+eq(Extractor.ready(fakeCache, "root"), false, "a cache without the dex page assets is not ready")
+fake["root/pokemon/pokedex/" .. Extractor.PAPER_BG_FILE] =
+  string.rep("x", Extractor.PAPER_BG_W * Extractor.PAPER_BG_H * 4)
+for _, f in ipairs({ "1.rgba", "bulbasaur.rgba", Extractor.FOOTPRINT_QUESTION_MARK_FILE }) do
+  fake["root/pokemon/pokedex/" .. Extractor.FOOTPRINT_SUB .. "/" .. f] =
+    string.rep("x", Extractor.FOOTPRINT_W * Extractor.FOOTPRINT_H * 4)
+end
 eq(Extractor.ready(fakeCache, "root"), true, "tile sheets and chrome graphics complete the cache")
 
 print("[test] 5. Data card tilemap lays the pret tiles")

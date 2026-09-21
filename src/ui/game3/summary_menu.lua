@@ -403,6 +403,12 @@ local function species_name(mon)
   return Pokemon.displayName(mon)
 end
 
+-- pokefirered/src/pokemon_summary_screen.c:4736
+function SummaryMenu.showsPokerusIcon(mon)
+  if not mon then return false end
+  return not Pokemon.hasPokerus(mon) and Pokemon.hasHadPokerus(mon)
+end
+
 local function draw_header(mon)
   local c = coords()
   local species = Pokemon.speciesOf(mon)
@@ -437,6 +443,11 @@ local function draw_header(mon)
   if ailment > 0 then
     local ax, ay = isMovesPage and 16 or 16, isMovesPage and 44 or 38
     SummaryChrome.drawStatusIcon(ax, ay, ailment)
+  end
+
+  -- pokefirered/src/pokemon_summary_screen.c:4716
+  if SummaryMenu.showsPokerusIcon(mon) then
+    SummaryChrome.drawPokerus(110, 88)
   end
 
   -- In pret pokefirered (pokemon_summary_screen.c:1635, 1681, 1979-1984, 4139-4175):

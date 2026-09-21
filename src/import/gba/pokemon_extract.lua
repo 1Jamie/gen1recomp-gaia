@@ -9,7 +9,7 @@ local Lz77 = require("src.import.gba.lz77")
 local PokemonExtract = {}
 
 PokemonExtract.MAGIC = "SVPK"
-PokemonExtract.FORMAT_VERSION = 5
+PokemonExtract.FORMAT_VERSION = 6
 PokemonExtract.CACHE_SUB = "pokemon"
 
 local function default_cache_root()
@@ -331,14 +331,15 @@ local function write_species_meta_lua(meta)
   for _, id in ipairs(ids) do
     local m = meta[id]
     lines[#lines + 1] = string.format(
-      "  [%d] = { catchRate = %d, expYield = %d, genderRatio = %d, eggCycles = %d, friendship = %d, growthRate = %d, eggGroup1 = %d, eggGroup2 = %d, itemCommon = %d, itemRare = %d, evHp = %d, evAtk = %d, evDef = %d, evSpe = %d, evSpa = %d, evSpd = %d },",
+      "  [%d] = { catchRate = %d, expYield = %d, genderRatio = %d, eggCycles = %d, friendship = %d, growthRate = %d, eggGroup1 = %d, eggGroup2 = %d, itemCommon = %d, itemRare = %d, evHp = %d, evAtk = %d, evDef = %d, evSpe = %d, evSpa = %d, evSpd = %d, safariZoneFleeRate = %d },",
       id,
       m.catchRate or 0, m.expYield or 0, m.genderRatio or 0,
       m.eggCycles or 0, m.friendship or 0, m.growthRate or 0,
       m.eggGroup1 or 0, m.eggGroup2 or 0,
       m.itemCommon or 0, m.itemRare or 0,
       m.evHp or 0, m.evAtk or 0, m.evDef or 0,
-      m.evSpe or 0, m.evSpa or 0, m.evSpd or 0)
+      m.evSpe or 0, m.evSpa or 0, m.evSpd or 0,
+      m.safariZoneFleeRate or 0)
   end
   lines[#lines + 1] = "}"
   lines[#lines + 1] = ""
@@ -607,6 +608,8 @@ function PokemonExtract.run(rom, cache, opts)
       growthRate = rom:get(ioff + 0x13),
       eggGroup1 = rom:get(ioff + 0x14),
       eggGroup2 = rom:get(ioff + 0x15),
+      -- pokefirered/include/pokemon.h:233
+      safariZoneFleeRate = rom:get(ioff + 0x18),
     }
     -- Table omits SPECIES_NONE; SpeciesToNationalPokedexNum uses [species - 1].
     toNat[sp] = (sp >= 1) and rom:u16(natBase + (sp - 1) * 2) or 0
@@ -1067,6 +1070,15 @@ function PokemonExtract.ready(cache, cacheRoot)
       and valid_file(baseRoot .. "/chrome/menu_message_rgba.rgba", 20)
       and valid_file(baseRoot .. "/trainer_card/bg.rgba", 240 * 160 * 4)
       and valid_file(baseRoot .. "/items/pack.lua", 20)
+      and valid_file(baseRoot .. "/chrome/fonts/braille.lua", 20)
+      and valid_file(baseRoot .. "/seagallop/manifest.lua", 20)
+      and valid_file(baseRoot .. "/seagallop/wb.rgba", 32 * 8 * 32 * 8 * 4)
+      and valid_file(root .. "/pokedex/paper_bg.rgba", 240 * 160 * 4)
+      and valid_file(root .. "/pokedex/footprints/1.rgba", 16 * 16 * 4)
+      and valid_file(root .. "/pokedex/footprints/question_mark.rgba", 16 * 16 * 4)
+      and valid_file(root .. "/battle/terrain_cave.rgba", 256 * 256 * 4)
+      and valid_file(root .. "/battle/terrain_water.rgba", 256 * 256 * 4)
+      and valid_file(root .. "/battle/terrain_champion.rgba", 256 * 256 * 4)
       and valid_file(root .. "/front/1.rgba", 64 * 64 * 4)
       and valid_file(root .. "/back/1.rgba", 64 * 64 * 4)
       and valid_file(root .. "/icons/1.rgba", iconBytes)

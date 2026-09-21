@@ -74,11 +74,27 @@ FieldMoves.GFX_IDS = {
 -- Sound Effect IDs (matching pret include/constants/songs.h)
 FieldMoves.SE = {
   USE_ITEM    = 1,   -- SE_USE_ITEM
+  BANG        = 20,
   WARP_OUT    = 40,  -- SE_WARP_OUT
   CUT         = 143, -- SE_M_CUT
   ROCK_SMASH  = 146, -- SE_M_ROCK_THROW
   FLASH       = 175, -- SE_M_REFLECT
   SWEET_SCENT = 197, -- SE_M_SWEET_SCENT
+}
+
+-- pokefirered/src/field_specials.c:2296 CutMoveRuinValleyCheck
+FieldMoves.RUIN_VALLEY = {
+  map = "FR_SIX_ISLAND_RUIN_VALLEY",
+  x = 24,
+  y = 25,
+  facing = "up",
+  -- pokefirered/include/constants/flags.h:766
+  flag = 0x2E3,
+  -- pokefirered/src/field_specials.c:2312
+  doorX = 24,
+  doorY = 24,
+  -- pokefirered/include/constants/metatile_labels.h:207
+  doorOpen = 0x358,
 }
 
 -- Metatile ID replacement mapping for Cut on grass (fldeff_cut.c sCutGrassMetatileMapping)
@@ -280,6 +296,25 @@ end
 
 -- ---------------------------------------------------------------- menu paths (SetUpFieldMove_*)
 
+-- pokefirered/src/field_specials.c:2296 CutMoveRuinValleyCheck
+function FieldMoves.ruinValleyCutCheck(ctx)
+  ctx = ctx or {}
+  local RV = FieldMoves.RUIN_VALLEY
+  local store = ctx.store
+  if store and Flags.getFlag(store, ctx.ctx, RV.flag) == true then return false end
+  local session = ctx.session
+  if session and session.flags and session.flags[RV.flag] then return false end
+  local mapId = ctx.mapId or (session and session.map)
+  if mapId ~= RV.map then return false end
+  local x, y, facing = ctx.x, ctx.y, ctx.facing
+  if x == nil or y == nil or facing == nil then
+    local P = package.loaded["src.core.game3.player"]
+    if not P then return false end
+    x, y, facing = P.cellX, P.cellY, P.facing
+  end
+  return x == RV.x and y == RV.y and facing == RV.facing
+end
+
 --- Cut from Party Menu
 function FieldMoves.cutFromMenu(ctx)
   if not FieldMoves.hasBadge(ctx, "CUT") then
@@ -288,6 +323,17 @@ function FieldMoves.cutFromMenu(ctx)
 
   local mon = ctx.mon or FieldMoves.partyMoveUser(ctx.party, "CUT")
   local monName = FieldMoves.getMonName(mon)
+
+  -- pokefirered/src/fldeff_cut.c:123 SetUpFieldMove_Cut
+  if ctx.isDottedHoleDoor or FieldMoves.ruinValleyCutCheck(ctx) then
+    return {
+      ok = true,
+      action = "dotted_hole",
+      mon = mon,
+      se = FieldMoves.SE.CUT,
+      text = FieldMoves.TEXT.USED_CUT:gsub("{STR_VAR_1}", monName),
+    }
+  end
 
   -- 1) Check facing Cut Tree object
   if ctx.facingObject and (ctx.facingObject.gfx == FieldMoves.GFX_IDS.CUT_TREE
@@ -307,17 +353,6 @@ function FieldMoves.cutFromMenu(ctx)
     return {
       ok = true,
       action = "cut_grass",
-      mon = mon,
-      se = FieldMoves.SE.CUT,
-      text = FieldMoves.TEXT.USED_CUT:gsub("{STR_VAR_1}", monName),
-    }
-  end
-
-  -- 3) Check Dotted Hole door check
-  if ctx.isDottedHoleDoor then
-    return {
-      ok = true,
-      action = "dotted_hole",
       mon = mon,
       se = FieldMoves.SE.CUT,
       text = FieldMoves.TEXT.USED_CUT:gsub("{STR_VAR_1}", monName),
@@ -766,7 +801,7 @@ function FieldMoves.mowGrass3x3(cx, cy, getMetatileFn, setMetatileFn, isGrassFn)
 end
 
 --- Check if boulder can be pushed in direction `dir`
--- `boulderObj`: { x = ..., y = ... }
+-- `boulderObj`: { x = ..., y = ... } or a live EventObject { cellX = ..., cellY = ... }
 -- `isPassableFn(x, y)`: returns true if cell (x, y) has no solid collision and no blocking object
 function FieldMoves.canPushBoulder(boulderObj, dir, isPassableFn)
   if not boulderObj or not dir or not isPassableFn then return false end
@@ -781,8 +816,12 @@ function FieldMoves.canPushBoulder(boulderObj, dir, isPassableFn)
   local d = DELTA[dir]
   if not d then return false end
 
-  local targetX = boulderObj.x + d[1]
-  local targetY = boulderObj.y + d[2]
+  local baseX = tonumber(boulderObj.x) or tonumber(boulderObj.cellX)
+  local baseY = tonumber(boulderObj.y) or tonumber(boulderObj.cellY)
+  if not baseX or not baseY then return false end
+
+  local targetX = baseX + d[1]
+  local targetY = baseY + d[2]
 
   return isPassableFn(targetX, targetY), targetX, targetY
 end
