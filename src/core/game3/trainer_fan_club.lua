@@ -302,7 +302,9 @@ function TrainerFanClub.tryGainNewFanFromCounter(session, ctx, counterIdx)
     if timer + inc >= 20 then
       if TrainerFanClub.countFans(fanFlags) < 3 then
         TrainerFanClub.playerGainRandomTrainerFan(session, ctx)
-        _, gotInitialFans, fanFlags = TrainerFanClub.getFanClubData(session, ctx)
+        local _unused, newGotInitial, newFanFlags = TrainerFanClub.getFanClubData(session, ctx)
+        gotInitialFans = newGotInitial
+        fanFlags = newFanFlags
         timer = 0
       else
         timer = 20

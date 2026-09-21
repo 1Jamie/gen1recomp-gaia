@@ -12,7 +12,7 @@ do
   end
 end
 
-local bit = bit or bit32
+local bit = rawget(_G, "bit") or rawget(_G, "bit32")
 if not bit then
   local ok, mod = pcall(require, "bit")
   if ok and mod then bit = mod end
