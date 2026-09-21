@@ -126,8 +126,20 @@ function Dataset.buildMaps(warps)
     local floorNum = spec.floorNum
     local weather = spec.weather
     local mapType = spec.mapType
+    -- pokefirered/include/global.fieldmap.h:191
+    local cave = spec.cave
+    local allowEscaping = spec.allowEscaping
+    local allowRunning = spec.allowRunning
+    local bikingAllowed = spec.bikingAllowed
+    local battleType = spec.battleType
+    local music = spec.music
+    local borderWidth = spec.borderWidth
+    local borderHeight = spec.borderHeight
 
-    if regionMapSectionId == nil or showMapName == nil then
+    if regionMapSectionId == nil or showMapName == nil or cave == nil
+        or allowEscaping == nil or allowRunning == nil or bikingAllowed == nil
+        or battleType == nil or music == nil
+        or borderWidth == nil or borderHeight == nil then
       -- Try loading from data/generated/gba/map_tree/maps/{slot}/header.json
       local cache = loveCache()
       local candidates = {}
@@ -159,6 +171,14 @@ function Dataset.buildMaps(warps)
             floorNum = floorNum or h.floorNum
             weather = weather or h.weather
             mapType = mapType or h.mapType
+            cave = cave or h.cave
+            allowEscaping = allowEscaping or h.allowEscaping
+            allowRunning = allowRunning or h.allowRunning
+            bikingAllowed = bikingAllowed or h.bikingAllowed
+            battleType = battleType or h.battleType
+            music = music or h.music
+            borderWidth = borderWidth or h.borderWidth
+            borderHeight = borderHeight or h.borderHeight
             break
           end
         end
@@ -190,6 +210,14 @@ function Dataset.buildMaps(warps)
       floorNum = tonumber(floorNum) or 0,
       weather = weather or 0,
       mapType = mapType or 0,
+      cave = tonumber(cave),
+      allowEscaping = tonumber(allowEscaping),
+      allowRunning = tonumber(allowRunning),
+      bikingAllowed = tonumber(bikingAllowed),
+      battleType = tonumber(battleType),
+      music = tonumber(music),
+      borderWidth = tonumber(borderWidth),
+      borderHeight = tonumber(borderHeight),
       native = true,
     }
   end
@@ -245,6 +273,8 @@ function Dataset.mountExtractRoots()
     or "data/generated/gba"
   Extract.CACHE_ROOT = root
   Extract.NATIVE_ROOT = root .. "/native"
+  local HealLocations = package.loaded["src.core.game3.heal_locations"]
+  if HealLocations and HealLocations.invalidate then HealLocations.invalidate() end
 end
 
 --- Bind LayoutNative handles onto map defs (FieldView needs midLayout).

@@ -27,7 +27,7 @@ Versions.ROM_SIZE = 16777216
 -- v99: gEggMoves → pokemon/egg_moves.lua (hidden-mon egg moves were inert).
 -- v100: location preview screens (sMapPreviewScreenData artwork) + ROM-derived
 --       mapsec names and sDungeonInfo dungeon descriptions.
-Versions.CACHE_VERSION = 107
+Versions.CACHE_VERSION = 109
 Versions.NATIVE_VERSION = 6
 Versions.OW_VERSION = 1
 Versions.ANIM_VERSION = 1
@@ -308,6 +308,15 @@ Versions.REGION_MAP_DUNGEON_ICON_GFX = 0x3F18D8
 Versions.REGION_MAP_FLY_ICON_GFX = 0x3F1908
 Versions.REGION_MAP_BG_SECONDARY_GFX = 0x3F1978
 Versions.REGION_MAP_BG_SECONDARY_TILEMAP = 0x3F19A0
+
+-- pokefirered/src/heal_location.c:28
+Versions.S_HEAL_LOCATIONS = 0x3EEBF8
+Versions.S_WHITEOUT_RESPAWN_MAP_IDXS = 0x3EEC98
+Versions.S_WHITEOUT_RESPAWN_HEALER_NPC_IDS = 0x3EECE8
+Versions.NUM_HEAL_LOCATIONS = 20
+-- pokefirered/src/region_map.c:828
+Versions.S_MAP_FLY_DESTINATIONS = 0x3F2EE0
+Versions.NUM_MAP_FLY_DESTINATIONS = 108
 
 -- Multichoice list table (FireRed USA 1.0). gMultichoiceLists (65 lists).
 Versions.MULTICHOICE_LISTS = 0x3E04B0
@@ -1355,10 +1364,17 @@ Versions.FIELD_EFFECT_PAL_PLAYER = 0x35B968    -- gObjectEventPal_Player (surf b
 Versions.FIELD_EFFECTS = {
   tall_grass   = { pic = 0x39A008, pal = 0x398FC8, w = 16, h = 16, frames = 5 },
   cut_grass    = { pic = 0x398648, pal = 0x398FC8, w = 8,  h = 8,  frames = 1 },
-  rock_smash   = { pic = 0x398928, pal = 0x398FA8, w = 16, h = 16, frames = 4 },
+  -- pokefirered/src/fldeff_rocksmash.c:108 (gObjectEventPic_RockSmashRock)
+  rock_smash   = { pic = 0x3947A8, pal = 0x36D888, w = 16, h = 16, frames = 4 },
   surf_blob    = { pic = 0x396B08, pal = 0x35B968, w = 32, h = 32, frames = 6 },
-  fly_bird     = { pic = 0x398048, pal = 0x398FA8, w = 32, h = 32, frames = 4 },
-  ripple       = { pic = 0x398BA8, pal = 0x398FA8, w = 16, h = 16, frames = 8 },
+  -- pokefirered/src/data/field_effects/field_effect_objects.h:1099
+  fly_bird     = { pic = 0x39D3C8, pal = 0x35B968, w = 64, h = 64, frames = 5 },
+  -- pokefirered/src/data/field_effects/field_effect_objects.h:99
+  ripple       = { pic = 0x3986A8, pal = 0x398FC8, w = 16, h = 16, frames = 5 },
+  -- pokefirered/src/data/field_effects/field_effect_objects.h:565
+  splash       = { pic = 0x39AC48, pal = 0x398FA8, w = 16, h = 8,  frames = 2 },
+  -- pokefirered/src/data/field_effects/field_effect_objects.h:1203
+  hot_springs_water = { pic = 0x39C508, pal = 0x398FC8, w = 16, h = 16, frames = 1 },
   emoticons    = { pic = 0x3C6AC8, pal = 0x35B968, w = 16, h = 16, frames = 15 },
   -- pokefirered/src/field_effect.c:326
   pokeball_glow = {
@@ -1380,6 +1396,7 @@ Versions.BATTLE_UI = {
   healthbox_elements = 0xD11BC4,    -- uncompressed 320×24 4bpp
   healthbox_player = 0xD1F340,      -- gHealthboxSinglesPlayerGfx LZ → 4096
   healthbox_enemy = 0xD1F604,       -- gHealthboxSinglesOpponentGfx LZ → 2048
+  healthbox_safari = 0xD1FABC,      -- src/graphics.c:620
   healthbox_doubles_player = 0xD1F794,   -- gHealthboxDoublesPlayerGfx LZ → 2048
   healthbox_doubles_opponent = 0xD1F928, -- gHealthboxDoublesOpponentGfx LZ → 2048
   healthbox_pal = 0xD11B84,         -- uncompressed 32 (gBattleInterface_Healthbox_Pal)
@@ -2001,6 +2018,9 @@ Versions.MAPS = {
 Versions.G_MAP_GROUPS = 0x3526A8
 Versions.NUM_MAP_GROUPS = 43 -- pret map_groups.json group_order length
 
+-- pokefirered/src/overworld.c:494
+Versions.G_MAP_LAYOUTS = 0x34EB8C
+
 -- FireRed USA 1.0 MapHeader file offsets (verified against local dump).
 -- Legacy hand list — prefer MapTree.walk(gMapGroups) for new extract.
 -- Shared layouts (House3 / Harbor / PC 2F) disambiguated by header proximity
@@ -2122,6 +2142,7 @@ local FIRERED_10 = {
   layouts = FIRERED_10_LAYOUTS,
   map_headers = Versions.MAP_HEADERS,
   g_map_groups = Versions.G_MAP_GROUPS,
+  g_map_layouts = Versions.G_MAP_LAYOUTS,
   num_map_groups = Versions.NUM_MAP_GROUPS,
   ow_gfx_pointers = Versions.OW_GFX_POINTERS,
   ow_sprite_palettes = Versions.OW_SPRITE_PALETTES,

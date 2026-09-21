@@ -287,6 +287,7 @@ function RomExtractorGen3:runAuxExtracts(sha1)
   local RegionMapExtract = require("src.import.gba.region_map_extract")
   local MapSectionsExtract = require("src.import.gba.map_sections_extract")
   local MultichoiceExtract = require("src.import.gba.multichoice_extract")
+  local HealLocationsExtract = require("src.import.gba.heal_locations_extract")
   local Extract = require("src.import.gba.extract_island1")
   local prevRoot = Extract.CACHE_ROOT
   Extract.CACHE_ROOT = GBA_ROOT
@@ -295,7 +296,8 @@ function RomExtractorGen3:runAuxExtracts(sha1)
   local needRegion = not RegionMapExtract.ready(cache, GBA_ROOT)
   local needSections = not CacheFs.exists(GBA_ROOT .. "/region_map/map_sections.lua")
   local needChoices = not MultichoiceExtract.ready(cache, GBA_ROOT)
-  if not (needRegion or needSections or needChoices) then
+  local needHeal = not HealLocationsExtract.ready(cache, GBA_ROOT)
+  if not (needRegion or needSections or needChoices or needHeal) then
     Extract.CACHE_ROOT = prevRoot
     return true, { skipped = true }
   end
@@ -323,6 +325,11 @@ function RomExtractorGen3:runAuxExtracts(sha1)
     end
     if needChoices then
       out.multichoice = MultichoiceExtract.run(rom, cache, { cacheRoot = GBA_ROOT })
+    end
+    if needHeal then
+      local okHl, detailHl = HealLocationsExtract.run(rom, cache, { cacheRoot = GBA_ROOT })
+      if not okHl then print("[heal_locations] warn: " .. tostring(detailHl)) end
+      out.healLocations = detailHl
     end
     return out
   end)

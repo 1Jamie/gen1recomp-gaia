@@ -263,7 +263,7 @@ check(not Naming.isOpen(), "Naming screen NOT opened when NO selected")
 check(caughtPidgey.nickname == "", "caughtPidgey nickname remains default/empty")
 check(Battle._phase == "ending", "Battle transitioned to ending phase immediately")
 
--- Scenario C: Caught Pokémon sent to PC -> Yes to Nickname -> Shows PC Transfer message
+-- Scenario C: Caught Pokémon sent to PC -> Yes to Nickname -> no PC transfer message
 local caughtCaterpie = { species = 10, name = "CATERPIE", level = 3, hp = 6, maxHp = 6, nickname = "" }
 local catchResPc = {
   success = true,
@@ -289,26 +289,16 @@ Battle.update(1 / 60, { input = mockInput })
 check(Naming.isOpen(), "Naming screen opened for PC-bound Caterpie")
 Naming.close("SLUGGY")
 check(caughtCaterpie.nickname == "SLUGGY", "Caterpie nicknamed SLUGGY")
-check(Battle._phase == "catch_pc_msg", "Battle phase is catch_pc_msg")
+-- pokefirered/src/battle_script_commands.c:9853
+check(Battle._phase == "ending", "a nicknamed catch skips the PC transfer message")
 
--- Check transfer message contains "SLUGGY was transferred"
 local foundTransfer = false
 for _, line in ipairs(BattleUi._log or {}) do
-  if line:find("SLUGGY was transferred") then
+  if line:find("transferred") then
     foundTransfer = true
   end
 end
-check(foundTransfer, "Transfer message uses the newly given nickname 'SLUGGY'")
-
--- Drain transfer message
-while not BattleUi.pump() do
-  Message.tick()
-  if Message.isWaiting and Message.isWaiting() then
-    Message.close()
-  end
-end
-Battle.update(1 / 60, { input = mockInput })
-check(Battle._phase == "ending", "Battle ends after PC transfer message is dismissed")
+check(not foundTransfer, "trygivecaughtmonnick jumps past printfromtable gCaughtMonStringIds")
 
 if failed == 0 then
   print("\nAll game3 nickname tests passed.")

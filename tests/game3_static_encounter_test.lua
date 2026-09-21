@@ -100,6 +100,10 @@ local function fightStatic(localId, result)
   Space.vm:startTalk(eo.def.scriptKey, localId, 2)
   drain(4000)
   if not Space.vm:isRunning() then return false end
+  if BattleBridge._finish == nil
+    and not (Battle.isActive and Battle.isActive()) then
+    return false
+  end
   BattleBridge.finishPending(result)
   drain(4000)
   return true

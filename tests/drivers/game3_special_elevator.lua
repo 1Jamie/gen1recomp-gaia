@@ -17,10 +17,6 @@ local function result(ok, label)
   return ok
 end
 
-local function blocked(label)
-  print("BLOCKED " .. label)
-end
-
 local function finish()
   if failures == 0 then
     print("PASS special_elevator")
@@ -74,11 +70,6 @@ return function(game)
   -- pokefirered/data/maps/RocketHideout_B4F/scripts.inc:61
   Flags.setFlag(Space.store, ctx(), FLAG_CAN_USE_ROCKET_HIDEOUT_LIFT, true)
   if session.bag then pcall(Bag.add, session.bag, ITEM_LIFT_KEY, 1) end
-
-  local function warpSeam()
-    local vmAdapters = Space.vm and Space.vm.adapters
-    return (vmAdapters and vmAdapters.setWarp) ~= nil
-  end
 
   local function dynamicMap()
     local Elevator = require("src.core.game3.scripting.natives_elevator")
@@ -140,27 +131,17 @@ return function(game)
   result(waitIdle(), "the elevator script finished")
   result(var(VAR_ELEVATOR_FLOOR) == 2,
     "VAR_ELEVATOR_FLOOR is B2F after the ride, got " .. tostring(var(VAR_ELEVATOR_FLOOR)))
-  if warpSeam() then
-    result(dynamicMap() == "FR_ROCKET_HIDEOUT_B2F",
-      "the engine recorded the dynamic warp to B2F, got " .. tostring(dynamicMap()))
-  else
-    blocked("setdynamicwarp records nothing: adapters.lua has no a.setWarp " ..
-      "(owner space-runtime), so the lift exit and the second-visit cursor stay dead")
-  end
+  result(dynamicMap() == "FR_ROCKET_HIDEOUT_B2F",
+    "the engine recorded the dynamic warp to B2F, got " .. tostring(dynamicMap()))
 
   goTo(ELEVATOR, SIGN_XY[1], SIGN_XY[2], "left")
   result(talkToPanel(), "the panel answers again")
   result(waitForChoice(), "the floor menu reopened")
   result(var(VAR_ELEVATOR_FLOOR) == 2,
     "the second visit starts on B2F, got " .. tostring(var(VAR_ELEVATOR_FLOOR)))
-  if warpSeam() then
-    result(Choice.cursor == 2,
-      "the cursor opens on the current floor B2F, got " .. tostring(Choice.cursor))
-    U.shot(game, DIR .. "/special_elevator_02_cursor_on_current_floor.png")
-  else
-    blocked("the cursor opens on the current floor: it reads the dynamic warp, " ..
-      "cursor is " .. tostring(Choice.cursor))
-  end
+  result(Choice.cursor == 2,
+    "the cursor opens on the current floor B2F, got " .. tostring(Choice.cursor))
+  U.shot(game, DIR .. "/special_elevator_02_cursor_on_current_floor.png")
   U.tap(game, "b")
   U.wait(10)
   waitIdle()

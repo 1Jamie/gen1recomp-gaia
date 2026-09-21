@@ -930,21 +930,35 @@ function PokedexChrome.drawAreaMarker(shape, x, y)
   love.graphics.setColor(1, 1, 1, 1)
 end
 
+-- pokefirered/src/pokedex_screen.c:2901
+function PokedexChrome.footprintSource(speciesId)
+  local sp = tonumber(speciesId) or 1
+  local root = pokedex_root() .. "/footprints"
+  local Pokemon = require("src.core.game3.pokemon")
+  local rawName = Pokemon.name and Pokemon.name(sp) and Pokemon.name(sp):lower()
+  local name = rawName and rawName:gsub("[^%w_]", ""):gsub("♀", "_f"):gsub("♂", "_m")
+
+  local rels = { root .. "/" .. sp .. ".rgba" }
+  if name and name ~= "" then rels[#rels + 1] = root .. "/" .. name .. ".rgba" end
+  if rawName and rawName ~= "" then rels[#rels + 1] = root .. "/" .. rawName .. ".rgba" end
+  rels[#rels + 1] = root .. "/question_mark.rgba"
+  rels[#rels + 1] = root .. "/bulbasaur.rgba"
+
+  for _, rel in ipairs(rels) do
+    local bytes = read_bytes(rel)
+    if bytes then return bytes, rel end
+  end
+  return nil, nil
+end
+
 --- Draw Footprint (16x16, black footprint on transparent background)
 function PokedexChrome.drawFootprint(speciesId, x, y, scale)
   if not (love and love.graphics) then return end
   scale = scale or 1
   local sp = tonumber(speciesId) or 1
-  local Pokemon = require("src.core.game3.pokemon")
-  local rawName = Pokemon.name and Pokemon.name(sp) and Pokemon.name(sp):lower()
-  local name = rawName and rawName:gsub("[^%w_]", ""):gsub("♀", "_f"):gsub("♂", "_m")
 
   if not PokedexChrome._footprints[sp] then
-    local root = pokedex_root() .. "/footprints"
-    local bytes = (name and read_bytes(root .. "/" .. name .. ".rgba"))
-      or (rawName and read_bytes(root .. "/" .. rawName .. ".rgba"))
-      or read_bytes(root .. "/question_mark.rgba")
-      or read_bytes(root .. "/bulbasaur.rgba")
+    local bytes = PokedexChrome.footprintSource(sp)
     if bytes then
       local img = rgba_to_image(bytes, 16, 16)
       if img then

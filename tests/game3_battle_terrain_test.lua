@@ -311,4 +311,34 @@ do
   end
 end
 
+print("[test] 9. the map battle scene comes off the live map def (overworld.c:1270)")
+do
+  local BattleBridge = require("src.core.game3.battle_bridge")
+  local CacheFs = require("src.import.CacheFs")
+  local realReadActive, realRead = CacheFs.readActive, CacheFs.read
+  CacheFs.readActive = function() error("mapBattleScene must not read the cache") end
+  CacheFs.read = function() error("mapBattleScene must not read the cache") end
+
+  local game = { data = { maps = {
+    FR_VIRIDIAN_CITY_GYM = { battleType = SCENE.GYM },
+    FR_PALLET_TOWN = { battleType = SCENE.NORMAL },
+  } } }
+  eq(BattleBridge.mapBattleScene("FR_VIRIDIAN_CITY_GYM", game), SCENE.GYM,
+    "a gym map def hands back MAP_BATTLE_SCENE_GYM")
+  eq(BattleBridge.mapBattleScene("FR_PALLET_TOWN", game), SCENE.NORMAL,
+    "an outdoor map def hands back MAP_BATTLE_SCENE_NORMAL")
+  eq(BattleBridge.mapBattleScene("FR_NOT_A_MAP", game), nil,
+    "a map with no def has no scene")
+  eq(BattleBridge.mapBattleScene(nil, game), nil, "a nil map id has no scene")
+
+  local Runtime = require("src.core.game3.runtime")
+  local realGame = Runtime._game
+  Runtime._game = game
+  eq(BattleBridge.mapBattleScene("FR_VIRIDIAN_CITY_GYM"), SCENE.GYM,
+    "with no game argument it reads the running game's maps")
+  Runtime._game = realGame
+
+  CacheFs.readActive, CacheFs.read = realReadActive, realRead
+end
+
 finish()

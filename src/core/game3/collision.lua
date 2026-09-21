@@ -281,6 +281,8 @@ function Collision.isSurfable(beh)
   return SURFABLE_BEH[beh] == true
 end
 
+-- pokefirered/include/constants/metatile_behaviors.h:17
+local MB_WATERFALL = 0x13
 -- pokefirered/include/constants/metatile_behaviors.h:20
 local MB_PUDDLE = 0x16
 local MB_SHALLOW_WATER = 0x17
@@ -300,6 +302,16 @@ local MB_SPIN_LEFT = 0x55
 local MB_SPIN_UP = 0x56
 local MB_SPIN_DOWN = 0x57
 local MB_STOP_SPINNING = 0x58
+-- pokefirered/include/constants/metatile_behaviors.h:52
+local MB_WALK_EAST = 0x40
+local MB_WALK_WEST = 0x41
+local MB_WALK_NORTH = 0x42
+local MB_WALK_SOUTH = 0x43
+local MB_SLIDE_EAST = 0x44
+local MB_SLIDE_WEST = 0x45
+local MB_SLIDE_NORTH = 0x46
+local MB_SLIDE_SOUTH = 0x47
+local MB_TRICK_HOUSE_PUZZLE_8_FLOOR = 0x48
 -- pokefirered/include/constants/metatile_behaviors.h:128
 local MB_CYCLING_ROAD_PULL_DOWN = 0xD0
 local MB_CYCLING_ROAD_PULL_DOWN_GRASS = 0xD1
@@ -361,6 +373,38 @@ end
 function Collision.isCyclingRoadPullDownGrass(beh)
   return beh == MB_CYCLING_ROAD_PULL_DOWN_GRASS
 end
+
+-- pokefirered/src/metatile_behavior.c:318
+function Collision.isWalkEast(beh) return beh == MB_WALK_EAST end
+
+-- pokefirered/src/metatile_behavior.c:310
+function Collision.isWalkWest(beh) return beh == MB_WALK_WEST end
+
+-- pokefirered/src/metatile_behavior.c:294
+function Collision.isWalkNorth(beh) return beh == MB_WALK_NORTH end
+
+-- pokefirered/src/metatile_behavior.c:302
+function Collision.isWalkSouth(beh) return beh == MB_WALK_SOUTH end
+
+-- pokefirered/src/metatile_behavior.c:382
+function Collision.isSlideEast(beh) return beh == MB_SLIDE_EAST end
+
+-- pokefirered/src/metatile_behavior.c:374
+function Collision.isSlideWest(beh) return beh == MB_SLIDE_WEST end
+
+-- pokefirered/src/metatile_behavior.c:358
+function Collision.isSlideNorth(beh) return beh == MB_SLIDE_NORTH end
+
+-- pokefirered/src/metatile_behavior.c:366
+function Collision.isSlideSouth(beh) return beh == MB_SLIDE_SOUTH end
+
+-- pokefirered/src/metatile_behavior.c:286
+function Collision.isTrickHouseSlipperyFloor(beh)
+  return beh == MB_TRICK_HOUSE_PUZZLE_8_FLOOR
+end
+
+-- pokefirered/src/metatile_behavior.c:594
+function Collision.isWaterfall(beh) return beh == MB_WATERFALL end
 
 -- pokefirered/include/constants/metatile_behaviors.h:72
 local MB_CAVE_DOOR = 0x60
@@ -786,7 +830,57 @@ function Collision.ledgeLanding(game, fromX, fromY, dir)
   return tx, ty
 end
 
+-- pokefirered/include/constants/maps.h:9
+local MAP_DYNAMIC_NUM = 0x7F
+-- pokefirered/include/constants/maps.h:26
+local WARP_ID_NONE = 0xFF
+
+local function sessionOf()
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  return Runtime and Runtime.getSession and Runtime.getSession() or nil
+end
+
+local function catalogMapId(mapId, group, num)
+  local okC, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+  if type(mapId) == "string" and mapId ~= "" then
+    if okC and MapCatalog and MapCatalog.resolve then
+      return MapCatalog.resolve(mapId) or mapId
+    end
+    return mapId
+  end
+  if okC and MapCatalog and group ~= nil then
+    return MapCatalog.mapIdFor(group, num)
+  end
+  return nil
+end
+
+-- pokefirered/src/overworld.c:610 SetWarpDestinationToDynamicWarp
+local function resolveDynamicDest(game)
+  local session = sessionOf()
+  local dw = session and session.dynamicWarp
+  if type(dw) == "string" then dw = { map = dw } end
+  if type(dw) ~= "table" then return nil end
+  local destMap = catalogMapId(dw.map or dw.mapId or dw.destMap, dw.mapGroup, dw.mapNum)
+  if type(destMap) ~= "string" then return nil end
+  local destDef = game and game.data and game.data.maps and game.data.maps[destMap]
+  -- pokefirered/src/overworld.c:564 SetPlayerCoordsFromWarp
+  local warps = destDef and destDef.warps
+  local id = tonumber(dw.warpId)
+  local landing = id and id >= 0 and id < WARP_ID_NONE and warps and warps[id + 1]
+  if landing then
+    return destMap, tonumber(landing.x) or 0, tonumber(landing.y) or 0
+  end
+  local x, y = tonumber(dw.x), tonumber(dw.y)
+  if x and y and x >= 0 and y >= 0 then return destMap, x, y end
+  local w, h = mapCellSize(destDef)
+  return destMap, math.floor(w / 2), math.floor(h / 2)
+end
+
 local function resolveDest(game, warp)
+  -- pokefirered/src/field_control_avatar.c:971 SetupWarp
+  if tonumber(warp.mapNum) == MAP_DYNAMIC_NUM then
+    return resolveDynamicDest(game)
+  end
   local destMap = warp.destMap or warp.map
   if type(destMap) ~= "string" or destMap == "" then
     local okC, MapCatalog = pcall(require, "src.import.gba.map_catalog")
@@ -821,6 +915,46 @@ end
 
 function Collision.warpAt(cx, cy)
   return Collision._warps[cy * 1024 + cx]
+end
+
+-- pokefirered/src/field_control_avatar.c:960 GetWarpEventAtMapPosition
+local function triggeringWarp()
+  local P = package.loaded["src.core.game3.player"]
+  if not P then return nil end
+  local cx, cy = tonumber(P.cellX), tonumber(P.cellY)
+  if not (cx and cy) then return nil end
+  local w = Collision.warpAt(cx, cy)
+  if w then return w end
+  local d = DELTA[P.facing]
+  if not d then return nil end
+  return Collision.warpAt(cx + d[1], cy + d[2])
+end
+
+-- pokefirered/src/field_control_avatar.c:982 SetupWarp
+function Collision.noteDynamicWarpEntry(game, destMap, destX, destY, srcX, srcY)
+  local destDef = game and game.data and game.data.maps and game.data.maps[destMap]
+  local hit = false
+  for _, w in ipairs((destDef and destDef.warps) or {}) do
+    if tonumber(w.mapNum) == MAP_DYNAMIC_NUM
+        and tonumber(w.x) == tonumber(destX) and tonumber(w.y) == tonumber(destY) then
+      hit = true
+      break
+    end
+  end
+  if not hit then return false end
+  local session = sessionOf()
+  if not session then return false end
+  local from = (srcX and srcY and Collision.warpAt(tonumber(srcX), tonumber(srcY)))
+    or triggeringWarp()
+  local P = package.loaded["src.core.game3.player"]
+  -- pokefirered/src/overworld.c:600 SetDynamicWarp
+  session.dynamicWarp = {
+    map = (game and game.currentMap) or Collision._mapId or session.map,
+    warpId = WARP_ID_NONE,
+    x = (from and tonumber(from.x)) or (P and tonumber(P.cellX)) or session.x,
+    y = (from and tonumber(from.y)) or (P and tonumber(P.cellY)) or session.y,
+  }
+  return true
 end
 
 local function isBuilding(name)
@@ -1118,11 +1252,11 @@ function Collision.tryWarpAt(game, cx, cy, facing, opts)
     local isFallHole = (beh ~= nil) and Collision.isFallWarp(beh) or (beh == nil and coll == 0x76)
 
     if isTeleport then
-      return Warp.startTeleport(mod, g, destMap, destX, destY)
+      return Warp.startTeleport(mod, g, destMap, destX, destY, cx, cy)
     end
 
     if isFallHole then
-      return Warp.startFall(mod, g, destMap, destX, destY)
+      return Warp.startFall(mod, g, destMap, destX, destY, cx, cy)
     end
 
     Warp.request(mod, g, destMap, destX, destY,

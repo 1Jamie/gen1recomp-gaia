@@ -140,22 +140,40 @@ function Safari.steps(session)
   return (state and tonumber(state.steps)) or 0
 end
 
+local function set_entrance_scene(session, value)
+  local Flags = require("src.core.game3.scripting.flags")
+  local st = store()
+  if st then Flags.setVar(st, script_ctx(), Safari.VAR_ENTRANCE_SCENE, value) end
+  if session then
+    session.vars = session.vars or {}
+    session.vars[Safari.VAR_ENTRANCE_SCENE] = value
+  end
+end
+
 -- pokefirered/data/scripts/safari_zone.inc:7 SafariZone_EventScript_Exit
 function Safari.exitToEntrance(session, game)
   session = session_of(session)
   game = game_of(game)
-  local Flags = require("src.core.game3.scripting.flags")
-  local st = store()
-  if st then Flags.setVar(st, script_ctx(), Safari.VAR_ENTRANCE_SCENE, 1) end
-  if session then
-    session.vars = session.vars or {}
-    session.vars[Safari.VAR_ENTRANCE_SCENE] = 1
-  end
+  set_entrance_scene(session, 1)
   Safari.exit(session)
   local Warp = require("src.core.game3.warp")
   local Runtime = runtime()
   Warp.request(Runtime and Runtime._mod, game, Safari.EXIT_MAP,
     Safari.EXIT_X, Safari.EXIT_Y, "down", { fade = true })
+  return true
+end
+
+-- pokefirered/data/scripts/safari_zone.inc:1 SafariZone_EventScript_OutOfBallsMidBattle
+function Safari.outOfBallsMidBattle(session, game)
+  session = session_of(session)
+  game = game_of(game)
+  set_entrance_scene(session, 3)
+  Safari.exit(session)
+  local Warp = require("src.core.game3.warp")
+  local Runtime = runtime()
+  -- pokefirered/src/safari_zone.c:68
+  Warp.request(Runtime and Runtime._mod, game, Safari.EXIT_MAP,
+    Safari.EXIT_X, Safari.EXIT_Y, "down", { fade = false, se = false })
   return true
 end
 

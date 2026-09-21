@@ -28,10 +28,18 @@ local function contextFor(entry, pool)
   local layout = entry.def and entry.def.midLayout
   local P = permissions()
   return {
-    canEnter = function(tx, ty)
+    canEnter = function(tx, ty, fromX, fromY, dir)
       if not layout then return false end
       if tx < 0 or ty < 0 or tx >= (layout.width or 0) or ty >= (layout.height or 0) then
         return false
+      end
+      -- pokefirered/src/event_object_movement.c:4889
+      if dir and entry.def then
+        local C = require("src.core.game3.collision")
+        if C.directionallyImpassableOn
+            and C.directionallyImpassableOn(entry.def, fromX, fromY, tx, ty, dir) then
+          return false
+        end
       end
       local coll = layout:collAt(tx, ty)
       if P and P.isWalkable then return P.isWalkable(coll) end

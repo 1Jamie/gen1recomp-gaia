@@ -1,6 +1,7 @@
 local U = require("tests.drivers.util")
 local DIR = os.getenv("POKEPORT_SHOT_DIR") or "/tmp/game3_field_currents"
 
+local ROUTE_20 = "FR_ROUTE_20"
 local B4F = "FR_SEAFOAM_ISLANDS_B4F"
 local START_X, START_Y = 9, 5
 local CORNER_X = 16
@@ -69,6 +70,9 @@ return function(game)
     end
     return false
   end
+
+  -- pokefirered/data/maps/Route20/scripts.inc:5-27
+  goTo(ROUTE_20, 30, 9, "left")
 
   goTo(B4F, START_X, START_Y, "right")
   result(Space.mapId == B4F, "surfed onto Seafoam Islands B4F, map=" .. tostring(Space.mapId))

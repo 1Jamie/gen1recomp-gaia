@@ -804,6 +804,10 @@ function FieldView.setFlashLevel(level)
   if level < 0 or level > FieldView.MAX_FLASH_LEVEL then level = 0 end
   FieldView.flashLevel = level
   FieldView._flashRadius = nil
+  -- pokefirered/include/global.h:770 gSaveBlock1Ptr->flashLevel
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  local session = Runtime and Runtime.getSession and Runtime.getSession()
+  if session then session.flashLevel = level end
 end
 
 -- pokefirered/src/overworld.c:973
@@ -854,32 +858,14 @@ local function flashActive()
 end
 
 -- pokefirered/src/overworld.c:958
-local function mapIsCave(game, mapId, def)
+local function mapIsCave(def)
   if def and def.cave ~= nil then return (tonumber(def.cave) or 0) ~= 0 end
-  if type(mapId) ~= "string" then return false end
-  local okC, MapCatalog = pcall(require, "src.import.gba.map_catalog")
-  local slot = okC and MapCatalog.slotKeyFor and MapCatalog.slotKeyFor(mapId)
-  if not slot then return false end
-  local okD, Dataset = pcall(require, "src.core.game3.dataset")
-  local cache = okD and Dataset.cache and Dataset.cache()
-  if not cache then return false end
-  local Extract = require("src.import.gba.extract_island1")
-  local rel = "/map_tree/maps/" .. slot .. "/header.json"
-  local raw = cache:read("data/generated/gba" .. rel)
-    or cache:read((Extract.CACHE_ROOT or "data/generated/gba") .. rel)
-  if not raw then return false end
-  local okJ, Json = pcall(require, "src.link.Json")
-  if not (okJ and Json and Json.decode) then return false end
-  local okH, h = pcall(Json.decode, raw)
-  if not (okH and type(h) == "table") then return false end
-  local cave = tonumber(h.cave) or 0
-  if def then def.cave = cave end
-  return cave ~= 0
+  return false
 end
 
 -- pokefirered/src/overworld.c:956
 function FieldView.defaultFlashLevel(game, mapId)
-  if not mapIsCave(game, mapId, resolveMapDef(game, mapId)) then return 0 end
+  if not mapIsCave(resolveMapDef(game, mapId)) then return 0 end
   if flashActive() then return 0 end
   return FieldView.MAX_FLASH_LEVEL
 end

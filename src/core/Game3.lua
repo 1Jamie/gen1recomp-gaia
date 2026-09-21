@@ -24,6 +24,9 @@ local function noop() end
 
 Game3.SKIN_FAST_FORWARD = 4
 
+-- pokefirered/src/item_use.c:159 SetUpItemUseOnFieldCallback
+local FIELD_CB_SILENT = { bike = true, rod = true, map = true, escape = true }
+
 function Game3.new()
   return setmetatable({
     input = Input,
@@ -354,6 +357,11 @@ function Game3:_handleRegisteredItem()
     elseif text then
       require("src.ui.game3.hud").openMessage(self, text)
     end
+    return
+  end
+  -- pokefirered/src/item_use.c:159 SetUpItemUseOnFieldCallback
+  if text and not (ok and FIELD_CB_SILENT[kind]) then
+    require("src.ui.game3.hud").openMessage(self, text)
   end
 end
 
@@ -910,12 +918,32 @@ function Game3:onResume()
   Audio.onFocusGained()
 end
 
+-- pokefirered/src/main.c:480
+local FIELD_SCREENS = {
+  "src.ui.game3.choice",
+  "src.ui.game3.message",
+  "src.ui.game3.money_box",
+  "src.ui.game3.coins_box",
+  "src.ui.game3.elevator_window",
+}
+
+local function clearFieldScreens()
+  for _, name in ipairs(FIELD_SCREENS) do
+    local ok, mod = pcall(require, name)
+    if ok and type(mod) == "table" then
+      local fn = mod.reset or mod.hide
+      if fn then pcall(fn) end
+    end
+  end
+end
+
 function Game3:returnToTitle()
   self.questPlayback=nil
   Help.reset()
   Audio.stopAll()
   local Stack = require("src.ui.game3.stack")
   Stack.clear()
+  clearFieldScreens()
   if Runtime.isActive() then
     Runtime.stop(nil, self)
   end
@@ -959,6 +987,7 @@ function Game3:reset()
   Help.reset()
   Audio.endSession()
   require("src.ui.game3.stack").clear()
+  clearFieldScreens()
   if Runtime.isActive() then
     pcall(function() Runtime.stop(nil, self) end)
   end

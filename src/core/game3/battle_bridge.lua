@@ -33,26 +33,17 @@ local function safari_mode_active(session)
   return Flags.getFlag(Space.store, nil, FLAG_SYS_SAFARI_MODE) and true or false
 end
 
-local _battleScene = {}
-
 -- pokefirered/src/overworld.c:1270
-local function map_battle_scene(mapId)
+local function map_battle_scene(mapId, game)
   if type(mapId) ~= "string" then return nil end
-  local hit = _battleScene[mapId]
-  if hit ~= nil then return hit or nil end
-  local scene = false
-  pcall(function()
-    local MapCatalog = require("src.import.gba.map_catalog")
-    local slot = MapCatalog.slotKeyFor and MapCatalog.slotKeyFor(mapId)
-    if not slot then return end
-    local CacheFs = require("src.import.CacheFs")
-    local raw = CacheFs.readActive("data/generated/gba/map_tree/maps/" .. slot .. "/header.json")
-    if type(raw) ~= "string" then return end
-    local h = require("src.link.Json").decode(raw)
-    if type(h) == "table" then scene = tonumber(h.battleType) or false end
-  end)
-  _battleScene[mapId] = scene
-  return scene or nil
+  local g = game
+  if not g then
+    local Runtime = package.loaded["src.core.game3.runtime"]
+    g = Runtime and Runtime._game
+  end
+  local def = g and g.data and g.data.maps and g.data.maps[mapId]
+  if not def then return nil end
+  return tonumber(def.battleType)
 end
 BattleBridge.mapBattleScene = map_battle_scene
 
@@ -340,7 +331,7 @@ function BattleBridge.start(mod, game, foe, opts)
   local mapKind = (mapDef and mapDef.kind) or opts.mapKind
   local mapType = (mapDef and mapDef.mapType) or opts.mapType
   local mapBattleScene = (mapDef and mapDef.battleType) or opts.mapBattleScene
-    or map_battle_scene(mapId)
+    or map_battle_scene(mapId, game)
   -- pokefirered/src/battle_setup.c:471 PlayerGetDestCoords
   local mapBehavior = opts.mapBehavior
   if mapBehavior == nil then

@@ -69,6 +69,16 @@ local function chosenMon(ctx)
   return party and party[getSpecialVar(ctx, 0x8004) + 1]
 end
 
+-- pokefirered/src/field_specials.c:1631
+local function boxedMon()
+  local _, session = partyOf()
+  if not session then return nil end
+  local okS, Storage = pcall(require, "src.core.game3.storage")
+  if not (okS and type(Storage) == "table" and Storage.getBoxMon) then return nil end
+  return Storage.getBoxMon(Storage.ensure(session),
+    (tonumber(session.monBoxId) or 0) + 1, (tonumber(session.monBoxPos) or 0) + 1)
+end
+
 local function nicknameOf(mon)
   if not mon then return "" end
   if mon.nickname and mon.nickname ~= "" then return tostring(mon.nickname) end
@@ -119,22 +129,37 @@ function Natives.choosePartyMon(ctx, adapters, menuType)
     return false
   end
   local restore = takeScreenForPartyMenu()
-  return yield_host(ctx, adapters, function(done)
-    local resolved = false
+  local picked, settled = nil, false
+  local function settle()
+    if settled then return end
+    settled = true
+    -- pokefirered/src/party_menu.c:1252
+    resolveTo(picked or SLOT_CANCEL)
+  end
+  local yielded = yield_host(ctx, adapters, function(done)
     PartyMenu.show(party, nil, {
       mode = "choose",
       session = session,
       onSelect = function(slot)
-        resolved = true
-        resolveTo((tonumber(slot) or 1) - 1)
+        picked = slot and ((tonumber(slot) or 1) - 1) or SLOT_CANCEL
       end,
       onClose = function()
-        if not resolved then resolveTo(SLOT_CANCEL) end
         restore()
         done()
       end,
     })
   end)
+  if not yielded then
+    settle()
+    return false
+  end
+  local closedPoll = ctx.nativePoll
+  ctx.nativePoll = function()
+    if not closedPoll() then return false end
+    settle()
+    return true
+  end
+  return true
 end
 
 local B_OUTCOME_WON = 1
@@ -615,6 +640,49 @@ Natives.ALLOW = {
       end)
     end)
   end,
+  -- pokefirered/src/field_specials.c:1629 ChangeBoxPokemonNickname
+  ["special:" .. Std.SPECIAL.ChangeBoxPokemonNickname] = function(ctx, adapters)
+    local mon = boxedMon()
+    if not (mon and adapters and adapters.openNaming) then return false end
+    return yield_host(ctx, adapters, function(done)
+      local species = tonumber(mon.species or mon.speciesId) or 1
+      local Pokemon = require("src.core.game3.pokemon")
+      pcall(function()
+        if not Pokemon._names then Pokemon.install(nil) end
+      end)
+      local before = nicknameOf(mon)
+      setStringVar(ctx, adapters, 3, before)
+      setStringVar(ctx, adapters, 2, before)
+      local sname = (Pokemon.name and Pokemon.name(species)) or Strings("POKéMON")
+      adapters.openNaming({
+        title = require("src.ui.game3.naming").monTitle(sname),
+        template = "NICKNAME",
+        -- pokefirered/include/constants/global.h:63
+        maxLen = 10,
+        species = species,
+        personality = mon.personality,
+        gender = mon.gender,
+      }, function(name)
+        -- pokefirered/src/field_specials.c:1647 SetBoxMonNickAt
+        if type(name) == "string" and name ~= "" then
+          mon.nickname = name
+          setStringVar(ctx, adapters, 2, name)
+        end
+        done()
+      end)
+    end)
+  end,
+  -- pokefirered/src/field_specials.c:2478 BrailleCursorToggle
+  ["special:" .. Std.SPECIAL.BrailleCursorToggle] = function(ctx)
+    local okB, Braille = pcall(require, "src.ui.game3.braille")
+    if not (okB and type(Braille) == "table") then return false end
+    if getSpecialVar(ctx, 0x8006) == 0 then
+      pcall(Braille.setCursor, getSpecialVar(ctx, 0x8004) + 27, getSpecialVar(ctx, 0x8005))
+    else
+      pcall(Braille.clearCursor)
+    end
+    return false
+  end,
   -- pokefirered/src/party_menu_specials.c:14
   ["special:" .. Std.SPECIAL.ChoosePartyMon] = function(ctx, adapters)
     return Natives.choosePartyMon(ctx, adapters, "choose_single")
@@ -677,20 +745,16 @@ Natives.ALLOW = {
     end
     return false
   end,
-  ["special:" .. Std.SPECIAL.IsNationalPokedexEnabled] = function(ctx, adapters)
+  -- pokefirered/src/event_data.c:107 IsNationalPokedexEnabled
+  ["special:" .. Std.SPECIAL.IsNationalPokedexEnabled] = function(ctx)
     local PokedexData = require("src.core.game3.pokedex_data")
     local Runtime = package.loaded["src.core.game3.runtime"]
     local session = Runtime and Runtime.getSession and Runtime.getSession()
     local dex = session and session.dex
     local isUnlocked = PokedexData.isNationalUnlocked(session, dex)
     local resVal = isUnlocked and 1 or 0
-    if ctx and ctx.setVar then
-      ctx:setVar(0x800D, resVal) -- VAR_RESULT
-    end
-    if adapters and adapters.setVar then
-      adapters.setVar(0x800D, resVal)
-    end
-    return false
+    setResult(ctx, resVal)
+    return false, resVal
   end,
   -- pokefirered/src/save_location.c:98
   ["special:" .. Std.SPECIAL.SetUnlockedPokedexFlags] = function()

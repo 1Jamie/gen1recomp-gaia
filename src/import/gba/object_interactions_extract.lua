@@ -3,6 +3,13 @@
 local E={PATH='data/generated/gba/objects/pack.lua'}
 local I=require('src.core.game3.scripting.interaction_scripts')
 local Opcodes=require('src.core.game3.scripting.opcodes')
+-- src/field_control_avatar.c:539,:573-577
+E.CODE_SLOTS={
+  {8,'TrainerTower_EventScript_ShowTime'},
+  {25,'CableClub_EventScript_ShowWirelessCommunicationScreen'},
+  {26,'EventScript_Questionnaire'},
+  {27,'CableClub_EventScript_ShowBattleRecords'},
+}
 local function flavorBase(rom)
   for off=0x1A7000,0x1A8000 do
     local match=true
@@ -27,14 +34,22 @@ function E.readScripts(rom)
     seeds[#seeds+1]=ptr;aliases['EventScript_'..row[2]]=Opcodes.key(ptr)
   end
   -- GetInteractedMetatileScript's preceding literal is WallTownMap.
-  local wall
+  local pool
   for off=0x6D000,0x6D900,4 do
     if rom:u32(off)==base+0x08000000 and rom:u32(off+24)==base+9+0x08000000 then
-      wall=rom:u32(off-24);break
+      pool=off;break
     end
   end
-  assert(wall and rom:ptrOffset(wall),'Wall Town Map script reference not found')
+  assert(pool,'Wall Town Map script reference not found')
+  local wall=rom:u32(pool-24)
+  assert(rom:ptrOffset(wall),'Wall Town Map script reference not found')
   seeds[#seeds+1]=wall;aliases.EventScript_WallTownMap=Opcodes.key(wall)
+  for _,row in ipairs(E.CODE_SLOTS) do
+    local ptr=rom:u32(pool+row[1]*24)
+    assert(rom:ptrOffset(ptr),'Interaction script reference not found: '..row[2])
+    seeds[#seeds+1]=ptr;aliases[row[2]]=Opcodes.key(ptr)
+  end
+  for _,row in ipairs(I.CODE) do assert(aliases[row[2]],'unseeded interaction script '..row[2]) end
   local pack=require('src.import.gba.extract_scripts').bfsFromSeeds(rom,seeds)
   for alias,key in pairs(aliases) do pack.scripts[alias]=assert(pack.scripts[key]) end
   return {version=1,scripts=pack.scripts,text=pack.text,movements=pack.movements}

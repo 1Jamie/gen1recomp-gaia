@@ -205,7 +205,13 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/gba/region_map/kanto_map.png",
     "data/generated/gba/region_map/cursor.png",
     "data/generated/gba/region_map/player_red.png",
+    -- src/region_map.c:425
+    "data/generated/gba/region_map/fly_icon.rgba",
+    "data/generated/gba/region_map/fly_icon.png",
     "data/generated/gba/region_map/map_sections.lua",
+    -- src/heal_location.c:62, src/region_map.c:4023
+    "data/generated/gba/region_map/heal_locations.lua",
+    "data/generated/gba/region_map/fly_destinations.lua",
     "data/generated/gba/scripts/multichoice.lua",
     "data/generated/gba/pokemon/stats.lua",
     "data/generated/gba/pokemon/learnsets.lua",
@@ -243,6 +249,11 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/gba/doors/manifest.lua",
     "data/generated/gba/doors/pallet.rgba",
     "data/generated/gba/native/manifest.lua",
+    -- src/scrcmd.c:711, include/constants/layouts.h:253,267,268,308
+    "data/generated/gba/native/layouts/alt_264.mid",
+    "data/generated/gba/native/layouts/alt_278.mid",
+    "data/generated/gba/native/layouts/alt_279.mid",
+    "data/generated/gba/native/layouts/alt_319.mid",
     "data/generated/gba/pokemon/summary/manifest.lua",
     "data/generated/gba/pokemon/summary/menu_info.rgba",
     "data/generated/gba/pokemon/storage/manifest.lua",
@@ -279,6 +290,9 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/gba/field_effects/surf_blob.rgba",
     "data/generated/gba/field_effects/fly_bird.rgba",
     "data/generated/gba/field_effects/ripple.rgba",
+    -- src/data/field_effects/field_effect_objects.h:565,1203
+    "data/generated/gba/field_effects/splash.rgba",
+    "data/generated/gba/field_effects/hot_springs_water.rgba",
     "data/generated/gba/field_effects/emoticons.rgba",
   },
 }

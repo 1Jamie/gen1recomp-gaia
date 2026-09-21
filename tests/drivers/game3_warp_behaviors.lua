@@ -1,6 +1,7 @@
 local U = require("tests.drivers.util")
 local DIR = os.getenv("POKEPORT_SHOT_DIR") or "/tmp/game3_warp_behaviors"
 
+local ROUTE_20 = "FR_ROUTE_20"
 local SEAFOAM_1F = "FR_SEAFOAM_ISLANDS_1F"
 local SEAFOAM_B1F = "FR_SEAFOAM_ISLANDS_B1F"
 local SEAFOAM_B2F = "FR_SEAFOAM_ISLANDS_B2F"
@@ -157,12 +158,22 @@ return function(game)
   print("[driver] 5. Seafoam B2F drop hole (24,8) -> B3F (23,9), a current")
   local Flags = require("src.core.game3.scripting.flags")
   local Space = require("src.core.game3.scripting.space")
+  -- pokefirered/data/maps/Route20/scripts.inc:5-27
+  goTo(ROUTE_20, 30, 9, "left")
   goTo(SEAFOAM_B2F, 23, 8, "right")
   result(Collision.behavior(24, 8) == 0x66, "Seafoam B2F (24,8) is MB_FALL_WARP")
   U.shot(game, DIR .. "/warp_behaviors_07_seafoam_b2f_before.png")
 
   pressUntilWarp("right", SEAFOAM_B2F)
-  settle()
+  for _ = 1, 400 do
+    if not Warp.isBusy() then break end
+    U.wait(1)
+  end
+  -- pokefirered/src/field_effect.c:1274-1291
+  for _ = 1, 60 do
+    if Player.surfing and tonumber(Flags.getVar(Space.store, nil, "VAR_TEMP_1")) == 1 then break end
+    U.wait(1)
+  end
   m, x, y = where()
   local landBeh = Collision.behavior(x, y)
   print(string.format("[driver] after the B2F hole: %s (%d,%d) beh=0x%02X surfing=%s water=%s var=%s",

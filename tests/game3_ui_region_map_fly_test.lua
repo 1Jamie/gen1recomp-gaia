@@ -64,6 +64,10 @@ do
   eq(RegionMap.cursorY, 8, "cursor walked up to Viridian City")
   press("up")
   press("up")
+  -- pokefirered/src/region_map.c:1266
+  press("a")
+  eq(RegionMap.previewDungeon, nil, "an unvisited dungeon refuses the GUIDE preview")
+  setWorldMapFlag("FLAG_WORLD_MAP_VIRIDIAN_FOREST")
   press("a")
   eq(RegionMap.previewDungeon, "MAPSEC_VIRIDIAN_FOREST", "A still opens the GUIDE preview")
   press("b")
@@ -229,6 +233,7 @@ end
 
 print("[test] 8. dungeon markers carry a visited frame")
 do
+  Space.store = Flags.newStore()
   eq(RegionMap.dungeonMapsecType("MAPSEC_VIRIDIAN_FOREST"), SECTYPE.NOT_VISITED,
     "Viridian Forest is NOT_VISITED on a fresh store")
   eq(RegionMap.dungeonIconFrame("MAPSEC_VIRIDIAN_FOREST"), 0, "it draws marker frame 0")

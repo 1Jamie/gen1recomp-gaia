@@ -34,6 +34,13 @@ local CANCEL_BUTTON_Y = 13
 local SWITCH_BUTTON_X = 21
 local SWITCH_BUTTON_Y = 11
 
+-- pokefirered/src/region_map.c:595-617
+local PERMISSIONS = {
+  normal = { switchButton = true, mapPreview = true, openAnim = true, flyDestinations = false },
+  wall = { switchButton = false, mapPreview = false, openAnim = false, flyDestinations = false },
+  fly = { switchButton = false, mapPreview = false, openAnim = false, flyDestinations = true },
+}
+
 -- pokefirered/src/region_map.c:37-43
 RegionMap.MAPSECTYPE = {
   NONE = 0,
@@ -397,9 +404,26 @@ function RegionMap.isFlagSet(flagName)
   return false
 end
 
+-- pokefirered/src/region_map.c:1024-1029
+function RegionMap.permission(name)
+  local perms = PERMISSIONS[RegionMap.mode] or PERMISSIONS.normal
+  if name == "switchButton" and not RegionMap.isFlagSet("FLAG_SYS_SEVII_MAP_123") then
+    return false
+  end
+  return perms[name] == true
+end
+
 -- pokefirered/src/region_map.c:595-617
 function RegionMap.hasFlyDestinations()
-  return RegionMap.mode == "fly"
+  return RegionMap.permission("flyDestinations")
+end
+
+function RegionMap.hasSwitchButton()
+  return RegionMap.permission("switchButton")
+end
+
+function RegionMap.hasMapPreview()
+  return RegionMap.permission("mapPreview")
 end
 
 function RegionMap.isFlyMode()
@@ -471,7 +495,8 @@ function RegionMap.show(opts)
   RegionMap._snapIndex = 0
   RegionMap._session = opts.session
   RegionMap._onClose = opts.onClose
-  RegionMap.mode = (opts.mode == "fly") and "fly" or "normal"
+  -- pokefirered/src/item_use.c:666, src/field_specials.c:185
+  RegionMap.mode = PERMISSIONS[opts.mode] and opts.mode or "normal"
   RegionMap._onPick = opts.onPick
   RegionMap._animFrame = 0
   RegionMap._mapType = opts.mapType
@@ -548,6 +573,19 @@ end
 
 function RegionMap.currentDungeonSec()
   return RegionMap.dungeonSecAt(RegionMap.cursorX, RegionMap.cursorY)
+end
+
+-- pokefirered/src/region_map.c:2700, :3087
+function RegionMap.selectedDungeonMapsecType()
+  RegionExtract.ensureGenerated()
+  local dRow = RegionExtract.DUNGEON_GRID[RegionMap.cursorY]
+  return RegionMap.dungeonMapsecType(dRow and dRow[RegionMap.cursorX] or nil)
+end
+
+-- pokefirered/src/region_map.c:1266
+function RegionMap.canGuideCursor()
+  if not RegionMap.hasMapPreview() then return false end
+  return RegionMap.selectedDungeonMapsecType() == SECTYPE.VISITED
 end
 
 -- pokefirered/src/region_map.c:3597-3601, :790-797, :804-807
@@ -693,7 +731,7 @@ function RegionMap.handleInput(input)
       RegionMap.close()
       return
     elseif RegionMap.cursorX == SWITCH_BUTTON_X and RegionMap.cursorY == SWITCH_BUTTON_Y
-           and not RegionMap.hasFlyDestinations() then
+           and RegionMap.hasSwitchButton() then
       se(240) -- pokefirered/src/region_map.c:2805
       return
     elseif RegionMap.hasFlyDestinations() then
@@ -716,7 +754,8 @@ function RegionMap.handleInput(input)
       end
       return
     else
-      local dSec = RegionMap.currentDungeonSec()
+      -- pokefirered/src/region_map.c:1266
+      local dSec = RegionMap.canGuideCursor() and RegionMap.currentDungeonSec() or nil
       if dSec then
         se(5)
         RegionMap.previewDungeon = dSec
@@ -752,7 +791,7 @@ function RegionMap.handleInput(input)
       se(SE_DEX_PAGE)
     elseif (RegionMap.cursorX == CANCEL_BUTTON_X and RegionMap.cursorY == CANCEL_BUTTON_Y)
        or (RegionMap.cursorX == SWITCH_BUTTON_X and RegionMap.cursorY == SWITCH_BUTTON_Y
-           and not RegionMap.hasFlyDestinations()) then
+           and RegionMap.hasSwitchButton()) then
       se(11) -- SE_M_SPIT_UP
     elseif RegionMap.currentLocationName() or RegionMap.currentDungeonName() then
       se(5) -- SE_DEX_SCROLL
@@ -921,9 +960,12 @@ function RegionMap.draw()
     if RegionMap.canFlyToCursor() then
       PokedexChrome.drawControlInfoLeft(Strings("{A_BUTTON}OK"), 192, 2)
     end
-  elseif RegionMap.cursorX == SWITCH_BUTTON_X and RegionMap.cursorY == SWITCH_BUTTON_Y then
+  elseif RegionMap.cursorX == SWITCH_BUTTON_X and RegionMap.cursorY == SWITCH_BUTTON_Y
+         and RegionMap.hasSwitchButton() then
+    -- pokefirered/src/region_map.c:1251
     PokedexChrome.drawControlInfoLeft(Strings("{A_BUTTON}SWITCH"), 192, 2)
-  elseif RegionMap.currentDungeonName() then
+  elseif RegionMap.currentDungeonSec() and RegionMap.canGuideCursor() then
+    -- pokefirered/src/region_map.c:1235-1246
     PokedexChrome.drawControlInfoLeft(Strings("{A_BUTTON}GUIDE"), 192, 2)
   end
 

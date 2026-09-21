@@ -497,9 +497,18 @@ local function dispatch(vm, row)
     ctx.status = "waiting"
     ctx.nativePoll = function() return pressed end
     if a.armWaitButton then
-      a.armWaitButton(function()
-        pressed = true
-      end)
+      -- pokefirered/src/scrcmd.c:1401, pokefirered/src/script.c:95
+      local armed = false
+      ctx.nativePoll = function()
+        if not armed then
+          armed = true
+          a.armWaitButton(function()
+            pressed = true
+          end)
+        end
+        return pressed
+      end
+      return true
     elseif a.waitButton then
       a.waitButton(function()
         pressed = true
@@ -565,33 +574,41 @@ local function dispatch(vm, row)
         nickname = gift.nickname
       end
     end
-    local ok = false
-    if a.giveMon then
-      ok = a.giveMon(species, level, row[3], row[4], row[5], nickname)
+    -- pokefirered/src/script_pokemon_util.c:48
+    local code
+    if a.giveMonToPlayer then
+      code = tonumber((a.giveMonToPlayer(species, level, row[3], nickname)))
+    elseif a.giveMon then
+      local ok, c = a.giveMon(species, level, row[3], row[4], row[5], nickname)
+      code = tonumber(c) or (ok and 0 or 2)
     else
       local Party = require("src.core.game3.party")
       local Runtime = package.loaded["src.core.game3.runtime"]
       local session = Runtime and Runtime.getSession and Runtime.getSession()
       if session then
-        ok = Party.giveMon(session, species, level, nickname)
+        code = tonumber((Party.giveMonToPlayer(session, species, level, nickname)))
       end
     end
-    Flags.setVar(store, ctx, Ctx.VAR_RESULT, ok and 0 or 2) -- 0=party, 2=fail
+    Flags.setVar(store, ctx, Ctx.VAR_RESULT, code or 2)
     return false
   elseif op == "giveegg" then
     local species = var_get(store, ctx, row[1] or row.species)
-    local ok = false
-    if a.giveEgg then
-      ok = a.giveEgg(species)
+    -- pokefirered/src/script_pokemon_util.c:75
+    local code
+    if a.giveEggToPlayer then
+      code = tonumber((a.giveEggToPlayer(species)))
+    elseif a.giveEgg then
+      local ok, c = a.giveEgg(species)
+      code = tonumber(c) or (ok and 0 or 2)
     else
       local Party = require("src.core.game3.party")
       local Runtime = package.loaded["src.core.game3.runtime"]
       local session = Runtime and Runtime.getSession and Runtime.getSession()
       if session then
-        ok = Party.giveEgg(session, species)
+        code = tonumber((Party.giveEggToPlayer(session, species)))
       end
     end
-    Flags.setVar(store, ctx, Ctx.VAR_RESULT, ok and 0 or 1) -- 0=success, 1=fail
+    Flags.setVar(store, ctx, Ctx.VAR_RESULT, code or 2)
     return false
   elseif op == "textcolor" then
     Flags.setVar(store, ctx, Ctx.VAR_PREV_TEXT_COLOR, Flags.getVar(store, ctx, Ctx.VAR_TEXT_COLOR)) -- src/scrcmd.c:1257
@@ -808,6 +825,32 @@ local function dispatch(vm, row)
       return true
     end
     return false
+  elseif op == "setflashlevel" then
+    -- pokefirered/src/scrcmd.c:612
+    local okV, FieldView = pcall(require, "src.core.game3.field_view")
+    if okV and type(FieldView) == "table" and type(FieldView.setFlashLevel) == "function" then
+      pcall(FieldView.setFlashLevel, var_get(store, ctx, row[1]))
+    end
+    return false
+  elseif op == "animateflash" then
+    -- pokefirered/src/scrcmd.c:605
+    local okV, FieldView = pcall(require, "src.core.game3.field_view")
+    local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
+    if not (okV and type(FieldView) == "table" and type(FieldView.getFlashLevel) == "function"
+        and okFx and type(FieldEffects) == "table"
+        and type(FieldEffects.animateFlashLevel) == "function") then
+      return false
+    end
+    -- pokefirered/src/field_screen_effect.c:194
+    local okAnim, anim = pcall(FieldEffects.animateFlashLevel,
+      FieldView.getFlashLevel(), tonumber(row[1]) or 0)
+    if not (okAnim and type(anim) == "table") then return false end
+    local flashDone = false
+    anim.onDone = function() flashDone = true end
+    ctx.mode = "native"
+    ctx.status = "waiting"
+    ctx.nativePoll = function() return flashDone end
+    return true
   elseif op == "warp" or op == "warpsilent" or op == "warpdoor"
       or op == "warpteleport" or op == "warpspinenter" then
     local group, num = row[1], row[2]
@@ -846,8 +889,10 @@ local function dispatch(vm, row)
     return false
   elseif op == "setwarp" or op == "setdynamicwarp" or op == "setescapewarp"
       or op == "setdivewarp" or op == "setholewarp" then
+    -- pokefirered/src/scrcmd.c:819
     if a.setWarp then
-      a.setWarp(op, row[1], row[2], row[3], row[4], row[5])
+      a.setWarp(op, row[1], row[2], row[3],
+        var_get(store, ctx, row[4]), var_get(store, ctx, row[5]))
     end
     return false
   elseif op == "playse" or op == "playfanfare" or op == "waitfanfare" then

@@ -225,6 +225,8 @@ function Party.giveMon(session, species, level, nickname, opts)
     ot = session.name or session.playerName or "RED",
     otName = session.name or session.playerName or "RED",
     otId = session.trainerId or session.id or session.playerId or 12345,
+    -- pokefirered/src/pokemon.c:1796 CreateBoxMon OT_ID_PLAYER_ID
+    otSecretId = tonumber(session.secretId or session.otSecretId) or nil,
     pokeball = 4, -- Poké Ball
   }
   Pokemon.applyStats(mon)

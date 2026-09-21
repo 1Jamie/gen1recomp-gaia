@@ -79,9 +79,33 @@ function Movement.decodeAction(b)
   if b >= 0x39 and b <= 0x3C then
     return { kind = "step", dir = DIR[b - 0x39] }
   end
+  -- pokefirered/src/event_object_movement.c:5333 StartRunningAnim (MOVE_SPEED_FAST_1)
+  if b >= 0x3D and b <= 0x40 then
+    return { kind = "step", dir = DIR[b - 0x3D], run = true }
+  end
+  -- pokefirered/src/event_object_movement.c:6529 InitRunSlow
+  if b >= 0x41 and b <= 0x44 then
+    return { kind = "step", dir = DIR[b - 0x41], run = true, slow = true }
+  end
   -- Jump special (0x46–0x49)
   if b >= 0x46 and b <= 0x49 then
     return { kind = "jump", dir = DIR[b - 0x46], distance = 1 }
+  end
+  -- pokefirered/src/event_object_movement.c:6772 MovementAction_FacePlayer_Step0
+  if b == 0x4A then
+    return { kind = "face_player" }
+  end
+  -- pokefirered/src/event_object_movement.c:6784 MovementAction_FaceAwayPlayer_Step0
+  if b == 0x4B then
+    return { kind = "face_player", away = true }
+  end
+  -- pokefirered/src/event_object_movement.c:6796 MovementAction_LockFacingDirection_Step0
+  if b == 0x4C then
+    return { kind = "lock_facing", locked = true }
+  end
+  -- pokefirered/src/event_object_movement.c:6803 MovementAction_UnlockFacingDirection_Step0
+  if b == 0x4D then
+    return { kind = "lock_facing", locked = false }
   end
   -- Jump 1 cell (0x4E–0x51): MOVEMENT_ACTION_JUMP_DOWN/UP/LEFT/RIGHT
   if b >= 0x4E and b <= 0x51 then
@@ -112,6 +136,22 @@ function Movement.decodeAction(b)
   -- MOVEMENT_ACTION_NURSE_JOY_BOW_DOWN (0x5B): ANIM_NURSE_BOW ≈ 48 frames.
   if b == 0x5B then
     return { kind = "bow", frames = 48 }
+  end
+  -- pokefirered/src/event_object_movement.c:7040 MovementAction_DisableAnimation_Step0
+  if b == 0x5E then
+    return { kind = "animate", inanimate = true }
+  end
+  -- pokefirered/src/event_object_movement.c:7047 MovementAction_RestoreAnimation_Step0
+  if b == 0x5F then
+    return { kind = "animate", inanimate = false }
+  end
+  -- pokefirered/src/event_object_movement.c:7135 MovementAction_RockSmashBreak_Step0
+  if b == 0x68 then
+    return { kind = "remove_obstacle", frames = 64 }
+  end
+  -- pokefirered/src/event_object_movement.c:7163 MovementAction_CutTree_Step0
+  if b == 0x69 then
+    return { kind = "remove_obstacle", frames = 56 }
   end
   return { kind = "nop" }
 end

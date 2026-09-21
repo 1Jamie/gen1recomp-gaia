@@ -132,7 +132,21 @@ do
   check(RegionMap.cursorX == 4 and RegionMap.cursorY == 6, "cursor at Viridian Forest (4, 6)")
   check(RegionMap.currentDungeonName() == "VIRIDIAN FOREST", "current dungeon is VIRIDIAN FOREST")
 
-  -- Press A on dungeon: Opens Dungeon Preview Modal
+  -- pokefirered/src/region_map.c:1266
+  press("a")
+  check(RegionMap.previewDungeon == nil, "A on an unvisited dungeon opens no preview")
+  check(RegionMap.isOpen() == true, "RegionMap stays open after the refused GUIDE")
+  check(RegionMap.selectedDungeonMapsecType() == RegionMap.MAPSECTYPE.NOT_VISITED,
+        "Viridian Forest is NOT_VISITED on a fresh save")
+  check(RegionMap.canGuideCursor() == false, "GUIDE is refused on a dungeon that has not been visited")
+
+  -- pokefirered/data/maps/ViridianForest/scripts.inc:6
+  session.flags = session.flags or {}
+  session.flags["FLAG_WORLD_MAP_VIRIDIAN_FOREST"] = true
+  check(RegionMap.selectedDungeonMapsecType() == RegionMap.MAPSECTYPE.VISITED,
+        "Viridian Forest is VISITED once the world map flag is set")
+  check(RegionMap.canGuideCursor() == true, "GUIDE is offered on a visited dungeon")
+
   press("a")
   check(RegionMap.previewDungeon == "MAPSEC_VIRIDIAN_FOREST", "Dungeon Preview Modal opened for Viridian Forest")
 

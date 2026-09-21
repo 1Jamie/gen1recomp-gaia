@@ -185,14 +185,20 @@ function Daycare.cost(mon, steps)
 end
 
 -- pokefirered/src/daycare.c:425 StorePokemonInDaycare
-local function boxify(mon)
-  if not mon then return mon end
+local function boxify(session, mon)
+  if not mon then return mon, nil end
+  local stored = nil
+  if session then
+    -- pokefirered/src/daycare.c:427
+    stored = require("src.core.game3.mail").takeMonMailForDaycare(session, mon,
+      tostring(session.name or session.playerName or ""), nicknameOf(mon))
+  end
   mon.status = nil
   -- pokefirered/src/pokemon.c:5998 BoxMonRestorePP
   if type(mon.pp) == "table" and type(mon.maxPp) == "table" then
     for i = 1, #mon.pp do mon.pp[i] = mon.maxPp[i] or mon.pp[i] end
   end
-  return mon
+  return mon, stored
 end
 
 -- pokefirered/src/pokemon_storage_system_data.c:904 CompactPartySlots
@@ -254,7 +260,7 @@ function Daycare.teachMove(mon, moveId)
 end
 
 -- pokefirered/src/daycare.c:508 TakeSelectedPokemonFromDaycare
-function Daycare.withdraw(session, mon, steps)
+function Daycare.withdraw(session, mon, steps, stored)
   if not (session and mon) then return SPECIES_NONE end
   local Pokemon = pokemonMod()
   local species = speciesOf(mon)
@@ -267,6 +273,10 @@ function Daycare.withdraw(session, mon, steps)
   end
   session.party = session.party or {}
   session.party[#session.party + 1] = mon
+  -- pokefirered/src/daycare.c:526
+  if stored then
+    require("src.core.game3.mail").giveDaycareMailToMon(session, mon, stored)
+  end
   compactParty(session)
   return species
 end
@@ -278,6 +288,10 @@ local function shiftSlots(dc)
     setSlotMon(dc, 2, nil)
     dc.steps[1] = dc.steps[2] or 0
     dc.steps[2] = 0
+    -- pokefirered/src/daycare.c:471 daycare->mons[0].mail = daycare->mons[1].mail
+    dc.mail = dc.mail or {}
+    dc.mail[1] = dc.mail[2]
+    dc.mail[2] = nil
   end
 end
 
@@ -415,7 +429,10 @@ Daycare.HANDLERS = {
       end
     end
     if not free then return false end
-    setSlotMon(dc, free, boxify(mon))
+    local stored, storedMail = boxify(session, mon)
+    setSlotMon(dc, free, stored)
+    dc.mail = dc.mail or {}
+    dc.mail[free] = storedMail
     dc.steps[free] = 0
     session.party[slot] = nil
     compactParty(session)
@@ -429,7 +446,9 @@ Daycare.HANDLERS = {
     local slot = varGet(ctx, VAR_0x8004) + 1
     local mon = session.party and session.party[slot]
     if not mon then return false end
-    r5.mon = boxify(mon)
+    local stored, storedMail = boxify(session, mon)
+    r5.mon = stored
+    r5.mail = storedMail
     r5.steps = 0
     session.party[slot] = nil
     compactParty(session)
@@ -446,8 +465,10 @@ Daycare.HANDLERS = {
       return false, SPECIES_NONE
     end
     setStringVar(ctx, adapters, 1, nicknameOf(mon))
-    local species = Daycare.withdraw(session, mon, dc.steps[index])
+    dc.mail = dc.mail or {}
+    local species = Daycare.withdraw(session, mon, dc.steps[index], dc.mail[index])
     setSlotMon(dc, index, nil)
+    dc.mail[index] = nil
     dc.steps[index] = 0
     shiftSlots(dc)
     return false, species
@@ -462,8 +483,9 @@ Daycare.HANDLERS = {
       return false, SPECIES_NONE
     end
     setStringVar(ctx, adapters, 1, nicknameOf(mon))
-    local species = Daycare.withdraw(session, mon, r5.steps)
+    local species = Daycare.withdraw(session, mon, r5.steps, r5.mail)
     r5.mon = nil
+    r5.mail = nil
     r5.steps = 0
     return false, species
   end,

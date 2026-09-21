@@ -96,6 +96,21 @@ eq(FieldView.getFlashLevel(), 4, "the level is live after the map load")
 eq(FieldView.setDefaultFlashLevel(game, "ROUTE"), 0, "leaving for a route clears it")
 eq(FieldView.flashRadius(), nil, "and nothing is masked outdoors")
 
+-- pokefirered/src/overworld.c:958
+print("[test] 4b. the cave answer comes off the map def, never off the cache")
+local Dataset = require("src.core.game3.dataset")
+local realDatasetCache = Dataset.cache
+Dataset.cache = function() error("defaultFlashLevel must not read header.json") end
+eq(FieldView.defaultFlashLevel(game, "TUNNEL"), 4, "a cave def is dark with the cache reader gone")
+eq(FieldView.defaultFlashLevel(game, "ROUTE"), 0, "a non-cave def is lit with the cache reader gone")
+game.data.maps.FR_ROCK_TUNNEL_1F = { id = "FR_ROCK_TUNNEL_1F", mapType = MAP_TYPE_UNDERGROUND }
+local okNoField, noFieldLevel = pcall(FieldView.defaultFlashLevel, game, "FR_ROCK_TUNNEL_1F")
+check(okNoField, "a def carrying no cave field never falls through to the cache reader")
+eq(okNoField and noFieldLevel, 0, "it answers lit instead")
+eq(game.data.maps.FR_ROCK_TUNNEL_1F.cave, nil, "and nothing is stamped back onto the def")
+eq(FieldView.defaultFlashLevel(game, "NO_DEF"), 0, "a map with no def at all is lit, not an error")
+Dataset.cache = realDatasetCache
+
 print("[test] 5. the scanline window is pret's circle")
 local W, H = 240, 160
 local function windowRows(radius)

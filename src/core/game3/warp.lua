@@ -13,7 +13,39 @@ end
 
 local function sameDestination(map, x, y) return map, x, y end
 
-local function announce(game, destMap, destX, destY, kind)
+local function mapTypeOf(game, mapId)
+  local def = game and game.data and game.data.maps and game.data.maps[mapId]
+  if not def then
+    local okD, Dataset = pcall(require, "src.core.game3.dataset")
+    def = okD and Dataset and Dataset.map and Dataset.map(mapId)
+  end
+  return def and def.mapType
+end
+
+-- pokefirered/src/overworld.c:639 UpdateEscapeWarp
+local function updateEscapeWarp(game, fromMap, destMap, srcX, srcY)
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  local session = Runtime and Runtime.getSession and Runtime.getSession()
+  if not session then return false end
+  local curMap = fromMap or session.map
+  if type(curMap) ~= "string" then return false end
+  local FieldMoves = require("src.core.game3.field_moves")
+  if not FieldMoves.isOutdoors(mapTypeOf(game, curMap)) then return false end
+  if FieldMoves.isOutdoors(mapTypeOf(game, destMap)) then return false end
+  local okC, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+  local forest = okC and MapCatalog and MapCatalog.pretToEngine
+    and MapCatalog.pretToEngine("ViridianForest")
+  if curMap == (forest or "FR_VIRIDIAN_FOREST") then return false end
+  local x, y = tonumber(srcX), tonumber(srcY)
+  if not (x and y) then return false end
+  local Player = package.loaded["src.core.game3.player"]
+  local delta = (Player and Player.facing ~= "down") and 1 or 0
+  -- pokefirered/src/overworld.c:651 SetEscapeWarp
+  session.escapeWarp = { map = curMap, warpId = 255, x = x, y = y + delta }
+  return true
+end
+
+local function announce(game, destMap, destX, destY, kind, srcX, srcY)
   local Map = package.loaded["src.core.game3.map"]
   local fromMap = Map and Map.current
   local warp = { kind = kind, map = destMap, x = destX, y = destY }
@@ -27,6 +59,12 @@ local function announce(game, destMap, destX, destY, kind)
   if ModRuntime.wants("player.warped") then
     ModRuntime.emit("player.warped", { fromMap = fromMap, toMap = destMap,
       x = destX, y = destY, warp = warp })
+  end
+  -- pokefirered/src/field_control_avatar.c:982 SetupWarp
+  updateEscapeWarp(game, fromMap, destMap, srcX, srcY)
+  local Collision = package.loaded["src.core.game3.collision"]
+  if Collision and Collision.noteDynamicWarpEntry then
+    Collision.noteDynamicWarpEntry(game, destMap, destX, destY, srcX, srcY)
   end
   return destMap, destX, destY
 end
@@ -71,7 +109,7 @@ end
 --- Complete door entrance sequence (walking UP into a building)
 function Warp.startDoorEntrance(mod, game, destMap, destX, destY, doorX, doorY)
   if Warp._busy then return false end
-  destMap, destX, destY = announce(game, destMap, destX, destY, "door")
+  destMap, destX, destY = announce(game, destMap, destX, destY, "door", doorX, doorY)
   Warp._busy = true
 
   local Field = package.loaded["src.core.game3.field"] or require("src.core.game3.field")
@@ -126,7 +164,7 @@ end
 --- Complete door exit sequence (walking DOWN off exit mat out to town)
 function Warp.startDoorExit(mod, game, destMap, destX, destY, exitX, exitY)
   if Warp._busy then return false end
-  destMap, destX, destY = announce(game, destMap, destX, destY, "exit_door")
+  destMap, destX, destY = announce(game, destMap, destX, destY, "exit_door", exitX, exitY)
   Warp._busy = true
 
   local Field = package.loaded["src.core.game3.field"] or require("src.core.game3.field")
@@ -186,7 +224,7 @@ end
 
 function Warp.startEscalator(mod, game, destMap, destX, destY, dir, approachDir, escX, escY)
   if Warp._busy then return false end
-  destMap, destX, destY = announce(game, destMap, destX, destY, "escalator")
+  destMap, destX, destY = announce(game, destMap, destX, destY, "escalator", escX, escY)
   Warp._busy = true
   Warp._isEscalatorActive = true
 
@@ -441,9 +479,9 @@ function Warp.startStairWarp(mod, game, destMap, destX, destY, behavior)
 end
 
 --- Complete teleport spin sequence (Silph Co, Sabrina's Gym warp pads)
-function Warp.startTeleport(mod, game, destMap, destX, destY)
+function Warp.startTeleport(mod, game, destMap, destX, destY, srcX, srcY)
   if Warp._busy then return false end
-  destMap, destX, destY = announce(game, destMap, destX, destY, "teleport")
+  destMap, destX, destY = announce(game, destMap, destX, destY, "teleport", srcX, srcY)
   Warp._busy = true
 
   local Field = package.loaded["src.core.game3.field"] or require("src.core.game3.field")
@@ -511,13 +549,15 @@ local FALL_START_Y = -112
 
 --- Complete fall hole sequence (Mt. Moon, Seafoam drop holes)
 -- pokefirered/data/scripts/hole.inc:23 EventScript_DoFallWarp
-function Warp.startFall(mod, game, destMap, destX, destY)
+function Warp.startFall(mod, game, destMap, destX, destY, srcX, srcY)
   if Warp._busy then return false end
-  destMap, destX, destY = announce(game, destMap, destX, destY, "fall")
+  destMap, destX, destY = announce(game, destMap, destX, destY, "fall", srcX, srcY)
   Warp._busy = true
 
   local Field = package.loaded["src.core.game3.field"] or require("src.core.game3.field")
   if Field and Field.lock then Field.lock() end
+  -- pokefirered/src/field_effect.c:1155 FieldCB_FallWarpExit
+  if Field then Field._fallWarp = true end
 
   local Player = package.loaded["src.core.game3.player"] or require("src.core.game3.player")
   local Fade = require("src.ui.game3.fade")
@@ -535,6 +575,8 @@ function Warp.startFall(mod, game, destMap, destX, destY)
 
   local function finish()
     Warp._busy = false
+    -- pokefirered/src/field_effect.c:1274 FallWarpEffect_7
+    if Field then Field._fallWarp = false end
     if Field and Field.unlock and not (package.loaded["src.core.game3.scripting.space"]
         and package.loaded["src.core.game3.scripting.space"].vm
         and package.loaded["src.core.game3.scripting.space"].vm.isRunning
@@ -560,6 +602,8 @@ function Warp.startFall(mod, game, destMap, destX, destY)
       if y2 >= 0 then
         Player.spriteYOffset = 0
         playSe(SE.SE_M_STRENGTH or 207)
+        -- pokefirered/src/field_effect.c:1249 FallWarpEffect_5
+        require("src.core.game3.field_effects").startLandingShake(finish)
         if seafoamSurfLanding(destMap, destX, destY) then
           seafoamSurfArrival(Player)
         end
@@ -568,7 +612,7 @@ function Warp.startFall(mod, game, destMap, destX, destY)
       end
       Player.spriteYOffset = y2
       return false
-    end, { onDone = finish })
+    end)
   end
 
   -- pokefirered/data/scripts/hole.inc:24
@@ -616,7 +660,7 @@ function Warp.request(mod, game, mapId, x, y, facing, opts)
   if opts.fall then
     return Warp.startFall(mod, game, mapId, x, y)
   end
-  mapId, x, y = announce(game, mapId, x, y, "warp")
+  mapId, x, y = announce(game, mapId, x, y, "warp", opts.doorX, opts.doorY)
 
   Warp._pending = {
     mapId = mapId,

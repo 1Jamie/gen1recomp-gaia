@@ -232,6 +232,13 @@ function Runtime.update(dt)
   Runtime.drainDeferred()
   Runtime.noteFieldFocus(Runtime.fieldScreenOpen(inMenu))
 
+  -- pokefirered/src/field_control_avatar.c:94 FieldGetPlayerInput
+  if inMenu then
+    Hud.clearFieldInput()
+  else
+    Hud.sampleFieldInput(game)
+  end
+
   if not inMenu then
     Runtime.pumpRtc(game, dt)
   end

@@ -90,6 +90,8 @@ local function pad_even(grid)
   }
 end
 
+Extract.padEven = pad_even
+
 -- Exact-black 8×8 quads are FRLG void / silhouette (mid 0, mid 8, chamfer
 -- corners). They must not enter the material codebook or steal shade slots.
 local function is_exact_black_quad(buf)
@@ -330,6 +332,7 @@ function Extract.run(imports, cache, progressCb)
       borders[mapId] = Maps.loadBorder(rom, version, mapId)
     end
   end
+  require("src.import.gba.alt_layouts").build(rom, version, grids, borders, pad_even)
   local extractedScripts = require("src.import.gba.extract_scripts").extractFromRom(rom, version)
   local scriptMids = script_mids_by_pair(extractedScripts, grids)
   rom:clearCache()
@@ -510,6 +513,13 @@ function Extract.run(imports, cache, progressCb)
       else
         print("[region_map] warn: " .. tostring(errRm))
       end
+    end
+    do
+      local HealLocationsExtract = require("src.import.gba.heal_locations_extract")
+      local okHl, errHl = pcall(HealLocationsExtract.run, rom2, cache, {
+        cacheRoot = Extract.CACHE_ROOT,
+      })
+      if not okHl then print("[heal_locations] warn: " .. tostring(errHl)) end
     end
     rom2:clearCache()
   end
@@ -1841,6 +1851,9 @@ local function _dormant_quantize_run(imports, cache, progressCb)
       local RegionMapExtract = require("src.import.gba.region_map_extract")
       local okRm, errRm = pcall(RegionMapExtract.run, rom2, cache, { cacheRoot = Extract.CACHE_ROOT })
       if not okRm then print("[region_map] warn: " .. tostring(errRm)) end
+      local HealLocationsExtract = require("src.import.gba.heal_locations_extract")
+      local okHl, errHl = pcall(HealLocationsExtract.run, rom2, cache, { cacheRoot = Extract.CACHE_ROOT })
+      if not okHl then print("[heal_locations] warn: " .. tostring(errHl)) end
     end
     rom2:clearCache()
   end
@@ -2051,6 +2064,7 @@ function Extract.runNativeOnly(imports, cache, progressCb)
       borders[mapId] = Maps.loadBorder(rom, version, mapId)
     end
   end
+  require("src.import.gba.alt_layouts").build(rom, version, grids, borders, pad_even)
   local scriptMids = script_mids_by_pair(
     require("src.import.gba.extract_scripts").extractFromRom(rom, version), grids)
   rom:clearCache()

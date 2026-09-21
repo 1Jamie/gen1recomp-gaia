@@ -289,9 +289,17 @@ function FieldMoves.isDungeon(mapType, isCave)
 end
 
 --- Get mon nickname for text formatting
+-- pokefirered/src/party_menu.c:1511 GetMonNickname
 function FieldMoves.getMonName(mon)
   if not mon then return "POKéMON" end
-  return mon.nickname or mon.name or mon.species or "POKéMON"
+  local okP, Pokemon = pcall(require, "src.core.game3.pokemon")
+  if okP and Pokemon and Pokemon.displayMonName then
+    return Pokemon.displayMonName(mon)
+  end
+  local nick = mon.nickname
+  if type(nick) == "string" and nick ~= "" then return nick end
+  if type(mon.name) == "string" and mon.name ~= "" then return mon.name end
+  return mon.species or "POKéMON"
 end
 
 -- ---------------------------------------------------------------- menu paths (SetUpFieldMove_*)

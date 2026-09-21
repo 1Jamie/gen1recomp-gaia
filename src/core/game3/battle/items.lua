@@ -178,14 +178,17 @@ function BattleItems.use(st, adapter, bag, session, itemId, partySlot, battlerId
     local caught, shakes = BattleItems.tryCatch(itemId, foe, st, rng, session)
     if caught then
       local res = Catching.storeCaught(session, foe, itemId)
-      local ename = (foe and foe.mon and (foe.mon.nickname or foe.mon.name))
+      local fmon = foe and foe.mon
+      local ename = (fmon and ((fmon.nickname ~= "" and fmon.nickname) or fmon.name))
         or Pokemon.name(foe and foe.species) or "POKéMON"
       say(Strings("Gotcha!\n%s was caught!", ename))
       if res and res.firstTimeCaught then
         say(Strings("%s's data was\nadded to the POKéDEX.", ename))
       end
       if res and res.location == "pc" then
-        say(Strings("%s was transferred\nto the PC.", ename))
+        -- pokefirered/src/battle_script_commands.c:9617
+        local Storage = require("src.core.game3.storage")
+        say(Storage.pcTransferMessage(session, ename))
       end
       return "catch", msgs, true, true
     end

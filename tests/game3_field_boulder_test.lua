@@ -195,18 +195,17 @@ check(sfBoulder.visible == false and sfBoulder.hidden == true,
 check(Objects.at(6, 18) == nil, "nothing stands on the hole any more")
 check(Flags.getFlag(Space.store, nil, FLAG_HIDE_SEAFOAM_B4F_BOULDER_1) == false,
   "the B4F reveal flag is cleared")
-check(Flags.getFlag(Space.store, nil, FLAG_HIDE_SEAFOAM_B3F_BOULDER_3) == false,
-  "the boulder's own hide flag was NOT set")
+-- pokefirered/src/event_object_movement.c:1525 RemoveObjectEventByLocalIdAndMap
+check(Flags.getFlag(Space.store, nil, FLAG_HIDE_SEAFOAM_B3F_BOULDER_3) == true,
+  "the boulder's own hide flag IS set, as RemoveObjectEventByLocalIdAndMap does")
 
-print("[test] 6. the reveal survives a map reload, the boulder itself comes back")
+print("[test] 6. the reveal survives a map reload, the boulder stays gone")
 enterMap(ELSEWHERE)
 enterMap(SEAFOAM)
 check(Flags.getFlag(Space.store, nil, FLAG_HIDE_SEAFOAM_B4F_BOULDER_1) == false,
   "the B4F boulder stays revealed")
 local sfAgain = Objects.find(6)
-check(sfAgain ~= nil and sfAgain.cellX == 6 and sfAgain.cellY == 17,
-  "the B3F boulder respawns at its template cell")
-check(sfAgain ~= nil and sfAgain.visible == true and sfAgain.hidden == false,
-  "and it is visible again")
+check(sfAgain == nil or sfAgain.visible ~= true or sfAgain.hidden == true,
+  "the B3F boulder stays gone after the reload, as on the cart")
 
 finish()

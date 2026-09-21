@@ -39,30 +39,6 @@ end
 -- pokefirered/src/item_use.c:614
 local function mapHeaderFlag(mapDef, key)
   if mapDef == nil then return false end
-  if mapDef[key] ~= nil then return (tonumber(mapDef[key]) or 0) ~= 0 end
-  local mapId = mapDef.id
-  if type(mapId) ~= "string" then return false end
-  local okC, MapCatalog = pcall(require, "src.import.gba.map_catalog")
-  local slot = okC and MapCatalog and MapCatalog.slotKeyFor and MapCatalog.slotKeyFor(mapId)
-  if not slot then return false end
-  local okD, Dataset = pcall(require, "src.core.game3.dataset")
-  if not (okD and Dataset and Dataset.cache) then return false end
-  local okCa, cache = pcall(Dataset.cache)
-  if not (okCa and cache and cache.read) then return false end
-  local okE, Extract = pcall(require, "src.import.gba.extract_island1")
-  local root = (okE and Extract and Extract.CACHE_ROOT) or "data/generated/gba"
-  local rel = "/map_tree/maps/" .. slot .. "/header.json"
-  local okR, raw = pcall(cache.read, cache, root .. rel)
-  if not (okR and type(raw) == "string") then
-    okR, raw = pcall(cache.read, cache, "data/generated/gba" .. rel)
-  end
-  if not (okR and type(raw) == "string") then return false end
-  local okJ, Json = pcall(require, "src.link.Json")
-  if not (okJ and Json and Json.decode) then return false end
-  local okH, h = pcall(Json.decode, raw)
-  if not (okH and type(h) == "table") then return false end
-  mapDef.cave = tonumber(h.cave) or 0
-  mapDef.allowEscaping = tonumber(h.allowEscaping) or 0
   return (tonumber(mapDef[key]) or 0) ~= 0
 end
 
@@ -1170,6 +1146,8 @@ function PartyMenu.handleInput(input)
             mapType = mapDef and mapDef.mapType,
             isCave = mapHeaderFlag(mapDef, "cave"),
             canEscapeRope = mapHeaderFlag(mapDef, "allowEscaping"),
+            -- pokefirered/src/field_effect.c:2126 SetWarpDestinationToEscapeWarp
+            escapeWarp = PartyMenu._session and PartyMenu._session.escapeWarp,
           }
           local res = FieldMoves.fromMenu(act, ctx)
           if not res or not res.ok then

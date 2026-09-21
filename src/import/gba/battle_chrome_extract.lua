@@ -7,7 +7,7 @@ local Lz77 = require("src.import.gba.lz77")
 
 local BattleChromeExtract = {}
 
-BattleChromeExtract.FORMAT_VERSION = 6
+BattleChromeExtract.FORMAT_VERSION = 7
 BattleChromeExtract.CACHE_SUB = "pokemon/battle"
 
 -- src/battle_bg.c:439
@@ -466,6 +466,11 @@ function BattleChromeExtract.run(rom, cache, opts)
   local enemyRgba = bake_enemy_healthbox(enemyGfx, hbPal)
   cache:write(root .. "/healthbox_player.rgba", playerRgba)
   cache:write(root .. "/healthbox_enemy.rgba", enemyRgba)
+  if cfg.healthbox_safari then
+    -- src/battle_interface.c:615 CreateSafariPlayerHealthboxSprites
+    local safariGfx = Lz77.decompress(get, cfg.healthbox_safari)
+    cache:write(root .. "/healthbox_safari.rgba", bake_player_healthbox(safariGfx, hbPal))
+  end
   BattleChromeExtract.runDoubles(rom, cache, { cacheRoot = cacheRoot })
 
   local elGfx = read_raw(rom, cfg.healthbox_elements, 320 * 24 / 2)
@@ -528,6 +533,8 @@ function BattleChromeExtract.run(rom, cache, opts)
   enemyBox = { w = 128, h = 32, x = 44, y = 30 },
   doublesPlayerBox = { w = 128, h = 32, file = "healthbox_doubles_player.rgba" },
   doublesOpponentBox = { w = 128, h = 32, file = "healthbox_doubles_opponent.rgba" },
+  -- src/battle_interface.c:615, :735
+  safariBox = { w = 128, h = 64, x = 158, y = 88, file = "healthbox_safari.rgba" },
   -- Sprite centers before pic y_offset; final Y = base + y_offset [+8 player]
   playerSprite = { x = 72, y = 80 },
   enemySprite = { x = 176, y = 40 },

@@ -248,6 +248,13 @@ function Message.close()
   if done then done() end
 end
 
+-- pokefirered/src/main.c:480
+function Message.reset()
+  Message._done = nil
+  Message.close()
+  return true
+end
+
 function Message.tick()
   if not Message.open or Message._waiting then return end
   if Message._revealed >= Message._total then

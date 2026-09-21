@@ -10,6 +10,8 @@ local Player = {}
 local CELL = 16
 local WALK_FRAMES = 16
 local RUN_FRAMES = 8
+-- pokefirered/src/event_object_movement.c:9029 UpdateRunSlowAnim
+local RUN_SLOW_FRAMES = 11
 local BIKE_FRAMES = 4
 local TURN_FRAMES = 4
 -- pokefirered/include/constants/metatile_behaviors.h:128
@@ -200,6 +202,12 @@ end
 
 local function walkInPlaceFrames()
   return Player.walkInPlaceFast and RUN_FRAMES or WALK_FRAMES
+end
+
+-- pokefirered/src/field_effect.c:1215 FallWarpEffect_4
+local function warp_owns_sprite()
+  local Warp = package.loaded["src.core.game3.warp"]
+  return (Warp and Warp.isBusy and Warp.isBusy()) == true
 end
 
 function Player.walkPhase()
@@ -537,12 +545,14 @@ function Player.forcedStep(dir, frames, opts)
 end
 
 --- Forced script step (applymovement localId 0xFF) — skips collision.
-function Player.scriptStep(dir)
+function Player.scriptStep(dir, run, slow)
   if Player.moving then return false end
   local d = DELTA[dir or Player.facing]
   if not d then return false end
   Player.facing = dir or Player.facing
-  beginStep(Player.cellX + d[1], Player.cellY + d[2], false, false)
+  beginStep(Player.cellX + d[1], Player.cellY + d[2], run and true or false, false)
+  -- pokefirered/src/event_object_movement.c:9029 UpdateRunSlowAnim
+  if run and slow then Player.stepFrames = RUN_SLOW_FRAMES end
   return true
 end
 
@@ -739,7 +749,7 @@ function Player.tick(game)
       local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
       local clock = (okFx and FieldEffects and FieldEffects._surfClock) or 0
       Player.spriteYOffset = (math.floor(clock / 48) % 2 == 1) and -1 or 0
-    elseif not Player.walkInPlace then
+    elseif not Player.walkInPlace and not warp_owns_sprite() then
       Player.spriteYOffset = 0
     end
     return false

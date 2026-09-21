@@ -77,7 +77,9 @@ function CoinsBox.draw()
   Window.printPx(Strings("COINS"), left * 8, top * 8)
   local countStr = CoinsBox.countText(CoinsBox._amount)
   local cw = (FrlgFont.measure and FrlgFont.measure(countStr, { small = true })) or (6 * #countStr)
-  Window.printPx(countStr, math.max(left * 8, (left + 8) * 8 - cw), top * 8 + 12, { small = true })
+  -- pokefirered/src/coins.c:76
+  FrlgFont.draw(countStr, math.max(left * 8, (left + 8) * 8 - cw), top * 8 + 12,
+    { small = true, colors = FrlgFont.COLOR.NORMAL })
 end
 
 return CoinsBox

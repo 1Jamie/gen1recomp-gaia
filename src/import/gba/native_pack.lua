@@ -407,8 +407,9 @@ function NativePack.collectMidsForPair(grids, borders, pairName, scriptMids)
     end
   end
   for mapId, border in pairs(borders or {}) do
+    local grid = grids and grids[mapId]
     local spec = Versions.MAPS[mapId]
-    if (spec and spec.pair or "sevii_outdoor") == pairName then
+    if ((grid and grid.pair) or (spec and spec.pair) or "sevii_outdoor") == pairName then
       for _, mid in ipairs(border.mids or {}) do
         seen[mid] = true
       end
@@ -499,12 +500,15 @@ function NativePack.writeExtract(cache, root, bundles, grids, borders, pairNames
     }
     local blob = NativePack.encodeMidLayout(layout)
     cache:write(NativeRoot .. "/layouts/" .. mapId .. ".mid", blob)
-    manifest.layouts[mapId] = {
-      pair = pairName,
-      width = layout.width,
-      height = layout.height,
-      file = "layouts/" .. mapId .. ".mid",
-    }
+    -- pokefirered/src/scrcmd.c:711
+    if not grid.altLayoutId then
+      manifest.layouts[mapId] = {
+        pair = pairName,
+        width = layout.width,
+        height = layout.height,
+        file = "layouts/" .. mapId .. ".mid",
+      }
+    end
   end
 
   local lines = {

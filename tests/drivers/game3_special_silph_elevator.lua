@@ -15,10 +15,6 @@ local function result(ok, label)
   return ok
 end
 
-local function blocked(label)
-  print("BLOCKED " .. label)
-end
-
 local function finish()
   if failures == 0 then
     print("PASS special_silph_elevator")
@@ -70,11 +66,6 @@ return function(game)
   end
 
   local Elevator = require("src.core.game3.scripting.natives_elevator")
-
-  local function warpSeam()
-    local vmAdapters = Space.vm and Space.vm.adapters
-    return (vmAdapters and vmAdapters.setWarp) ~= nil
-  end
 
   goTo(ELEVATOR, SIGN_XY[1], SIGN_XY[2], "left")
 
@@ -164,20 +155,12 @@ return function(game)
   end
   U.wait(180)
 
-  if warpSeam() then
-    result(Elevator.dynamicWarpMap() == "FR_SILPH_CO_5F",
-      "the engine recorded the dynamic warp to SILPH CO 5F, got " ..
-      tostring(Elevator.dynamicWarpMap()))
-    result(session.map == "FR_SILPH_CO_5F",
-      "walking out of the lift arrives on 5F, got " .. tostring(session.map))
-    U.shot(game, DIR .. "/special_silph_elevator_03_arrived_on_5f.png")
-  else
-    blocked("walking out of the lift arrives on 5F: nothing records the " ..
-      "setdynamicwarp destination (adapters.lua a.setWarp, owner space-runtime) and " ..
-      "Collision.resolveDest has no MAP_DYNAMIC 127:127 branch (owner collision-behaviors); " ..
-      "the player is still at " .. tostring(session.map) .. " " ..
-      tostring(Player.cellX) .. "," .. tostring(Player.cellY))
-  end
+  result(Elevator.dynamicWarpMap() == "FR_SILPH_CO_5F",
+    "the engine recorded the dynamic warp to SILPH CO 5F, got " ..
+    tostring(Elevator.dynamicWarpMap()))
+  result(session.map == "FR_SILPH_CO_5F",
+    "walking out of the lift arrives on 5F, got " .. tostring(session.map))
+  U.shot(game, DIR .. "/special_silph_elevator_03_arrived_on_5f.png")
 
   finish()
 end

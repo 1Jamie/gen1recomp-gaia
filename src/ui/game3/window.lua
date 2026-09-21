@@ -126,12 +126,14 @@ function Window.print(text, tx, ty, opts)
   })
 end
 
+-- pokefirered/src/new_menu_helpers.c:61
 function Window.printPx(text, px, py, opts)
   opts = opts or {}
   FrlgFont.draw(tostring(text or ""), px, py, {
     maxWidth = opts.maxWidth or (Display.COLS * T),
     colors = opts.colors or FrlgFont.COLOR.NORMAL,
     limitChars = opts.limitChars,
+    small = opts.small,
   })
 end
 

@@ -63,6 +63,9 @@ Pokedex._regSpecies = nil
 
 local LIST_VISIBLE = 9
 
+-- pokefirered/src/pokedex_screen.c:347
+local MODE_MAX_SHOWED = 9
+
 --- Authentic pret sCategoryPageIconCoords layout mapping:
 --- 1..4 mons on page: pic coords (top-left of 64x64 front sprite), circle coords (center of 32px radius spotlight), card coords (top-left of 64x38 mini card)
 local CATEGORY_PAGE_COORDS = {
@@ -149,13 +152,12 @@ local function build_modes(session, dex)
     })
   end
 
-  if isNat then
-    table.insert(modes, { isHeader = true, label = Strings("SEARCH") })
-    table.insert(modes, { id = "atoz", type = "order", label = Strings("A TO Z MODE"), icon = "atoz", unlocked = true })
-    table.insert(modes, { id = "type", type = "order", label = Strings("TYPE MODE"), icon = "type", unlocked = true })
-    table.insert(modes, { id = "lightest", type = "order", label = Strings("LIGHTEST MODE"), icon = "lightest", unlocked = true })
-    table.insert(modes, { id = "smallest", type = "order", label = Strings("SMALLEST MODE"), icon = "smallest", unlocked = true })
-  end
+  -- pokefirered/src/pokedex_screen.c:333-337, :377-381
+  table.insert(modes, { isHeader = true, label = Strings("SEARCH") })
+  table.insert(modes, { id = "atoz", type = "order", label = Strings("A TO Z MODE"), icon = "atoz", unlocked = true })
+  table.insert(modes, { id = "type", type = "order", label = Strings("TYPE MODE"), icon = "type", unlocked = true })
+  table.insert(modes, { id = "lightest", type = "order", label = Strings("LIGHTEST MODE"), icon = "lightest", unlocked = true })
+  table.insert(modes, { id = "smallest", type = "order", label = Strings("SMALLEST MODE"), icon = "smallest", unlocked = true })
 
   table.insert(modes, { isHeader = true, label = Strings("OTHER") })
   table.insert(modes, { id = "cancel", type = "cancel", label = Strings("CANCEL"), icon = "cancel", unlocked = true })
@@ -300,38 +302,77 @@ end
 -- Input Handling
 -- =========================================================================
 
-local function handle_mode_select_input(input)
+-- pokefirered/src/list_menu.c:438
+local function mode_row_step(movingDown)
   local total = #Pokedex.MODES
+  local maxScroll = math.max(0, total - MODE_MAX_SHOWED)
+  local scroll = Pokedex.modeScroll
+  local itemsAbove = Pokedex.modeCursor - 1 - scroll
+  local newRow
+
+  local function landOn(row)
+    local item = Pokedex.MODES[scroll + row + 1]
+    if item and not item.isHeader then
+      Pokedex.modeCursor = scroll + row + 1
+      return true
+    end
+    return false
+  end
+
+  if not movingDown then
+    newRow = MODE_MAX_SHOWED - (math.floor(MODE_MAX_SHOWED / 2) + MODE_MAX_SHOWED % 2) - 1
+    if scroll == 0 then
+      while itemsAbove ~= 0 do
+        itemsAbove = itemsAbove - 1
+        if landOn(itemsAbove) then return 1 end
+      end
+      return 0
+    end
+    while itemsAbove > newRow do
+      itemsAbove = itemsAbove - 1
+      if landOn(itemsAbove) then return 1 end
+    end
+    scroll = scroll - 1
+  else
+    newRow = math.floor(MODE_MAX_SHOWED / 2) + MODE_MAX_SHOWED % 2
+    if scroll >= maxScroll then
+      while itemsAbove < MODE_MAX_SHOWED - 1 do
+        itemsAbove = itemsAbove + 1
+        if landOn(itemsAbove) then return 1 end
+      end
+      return 0
+    end
+    while itemsAbove < newRow do
+      itemsAbove = itemsAbove + 1
+      if landOn(itemsAbove) then return 1 end
+    end
+    scroll = scroll + 1
+  end
+
+  Pokedex.modeScroll = scroll
+  Pokedex.modeCursor = scroll + newRow + 1
+  return 2
+end
+
+-- pokefirered/src/list_menu.c:558
+local function mode_change_selection(movingDown)
+  local changed = false
+  while true do
+    local ret = mode_row_step(movingDown)
+    if ret ~= 0 then changed = true end
+    if ret ~= 2 then break end
+    local item = Pokedex.MODES[Pokedex.modeCursor]
+    if not (item and item.isHeader) then break end
+  end
+  return changed
+end
+
+local function handle_mode_select_input(input)
   if input:wasPressed("up") then
-    local cur = Pokedex.modeCursor
-    local prev = cur - 1
-    while prev >= 1 and Pokedex.MODES[prev].isHeader do
-      prev = prev - 1
-    end
-    if prev >= 1 then
-      Pokedex.modeCursor = prev
-      if Pokedex.modeCursor < Pokedex.modeScroll + 1 then
-        Pokedex.modeScroll = Pokedex.modeCursor - 1
-      elseif Pokedex.modeCursor > Pokedex.modeScroll + 9 then
-        Pokedex.modeScroll = Pokedex.modeCursor - 9
-      end
-      se("SE_SELECT")
-    end
+    -- pokefirered/src/pokedex_screen.c:1175-1176
+    if mode_change_selection(false) then se("SE_SELECT") end
   elseif input:wasPressed("down") then
-    local cur = Pokedex.modeCursor
-    local nextIdx = cur + 1
-    while nextIdx <= total and Pokedex.MODES[nextIdx].isHeader do
-      nextIdx = nextIdx + 1
-    end
-    if nextIdx <= total then
-      Pokedex.modeCursor = nextIdx
-      if Pokedex.modeCursor > Pokedex.modeScroll + 9 then
-        Pokedex.modeScroll = Pokedex.modeCursor - 9
-      elseif Pokedex.modeCursor < Pokedex.modeScroll + 1 then
-        Pokedex.modeScroll = Pokedex.modeCursor - 1
-      end
-      se("SE_SELECT")
-    end
+    if mode_change_selection(true) then se("SE_SELECT") end
   elseif input:wasPressed("a") then
     local m = Pokedex.MODES[Pokedex.modeCursor]
     if not m or m.isHeader then return end
@@ -687,7 +728,7 @@ local function draw_mode_select()
   PokedexChrome.drawHeader(Strings("POKéDEX   TABLE OF CONTENTS"), nil, 2)
 
   -- Left Column: 9 visible rows inside window (x=8, y=16..144, 14px pitch)
-  local maxVisible = 9
+  local maxVisible = MODE_MAX_SHOWED
   local startIdx = Pokedex.modeScroll + 1
   local endIdx = math.min(#Pokedex.MODES, Pokedex.modeScroll + maxVisible)
 
@@ -794,8 +835,13 @@ local function draw_mode_select()
     PokedexChrome.drawCategoryIcon(selMode.icon, 168, 88)
   end
 
-  -- Bouncing Down Arrow beneath the oval
-  PokedexChrome.drawDownArrow(195, 134)
+  -- pokefirered/src/pokedex_screen.c:407-435, :1031-1035
+  if Pokedex.modeScroll > 0 then
+    PokedexChrome.drawUpArrow(200, 19)
+  end
+  if Pokedex.modeScroll < #Pokedex.MODES - maxVisible then
+    PokedexChrome.drawDownArrow(200, 141)
+  end
 
   -- Bottom Bar Controls: {DPAD_UPDOWN}PICK   {A_BUTTON}OK
   PokedexChrome.drawControlInfo(Strings("{DPAD_UPDOWN}PICK {A_BUTTON}OK"), 236, 146)

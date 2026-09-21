@@ -91,16 +91,19 @@ function Field.update(_dt)
     local ad = Space.vm.adapters
     if ad and ad.pollMovement then ad.pollMovement(0) end
     Space.vm:tick()
-    if Space._pendingOnFrame and not Space.vm:isRunning() then
+    -- pokefirered/src/field_control_avatar.c:212
+    if not Space.vm:isRunning() then
       local world = game and (game.overworld or game.world)
       if not (Space._deferOnFrameForFade and world and world.mapSetup) then
+        local claiming = Space._pendingOnFrame
         Space._pendingOnFrame = false
         Space._deferOnFrameForFade = false
-        Space.runOnFrame()
-        -- Map.load locks until ON_FRAME can claim (lockall). If nothing
-        -- started, free the D-pad again (pret: no script → no lock).
-        if not Space.vm:isRunning() then
-          Field.unlock()
+        if claiming or not Field.locked then
+          Space.runOnFrame()
+          -- pokefirered/src/script.c:463 TryRunOnFrameMapScript
+          if claiming and not Space.vm:isRunning() then
+            Field.unlock()
+          end
         end
       end
     end
@@ -178,8 +181,13 @@ end
 -- pokefirered/src/field_effect.c:1104 FieldCallback_FlyIntoMap
 Field._flyLanding = false
 
+-- pokefirered/src/field_effect.c:1155 FieldCB_FallWarpExit
+Field._fallWarp = false
+
 function Field.unlock()
   if Field._flyLanding then return end
+  -- pokefirered/src/field_effect.c:1274 FallWarpEffect_7
+  if Field._fallWarp then return end
   Field.locked = false
 end
 
@@ -449,8 +457,9 @@ local function boulderFallThroughHole(game, obj, cx, cy)
     if Audio.playSe and SE.SE_FALL then Audio.playSe(SE.SE_FALL) end
   end)
 
-  obj.hidden = true
-  obj.visible = false
+  -- pokefirered/src/event_object_movement.c:1520 RemoveObjectEventByLocalIdAndMap
+  require("src.core.game3.objects").removeObject(
+    obj.localId or (obj.def and (obj.def.localId or obj.def.index)))
   obj.moving = false
 
   -- pokefirered/src/event_object_movement.c:2546
@@ -893,18 +902,20 @@ function Field.executeFieldMove(payload)
         Flags.setFlag(Space.store, nil, payload.flag, true)
       end
     end
+    -- pokefirered/src/fldeff_flash.c:177
+    if payload.text then
+      Message.show(payload.text, function() Message.close() end)
+    end
     FieldEffects.startFlash(function()
       Field.locked = false
-      if payload.text then
-        Message.show(payload.text, function() Message.close() end)
-      end
     end)
   elseif act == "teleport" or act == "dig" then
     Field.locked = true
     if payload.se then Audio.playSe(payload.se) end
     FieldEffects.startWarpSpin(act, function()
       Field.locked = false
-      Field.respawnAtHeal({ fieldMove = true })
+      -- pokefirered/src/field_effect.c:2126 SetWarpDestinationToEscapeWarp
+      Field.respawnAtHeal({ fieldMove = true, warp = payload.warp })
     end)
     if payload.text then
       Message.show(payload.text, function() Message.close() end)
@@ -928,8 +939,7 @@ end
 
 -- pokefirered/src/wild_encounter.c:446
 function Field.tryRockSmashEncounter()
-  local okE, Encounters = pcall(require, "src.core.game3.encounters")
-  if not (okE and Encounters and Encounters.rollRocks) then return false end
+  local Encounters = require("src.core.game3.encounters")
   local session = Field._session
   local mapId = session and session.map
   if not mapId then
@@ -1102,16 +1112,90 @@ local FLY_DESTINATIONS = {
 }
 Field.FLY_DESTINATIONS = FLY_DESTINATIONS
 
+Field.FLY_BAKED_REL = "region_map/fly_destinations.lua"
+Field._flyBaked = nil
+Field._flyBakedRoot = nil
+
+local function fly_default_root()
+  local ok, Extract = pcall(require, "src.import.gba.extract_island1")
+  if ok and Extract and Extract.CACHE_ROOT then return Extract.CACHE_ROOT end
+  return "data/generated/gba"
+end
+
+local function fly_cache()
+  local ok, Dataset = pcall(require, "src.core.game3.dataset")
+  if ok and Dataset and Dataset.cache then return Dataset.cache() end
+  return nil
+end
+
+local function fly_normalize(row)
+  if type(row) ~= "table" then return nil end
+  local map = row.map or row.mapId
+  if type(map) ~= "string" or map == "" then return nil end
+  return { map = map, x = tonumber(row.x) or 0, y = tonumber(row.y) or 0 }
+end
+
+function Field.installFlyDestinations(pack)
+  Field._flyBaked = {}
+  if type(pack) ~= "table" then return 0 end
+  local rows = pack.fly_destinations or pack.destinations or pack
+  if type(rows) ~= "table" then return 0 end
+  local n = 0
+  for key, row in pairs(rows) do
+    local dest = fly_normalize(row)
+    if dest then
+      local name = (type(key) == "string" and key:match("^MAPSEC_") and key)
+        or (type(row.mapsec) == "string" and row.mapsec)
+        or (type(row.id) == "string" and row.id)
+        or nil
+      local num = tonumber(key) or tonumber(row.mapsec) or tonumber(row.section)
+      if name then Field._flyBaked[name] = dest end
+      if num then Field._flyBaked[num] = dest end
+      if name or num then n = n + 1 end
+    end
+  end
+  return n
+end
+
+function Field.loadFlyDestinations(cache, root)
+  cache = cache or fly_cache()
+  root = root or fly_default_root()
+  Field._flyBaked = {}
+  Field._flyBakedRoot = root
+  if not (cache and cache.read) then return 0 end
+  local rel = root .. "/" .. Field.FLY_BAKED_REL
+  local src = cache:read(rel)
+  if type(src) ~= "string" or src == "" then return 0 end
+  local chunk = load(src, "@" .. rel, "t", {})
+  if not chunk then return 0 end
+  local ok, pack = pcall(chunk)
+  if not ok then return 0 end
+  return Field.installFlyDestinations(pack)
+end
+
+function Field.invalidateFlyDestinations()
+  Field._flyBaked = nil
+  Field._flyBakedRoot = nil
+end
+
 -- pokefirered/src/region_map.c:4022 SetFlyWarpDestination
 function Field.flyDestination(section)
   if section == nil then return nil end
+  if Field._flyBaked == nil or Field._flyBakedRoot ~= fly_default_root() then
+    Field.loadFlyDestinations()
+  end
+  local baked = Field._flyBaked
+  local num = tonumber(section)
+  local hit = baked[section] or (num and baked[num])
+  if hit then return hit end
   local byName = FLY_DESTINATIONS[section]
   if byName then return byName end
-  local num = tonumber(section)
   if not num then return nil end
   local okS, MapSections = pcall(require, "src.import.gba.map_sections_extract")
   local info = okS and MapSections and MapSections.SECTIONS and MapSections.SECTIONS[num]
-  return (info and info.id and FLY_DESTINATIONS[info.id]) or nil
+  local id = info and info.id
+  if not id then return nil end
+  return baked[id] or FLY_DESTINATIONS[id] or nil
 end
 
 -- pokefirered/src/field_effect.c:1065 ReturnToFieldFromFlyMapSelect
@@ -1298,12 +1382,23 @@ function Field.respawnAtHeal(opts)
       healTarget = { map = session.healMap, x = session.healX, y = session.healY },
     })
   end
-  local Party = require("src.core.game3.party")
-  Party.healAll(session.party)
+  if not (opts and opts.fieldMove) then
+    -- pokefirered/src/overworld.c:1553 CB2_WhiteOut
+    local Party = require("src.core.game3.party")
+    Party.healAll(session.party)
+  end
   local Map = require("src.core.game3.map")
   local mapId = session.healMap or "FR_PLAYERS_HOUSE_1F"
   local hx = session.healX or 8
   local hy = session.healY or 5
+  local warp = opts and opts.warp
+  if type(warp) == "string" then warp = { map = warp } end
+  if type(warp) == "table" and type(warp.map) == "string" then
+    -- pokefirered/src/overworld.c:656 SetWarpDestinationToEscapeWarp
+    mapId = warp.map
+    hx = tonumber(warp.x) or hx
+    hy = tonumber(warp.y) or hy
+  end
   Map.load(Field._mod, Field._game, mapId, {
     x = hx,
     y = hy,
@@ -1313,6 +1408,16 @@ function Field.respawnAtHeal(opts)
   })
   Player.reset(hx, hy, "down")
   Player.syncToHost(Field._game)
+  -- pokefirered/src/heal_location.c:119 SetWhiteoutRespawnHealerNpcAsLastTalked
+  local healerId = tonumber(session.healHealerLocalId)
+  if healerId and not (opts and opts.fieldMove) then
+    local Space = package.loaded["src.core.game3.scripting.space"]
+    if Space and Space.store then
+      local Flags = require("src.core.game3.scripting.flags")
+      local Ctx = require("src.core.game3.scripting.ctx")
+      Flags.setVar(Space.store, Space.vm and Space.vm.ctx or nil, Ctx.VAR_LAST_TALKED, healerId)
+    end
+  end
   -- Map.load already locked; ON_FRAME / releaseall own unlock.
 end
 

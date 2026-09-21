@@ -121,17 +121,36 @@ return function(game)
 
   -- pokefirered/src/item_use.c:359 FieldUseFunc_PokeFlute
   result(session.party[1].status ~= "SLP", "the flute woke the sleeping mon")
-  local page = Message.currentPage() or ""
-  result(Message.isOpen() and page:find("FLUTE", 1, true) ~= nil,
-    "gText_PlayedPokeFlute is on screen (" .. tostring(page) .. ")")
-  result(BagMenu.isOpen() == false, "and the bag handed the field back")
+  -- pokefirered/src/item_menu.c:471 a bag USE runs with data[3] == 0
+  local bagPage = BagMenu.messageText or ""
+  result(BagMenu.mode == "message" and bagPage:find("FLUTE", 1, true) ~= nil,
+    "gText_PlayedPokeFlute is in the bag's message box (" .. tostring(bagPage) .. ")")
+  result(BagMenu.isOpen() == true, "and DisplayItemMessageInBag kept the bag up")
   U.shot(game, DIR .. "/field_bag_items_02_flute_message.png")
   for _ = 1, 60 do
-    if not Message.isOpen() then break end
+    if BagMenu.mode ~= "message" then break end
     U.tap(game, "a")
-    U.wait(6)
+    U.wait(8)
   end
-  result(Message.isOpen() == false, "A closes it")
+  -- pokefirered/src/item_use.c:388 Task_DisplayPokeFluteMessage
+  result(BagMenu.isOpen() == true and BagMenu.mode == "list",
+    "A pages through it back to the item list (mode=" .. tostring(BagMenu.mode) .. ")")
+
+  result(Message.isOpen() == false,
+    "and nothing escaped to the field message box")
+
+  -- pokefirered/src/item_menu.c:1085 the bag's own B exit
+  U.tap(game, "b")
+  for _ = 1, 180 do
+    if not BagMenu.isOpen() then break end
+    U.wait(1)
+  end
+  U.wait(30)
+  if StartMenu.isOpen and StartMenu.isOpen() then
+    U.tap(game, "b")
+    U.wait(30)
+  end
+  result(BagMenu.isOpen() == false, "and B handed the field back")
 
   place(7, 16, "down")
   U.wait(60)

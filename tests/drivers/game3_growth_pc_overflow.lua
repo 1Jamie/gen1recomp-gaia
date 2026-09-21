@@ -90,10 +90,15 @@ return function(game)
     { match = "caught", name = "02_caught", done = false },
     { match = "transferred", name = "03_sent_to_pc", done = false },
   }
+  local pages, pageSeen = {}, {}
   local function shot_message()
     if not (Message.isOpen and Message.isOpen()) then return false end
     if Message.isTyping and Message.isTyping() then return false end
     local page = Message.currentPage() or ""
+    if page ~= "" and not pageSeen[page] then
+      pageSeen[page] = true
+      pages[#pages + 1] = page
+    end
     for _, w in ipairs(wanted) do
       if not w.done and page:find(w.match, 1, true) then
         w.done = true
@@ -154,8 +159,9 @@ return function(game)
   result(getVar(VAR_PC_BOX_TO_SEND_MON) == 1,
     "VAR_PC_BOX_TO_SEND_MON now names BOX 2 (0-based 1), was "
       .. tostring(getVar(VAR_PC_BOX_TO_SEND_MON)))
-  result(getFlag(FLAG_SHOWN_BOX_WAS_FULL_MESSAGE) == false,
-    "FLAG_SHOWN_BOX_WAS_FULL_MESSAGE was cleared because the box changed")
+  -- pokefirered/src/field_specials.c:1991
+  result(getFlag(FLAG_SHOWN_BOX_WAS_FULL_MESSAGE) == true,
+    "Cmd_givecaughtmon spent ShouldShowBoxWasFullMessage and left the flag SET")
   result(Queries.pcBoxToSendMon == 0,
     "GetPCBoxToSendMon still names BOX 1, the box it was going to")
 
@@ -166,11 +172,19 @@ return function(game)
   result(fullBox ~= nil and fullBox.name == "BOX 1",
     "and BOX 1 is the box that was full (" .. tostring(fullBox and fullBox.name) .. ")")
 
-  local line = Storage.pcTransferMessage(session, "MAGIKARP")
-  local flat = line:gsub("\n", " "):gsub("\f", " | ")
-  result(line:find("BOX “BOX 1” on\nSomeone's PC was full.", 1, true) ~= nil,
-    "the box-was-full line names BOX 1: " .. flat)
-  result(line:find("MAGIKARP was transferred to\nBOX “BOX 2.”", 1, true) ~= nil,
+  local flat = {}
+  for i, p in ipairs(pages) do flat[i] = (p:gsub("\n", " ")) end
+  flat = table.concat(flat, " | ")
+  local function battle_page(needle)
+    for _, p in ipairs(pages) do
+      if p:find(needle, 1, true) then return true end
+    end
+    return false
+  end
+  -- pokefirered/data/text/pc_transfer.inc:13
+  result(battle_page("BOX “BOX 1” on\nSomeone's PC was full."),
+    "the battle's box-was-full page names BOX 1: " .. flat)
+  result(battle_page("MAGIKARP was transferred to\nBOX “BOX 2.”"),
     "and BOX 2 as where MAGIKARP went")
   local should = Queries.HANDLERS[Std.SPECIAL.ShouldShowBoxWasFullMessage]
   local _, v2 = should(ctx())
@@ -178,11 +192,6 @@ return function(game)
   local again = Storage.pcTransferMessage(session, "MAGIKARP")
   result(again:find("was full", 1, true) == nil,
     "the next transfer says Someone's PC instead: " .. again:gsub("\n", " "):gsub("\f", " | "))
-
-  print("HANDOFF the battle still prints the generic transfer line: "
-    .. "battle/init.lua:2328, battle/items.lua:188, battle/catch_seq.lua:124 must push "
-    .. "Storage.pcTransferMessage(session, name). Owner: battle (round 0) / pokedude-battle "
-    .. "(round 2); no plan step carries it.")
 
   finish()
 end

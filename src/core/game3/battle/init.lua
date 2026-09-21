@@ -359,6 +359,14 @@ local function finish(result)
   local cb = Battle._onDone
   Battle._onDone = nil
   if cb then cb(st and st.result or result or "win", st) end
+  -- pokefirered/src/safari_zone.c:66
+  if st and st.safari and st.endReason == "no_safari_balls" then
+    local okS, Safari = pcall(require, "src.core.game3.safari")
+    -- pokefirered/src/safari_zone.c:12 GetSafariZoneFlag
+    if okS and Safari and Safari.isActive and Safari.isActive(st.session) then
+      Safari.outOfBallsMidBattle(st.session)
+    end
+  end
 end
 
 function Battle.start(opts)
@@ -1150,9 +1158,10 @@ local function safari_out_of_balls(st)
   Ui.push(Strings("ANNOUNCER: You're out of\nSAFARI BALLS! Game over!"))
   Battle._actions = {}
   st.over = true
-  st.result = "run"
+  -- pokefirered/data/battle_scripts_2.s:112
+  st.result = "no_safari_balls"
   st.endReason = "no_safari_balls"
-  Battle._pendingEnd = "run"
+  Battle._pendingEnd = "no_safari_balls"
   Battle._phase = "ending"
   return true
 end
@@ -2331,13 +2340,19 @@ function D.run(act)
   return D.afterEach()
 end
 
-local function finish_catch_flow(catchRes, ename)
+-- pokefirered/data/battle_scripts_2.s:87
+local function finish_catch_flow(catchRes, ename, nicknamed)
   if catchRes and catchRes.location == "pc" then
-    Battle._phase = "catch_pc_msg"
-    local name = (catchRes.mon and (catchRes.mon.nickname ~= "" and catchRes.mon.nickname or catchRes.mon.name))
-      or ename or "POKéMON"
-    Ui.push(Strings("%s was transferred\nto the PC.", name))
-    return
+    local Runtime = package.loaded["src.core.game3.runtime"]
+    local session = Runtime and Runtime.getSession and Runtime.getSession()
+    local Storage = require("src.core.game3.storage")
+    -- pokefirered/src/battle_script_commands.c:9617
+    local page = Storage.pcTransferMessage(session, ename or "POKéMON")
+    if not nicknamed then
+      Battle._phase = "catch_pc_msg"
+      Ui.push(page)
+      return
+    end
   end
   Battle._actions = {}
   Battle._pendingEnd = "catch"
@@ -2377,6 +2392,8 @@ local function start_post_catch_flow(catchRes)
             gender = gender,
             personality = personality,
             seed = ename,
+            -- pokefirered/src/naming_screen.c:696
+            sentToPc = (catchRes and catchRes.location == "pc") or false,
             -- pret naming_screen.c:1712 DrawMonTextEntryBox: gSpeciesNames[mon]
             -- + gText_PkmnsNickname. The hand-written "YOUR POKEMON'S NICKNAME?"
             -- was 141px wide and spilled over the frame's right edge.
@@ -2385,7 +2402,8 @@ local function start_post_catch_flow(catchRes)
               if nick and nick ~= "" and nick ~= ename then
                 if mon then mon.nickname = nick end
               end
-              finish_catch_flow(catchRes, ename)
+              -- pokefirered/src/battle_script_commands.c:9853
+              finish_catch_flow(catchRes, ename, true)
             end,
           })
           return

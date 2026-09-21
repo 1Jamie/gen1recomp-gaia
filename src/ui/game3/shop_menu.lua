@@ -669,7 +669,8 @@ function ShopMenu.draw()
       inBagCount = Bag.get(session.bag, activeId)
     end
     Window.stdFrame(Window.template(1, 11, 13, 2))
-    Window.printPx(Strings("IN BAG:"), 12, 89, { small = true })
+    -- pokefirered/src/strings.c:218
+    Window.printPx(Strings("IN BAG:"), 12, 89)
     local countStr = tostring(inBagCount)
     local cw = (FrlgFont.measure and FrlgFont.measure(countStr, { small = true })) or (6 * #countStr)
     Window.printPx(countStr, math.max(64, 106 - cw), 89, { small = true })

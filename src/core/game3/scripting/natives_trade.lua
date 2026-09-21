@@ -1,5 +1,6 @@
 local Strings = require("src.core.Strings")
 local Std = require("src.core.game3.scripting.stdscripts")
+local Mail = require("src.core.game3.mail")
 
 local Trade = {}
 
@@ -26,7 +27,7 @@ local TRADES = {
   [1] = {
     nickname = "ZYNX", species = 124, ivs = { 18, 17, 18, 22, 25, 21 },
     abilityNum = 0, otId = 36728, personality = 0x498a2e1d, heldItem = 131,
-    otName = "DONTAE", otGender = 0, requestedSpecies = 61,
+    otName = "DONTAE", otGender = 0, requestedSpecies = 61, mailNum = 0,
   },
   [2] = {
     nickname = "MS. NIDO", species = 29, ivs = { 22, 18, 25, 19, 15, 22 },
@@ -66,6 +67,15 @@ local TRADES = {
 }
 Trade.TRADES = TRADES
 Trade.COUNT = 9
+
+-- pokefirered/src/data/ingame_trades.h:184 sInGameTradeMailMessages
+local TRADE_MAIL_MESSAGES = {
+  [0] = { 3613, 4128, 5147, 10876, 3072, 4102, 5183, 4143, 4137 },
+}
+Trade.MAIL_MESSAGES = TRADE_MAIL_MESSAGES
+
+-- pokefirered/src/trade.c:144 gLinkPartnerMail
+Trade.PARTNER_MAIL = {}
 
 local function flagsMod()
   return require("src.core.game3.scripting.flags")
@@ -123,6 +133,22 @@ local function nicknameOf(mon)
   return speciesName(speciesOf(mon))
 end
 
+-- pokefirered/src/trade_scene.c:2500 GetInGameTradeMail
+function Trade.tradeMail(entry)
+  local words = entry and TRADE_MAIL_MESSAGES[tonumber(entry.mailNum) or -1]
+  if not words then return nil end
+  local record = Mail.clear(nil)
+  for i = 1, Mail.MAIL_WORDS_COUNT do
+    record.words[i] = words[i] or Mail.EC_WORD_UNDEFINED
+  end
+  record.playerName = Strings(entry.otName)
+  record.trainerId = entry.otId
+  record.species = entry.species
+  record.itemId = entry.heldItem
+  record.design = Mail.designOf(entry.heldItem)
+  return record
+end
+
 -- pokefirered/src/trade_scene.c:2456 CreateInGameTradePokemonInternal
 function Trade.createTradeMon(tradeIdx, level)
   local entry = TRADES[tonumber(tradeIdx) or -1]
@@ -156,6 +182,13 @@ function Trade.createTradeMon(tradeIdx, level)
   mon.metLocation = METLOC_IN_GAME_TRADE
   mon.item = entry.heldItem
   mon.heldItem = entry.heldItem
+  -- pokefirered/src/trade_scene.c:2483
+  if entry.heldItem ~= 0 and Mail.isMailItem(entry.heldItem) then
+    Trade.PARTNER_MAIL[0] = Trade.tradeMail(entry)
+    mon.mail = 0
+  else
+    mon.mail = nil
+  end
   mon.hp = nil
   Pokemon.applyStats(mon)
   return mon
@@ -168,11 +201,24 @@ function Trade.tradeMons(session, playerSlot, offered)
   local slot = (tonumber(playerSlot) or 0) + 1
   local sent = party[slot]
   if not sent then return nil end
+  -- pokefirered/src/trade_scene.c:1060
+  local playerMail = tonumber(sent.mail)
+  local partnerMail = tonumber(offered.mail)
+  -- pokefirered/src/trade_scene.c:1066
+  if playerMail and playerMail ~= Mail.MAIL_NONE then
+    local record = Mail.slot(session, playerMail)
+    if record then Mail.clear(record) end
+  end
   party[slot] = offered
   -- pokefirered/src/trade_scene.c:1075
   if not isEgg(offered) then
     offered.friendship = TRADED_FRIENDSHIP
     offered.happiness = TRADED_FRIENDSHIP
+  end
+  -- pokefirered/src/trade_scene.c:1078
+  if partnerMail and partnerMail ~= Mail.MAIL_NONE then
+    local record = Trade.PARTNER_MAIL[partnerMail]
+    if record then Mail.giveMailToMon2(session, offered, record) end
   end
   -- pokefirered/src/trade_scene.c:1081 UpdatePokedexForReceivedMon
   session.dex = session.dex or { seen = {}, owned = {} }

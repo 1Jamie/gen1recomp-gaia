@@ -48,9 +48,9 @@ for name, def in pairs(MAPS) do
 end
 
 -- pokefirered/src/item_use.c:614
-print("[test] 0. the live map def carries neither header field")
-check(MAPS.MtMoon_1F.cave == nil, "dataset.lua leaves cave off the Mt Moon def")
-check(MAPS.MtMoon_1F.allowEscaping == nil, "dataset.lua leaves allowEscaping off it too")
+print("[test] 0. the live map def carries both header fields")
+check(MAPS.MtMoon_1F.cave == 0, "dataset.lua puts Mt Moon's requires_flash on the def")
+check(MAPS.MtMoon_1F.allowEscaping == 1, "and its allow_escaping too")
 
 local currentMap = MAPS.PalletTown
 package.loaded["src.core.game3.map"] = {
@@ -172,6 +172,17 @@ check(refusal ~= nil, "DIG indoors prints a refusal")
 
 _, ran, refusal = use_field_move(MAPS.PalletTown, "DIG", {})
 eq(ran, nil, "DIG in Pallet Town (allowEscaping 0) does not execute")
+
+-- pokefirered/src/item_use.c:614
+print("[test] 4b. the ctx reads the def only, never header.json")
+local stripped = {}
+for k, v in pairs(MAPS.RockTunnel_1F) do stripped[k] = v end
+stripped.cave, stripped.allowEscaping = nil, nil
+ctx = use_field_move(stripped, "DIG", {})
+eq(ctx and ctx.isCave, false, "a def with no cave field reads false, not the cached header")
+eq(ctx and ctx.canEscapeRope, false, "and no allowEscaping field reads false too")
+eq(stripped.cave, nil, "the def is not stamped from header.json")
+eq(stripped.allowEscaping, nil, "neither field is stamped")
 
 print("[test] 5. an accepted field move tears the start menu down too")
 -- pokefirered/src/party_menu.c:3958

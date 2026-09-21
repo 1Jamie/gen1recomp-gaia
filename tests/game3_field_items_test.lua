@@ -49,6 +49,20 @@ local Encounters = require("src.core.game3.encounters")
 local Message = require("src.ui.game3.message")
 local Rng = require("src.core.game3.rng")
 local Runtime = require("src.core.game3.runtime")
+local Bag = require("src.core.game3.bag")
+local BagMenu = require("src.ui.game3.bag_menu")
+local Game3 = require("src.core.Game3")
+
+local selectInput = {
+  wasPressed = function(_, key) return key == "select" end,
+  isDown = function() return false end,
+}
+local bagInput = {
+  _p = {},
+  wasPressed = function(self, key) return self._p[key] == true end,
+  isDown = function() return false end,
+  press = function(self, key) self._p = { [key] = true } end,
+}
 
 local ITEM_OLD_ROD, ITEM_GOOD_ROD, ITEM_SUPER_ROD = 262, 263, 264
 local ITEM_BLACK_FLUTE, ITEM_WHITE_FLUTE, ITEM_POKE_FLUTE = 42, 43, 350
@@ -57,9 +71,11 @@ local FLAG_SYS_BLACK_FLUTE_ACTIVE = 0x804
 
 local game = { data = {} }
 Dataset.hydrate(game)
-local session = { map = nil, flags = {}, vars = {}, party = {}, name = "RED" }
+local session = { map = nil, flags = {}, vars = {}, party = {}, name = "RED", bag = Bag.new() }
 game.session = session
 Runtime.session = session
+Bag.add(session.bag, ITEM_OLD_ROD, 1)
+Bag.add(session.bag, ITEM_POKE_FLUTE, 1)
 
 local function enterMap(mapId)
   local def = game.data.maps[mapId]
@@ -107,7 +123,11 @@ check(ok == false and kind == "rod", "useField refuses it")
 check(type(text) == "string" and text:find("time to use that", 1, true) ~= nil,
   "with gText_OakForbidsUseOfItemHere")
 check(Field.isFishing() == false, "no fishing task started")
--- pokefirered/src/item_use.c:273 PrintNotTheTimeToUseThat
+check(Message.isOpen() == false, "and useField itself printed nothing")
+-- pokefirered/src/item_menu.c:2022 UseRegisteredKeyItemOnField
+session.registeredItem = ITEM_OLD_ROD
+Game3._handleRegisteredItem({ input = selectInput, session = session })
+-- pokefirered/src/item_use.c:294 PrintNotTheTimeToUseThat
 check(Message.isOpen() == true, "the refusal prints on the field instead of vanishing")
 local guardA = 0
 while Message.isOpen() and guardA < 40 do
@@ -198,13 +218,43 @@ check(session.party[1].status == nil and (tonumber(session.party[1].sleep) or 0)
   "the sleeping mon woke up")
 check(type(text) == "string" and text:find("awakened", 1, true) ~= nil,
   "it prints gText_PokeFluteAwakenedMon")
--- pokefirered/src/item_use.c:182 DisplayItemMessageInCurrentContext
-check(Message.isOpen() == true, "and the box is on screen, not dropped on the floor")
+check(Message.isOpen() == false, "useField itself printed nothing")
+
+session.party[1].status = "SLP"
+session.party[1].sleep = 3
+-- pokefirered/src/data/items.h:5318 ITEM_POKE_FLUTE registrability 0
+BagMenu.show(session, { session = session, bag = session.bag, pocket = "KEY_ITEMS" })
+BagMenu.settle()
+for i, r in ipairs(BagMenu.list()) do
+  if ItemsData.toNumericId(r.id) == ITEM_POKE_FLUTE then BagMenu.cursor = i end
+end
+bagInput:press("a")
+BagMenu.handleInput(bagInput)
+check(BagMenu.mode == "action", "the flute opens the item's action menu")
+for k, a in ipairs(BagMenu.ACTIONS) do
+  if a == "USE" then BagMenu.actionCursor = k end
+end
+bagInput:press("a")
+BagMenu.handleInput(bagInput)
+BagMenu.settle()
+check(session.party[1].status == nil and (tonumber(session.party[1].sleep) or 0) == 0,
+  "the bag USE woke the mon too")
+-- pokefirered/src/item_use.c:374 DisplayItemMessageInBag
+check(BagMenu.isOpen() == true and BagMenu.mode == "message",
+  "and the box is on screen, not dropped on the floor")
+check(Message.isOpen() == false, "nothing escaped to the field message box")
+local pages = {}
 local guardF = 0
-while Message.isOpen() and guardF < 40 do
-  Message.advance()
+while BagMenu.mode == "message" and guardF < 40 do
+  pages[#pages + 1] = tostring(BagMenu.messageText)
+  bagInput:press("a")
+  BagMenu.handleInput(bagInput)
   guardF = guardF + 1
 end
+check(table.concat(pages, "\n"):find("awakened", 1, true) ~= nil,
+  "gText_PokeFluteAwakenedMon is one of the bag's pages")
+check(BagMenu.mode == "list", "paging through it returns to the item list")
+BagMenu.close()
 ok, kind, text = ItemUse.useField(session, session.bag, ITEM_POKE_FLUTE, nil)
 check(ok == true and text:find("catchy tune", 1, true) ~= nil,
   "with nobody asleep it prints gText_PlayedPokeFluteCatchy")
