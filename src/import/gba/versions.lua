@@ -27,9 +27,12 @@ Versions.ROM_SIZE = 16777216
 -- v99: gEggMoves → pokemon/egg_moves.lua (hidden-mon egg moves were inert).
 -- v100: location preview screens (sMapPreviewScreenData artwork) + ROM-derived
 --       mapsec names and sDungeonInfo dungeon descriptions.
--- v111: deoxys_rock_fragments field effect — the Birth Island meteorite shatter
+-- v111: hidden-item bitfield fix in extract_map_events (id % 256, qty % 128).
+-- v112: deoxys_rock_fragments field effect — the Birth Island meteorite shatter
 --       had no artwork, so the rock simply vanished instead of breaking apart.
-Versions.CACHE_VERSION = 111
+--       Both branches had taken 111 for unrelated cache layouts, so this merge
+--       moves the Deoxys artwork onto its own number instead of sharing one.
+Versions.CACHE_VERSION = 112
 Versions.NATIVE_VERSION = 6
 Versions.OW_VERSION = 1
 Versions.ANIM_VERSION = 1
