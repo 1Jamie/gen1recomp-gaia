@@ -491,7 +491,7 @@ end
 local CART_COLOR = {
   red = PAL.railRed, blue = PAL.railBlue, yellow = PAL.railGold,
   gold = PAL.railAmber, silver = PAL.railSilver,
-  crystal = PAL.railCrystal, firered = PAL.railFireRed,
+  crystal = PAL.railCrystal, firered = PAL.railFireRed, leafgreen = PAL.railLeafGreen,
 }
 local function cartColor(version)
   return CART_COLOR[version] or PAL.green
@@ -1537,6 +1537,8 @@ local GAME_TABS = {
     color = PAL.railCrystal, label = "Crystal" },
   { id = "firered", key = "tab-firered", letter = "F",
     color = PAL.railFireRed, label = "Fire Red" },
+  { id = "leafgreen", key = "tab-leafgreen", letter = "L",
+    color = PAL.railLeafGreen, label = "Leaf Green" },
 }
 
 local function drawOnlineGlyph(x, y, w, h, hot)
@@ -4543,24 +4545,22 @@ local function buildModScopeModal(imp, m)
       action = function() imp._modScopePopup = nil end })
 end
 
--- The cartridge dropdown's list.  Replaces the four R/B/Y/G tabs, so it is
--- also what a controller reaches after the tab row.
+-- The cartridge picker uses two columns and spatial controller navigation.
 local function buildGameModal(imp, m)
   local pad = math.floor(18 * m.s)
   local headH = Kit.textHeight("button") + math.floor(12 * m.s)
   local avail = m.H - 2 * m.pad
-  local cols, gap, btnH = 1, math.floor(8 * m.s), m.btnH
+  local cols, gap, btnH = 2, math.floor(8 * m.s), m.btnH
   local function rows() return math.ceil(#GAME_TABS / cols) + 1 end
   local function total() return 2 * pad + headH + rows() * btnH
     + (rows() - 1) * gap end
-  if total() > avail then cols = 2 end
   if total() > avail then gap = math.max(2, math.floor(3 * m.s)) end
   if total() > avail then
     btnH = math.max(Kit.tapMin(),
       btnH - math.ceil((total() - avail) / rows()))
   end
   local nrows = rows() - 1
-  local w = math.floor((cols > 1 and 440 or 360) * m.s)
+  local w = math.floor(440 * m.s)
   local px, py, pw = modalPanel(m, w, total())
   local cy = py + pad
   Kit.text("button", Strings("Choose game"), px + pad, cy, PAL.heading)

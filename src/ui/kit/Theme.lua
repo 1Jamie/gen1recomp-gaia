@@ -66,6 +66,7 @@ local PAL = {
   railAmber   = { 218, 145, 32 },  -- Gold cartridge (deeper metal)
   railSilver  = { 190, 198, 210 }, -- Silver cartridge (cool light metal)
   railCrystal = { 132, 196, 228 }, -- Crystal cartridge (translucent ice blue)
+  railLeafGreen = { 128, 188, 40 },
   railFireRed = { 220, 48, 48 },   -- FireRed cartridge (deeper red than Red)
 }
 -- Semantic aliases kept so ported call sites read the same as before.
@@ -330,7 +331,7 @@ function Theme.versionRail(x, y, w, h)
   if not G then return end
   local bars = {
     PAL.railRed, PAL.railBlue, PAL.railGold, PAL.railAmber, PAL.railSilver,
-    PAL.railCrystal, PAL.railFireRed,
+    PAL.railCrystal, PAL.railFireRed, PAL.railLeafGreen,
   }
   local seg = w / #bars
   for i, c in ipairs(bars) do

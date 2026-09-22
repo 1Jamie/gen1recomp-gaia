@@ -468,6 +468,28 @@ function Kit._resolveNav()
   local curLayer = getNavLayer(cur)
   local cx, cy = cur.x + cur.w / 2, cur.y + cur.h / 2
 
+  if tostring(cur.id):match("^gamepop%-") then
+    local best, bestScore
+    for i = 1, n do
+      local c = Kit._nav[i]
+      if c.id ~= cur.id and tostring(c.id):match("^gamepop%-") then
+        local dx, dy = c.x + c.w / 2 - cx, c.y + c.h / 2 - cy
+        local horizontal = dir == "left" or dir == "right"
+        local forward = (dir == "left" and -dx) or (dir == "right" and dx)
+          or (dir == "up" and -dy) or dy
+        local cross = math.abs(horizontal and dy or dx)
+        if forward > 1 and (not horizontal or cross < 1) then
+          local score = forward + cross * 2
+          if not bestScore or score < bestScore then
+            best, bestScore = c, score
+          end
+        end
+      end
+    end
+    if best then Kit.focusId = best.id end
+    return
+  end
+
   if dir == "left" or dir == "right" then
     -- STRICT SAME-LAYER HORIZONTAL NAVIGATION (Left/Right NEVER jumps between layers)
     local best, bestDx
