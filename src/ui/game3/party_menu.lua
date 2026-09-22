@@ -517,9 +517,10 @@ local function ensure_slot_sprites(i, mon, selected)
     Oam.setInvisible(slot.ball, PartyMenu.mode == "summary")
   end
 
-  local statusFr = PartyChrome.statusFrameFor(mon.status)
+  local SummaryData = require("src.core.game3.summary_data")
+  local statusFr = SummaryData.statusAilment(mon)
   local stImg, stQ = PartyChrome.statusEntry(statusFr)
-  if statusFr > 0 and stImg then
+  if statusFr > 0 and statusFr ~= 6 and stImg then
     if not slot.status then
       local id = select(1, Oam.createSprite({
         dims = Oam.HRECT_32x8,
@@ -2122,7 +2123,13 @@ local function draw_filled_slot(i, mon, selected)
     if desc then party_print(desc, baseX + info.desc[1], baseY + info.desc[2], 64) end
     return
   end
-  party_print("Lv" .. tostring(mon.level or 0), baseX + info.level[1], baseY + info.level[2], 32)
+  local SummaryData = require("src.core.game3.summary_data")
+  local ailment = SummaryData.statusAilment(mon)
+  -- pokefirered/src/party_menu.c:2322 DisplayPartyPokemonLevelCheck:
+  -- Level is only shown when the mon is healthy (or PKRS); status ailments replace level.
+  if ailment == 0 or ailment == 6 then
+    party_print("Lv" .. tostring(mon.level or 0), baseX + info.level[1], baseY + info.level[2], 32)
+  end
 
   local gender = mon.gender or (Pokemon.gender and Pokemon.gender(mon.species, mon.personality))
   local isNidoran = (mon.species == 29 or mon.species == 32)

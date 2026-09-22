@@ -1594,12 +1594,37 @@ local function dispatch(vm, row)
         })
       end
 
-      if isRematch then
-        -- pokefirered/src/battle_setup.c:848
-        local Objects = package.loaded["src.core.game3.objects"]
-        local eo = Objects and Objects.find and Objects.find(lastTalked)
-        if eo and Objects.setTrainerMovementType and not (Objects.isPlayer and Objects.isPlayer(lastTalked)) then
-          Objects.setTrainerMovementType(eo, VsSeeker.faceTypeFor(eo.facing))
+      -- pokefirered/src/battle_setup.c:848 SetUpTrainerMovement
+      local Objects = package.loaded["src.core.game3.objects"]
+      local eo = Objects and Objects.find and Objects.find(lastTalked)
+      if eo and not (Objects.isPlayer and Objects.isPlayer(lastTalked)) then
+        local faceMt = ({ down = 0x08, up = 0x07, left = 0x09, right = 0x0A })[eo.facing] or 0x08
+        if Objects.setTrainerMovementType then
+          Objects.setTrainerMovementType(eo, faceMt)
+        else
+          eo.movementType = faceMt
+          eo.movement = "STAY"
+          eo.range = (eo.facing or "down"):upper()
+        end
+        if Objects.overrideTemplateMovementType then
+          Objects.overrideTemplateMovementType(eo.localId, faceMt)
+        end
+        eo.homeX = eo.cellX
+        eo.homeY = eo.cellY
+        if eo.def then
+          eo.def.movementType = faceMt
+          eo.def.movement = "STAY"
+          eo.def.x = eo.cellX
+          eo.def.y = eo.cellY
+          eo.def.range = (eo.facing or "down"):upper()
+        end
+        if Objects.rememberPerm and Objects._mapId then
+          Objects.rememberPerm(Objects._mapId, eo.localId, {
+            x = eo.cellX,
+            y = eo.cellY,
+            movementType = faceMt,
+            facing = eo.facing,
+          })
         end
       end
 

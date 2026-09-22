@@ -255,6 +255,8 @@ local function rememberPerm(mapId, localId, fields)
   end
 end
 
+Objects.rememberPerm = rememberPerm
+
 local function applyPerm(eo, mapId)
   local bucket = Objects._perm[mapId]
   local row = bucket and bucket[eo.localId]
@@ -547,7 +549,7 @@ local function beginStep(eo, tx, ty)
   eo.animClock = 0
 end
 
-local function finishStep(eo)
+local function finishStep(eo, game)
   eo.cellX = eo.targetX
   eo.cellY = eo.targetY
   eo.px = eo.cellX * CELL
@@ -563,9 +565,15 @@ local function finishStep(eo)
   if curElev and curElev ~= 0 and curElev ~= 15 then
     eo.elevation = curElev
   end
+  if eo.sight and eo.sight > 0 and not eo.scriptBusy and not eo.frozen then
+    local okTs, TrainerSight = pcall(require, "src.core.game3.trainer_sight")
+    if okTs and TrainerSight and TrainerSight.check then
+      TrainerSight.check(game, eo)
+    end
+  end
 end
 
-local function tickMotion(eo)
+local function tickMotion(eo, game)
   if not eo.moving then return false end
   eo.progress = eo.progress + 1
   eo.animClock = eo.animClock + 1
@@ -576,7 +584,7 @@ local function tickMotion(eo)
   eo.px = eo.cellX * CELL + dx * CELL * t
   eo.py = eo.cellY * CELL + dy * CELL * t
   if eo.progress >= frames then
-    finishStep(eo)
+    finishStep(eo, game)
     return true
   end
   return false
@@ -938,6 +946,12 @@ local function idleTick(eo, game, ctx)
       beginStep(eo, tx, ty)
     else
       eo.facing = dir -- turn toward blocked anyway
+      if not ctx and eo.sight and eo.sight > 0 then
+        local okTs, TrainerSight = pcall(require, "src.core.game3.trainer_sight")
+        if okTs and TrainerSight and TrainerSight.check then
+          TrainerSight.check(game, eo)
+        end
+      end
     end
     eo.idleTimer = 40 + Rng.compat(0, 49)
   end
@@ -955,7 +969,7 @@ function Objects.update(game)
         eo.bowFrames = eo.bowFrames - 1
         if eo.bowFrames <= 0 then eo.bowFrames = nil end
       end
-      tickMotion(eo)
+      tickMotion(eo, game)
       idleTick(eo, game)
     end
   end
@@ -983,7 +997,7 @@ function Objects.tickPool(pool, game, ctx)
         eo.bowFrames = eo.bowFrames - 1
         if eo.bowFrames <= 0 then eo.bowFrames = nil end
       end
-      tickMotion(eo)
+      tickMotion(eo, game)
       idleTick(eo, game, ctx)
     end
   end

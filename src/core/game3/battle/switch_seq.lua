@@ -271,6 +271,7 @@ function SwitchSeq.beginSendOut(st, side, newSlot, opts)
       end
     else
       st.enemy = State.makeBattler(st.foeParty[newSlot], "enemy", { state = st, partyIndex = newSlot })
+      State.opponentSwitchInResetSentPokes(st, st.enemy)
       Anim.syncDisplayFromState(st)
       if SwitchSeq._pushMsg then
         local tname = (st.trainerClassName and st.trainerClassName ~= "")
@@ -419,7 +420,6 @@ function SwitchSeq.beginShiftSwitch(st, playerSlot, enemySlot, opts)
   if SwitchSeq._headless then
     if SwitchSeq._pushMsg then SwitchSeq._pushMsg(withdrawMsg) end
     switch_out_effects(st, oldBattler)
-    State.trackParticipant(st, st.enemy, oldBattler and oldBattler.partyIndex or 1)
     State.syncBattlerToParty(st.player, st.playerParty)
     State.wipeVolatilesAndStages(st.player)
     st.enemy = State.makeBattler(st.foeParty[enemySlot], "enemy", { state = st, partyIndex = enemySlot })
@@ -428,7 +428,7 @@ function SwitchSeq.beginShiftSwitch(st, playerSlot, enemySlot, opts)
       or (st.trainerName or "TRAINER")
     if SwitchSeq._pushMsg then SwitchSeq._pushMsg(Strings("%s sent\nout %s!", tname, State.displayName(st.enemy))) end
     st.player = State.makeBattler(st.playerParty[playerSlot], "player", { state = st, partyIndex = playerSlot })
-    State.trackParticipant(st, st.enemy, playerSlot)
+    State.opponentSwitchInResetSentPokes(st, st.enemy)
     Anim.syncDisplayFromState(st)
     if SwitchSeq._pushMsg then SwitchSeq._pushMsg(Strings("Go! %s!", State.displayName(st.player))) end
     headless_entry(st, { "enemy", "player" })
@@ -441,14 +441,14 @@ function SwitchSeq.beginShiftSwitch(st, playerSlot, enemySlot, opts)
     { kind = "msg", data = { text = withdrawMsg } },
     { kind = "withdraw", data = { side = "player" } },
     -- 2. Enemy sendout first (retail FRLG order)
-    { kind = "swap_data", data = { side = "enemy", newSlot = enemySlot } },
+    { kind = "swap_data", data = { side = "enemy", newSlot = enemySlot, isShift = true, reason = "shift" } },
     { kind = "msg_sendout", data = { side = "enemy" } },
     { kind = "sendout_enemy", data = { slot = enemySlot } },
     { kind = "shiny_check", data = { side = "enemy" } },
     { kind = "cry", data = { side = "enemy" } },
     { kind = "healthbox", data = { side = "enemy" } },
     -- 3. Player sendout second
-    { kind = "swap_data", data = { side = "player", newSlot = playerSlot } },
+    { kind = "swap_data", data = { side = "player", newSlot = playerSlot, isShift = true, reason = "shift" } },
     { kind = "msg_sendout", data = { side = "player" } },
     { kind = "sendout_player", data = { slot = playerSlot } },
     { kind = "shiny_check", data = { side = "player" } },
@@ -555,7 +555,7 @@ local function run_step(step)
     if Engine and Engine.performSwitch and battle_adapter() and step_battler(st, d) and party and party[newSlot] then
       capture_events(function(ad)
         Engine.performSwitch(st, ad, d.id ~= nil and d.id or side, newSlot,
-          { batonPass = d.batonPass, reason = d.reason or "switch" })
+          { batonPass = d.batonPass, reason = d.reason or "switch", isShift = d.isShift })
       end)
       Anim.syncDisplayFromState(st)
       advance()
@@ -564,7 +564,9 @@ local function run_step(step)
     switch_out_effects(st, st and st[side])
     if side == "player" then
       if st and st.player then
-        State.trackParticipant(st, st.enemy, st.player.partyIndex or 1)
+        if not d.isShift and d.reason ~= "shift" then
+          State.trackParticipant(st, st.enemy, st.player.partyIndex or 1)
+        end
         State.syncBattlerToParty(st.player, st.playerParty)
         State.wipeVolatilesAndStages(st.player, { batonPass = d.batonPass })
       end
@@ -576,6 +578,7 @@ local function run_step(step)
         State.wipeVolatilesAndStages(st.enemy)
       end
       st.enemy = State.makeBattler(st.foeParty[newSlot], "enemy", { state = st, partyIndex = newSlot })
+      State.opponentSwitchInResetSentPokes(st, st.enemy)
     end
     Anim.syncDisplayFromState(st)
     advance()
