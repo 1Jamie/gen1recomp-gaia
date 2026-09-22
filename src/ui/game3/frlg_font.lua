@@ -863,7 +863,8 @@ end
 function FrlgFont.advance(glyphId, opts)
   opts = opts or {}
   if glyphId >= FrlgFont.JAPANESE_BASE then
-    -- pokefirered/src/text.c:1391 (small: 8px), :1492 (normal: its width table)
+    -- pokefirered/src/text.c:1391 (small: 8px), :1492 (normal: its width table).
+    -- The window's letter spacing is added by japanese_step, as the cart does.
     if opts.small then return 8 end
     return japanese_widths()[glyphId - FrlgFont.JAPANESE_BASE] or 10
   end
@@ -895,6 +896,17 @@ local function glyph_step(w, minW, jpn, ls)
   return w
 end
 
+-- A glyph drawn from a Japanese sheet is Japanese whether or not the string
+-- carries the {JPN} control code a ROM-extracted one does, so it takes the
+-- window's letter spacing either way (src/text.c:853).  Without one, the field
+-- message printer's spacing applies: 1 for the normal font
+-- (new_menu_helpers.c:413), 0 for the small one (gFontInfos, :65).
+local function japanese_step(glyphId, w, minW, jpn, opts, small)
+  local ls = opts.letterSpacing
+  if glyphId < FrlgFont.JAPANESE_BASE then return glyph_step(w, minW, jpn, ls or 0) end
+  return glyph_step(w, minW, true, ls or (small and 0 or 1))
+end
+
 function FrlgFont.measure(text, opts)
   opts = opts or {}
   local ls = opts.letterSpacing or 0
@@ -905,9 +917,10 @@ function FrlgFont.measure(text, opts)
       if line > maxLine then maxLine = line end
       line = 0
     elseif ttype == "char" then
-      line = line + glyph_step(FrlgFont.advance(FrlgFont.glyphId(val), opts), minW, jpn, ls)
+      local id = FrlgFont.glyphId(val)
+      line = line + japanese_step(id, FrlgFont.advance(id, opts), minW, jpn, opts, opts.small)
     elseif ttype == "glyph" then
-      line = line + glyph_step(FrlgFont.advance(val, opts), minW, jpn, ls)
+      line = line + japanese_step(val, FrlgFont.advance(val, opts), minW, jpn, opts, opts.small)
     elseif ttype == "icon" then
       line = line + FrlgFont.KEYPAD_ICONS[val].w + ls
     elseif ttype == "clear" then
@@ -1133,7 +1146,7 @@ function FrlgFont.draw(text, x, y, opts)
             love.graphics.draw(gfg, q, dx, dy)
           end
         end
-        penX = penX + glyph_step(adv, minW, jpn, ls)
+        penX = penX + japanese_step(id, adv, minW, jpn, opts, useSmall)
       end
       drawn = drawn + 1
     end
@@ -1194,6 +1207,20 @@ FrlgFont.CHAR_FEMALE = 0xB6
 FrlgFont.CHAR_SLASH = 0xBA
 
 --- Count printable UTF-8 characters in text (including newlines, skipping control codes).
+--- The first n characters of text (UTF-8 aware): a name limit counts
+-- characters (pokefirered POKEMON_NAME_LENGTH, PLAYER_NAME_LENGTH), and a kana
+-- is three bytes, so a byte cut would split it.
+function FrlgFont.truncate(text, n)
+  text = tostring(text or "")
+  local out, count = {}, 0
+  for ch in utf8Chars(text) do
+    if count >= n then break end
+    count = count + 1
+    out[count] = ch
+  end
+  return table.concat(out)
+end
+
 function FrlgFont.countChars(text)
   local n = 0
   for ttype in FrlgFont.scanTokens(text) do

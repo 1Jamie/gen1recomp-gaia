@@ -28,10 +28,34 @@ check(FrlgFont.glyphId("「") == BASE + 0xB3 and FrlgFont.glyphId("』") == BASE
 check(FrlgFont.glyphId("A") == 0xBB and FrlgFont.glyphId("0") == 0xA1 and FrlgFont.glyphId("é") ~= nil
   and FrlgFont.glyphId("é") < BASE, "Latin text keeps the Latin font")
 
--- pokefirered/src/text.c:1391 small Japanese glyphs are 8px; :1492 normal ones read
--- the width table, which is 10px for every kana (the space included, text.c:1493).
-check(FrlgFont.advance(FrlgFont.glyphId("あ"), { small = true }) == 8, "a small kana is 8px wide")
-check(FrlgFont.measure("ポケモン") == 40, "four normal kana are 40px wide (got " .. FrlgFont.measure("ポケモン") .. ")")
+-- pokefirered/src/text.c:853 a Japanese glyph advances by its width plus the
+-- window's letter spacing: 1 for the normal font, whose width table gives most
+-- kana 10px (text.c:1492; the small kana 9px), 0 for the small font's fixed 8px
+-- (text.c:1391).  With no extracted width table the normal font falls back to 10.
+check(FrlgFont.advance(FrlgFont.glyphId("あ"), { small = true }) == 8, "a small-font kana advances 8px")
+check(FrlgFont.measure("ポケモン") == 44, "four normal kana advance 44px (got " .. FrlgFont.measure("ポケモン") .. ")")
+-- The spacing is added once: a ROM-extracted string carries the {JPN} control
+-- code (0xFC 0x15) that the engine's own spacing already keys on.
+local JPN = "\252\21"
+check(FrlgFont.measure(JPN .. "ポケモン", { letterSpacing = 1 }) == 44,
+  "with the {JPN} code and a window spacing of 1, they still advance 44px (got "
+  .. FrlgFont.measure(JPN .. "ポケモン", { letterSpacing = 1 }) .. ")")
+check(FrlgFont.measure("ポケモン", { letterSpacing = 0 }) == 40,
+  "and a window that asks for no spacing gets none (40px), the battle boxes' case")
+check(FrlgFont.measure("POKEMON") == FrlgFont.measure("POKE") + FrlgFont.measure("MON"),
+  "Latin text keeps its own advance, with no letter spacing added")
+
+-- A name limit counts characters, and a kana is three bytes.
+check(FrlgFont.truncate("フシギダネ", 10) == "フシギダネ", "a five-kana name fits a ten-character limit")
+check(FrlgFont.truncate("フシギダネ", 3) == "フシギ", "and is cut between characters, never inside one")
+check(FrlgFont.truncate("BULBASAUR", 7) == "BULBASA", "Latin names are cut as before")
+
+-- pokefirered/include/constants/global.h PLAYER_NAME_LENGTH is 7 characters: the
+-- continue screen keeps seven kana of the player's name, not seven bytes.
+local Boot = require("src.ui.game3.boot")
+local info = Boot.continueInfoFromSave({ name = "ながいなまえです", playTime = {} })
+check(info and info.name == "ながいなまえで",
+  "the continue screen keeps a Japanese name's first seven kana (got " .. tostring(info and info.name) .. ")")
 
 -- The extractor reads the glyphs the way DecompressGlyph_Normal/_Small lay them out.
 local TextChromeExtract = require("src.import.gba.text_chrome_extract")
