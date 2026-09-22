@@ -227,8 +227,9 @@ function SaveMenu.draw()
   local valueX = 1 * 8 + SaveMenu.valueX(labels)
   local badges = SaveMenu.countBadges(session)
   local hasDex = SaveMenu.hasDex(session)
-  local hours = tonumber(session.playTimeHours or session.hours) or 0
-  local mins = tonumber(session.playTimeMinutes or session.minutes) or 0
+  local pt = session.playtime or session.playTime or {}
+  local hours = tonumber(pt.hours or session.playTimeHours or session.hours) or 0
+  local mins = tonumber(pt.minutes or session.playTimeMinutes or session.minutes) or 0
 
   -- 1. Top-Left Save Stats Box (pret sSaveStatsWindowTemplate at (1, 1, 14, 9))
   -- pokefirered/src/start_menu.c:971

@@ -83,6 +83,9 @@ end)
 print("[test] 2. SaveMenu lifecycle and state machine")
 local SaveMenu = require("src.ui.game3.save_menu")
 
+local Runtime = require("src.core.game3.runtime")
+Runtime._game = { saveGame = function() return true end }
+
 local saveClosed = false
 SaveMenu.show({
   session = session,
