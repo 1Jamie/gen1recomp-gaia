@@ -43,6 +43,7 @@ Std.SPECIAL = {
   BackupHelpContext = 0x17E,
   RestoreHelpContext = 0x17F,
   SetHelpContextForMap = 0x190,
+  DoSSAnneDepartureCutscene = 0x191, -- pokefirered/data/specials.inc:412
   HelpSystem_Disable = 0x198,
   HelpSystem_Enable = 0x199,
   StartMarowakBattle = 0x156, -- pokefirered/data/specials.inc:353

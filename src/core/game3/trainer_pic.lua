@@ -47,12 +47,47 @@ local function bgr555_to_rgb8(c)
     math.floor(b5 * 255 / 31 + 0.5)
 end
 
+local function wrap_rom_data(data)
+  if not data or #data < 0xC0 then return data end
+  local code = data:sub(0xAD, 0xB0)
+  local ver = data:byte(0xBD)
+  local okV, Versions = pcall(require, "src.import.gba.versions")
+  if okV and Versions and Versions.select then
+    if code == "BPGE" then
+      Versions.select("leafgreen")
+    else
+      Versions.select("firered")
+    end
+  end
+  if ver == 1 then
+    local sha1
+    if love and love.data and love.data.hash then
+      sha1 = love.data.hash("sha1", data)
+    end
+    local okR, RevisionView = pcall(require, "src.import.gba.revision_view")
+    if okR and RevisionView then
+      local rev = (sha1 and RevisionView.forSha1 and RevisionView.forSha1(sha1))
+        or (code == "BPGE" and require("src.import.gba.revisions.leafgreen_1_1"))
+        or require("src.import.gba.revisions.firered_1_1")
+      if rev and RevisionView.build then
+        data = RevisionView.build(data, rev)
+      end
+    end
+  end
+  return data
+end
+
 local function load_rom_bytes()
   if TrainerPic._rom then return TrainerPic._rom end
   local candidates = {
     "1636 - Pokemon Fire Red (U)(Squirrels).gba",
     "firered.gba",
+    "firered_dump.gba",
     "Pokemon - FireRed Version (USA).gba",
+    "Pokemon - Fire Red Version (U) (V1.1).gba",
+    "Pokemon - LeafGreen Version (USA).gba",
+    "Pokemon - LeafGreen Version (USA, Europe) (Rev 1).gba",
+    "leafgreen.gba",
   }
   local bases = {
     "",
@@ -66,8 +101,9 @@ local function load_rom_bytes()
         local data = f:read("*a")
         f:close()
         if data and #data > 0 then
-          TrainerPic._rom = data
-          return data
+          local wrapped = wrap_rom_data(data)
+          TrainerPic._rom = wrapped
+          return wrapped
         end
       end
     end
@@ -76,8 +112,9 @@ local function load_rom_bytes()
     for _, name in ipairs(candidates) do
       local data = love.filesystem.read(name)
       if data and #data > 0 then
-        TrainerPic._rom = data
-        return data
+        local wrapped = wrap_rom_data(data)
+        TrainerPic._rom = wrapped
+        return wrapped
       end
     end
   end
@@ -232,23 +269,28 @@ end
 --- Player back pic strip (64×320, 5 frames). gender 0=boy, 1=girl.
 function TrainerPic.back(gender)
   gender = tonumber(gender) or 0
-  if gender ~= 0 and gender ~= 1 then gender = 0 end
+  if gender < 0 or gender > 5 then gender = 0 end
   if TrainerPic._back[gender] then return TrainerPic._back[gender] end
   if not TrainerPic._cache then TrainerPic.install(nil) end
   local rel = cache_root() .. "/back_" .. gender .. ".rgba"
   local cache = TrainerPic._cache
   local rgba = cache and cache.read and cache:read(rel)
-  if not rgba or #rgba < 64 * 320 * 4 then
+  local frames = (gender == 0 or gender == 1) and 5 or 4
+  local expectedBytes = 64 * 64 * frames * 4
+  if not rgba or #rgba < expectedBytes then
     rgba = decode_pic_rgba(
       gender,
       Versions.TRAINER_BACK_PIC_TABLE or 0x239FA4,
       Versions.TRAINER_BACK_PIC_PAL_TABLE or 0x239FD4,
       rel,
-      5)
+      frames)
   end
-  local image = image_from_rgba(rgba, 64, 320)
+  if not rgba then return nil end
+  local actualFrames = math.floor(#rgba / (64 * 64 * 4))
+  if actualFrames <= 0 then return nil end
+  local image = image_from_rgba(rgba, 64, 64 * actualFrames)
   if not image then return nil end
-  local entry = { image = image, w = 64, h = 320, frames = 5 }
+  local entry = { image = image, w = 64, h = 64 * actualFrames, frames = actualFrames }
   TrainerPic._back[gender] = entry
   return entry
 end

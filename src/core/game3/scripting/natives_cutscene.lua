@@ -38,6 +38,13 @@ Cutscene.HANDLERS = {
   [Std.SPECIAL.AnimateTeleporterCable] = function()
     return false
   end,
+  -- pokefirered/src/ss_anne.c:82 DoSSAnneDepartureCutscene
+  [Std.SPECIAL.DoSSAnneDepartureCutscene] = function(ctx, adapters)
+    local SSAnne = require("src.core.game3.ss_anne_cutscene")
+    local Natives = require("src.core.game3.scripting.natives")
+    Natives.awaitState(ctx, SSAnne.start(ctx, adapters))
+    return false
+  end,
 }
 
 return Cutscene

@@ -183,6 +183,9 @@ end
 -- Returns: caught (bool), shakes (0..4).
 -- pokefirered/src/battle_script_commands.c:9463
 function Catching.tryCatch(itemId, foeBattler, st, session, rng)
+  if st and st.oldManTutorial then
+    return true, 4
+  end
   local caught, shakes
   if ModRuntime.wantsHook("catch.rate") then
     local G3 = require("src.mods.Gen3Compat")
