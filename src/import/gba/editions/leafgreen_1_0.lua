@@ -1390,8 +1390,11 @@ return {
   [0x1EA700] = 0x1EA6DC, -- :gKeypadIconTiles + 0
   [0x1EAF00] = 0x1EAEDC, -- text.o:sFontSmallLatinGlyphs + 0
   [0x1EEF00] = 0x1EEEDC, -- text.o:sFontSmallLatinGlyphWidths + 0
+  [0x1EF100] = 0x1EF0DC, -- text.o:sFontSmallJapaneseGlyphs + 0
   [0x1FF300] = 0x1FF2DC, -- text.o:sFontNormalLatinGlyphs + 0
   [0x207300] = 0x2072DC, -- text.o:sFontNormalLatinGlyphWidths + 0
+  [0x207500] = 0x2074DC, -- text.o:sFontNormalJapaneseGlyphs + 0
+  [0x20F500] = 0x20F4DC, -- text.o:sFontNormalJapaneseGlyphWidths + 0
   [0x22FC48] = 0x22FC24, -- text.o:sFontBoldJapaneseGlyphs + 0
   [0x231C48] = 0x231C24, -- sprite.o:sDmaOverErrorMsg + 0
   [0x234615] = 0x2345F1, -- main_menu.o:sString_Newline + 0
