@@ -1323,7 +1323,13 @@ function Adapters.host(mod, game, world)
         -- multichoicedefault left, top, listId, default, ignoreBPress
         -- multichoicegrid left, top, listId, numColumns, ignoreBPress
         listId = tonumber(row.listId or row[3] or row[1]) or 0
-        n = tonumber(row.count or row[4]) or n
+        -- row[4] is ignoreBPress / default / numColumns — NEVER an option
+        -- count.  Reading it here made the tint picker (listId 2, ignoreB=1)
+        -- resolve to a one-option menu and forced MON_ICON_TINT_NORMAL (0)
+        -- whenever the multichoice extract cache missed (BUG2).  Only an
+        -- explicit row.count may override the default hint; resolve() then
+        -- prefers the embedded cart counts anyway.
+        n = tonumber(row.count) or n
       end
       local opts, layout = Multi.resolve(listId, n)
       layout = layout or {}
