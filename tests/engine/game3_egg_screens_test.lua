@@ -1,8 +1,8 @@
 #!/usr/bin/env luajit
 -- The screens that show a single mon draw an egg as an egg, as pret does with
 -- GetMonData(MON_DATA_SPECIES_OR_EGG) and MON_DATA_NICKNAME
--- (pokefirered/src/pokemon.c:3245, :3020): the PC's hovered-mon panel, the
--- summary's egg page, the trade scene, and the script string buffers.
+-- (pokefirered/src/pokemon.c:3245, :3020): the party slots, the PC's hovered-mon
+-- panel, the summary's egg page, the trade scene, and the script string buffers.
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
@@ -57,6 +57,22 @@ pics, texts = {}, {}
 PcChrome.drawLeftDataPanel({ species = 172, nickname = "PICHU", level = 5, gender = "M" }, 0)
 check(pics[1] == 172 and has(texts, "/PICHU") and has(texts, "Lv5"),
   "a hatched mon keeps its pic, species and level lines")
+
+-- pokefirered/src/party_menu.c:781 DisplayPartyPokemonData, :2197 sSlotTilemap_MainNoHP
+local PartyMenu = require("src.ui.game3.party_menu")
+local PartyChrome = require("src.ui.game3.party_chrome")
+local slotsHidingHp = {}
+PartyChrome.drawSlot = function(kind, _, _, _, hideHp)
+  if kind ~= "empty" then slotsHidingHp[#slotsHidingHp + 1] = hideHp and true or false end
+end
+texts, slotsHidingHp = {}, {}
+PartyMenu.show({ { species = 25, nickname = "SPARKY", level = 12, gender = "M", hp = 30, maxHp = 30 }, egg() })
+PartyMenu.draw()
+PartyMenu.close()
+check(has(texts, "OEUF") and has(texts, "SPARKY"), "the party names both mons: " .. table.concat(texts, " | "))
+check(not has(texts, "Lv5") and has(texts, "Lv12"), "an egg's party slot shows no level, the other one does")
+check(slotsHidingHp[1] == false and slotsHidingHp[2] == true,
+  "and an egg's slot has no HP frame (hideHp = " .. tostring(slotsHidingHp[1]) .. ", " .. tostring(slotsHidingHp[2]) .. ")")
 
 -- pokefirered/src/pokemon_summary_screen.c:4016
 local SummaryMenu = require("src.ui.game3.summary_menu")
