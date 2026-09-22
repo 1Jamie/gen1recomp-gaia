@@ -111,7 +111,10 @@ local POKEMON_SUBTASKS = {
 }
 
 function RomExtractorGen3.new(romData, manifest, progressCb, romSha1)
+  local sha1 = romSha1 or (manifest and manifest.romSha1) or hexSha1(romData)
+  require("src.import.gba.versions").select(sha1)
   return setmetatable({
+    version = assert(require("src.core.GameVersion").forSha1(sha1), "unknown FRLG ROM"),
     romData = romData,
     manifest = manifest,
     progress = progressCb,

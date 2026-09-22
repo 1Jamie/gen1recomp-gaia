@@ -114,7 +114,8 @@ function Schema.newGame(opts)
   local session = {
     schemaVersion = Schema.VERSION,
     engine = "game3",
-    version = opts.version or Profile.active().id,
+    version = opts.version or ((require("src.core.GameVersion").get() == "leafgreen")
+      and "leafgreen" or Profile.active().id),
     generation = 3,
     party = {},
     bag = Bag.new(),

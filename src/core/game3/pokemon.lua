@@ -1169,8 +1169,18 @@ function Pokemon.replaceMove(mon, slot, newMoveId)
   return old
 end
 
+-- An egg reads as the language's own EGG whatever its nickname holds: pret's
+-- GetMonData(MON_DATA_NICKNAME) returns gText_EggNickname for any egg
+-- (pokefirered/src/pokemon.c:3020).  The stored nickname is only a placeholder
+-- -- the cart's daycare writes タマゴ (daycare.c:1100), this engine "EGG".
+local function eggName(mon)
+  if Pokemon.isEgg(mon) then return Strings("EGG") end
+end
+
 function Pokemon.displayMonName(mon)
   if not mon then return "POKéMON" end
+  local egg = eggName(mon)
+  if egg then return egg end
   local nick = mon.nickname
   if type(nick) == "string" and nick ~= "" then return nick end
   if mon.name and mon.name ~= "" then return mon.name end
@@ -1253,6 +1263,13 @@ end
 function Pokemon.isEgg(mon)
   if not mon then return false end
   return (mon.isEgg == true) or (mon.egg == true) or (mon.species == 412)
+end
+
+-- pokefirered/src/pokemon.c:3245 MON_DATA_SPECIES_OR_EGG: an egg's menu icon is
+-- SPECIES_EGG's, not the species it will hatch into (party_menu.c:2655).
+function Pokemon.speciesOrEgg(mon)
+  if Pokemon.isEgg(mon) then return Pokemon.SPECIES_EGG end
+  return Pokemon.speciesOf(mon)
 end
 
 local function read_rgba(species)
@@ -1581,6 +1598,8 @@ end
 
 function Pokemon.displayName(mon)
   if not mon then return "?????" end
+  local egg = eggName(mon)
+  if egg then return egg end
   if mon.nickname and mon.nickname ~= "" then return tostring(mon.nickname) end
   -- Prefer pack name over host species string when we can resolve.
   local sp = Pokemon.speciesOf(mon)

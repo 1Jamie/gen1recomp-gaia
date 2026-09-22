@@ -3,6 +3,7 @@
 local Versions = require("src.import.gba.versions")
 local Lz77 = require("src.import.gba.lz77")
 local BgBake = require("src.import.gba.bg_bake")
+local PokemonExtract = require("src.import.gba.pokemon_extract")
 
 local EggExtract = {}
 
@@ -65,8 +66,8 @@ function EggExtract.run(rom, cache, opts)
   cache:write(root .. "/shard.rgba",
     stack_frames(shard, bank, SHARD_FRAMES, 1, SHARD_W, SHARD_H, true))
 
-  local picTable = (Versions.OAK_SPEECH and Versions.OAK_SPEECH.mon_front_pic_table) or 0x2350AC
-  local palTable = (Versions.OAK_SPEECH and Versions.OAK_SPEECH.mon_palette_table) or 0x23730C
+  local picTable = (Versions.INTRO and Versions.INTRO.mon_front_pic_table) or 0x2350AC
+  local palTable = (Versions.INTRO and Versions.INTRO.mon_palette_table) or 0x23730C
   local picOff = rom:ptrOffset(rom:u32(picTable + EggExtract.SPECIES_EGG * 8))
   local picPalOff = rom:ptrOffset(rom:u32(palTable + EggExtract.SPECIES_EGG * 8))
   if not (picOff and picPalOff) then error("egg_extract: no SPECIES_EGG pic entry") end
@@ -76,6 +77,10 @@ function EggExtract.run(rom, cache, opts)
   local picBank = BgBake.loadPalBanks(picPal, 1)[0]
   cache:write(cacheRoot .. "/pokemon/front/" .. EggExtract.SPECIES_EGG .. ".rgba",
     BgBake.bakeSpriteRgba(tiles, picBank, 0, PIC_W, PIC_H, false, false))
+
+  -- src/party_menu.c:2655 draws an egg's icon from MON_DATA_SPECIES_OR_EGG
+  cache:write(cacheRoot .. "/pokemon/icons/" .. EggExtract.SPECIES_EGG .. ".rgba",
+    PokemonExtract.iconRgba(rom, EggExtract.SPECIES_EGG))
 
   cache:write(root .. "/manifest.lua", string.format([[
 return {
@@ -102,7 +107,12 @@ function EggExtract.ready(cache, cacheRoot)
   for _, rel in ipairs({ "hatch.rgba", "shard.rgba", "manifest.lua" }) do
     if not cache:exists(root .. "/" .. rel) then return false end
   end
-  return cache:exists(cacheRoot .. "/pokemon/front/" .. EggExtract.SPECIES_EGG .. ".rgba")
+  for _, sub in ipairs({ "front", "icons" }) do
+    if not cache:exists(cacheRoot .. "/pokemon/" .. sub .. "/" .. EggExtract.SPECIES_EGG .. ".rgba") then
+      return false
+    end
+  end
+  return true
 end
 
 return EggExtract
