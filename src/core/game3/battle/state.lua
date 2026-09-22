@@ -2,6 +2,7 @@
 
 local Damage = require("src.core.game3.battle.damage")
 local Pokemon = require("src.core.game3.pokemon")
+local bit = require("bit")
 
 local State = {}
 
@@ -412,6 +413,34 @@ end
 function State.partyMon(battler)
   if not battler then return nil end
   return battler._partyMon or battler.mon
+end
+
+-- pret pokefirered/src/battle_main.c gWishFutureKnock.knockedOffMons: one bit
+-- per party index per side.  A mon whose item was knocked off stays marked for
+-- the rest of the battle even after it switches out and back in -- the
+-- per-battler `expKnockedOff` volatile dies with the battler, so Thief and
+-- Trick would otherwise be allowed against it again.
+local function knocked_off_key(b)
+  local side = b and b.side
+  if side ~= "player" and side ~= "enemy" then return nil end
+  local idx = tonumber(b and b.partyIndex) or 1
+  if idx < 1 or idx > 6 then return nil end
+  return side, bit.lshift(1, idx - 1)
+end
+
+function State.markKnockedOff(st, b)
+  if not st then return end
+  local side, flag = knocked_off_key(b)
+  if not side then return end
+  st.knockedOff = st.knockedOff or { player = 0, enemy = 0 }
+  st.knockedOff[side] = bit.bor(st.knockedOff[side] or 0, flag)
+end
+
+function State.isKnockedOff(st, b)
+  if not st then return false end
+  local side, flag = knocked_off_key(b)
+  if not side then return false end
+  return bit.band((st.knockedOff and st.knockedOff[side]) or 0, flag) ~= 0
 end
 
 function State.wipeVolatilesAndStages(battler, opts)

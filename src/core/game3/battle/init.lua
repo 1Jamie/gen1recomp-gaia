@@ -2699,7 +2699,8 @@ function Battle.update(dt, game)
 
   local Naming = package.loaded["src.ui.game3.naming"]
   if Naming and Naming.isOpen and Naming.isOpen() then
-    if input then Naming.update(input, dt or (1 / 60)) end
+    if input then Naming.handleInput(input) end
+    Naming.update(dt or (1 / 60))
     return
   end
 
