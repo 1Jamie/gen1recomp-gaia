@@ -342,7 +342,13 @@ local function get_var(session, varId)
     end
     if type(store.vars) == "table" then return tonumber(store.vars[varId]) or 0 end
   end
-  if session and type(session.vars) == "table" then return tonumber(session.vars[varId]) or 0 end
+  if session and type(session.vars) == "table" then
+    -- persist_sidecar/Flags.serialize write tostring(id) keys into session.vars;
+    -- a numeric miss must fall back to the string key or every var reads 0.
+    local v = session.vars[varId]
+    if v == nil then v = session.vars[tostring(varId)] end
+    return tonumber(v) or 0
+  end
   return 0
 end
 

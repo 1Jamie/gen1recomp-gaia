@@ -219,7 +219,12 @@ function PcChrome.drawLeftDataPanel(hoveredMon, hoverFrame)
 
   -- 1. Front Sprite in TV Screen (X: 10..73, Y: 19..80, W: 64, H: 61)
   -- pokefirered/src/pokemon_storage_system_data.c:1034, :1057 MON_DATA_SPECIES_OR_EGG
-  local sprite = Pokemon.frontPic(Pokemon.speciesOrEgg(hoveredMon))
+  -- Merge fix: upstream inlined the species read into frontPic (egg-aware) while
+  -- our M8 dedup removed block 2's duplicate local — one shared `sp` above
+  -- satisfies both sides (speciesOrEgg == speciesOf for every non-egg, and the
+  -- stats card never prints spName for an egg).
+  local sp = Pokemon.speciesOrEgg(hoveredMon)
+  local sprite = Pokemon.frontPic(sp)
   if sprite and sprite.image then
     love.graphics.setColor(1, 1, 1, 1)
     local sw, sh = sprite.image:getDimensions()
