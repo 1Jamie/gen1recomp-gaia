@@ -28,6 +28,7 @@ local Runtime = require("src.mods.Runtime")
 local Steps = require("src.mods.Steps")
 local Net = require("src.mods.Net")
 local Job = require("src.mods.Job")
+local LoadOrder = require("src.mods.LoadOrder")
 
 local Loader = {}
 Loader.__index = Loader
@@ -359,11 +360,14 @@ function Loader:_loadState()
     Runtime.safeMode = false
     self.gen2Forced = {}
     self.modOptions = {}
+    self.playerSaved, self.playerRank, self.playerFloor = nil, {}, 1
     return
   end
   local options = SaveData.loadOptions(self.fs)
   self.safeMode = SaveData.isSafeMode(options)
   Runtime.safeMode = self.safeMode
+  self.playerSaved = SaveData.modOrder(options)
+  self.playerRank, self.playerFloor = LoadOrder.rank(self.playerSaved)
   local scope = self:_enableScope()
   local ids = {}
   for id in pairs(options.mods or {}) do ids[id] = true end
@@ -781,6 +785,12 @@ function Loader:_cartRank(id)
   return report.rank[id] or report.floor
 end
 
+function Loader:_playerRank(id)
+  local rank = self.playerRank
+  if not rank then return 1 end
+  return rank[id] or self.playerFloor or 1
+end
+
 -- ------- validate and resolve
 
 -- a failed mod keeps the user's enable flag (the manager still shows it as
@@ -1046,6 +1056,14 @@ function Loader:_order()
   local targetVersion = self:_targetVersion()
   local generation = self.generation
   local pending, indegree, dependents = {}, {}, {}
+  if self.playerSaved and #self.playerSaved > 0 then
+    local entries = {}
+    for id, mod in pairs(self.mods) do
+      entries[#entries + 1] = { id = id, priority = mod.manifest and mod.manifest.priority }
+    end
+    self.playerRank, self.playerFloor =
+      LoadOrder.rank(LoadOrder.materialize(self.playerSaved, entries))
+  end
   for _, id in ipairs(orderedIds(self.mods, isActive)) do
     pending[id], indegree[id] = true, 0
   end
@@ -1078,9 +1096,11 @@ function Loader:_order()
           best = id
         else
           local ra, rb = self:_cartRank(id), self:_cartRank(best)
+          local ua, ub = self:_playerRank(id), self:_playerRank(best)
           local pa, pb = self.mods[id].manifest.priority,
             self.mods[best].manifest.priority
-          if ra < rb or (ra == rb and (pa < pb or (pa == pb and id < best))) then
+          if ra < rb or (ra == rb and (ua < ub or (ua == ub
+              and (pa < pb or (pa == pb and id < best))))) then
             best = id
           end
         end

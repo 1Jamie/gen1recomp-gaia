@@ -53,12 +53,20 @@ local function se(id)
   pcall(function() require("src.core.game3.audio").playSe(id) end)
 end
 
-local function someone_or_bill_name(session)
-  local flags = session and (session.flags or session.eventFlags) or {}
-  -- FLAG_SYS_NOT_SOMEONES_PC = 0x828 (2088)
-  local isBill = flags[0x828] or flags["FLAG_SYS_NOT_SOMEONES_PC"] or false
-  return isBill and Strings("BILL's PC") or Strings("SOMEONE's PC")
+local FLAG_SYS_NOT_SOMEONES_PC = 0x834 -- pokefirered/include/constants/flags.h:1386
+
+local function script_store(session)
+  local Space = package.loaded["src.core.game3.scripting.space"]
+  return (Space and Space.store) or (session and session.store) or session
 end
+
+-- pokefirered/src/script_menu.c:1027
+local function someone_or_bill_name(session)
+  local Flags = require("src.core.game3.scripting.flags")
+  local isBill = Flags.getFlag(script_store(session), nil, FLAG_SYS_NOT_SOMEONES_PC)
+  return isBill and Strings("BILL'S PC") or Strings("SOMEONE'S PC")
+end
+PcMenu.storageLabel = someone_or_bill_name
 
 local function player_pc_name(session)
   local name = (session and (session.name or session.playerName)) or "RED"

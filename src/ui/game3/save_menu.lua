@@ -10,6 +10,8 @@ local Chrome = require("src.ui.game3.chrome")
 local FrlgFont = require("src.ui.game3.frlg_font")
 local MapSectionsExtract = require("src.import.gba.map_sections_extract")
 local Strings = require("src.core.Strings")
+local Flags = require("src.core.game3.scripting.flags")
+local Dex = require("src.core.game3.dex")
 
 local SaveMenu = {}
 
@@ -25,50 +27,38 @@ local function se(id)
   pcall(function() require("src.core.game3.audio").playSe(id) end)
 end
 
-local function count_badges(session)
-  if not session then return 0 end
-  local count = 0
-  if session.badges then
-    if type(session.badges) == "table" then
-      for i = 1, 8 do
-        if session.badges[i] == true or (tonumber(session.badges[i]) or 0) > 0 then
-          count = count + 1
-        end
-      end
-    elseif type(session.badges) == "number" then
-      for i = 1, 8 do
-        local mask = bit and bit.lshift(1, i - 1) or math.pow(2, i - 1)
-        if bit and bit.band(session.badges, mask) ~= 0 then
-          count = count + 1
-        end
-      end
-    end
-  else
-    for i = 1, 8 do
-      if session["badge" .. i] == true then count = count + 1 end
-    end
-    -- review-v3 V1: game3 sessions carry the badge flags (0x820-0x827), not
-    -- badgeN keys; boot's ContinueInfo reads the same flags via Flags.countBadges.
-    if count == 0 and type(session.flags) == "table" then
-      for id = 0x820, 0x827 do
-        if session.flags[id] or session.flags[tostring(id)] then count = count + 1 end
-      end
-    end
+function SaveMenu.flagStore(session)
+  local Space = package.loaded["src.core.game3.scripting.space"]
+  local live = Space and Space.getStore and Space.getStore()
+  if type(live) == "table" and type(live.flags) == "table" then return live end
+  if type(session) ~= "table" then return { flags = {} } end
+  if type(session.store) == "table" and type(session.store.flags) == "table" then
+    return session.store
   end
-  return count
+  return { flags = type(session.flags) == "table" and session.flags or {} }
 end
 
-local function count_caught(dex)
-  if not dex then return 0 end
-  local n = 0
-  -- review-v3 V6: saves written before the caught key existed (owned-only
-  -- writers) fall back to owned; fresh writers keep the two in step.
-  local t = dex.caught
-  if t == nil then t = dex.owned or {} end
-  for sp, on in pairs(t) do
-    if on then n = n + 1 end
+-- pokefirered/src/save_menu_util.c:44
+function SaveMenu.countBadges(session)
+  return Flags.countBadges(SaveMenu.flagStore(session))
+end
+
+-- pokefirered/src/save_menu_util.c:25
+function SaveMenu.countDex(session)
+  local dex = type(session) == "table" and session.dex or nil
+  if type(dex) ~= "table" then return tonumber(session and session.caughtMonsCount) or 0 end
+  local national = false
+  local okP, PokedexData = pcall(require, "src.core.game3.pokedex_data")
+  if okP and PokedexData and PokedexData.isNationalUnlocked then
+    local ok, on = pcall(PokedexData.isNationalUnlocked, session, dex)
+    national = ok and on == true
   end
-  return n
+  return Dex.countCaught(dex, national and "national" or "kanto")
+end
+
+-- pokefirered/src/start_menu.c:984
+function SaveMenu.hasDex(session)
+  return Flags.getFlag(SaveMenu.flagStore(session), nil, Flags.IDS.SYS_POKEDEX_GET or 0x829) == true
 end
 
 function SaveMenu.show(opts)
@@ -190,14 +180,6 @@ end
 -- GetMapNameGeneric(dest, gMapHeader.regionMapSectionId) -> region_map.c
 -- GetMapName(dst, mapsec, 0), i.e. the sMapNames place name and never the
 -- engine's internal map id (which is what session.map holds).
---
--- CONTRACT (intentional; pinned by tests/engine/save_menu_location_bug2328):
--- session.mapName / session.regionMapSectionId / session.mapSec are a
--- session/mod injection seam — when a caller supplies them they win over the
--- def-derived path. The engine itself never writes these three fields (V8:
--- zero assignments in src, absent from every save_schema build), so the branch
--- is dead for engine-authored sessions and live for injected ones. Do not
--- remove: the bug2328 regression pin exists precisely to keep this override.
 function SaveMenu.locationName(session)
   session = session or {}
   if type(session.mapName) == "string" and session.mapName ~= "" and not session.mapName:find("^FR_") and not session.mapName:find("^SEVII_") then
@@ -243,12 +225,8 @@ function SaveMenu.draw()
   local map = Strings(SaveMenu.locationName(session))
   local labels = { Strings("PLAYER"), Strings("BADGES"), Strings("POKéDEX"), Strings("TIME") }
   local valueX = 1 * 8 + SaveMenu.valueX(labels)
-  local badges = count_badges(session)
-  local caught = count_caught(session.dex) or 0 -- review-v3 V5: no phantom caughtMonsCount fallback
-  -- review-v3 V7: the nested playtime is what the schema persists
-  -- (save_schema_firered.lua playTime ← session.playtime); the flat mirrors
-  -- are only written by the runtime ticker, so a freshly loaded save showed
-  -- 0:00 before.
+  local badges = SaveMenu.countBadges(session)
+  local hasDex = SaveMenu.hasDex(session)
   local pt = session.playtime or session.playTime or {}
   local hours = tonumber(pt.hours or session.playTimeHours or session.hours) or 0
   local mins = tonumber(pt.minutes or session.playTimeMinutes or session.minutes) or 0
@@ -269,11 +247,15 @@ function SaveMenu.draw()
   FrlgFont.draw(labels[2], 1 * 8 + 4, 1 * 8 + 32, { colors = FrlgFont.COLOR.NORMAL })
   FrlgFont.draw(tostring(badges), valueX, 1 * 8 + 32, { colors = FrlgFont.COLOR.NORMAL })
   -- POKéDEX
-  FrlgFont.draw(labels[3], 1 * 8 + 4, 1 * 8 + 46, { colors = FrlgFont.COLOR.NORMAL })
-  FrlgFont.draw(tostring(caught), valueX, 1 * 8 + 46, { colors = FrlgFont.COLOR.NORMAL })
+  local timeY = 1 * 8 + 46
+  if hasDex then
+    FrlgFont.draw(labels[3], 1 * 8 + 4, 1 * 8 + 46, { colors = FrlgFont.COLOR.NORMAL })
+    FrlgFont.draw(tostring(SaveMenu.countDex(session)), valueX, 1 * 8 + 46, { colors = FrlgFont.COLOR.NORMAL })
+    timeY = 1 * 8 + 60
+  end
   -- TIME
-  FrlgFont.draw(labels[4], 1 * 8 + 4, 1 * 8 + 60, { colors = FrlgFont.COLOR.NORMAL })
-  FrlgFont.draw(string.format("%d:%02d", hours, mins), valueX, 1 * 8 + 60, { colors = FrlgFont.COLOR.NORMAL })
+  FrlgFont.draw(labels[4], 1 * 8 + 4, timeY, { colors = FrlgFont.COLOR.NORMAL })
+  FrlgFont.draw(string.format("%d:%02d", hours, mins), valueX, timeY, { colors = FrlgFont.COLOR.NORMAL })
 
   -- 2. Bottom Dialogue Window (pret WindowFunc_DrawDialogueFrame at (2, 15, 26, 4))
   Chrome.dialogueFrame()

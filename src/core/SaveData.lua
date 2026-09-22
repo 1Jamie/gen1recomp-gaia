@@ -368,6 +368,7 @@ function SaveData.defaultOptions()
     -- migrated into PROFILE 1, so deleting every profile does not re-seed one.
     modProfiles = {},
     modProfilesSeeded = false,
+    modOrder = {},
     -- GitHub release checks for mods with a manifest "github" field
     -- (src/mods/ModUpdate.lua). Keyed by owner/repo; TTL is six hours.
     modUpdateCache = {},
@@ -856,6 +857,25 @@ end
 -- returned early on Gen 1), so that is exactly what it is read as here.
 local function forcedGenerations(entry)
   return entry == true and 2 or nil
+end
+
+function SaveData.modOrder(options)
+  local raw = type(options) == "table" and options.modOrder or nil
+  local out, seen = {}, {}
+  if type(raw) ~= "table" then return out end
+  for _, id in ipairs(raw) do
+    if type(id) == "string" and id ~= "" and not seen[id] then
+      seen[id] = true
+      out[#out + 1] = id
+    end
+  end
+  return out
+end
+
+function SaveData.setModOrder(options, ids)
+  if type(options) ~= "table" then return options end
+  options.modOrder = SaveData.modOrder({ modOrder = ids })
+  return options
 end
 
 function SaveData.modForced(options, id, version, generation)

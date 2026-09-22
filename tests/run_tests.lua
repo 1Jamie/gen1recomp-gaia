@@ -3749,6 +3749,7 @@ runSuites(orderedGlob(
   "tests/gen2_repel_test.lua",
   "tests/gen2_swarm_test.lua",
   "tests/gen2_fishing_swarm_test.lua",
+  "tests/gen2_facing_edge_2352_test.lua",
   "tests/gen2_rock_smash_test.lua",
   "tests/gen2_currents_test.lua",
   "tests/gen2_big_object_test.lua",
