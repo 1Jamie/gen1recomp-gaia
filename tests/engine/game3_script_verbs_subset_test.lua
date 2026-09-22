@@ -128,17 +128,25 @@ eq(vm.ctx.comparisonResult, 1, "comparestat reports EQ at the stat")
 Ops.dispatch(vm, { op = "comparestat", [1] = 5, [2] = 9 })
 eq(vm.ctx.comparisonResult, 2, "comparestat reports GT above the stat")
 
--- 9. bufferitemnameplural (src/scrcmd.c:1637) pluralises like the ROM.
-vm = new_vm()
-local STR = { op = "bufferitemnameplural", [1] = 0, [2] = 4, [3] = 2 }
-Ops.dispatch(vm, STR)
-eq(vm.ctx.stringVars[1], "POKé BALLS", "Poké Balls pluralise with S")
-STR = { op = "bufferitemnameplural", [1] = 0, [2] = 133, [3] = 2 }
-Ops.dispatch(vm, STR)
-eq(vm.ctx.stringVars[1], "CHERI BERRIES", "berries pluralise to IES")
-STR = { op = "bufferitemnameplural", [1] = 0, [2] = 133, [3] = 1 }
-Ops.dispatch(vm, STR)
-eq(vm.ctx.stringVars[1], "CHERI BERRY", "a single berry stays singular")
+-- 9. bufferitemnameplural (src/scrcmd.c:1637) pluralises like the ROM: "S" after
+--    a Poké Ball stack, and the final letter replaced by "IES" for a berry
+--    stack.  The names themselves come from the item pack, which does not exist
+--    in a ROM-free checkout, so assert the rule against each item's own singular
+--    name rather than a hard-coded one.
+local ItemsData = require("src.core.game3.items_data")
+local function plural(item, qty)
+  local vm = new_vm()
+  Ops.dispatch(vm, { op = "bufferitemnameplural", [1] = 0, [2] = item, [3] = qty })
+  return vm.ctx.stringVars[1]
+end
+local ballName = ItemsData.displayName(4)
+eq(plural(4, 2), ballName .. "S", "a Poké Ball stack pluralises with S")
+eq(plural(4, 1), ballName, "...and stays singular at one")
+local berryName = ItemsData.displayName(133)
+eq(ItemsData.isBerry(133), true, "the berry item is classified as a berry")
+eq(plural(133, 2), berryName:sub(1, -2) .. "IES",
+  "a berry stack replaces the final letter with IES")
+eq(plural(133, 1), berryName, "...and stays singular at one")
 
 -- 10-12. The party-mon verbs (src/scrcmd.c:1767, :2239, :2248, :2256) use
 --    0-based party indices and move slots.
