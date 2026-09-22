@@ -446,7 +446,7 @@ local function ensure_slot_sprites(i, mon, selected)
   local maxHp = tonumber(mon.maxHp) or tonumber(mon.maxhp) or 1
   local hpLevel = get_hp_bar_level(hp, maxHp, mon.isEgg)
 
-  local icon = Pokemon.icon(Pokemon.speciesOf(mon))
+  local icon = Pokemon.icon(Pokemon.speciesOrEgg(mon))
   local q0 = icon and icon.quads and icon.quads[0]
   if not slot.mon then
     local id = select(1, Oam.createSprite({

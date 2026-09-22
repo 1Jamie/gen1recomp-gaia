@@ -1256,6 +1256,13 @@ function Pokemon.isEgg(mon)
   return (mon.isEgg == true) or (mon.egg == true) or (mon.species == 412)
 end
 
+-- pokefirered/src/pokemon.c:3245 MON_DATA_SPECIES_OR_EGG: an egg's menu icon is
+-- SPECIES_EGG's, not the species it will hatch into (party_menu.c:2655).
+function Pokemon.speciesOrEgg(mon)
+  if Pokemon.isEgg(mon) then return Pokemon.SPECIES_EGG end
+  return Pokemon.speciesOf(mon)
+end
+
 local function read_rgba(species)
   local cache = resolve_cache(Pokemon._cache)
   local root = (Extract.CACHE_ROOT or "data/generated/gba") .. "/pokemon"

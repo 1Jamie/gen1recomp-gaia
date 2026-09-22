@@ -381,7 +381,7 @@ function PcChrome.drawPartyDrawer(party, partyCursor, hoverFrame, holdingSource)
   local isLeadPickedUp = (holdingSource and holdingSource.loc == "party" and holdingSource.slot == 1)
   local leadMon = (not isLeadPickedUp) and party[1]
   if leadMon then
-    local sp = Pokemon.speciesOf(leadMon)
+    local sp = Pokemon.speciesOrEgg(leadMon)
     local icon = Pokemon.icon(sp)
     if icon and icon.image then
       local isHovered = (partyCursor == 1)
@@ -401,7 +401,7 @@ function PcChrome.drawPartyDrawer(party, partyCursor, hoverFrame, holdingSource)
     local isPickedUp = (holdingSource and holdingSource.loc == "party" and holdingSource.slot == p)
     local pMon = (not isPickedUp) and party[p]
     if pMon then
-      local sp = Pokemon.speciesOf(pMon)
+      local sp = Pokemon.speciesOrEgg(pMon)
       local icon = Pokemon.icon(sp)
       if icon and icon.image then
         local isHovered = (partyCursor == p)
