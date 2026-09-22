@@ -15,7 +15,11 @@ local S = require("tests.harness").suite("parity ball shake anim")
 local check, eq = S.check, S.eq
 
 local AnimPlayer = require("src.battle.AnimPlayer")
-local player = AnimPlayer.new(require("data.generated.battle_anims"))
+-- Data honours POKEPORT_DATA_DIR; require("data.generated.*") has no package
+-- searcher under it (same seam as run_tests:2280).
+local Data = require("src.core.Data")
+if not Data.battle_anims then Data:load() end
+local player = AnimPlayer.new(Data.battle_anims)
 player:start("SHAKE_ANIM", true, { shakes = 3 })
 
 local tinks = {}

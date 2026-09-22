@@ -16,6 +16,8 @@ local realCommands = package.loaded["src.script.Commands"]
 local realPicBox = package.loaded["src.ui.PicBox"]
 package.loaded["src.core.Music"] = {
   play = function() end, playOnce = function() return true end, stop = function() end,
+  -- T3 class C: OverworldController.lua:616 calls playMap on map enter.
+  playMap = function() end,
 }
 package.loaded["src.script.Commands"] = {
   hide_object = function() end,

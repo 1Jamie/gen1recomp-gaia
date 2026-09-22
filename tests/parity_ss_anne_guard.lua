@@ -39,6 +39,8 @@ package.loaded["src.core.Music"] = {
     musicCalls[#musicCalls + 1] = { "playOnce", song }
     return true
   end,
+  -- T3 class C: OverworldController.lua:616 calls playMap on map enter.
+  playMap = function() end,
 }
 
 local soundCalls = {}
