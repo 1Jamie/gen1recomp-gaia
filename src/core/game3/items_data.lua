@@ -233,6 +233,12 @@ local function load_pack()
           print("[game3/items] pack ready (" .. tostring(pack.count) .. ")")
         end
         return ItemsData._byId
+      elseif not ok then
+        -- review-v3 S3: log the swallowed chunk error before the fallback.
+        if not ItemsData._loadWarned then
+          ItemsData._loadWarned = true
+          print("[game3/items] items pack load failed: " .. tostring(pack))
+        end
       end
     end
   end
@@ -389,7 +395,9 @@ function ItemsData.isEvolutionStone(id)
     local s = tostring(id or ""):upper()
     return s:find("STONE", 1, true) ~= nil
   end
-  return num >= 95 and num <= 100
+  -- review-v3 U3: the stone block is 93 (SUN) .. 98 (LEAF), pret
+  -- include/constants/items.h:97-102; the old 95..100 was off at both ends.
+  return num >= 93 and num <= 98
 end
 
 function ItemsData.isHm(id)
@@ -413,6 +421,7 @@ function ItemsData.isBerry(id)
 end
 
 --- Get 1-based Berry index (1..43) from item ID.
+-- review-v3 U7: an unknown item is NOT berry #1.
 function ItemsData.berryNumber(id)
   local num = tonumber(id)
   if not num then
@@ -421,7 +430,7 @@ function ItemsData.berryNumber(id)
   if num and num >= ItemsData.FIRST_BERRY and num <= ItemsData.LAST_BERRY then
     return num - ItemsData.FIRST_BERRY + 1
   end
-  return 1
+  return nil
 end
 
 --- Get 1-based TM (1..50) or HM (1..8) index from item ID.
@@ -495,8 +504,10 @@ function ItemsData.medicineKind(id)
   return info and info.fieldUse or "none"
 end
 
+-- review-v3 U2/U3: FRLG's evolution stones are SUN..LEAF (93..98, pret
+-- include/constants/items.h:97-102) and 340/341 are not FRLG items at all.
 local LEVEL_IDS = { [68] = true }
-local EVO_IDS = { [93] = true, [94] = true, [95] = true, [96] = true, [97] = true, [98] = true, [340] = true, [341] = true }
+local EVO_IDS = { [93] = true, [94] = true, [95] = true, [96] = true, [97] = true, [98] = true }
 local VITAMIN_IDS = { [63] = true, [64] = true, [65] = true, [66] = true, [67] = true, [70] = true }
 local PP_IDS = { [34] = true, [35] = true, [36] = true, [37] = true, [69] = true, [71] = true }
 local ESCAPE_IDS = { [85] = true }

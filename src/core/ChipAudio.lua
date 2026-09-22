@@ -622,7 +622,11 @@ end
 -- program (20 §2 cache contract, chip music row)
 Assets.register(ChipAudio.invalidate)
 
-require("src.core.SessionLifecycle").registerProcessShutdown(ChipAudio.shutdown)
+-- Process shutdown used to be registered here, which required
+-- SessionLifecycle at module load and closed the static cycle
+-- ChipAudio -> SessionLifecycle -> Music/Sound -> ChipAudio (review-v3 I6).
+-- SessionLifecycle.endProcess now asks for ChipAudio.shutdown through
+-- package.loaded instead, like every other optional subsystem there.
 
 -- ---------------------------------------------------------------------------
 -- one-shot effects (SFX, cries, low-health alarm): synchronous static Sources

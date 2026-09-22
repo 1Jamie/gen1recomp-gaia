@@ -379,8 +379,14 @@ local function decode_script(rom, startOff, visited, labels, tag_dims)
       i = i + 2
 
     elseif op == 0x24 then
-      ops[#ops + 1] = { op = "jumpifcontest" }
+      -- review-v3 R5: 0x24 = jumpifcontest + .4byte branch target — emit
+      -- the label and eagerly decode the target like call (:0x0E).
+      local target_off = rom:ptrOffset(rom:u32(i + 1))
+      ops[#ops + 1] = { op = "jumpifcontest", label = target_off and tostring(target_off) }
       i = i + 5
+      if target_off and not visited[target_off] then
+        decode_script(rom, target_off, visited, labels, tag_dims)
+      end
 
     elseif op == 0x2B then  -- invisible
       ops[#ops + 1] = { op = "invisible", battler = BATTLER_NAMES[rom:get(i+1)] or "attacker" }

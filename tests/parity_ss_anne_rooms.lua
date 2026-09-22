@@ -5,7 +5,27 @@ if not _G.love then _G.love = require("tests.love_stub") end
 local S = require("tests.harness").suite("parity ss anne rooms")
 local check, eq = S.check, S.eq
 
-local maps = dofile("data/generated/maps.lua")
+-- POKEPORT_DATA_DIR seam, but deliberately NOT Data.maps: Data:load hands
+-- back SS_ANNE_1F with the layout patch already folded in (leftmost door ->
+-- rooms #1), while the raw-extract checks below pin the ON-DISK order
+-- (leftmost -> #6) and then apply SsAnneLayout themselves.
+-- SSANNE-ROOMS adjudication: load the pinned ON-DISK file directly.
+-- Data._loadModule(nil, "maps") is version-ambiguous: with the env unset it
+-- resolves CacheFs.readActive first (active-versioned save-dir bytes — on a
+-- box with a firered cache that is FRLG's maps, door order 1..6) and falls
+-- back to require, which can hand back Data:load's in-place-patched table
+-- (Data.lua:184) — either way the raw-order asserts flipped to got 1/want 6
+-- while the extract itself is correct (pokered order: on-disk leftmost -> #6
+-- [unverified-pokered: pokered SS Anne 1F warp table would settle it]).
+-- dofile re-reads the file fresh; files are never patched in place.
+local envDir = os.getenv("POKEPORT_DATA_DIR")
+local mapsPath = (envDir and envDir .. "/maps.lua") or "data/generated/maps.lua"
+local okMaps, freshMaps = pcall(dofile, mapsPath)
+if not okMaps then
+  -- assert(v, msg) would return BOTH args (v==true), so branch explicitly
+  error("fresh maps module load failed: " .. tostring(freshMaps))
+end
+local maps = freshMaps
 local SsAnneLayout = require("src.world.SsAnneLayout")
 local Warp = require("src.world.Warp")
 

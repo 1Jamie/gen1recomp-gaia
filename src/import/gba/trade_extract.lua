@@ -45,8 +45,13 @@ local function anim_frame_tiles(rom, off)
   local out = {}
   for i = 0, 63 do
     local v = rom:u16(off + i * 4)
-    if v >= 0xFFFD then break end
-    out[#out + 1] = v
+    -- review-v3 R2: END 0xFFFF stops; JUMP (0xFFFE) / LOOP (0xFFFD) are
+    -- control cmds, not tiles (pret include/sprite.h:84-88) — skip them
+    -- instead of breaking so frames after a jump are still collected.
+    if v == 0xFFFF then break end
+    if v ~= 0xFFFE and v ~= 0xFFFD then
+      out[#out + 1] = v
+    end
   end
   return out
 end

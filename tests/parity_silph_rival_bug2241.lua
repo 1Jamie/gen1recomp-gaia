@@ -6,7 +6,9 @@ local S = require("tests.harness").suite("parity silph co 7f rival")
 local check, eq = S.check, S.eq
 
 local realMusic = package.loaded["src.core.Music"]
-package.loaded["src.core.Music"] = { play = function() end }
+-- T3 class C: include playMap — OverworldController.lua:616 calls it on
+-- map enter, and a leaked stub must not take later suites down with it.
+package.loaded["src.core.Music"] = { play = function() end, playMap = function() end }
 
 local story5 = dofile("data/scripts/story5.lua")
 local silph = story5.SILPH_CO_7F

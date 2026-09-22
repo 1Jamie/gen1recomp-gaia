@@ -209,11 +209,30 @@ local function screen_image(stars, female)
   return img
 end
 
+-- J3: badge flags/names come from the active game profile (FRLG row cites
+-- pokefirered/include/constants/flags.h:1364-1371, FLAG_BADGE01_GET = 0x820;
+-- RSE bases documented in profiles/firered.lua). Falls back to the FRLG
+-- literals, so FireRed behaviour is byte-identical.
 local BADGE_FLAGS = { 0x820, 0x821, 0x822, 0x823, 0x824, 0x825, 0x826, 0x827 }
 local BADGE_NAMES = { "BOULDER", "CASCADE", "THUNDER", "RAINBOW", "SOUL", "MARSH", "VOLCANO", "EARTH" }
+do
+  local okP, Profile = pcall(require, "src.core.game3.profile")
+  if okP and Profile and Profile.active then
+    local okA, row = pcall(Profile.active)
+    local badges = okA and type(row) == "table" and row.badges
+    if type(badges) == "table" and type(badges.flagBase) == "number"
+        and type(badges.names) == "table" and badges.count == #badges.names then
+      local flags = {}
+      for i = 1, badges.count do flags[i] = badges.flagBase + i - 1 end
+      BADGE_FLAGS, BADGE_NAMES = flags, badges.names
+    end
+  end
+end
 
 local FLAG_SYS_POKEDEX_GET = 0x829
 local FLAG_SYS_NATIONAL_DEX = 0x840
+-- src/trainer_card.c:899 VarGet(VAR_TRAINER_CARD_MON_ICON_TINT_IDX)
+local VAR_TRAINER_CARD_MON_ICON_TINT_IDX = 0x4042
 local VAR_TRAINER_CARD_MON_ICON_1 = 0x4043
 local VAR_HOF_BRAG_STATE = 0x4049
 local VAR_EGG_BRAG_STATE = 0x404A
@@ -323,7 +342,13 @@ local function get_var(session, varId)
     end
     if type(store.vars) == "table" then return tonumber(store.vars[varId]) or 0 end
   end
-  if session and type(session.vars) == "table" then return tonumber(session.vars[varId]) or 0 end
+  if session and type(session.vars) == "table" then
+    -- persist_sidecar/Flags.serialize write tostring(id) keys into session.vars;
+    -- a numeric miss must fall back to the string key or every var reads 0.
+    local v = session.vars[varId]
+    if v == nil then v = session.vars[tostring(varId)] end
+    return tonumber(v) or 0
+  end
   return 0
 end
 
@@ -358,7 +383,7 @@ end
 
 local function caught_mons_count(session, national)
   local dex = session and session.dex
-  if not dex then return tonumber(session and session.caughtMonsCount) or 0 end
+  if not dex then return 0 end -- review-v3 V5: caughtMonsCount is never written
   local okD, Dex = pcall(require, "src.core.game3.dex")
   if okD and Dex and Dex.countCaught then
     local ok, n = pcall(Dex.countCaught, dex, national and "national" or "kanto")
@@ -419,6 +444,9 @@ local function gather(session)
   local jumps = tonumber(session.jumpsInRow) or 0
   if berries >= 200 and jumps >= 200 then stars = stars + 1 end
   c.stars = math.min(4, stars)
+
+  -- src/trainer_card.c:899 trainerCard->monIconTint = VarGet(VAR_TRAINER_CARD_MON_ICON_TINT_IDX)
+  c.monIconTint = get_var(session, VAR_TRAINER_CARD_MON_ICON_TINT_IDX)
 
   c.monSpecies = {}
   for i = 1, 6 do
@@ -491,6 +519,24 @@ function TrainerCard.update(dt)
   end
 end
 
+-- W3: the text model is rebuilt only when the card snapshot identity or the
+-- blinking colon phase changes (it used to be rebuilt every frame in draw).
+local texts_cache = { c = false, colon = false, front = nil, back = nil }
+local function front_texts_cached(c, colonInvisible)
+  if texts_cache.front and texts_cache.c == c and texts_cache.colon == colonInvisible then
+    return texts_cache.front
+  end
+  texts_cache.c, texts_cache.colon = c, colonInvisible
+  texts_cache.front = TrainerCard.frontTexts(c, colonInvisible)
+  return texts_cache.front
+end
+local function back_texts_cached(c)
+  if texts_cache.back and texts_cache.c == c then return texts_cache.back end
+  texts_cache.c = c
+  texts_cache.back = TrainerCard.backTexts(c)
+  return texts_cache.back
+end
+
 function TrainerCard.show(opts)
   opts = opts or {}
   TrainerCard.open = true
@@ -498,6 +544,8 @@ function TrainerCard.show(opts)
   TrainerCard._flip = nil
   TrainerCard._session = opts.session
   TrainerCard._card = gather(opts.session)
+  -- W3: establish the fresh cache with the new snapshot (row: cache in show/beginFlip).
+  texts_cache.c, texts_cache.colon, texts_cache.front, texts_cache.back = false, false, nil, nil
   TrainerCard._onClose = opts.onClose
   ensureAssets()
   Stack.push("trainer", TrainerCard, { hideBelow = true })
@@ -642,7 +690,7 @@ local function draw_front(c)
     love.graphics.draw(pic, WIN_X + 144 + 13, WIN_Y + 32 + 4)
   end
 
-  draw_texts(TrainerCard.frontTexts(c, TrainerCard._colonInvisible))
+  draw_texts(front_texts_cached(c, TrainerCard._colonInvisible))
 
   -- src/trainer_card.c:1553 stars at tile (15, 7), badges at tile (4 + 3i, 16)
   if _starImg then
@@ -660,16 +708,94 @@ local function draw_front(c)
   end
 end
 
+-- src/trainer_card.c:1411 LoadMonIconGfx — tint the party-snapshot icons per
+-- trainerCard->monIconTint. include/constants/trainer_card.h tint indices:
+local MON_ICON_TINT_BLACK = 1 -- TintPalette_CustomTone(pals, 96, 0, 0, 0)
+local MON_ICON_TINT_PINK = 2 -- TintPalette_CustomTone(pals, 96, 500, 330, 310)
+local MON_ICON_TINT_SEPIA = 3 -- TintPalette_SepiaTone(pals, 96)
+
+-- pokefirered/src/palette.c:832/:852 math adapted to 8-bit pixels: same gray
+-- weights, tone/256, truncated like the C >>8, clamped to 255, alpha kept.
+local function tint_pixel(tint, r, g, b)
+  local gray = 0.3 * r + 0.59 * g + 0.1133 * b
+  local nr, ng, nb
+  if tint == MON_ICON_TINT_BLACK then
+    nr, ng, nb = 0, 0, 0
+  elseif tint == MON_ICON_TINT_PINK then
+    nr, ng, nb = 500 * gray / 256, 330 * gray / 256, 310 * gray / 256
+  else -- MON_ICON_TINT_SEPIA
+    nr, ng, nb = 1.2 * gray, gray, 0.94 * gray
+  end
+  if nr > 255 then nr = 255 end
+  if ng > 255 then ng = 255 end
+  if nb > 255 then nb = 255 end
+  return math.floor(nr), math.floor(ng), math.floor(nb)
+end
+
+-- Lazily built cache: [tint][species] = icon-shaped entry ({image, quads, ...}),
+-- or false when the build failed so we never retry; tint 0/nil/out-of-range and
+-- failures return the original icon untouched.
+local _tintedIcons = {}
+
+local function tinted_icon(icon, species, tint)
+  if not icon or not icon.image or not tint then return icon end
+  tint = math.floor(tint) -- vars are u16 in C; truncate like the (u16) switch
+  if tint < MON_ICON_TINT_BLACK or tint > MON_ICON_TINT_SEPIA then return icon end
+  local byTint = _tintedIcons[tint]
+  if not byTint then
+    byTint = {}
+    _tintedIcons[tint] = byTint
+  end
+  local hit = byTint[species]
+  if hit ~= nil then return hit or icon end
+
+  local function fail()
+    byTint[species] = false
+    return icon
+  end
+
+  if not (love and love.image and love.image.newImageData and love.graphics) then return fail() end
+  local okData, src = pcall(function() return icon.image:getData() end)
+  if not okData or not src or not src.getPixel then return fail() end
+  local w, h = src:getWidth(), src:getHeight()
+  local okBuild, dst = pcall(function()
+    local out = love.image.newImageData(w, h)
+    for y = 0, h - 1 do
+      for x = 0, w - 1 do
+        local r, g, b, a = src:getPixel(x, y)
+        local nr, ng, nb = tint_pixel(tint, r * 255, g * 255, b * 255)
+        out:setPixel(x, y, nr / 255, ng / 255, nb / 255, a)
+      end
+    end
+    return out
+  end)
+  if not okBuild or not dst then return fail() end
+  local okImg, img = pcall(love.graphics.newImage, dst)
+  if not okImg or not img then return fail() end
+  if img.setFilter then img:setFilter("nearest", "nearest") end
+
+  byTint[species] = {
+    image = img,
+    w = icon.w,
+    h = icon.h,
+    sheetH = icon.sheetH,
+    frames = icon.frames,
+    quads = icon.quads, -- same sheet dimensions, quads carry over
+  }
+  return byTint[species]
+end
+
 local function draw_back(c)
-  draw_texts(TrainerCard.backTexts(c))
+  draw_texts(back_texts_cached(c))
 
   -- src/trainer_card.c:1414 WriteSequenceToBgTilemapBuffer(3, .., 4i + 3, 15, 4, 4, ..)
   local okPk, Pokemon = pcall(require, "src.core.game3.pokemon")
   if okPk and Pokemon and Pokemon.icon then
+    local tint = tonumber(c.monIconTint) or 0
     for i = 1, 6 do
       local sp = c.monSpecies[i]
       if sp and sp > 0 then
-        local icon = Pokemon.icon(sp)
+        local icon = tinted_icon(Pokemon.icon(sp), sp, tint)
         local q = icon and icon.quads and icon.quads[0]
         if icon and icon.image and q then
           love.graphics.setColor(1, 1, 1, 1)

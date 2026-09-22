@@ -503,6 +503,14 @@ local function loadSheet(tileName)
     Doors._sheets[tileName] = false
     return nil
   end
+  -- review-v3 A5: validate the manifest row's numeric fields before any
+  -- arithmetic or frame loop; cache false so a malformed row is refused once.
+  if type(info.width) ~= "number" or info.width < 1
+      or type(info.height) ~= "number" or info.height < 1
+      or type(info.frames) ~= "number" or info.frames < 1 then
+    Doors._sheets[tileName] = false
+    return nil
+  end
 
   local relPath = doorsRoot() .. "/" .. info.file
   local bytes = nil
@@ -659,6 +667,14 @@ end
 function Doors.isBusy()
   local anim = Doors._activeAnim
   return anim ~= nil and (anim.mode == "open" or anim.mode == "close" or anim.mode == "delay_close")
+end
+
+-- review-v3 A4: door sheets cache Images/Quads with no teardown path; drop
+-- them on field/reset teardown so the GPU memory can be released.
+function Doors.release()
+  Doors._sheets = {}
+  Doors._layoutCache = {}
+  Doors._activeAnim = nil
 end
 
 function Doors.reset()

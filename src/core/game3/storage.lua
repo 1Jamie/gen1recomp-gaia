@@ -273,9 +273,11 @@ function Storage.moveMon(session, srcLoc, srcIdx, destLoc, destIdx, srcBox, dest
     session.party[srcIdx] = destMon
     -- Clean up trailing nils in party array if moved without swap
     if not destMon and srcIdx > #session.party then
-      -- compact party
+      -- compact party (review-v3 T2: ordered loop, not pairs — pairs skips
+      -- holes and reorders, which could drop a mon mid-compaction)
       local newParty = {}
-      for _, m in pairs(session.party) do
+      for i = 1, #session.party do
+        local m = session.party[i]
         if m then newParty[#newParty + 1] = m end
       end
       session.party = newParty
@@ -560,7 +562,12 @@ function Storage.deserialize(data)
   local storage = Storage.new()
   if not data then return storage end
   storage.currentBox = tonumber(data.currentBox) or 1
-  if data.items ~= nil then
+  if data.items == nil then
+    -- review-v3 F7: a serialized save without the items key carries no PC
+    -- items; start empty instead of keeping the seeded starter Potion
+    -- (Storage.new :53, pokefirered/src/player_pc.c:100).
+    storage.items = {}
+  else
     storage.items = {}
     for _, item in ipairs(data.items) do
       if item and item.id and (tonumber(item.qty) or 0) > 0 then

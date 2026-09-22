@@ -184,7 +184,10 @@ end
 function PokedexData.getEntry(speciesId)
   PokedexData.init()
   local sp = tonumber(speciesId) or 1
-  local natId = Pokemon.nationalPokedexNumber and Pokemon.nationalPokedexNumber(sp) or sp
+  -- review-v3 F1: the old guard called the nonexistent
+  -- Pokemon.nationalPokedexNumber (always nil → natId stayed == sp); the real
+  -- mapper is Pokemon.national (pokemon.lua:297).
+  local natId = Pokemon.national and Pokemon.national(sp) or sp
 
   local raw = (PokedexData._entries and PokedexData._entries[natId])
     or (PokedexData._entries and PokedexData._entries[sp])

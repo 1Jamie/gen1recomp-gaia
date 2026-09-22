@@ -50,6 +50,17 @@ local TOWN_PALS = {
   CINNABAR_ISLAND = "CINNABAR", INDIGO_PLATEAU = "INDIGO",
   SAFFRON_CITY = "SAFFRON",
 }
+-- gen1 authority note: for FireRed/Gen 1 rows the source of truth is this
+-- engine's own gen1 code + fixtures, NOT pret/pokefirered.  Since the
+-- de-Kanto milestone the no-memory rung is boot-derived via
+-- SaveData.defaultHeal (src/core/SaveData.lua:2575-2582): vanilla
+-- REDS_HOUSE_2F maps to PALLET_TOWN (SaveData.lua:2580, mirroring pokered's
+-- `wLastBlackoutMap := PALLET_TOWN`), so on vanilla boot the answer is still
+-- PALLET exactly as the old hardcoded literal below, while a redirected
+-- total-conversion boot (fixture field.boot.lastHeal = FIX_TOWN) wins by design.
+local SaveData = require("src.core.SaveData")
+local BOOT_HEAL_MAP = SaveData.defaultHeal((Data.field and Data.field.boot) or {}).map
+
 local function oldPaletteNameFor(def, lastOutdoorId)
   local ts, id = def.tileset, def.id
   if ts == "CEMETERY" then return "GRAYMON"
@@ -59,7 +70,9 @@ local function oldPaletteNameFor(def, lastOutdoorId)
   elseif TOWN_PALS[id] or id:match("^ROUTE_") then
     return TOWN_PALS[id] or "ROUTE"
   end
-  local last = lastOutdoorId or "PALLET_TOWN"
+  -- boot-derived zero-fill (see BOOT_HEAL_MAP above); the pre-milestone
+  -- literal was `or "PALLET_TOWN"`, equal for vanilla boot data.
+  local last = lastOutdoorId or BOOT_HEAL_MAP
   return TOWN_PALS[last] or "ROUTE"
 end
 

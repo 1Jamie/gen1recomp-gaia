@@ -69,6 +69,21 @@ local nicknameOf = Model.nickname
 local slotMon = Model.mon
 local eggPending = Model.isEggPending
 
+-- The FRLG scripts guard a full party before a withdrawal or an egg handout:
+-- data/maps/FourIsland_PokemonDayCare/scripts.inc:86-88 (retrieve),
+-- data/maps/FourIsland/scripts.inc:95-104 (egg) and
+-- data/scripts/day_care.inc:79-81 (Route 5 retrieve).  pret's daycare.c stays
+-- index-assign unguarded (src/daycare.c:525, :1081), so the special handler is
+-- this engine's script-layer seam; every caller gets the same guard.
+local function partyIsFull(session)
+  local party = session and session.party or {}
+  local count = 0
+  for i = 1, PARTY_SIZE do
+    if speciesOf(party[i]) ~= SPECIES_NONE then count = count + 1 end
+  end
+  return count >= PARTY_SIZE
+end
+
 Daycare.SAVE_KEY = Model.SAVE_KEY
 Daycare.stateOf = Model.stateOf
 Daycare.route5Of = Model.route5Of
@@ -178,6 +193,13 @@ Daycare.HANDLERS = {
   -- pokefirered/src/daycare.c:546 TakePokemonFromDaycare
   [Std.SPECIAL.TakePokemonFromDaycare] = function(ctx, adapters)
     local session = sessionOf()
+    -- pret data/maps/FourIsland_PokemonDayCare/scripts.inc:86-88 refuses the
+    -- retrieve when CalculatePlayerPartyCount == PARTY_SIZE, before the
+    -- daycare state is read.
+    if partyIsFull(session) then
+      setResult(ctx, SPECIES_NONE)
+      return false, SPECIES_NONE
+    end
     local dc = Daycare.stateOf(session)
     local index = varGet(ctx, VAR_0x8004) + 1
     local mon = slotMon(dc, index)
@@ -191,6 +213,12 @@ Daycare.HANDLERS = {
   -- pokefirered/src/daycare.c:1588 TakePokemonFromRoute5Daycare
   [Std.SPECIAL.TakePokemonFromRoute5Daycare] = function(ctx, adapters)
     local session = sessionOf()
+    -- pret data/scripts/day_care.inc:79-81 refuses the retrieve when
+    -- CalculatePlayerPartyCount == PARTY_SIZE, before the withdrawal runs.
+    if partyIsFull(session) then
+      setResult(ctx, SPECIES_NONE)
+      return false, SPECIES_NONE
+    end
     local r5 = Daycare.route5Of(session)
     local mon = r5 and r5.mon
     if not mon then
@@ -291,13 +319,9 @@ Daycare.HANDLERS = {
     local dc = Daycare.stateOf()
     if not eggPending(dc) then return false end
     local session = sessionOf()
-    -- pokefirered/data/maps/FourIsland/scripts.inc:96
-    local party = session and session.party or {}
-    local count = 0
-    for i = 1, PARTY_SIZE do
-      if speciesOf(party[i]) ~= SPECIES_NONE then count = count + 1 end
-    end
-    if count >= PARTY_SIZE then return false end
+    -- pokefirered/data/maps/FourIsland/scripts.inc:96 (party-full guard,
+    -- shared with the withdraw specials via partyIsFull)
+    if partyIsFull(session) then return false end
     Breeding.giveEggFromDaycare(session)
     return false
   end,

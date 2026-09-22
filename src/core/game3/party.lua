@@ -185,7 +185,15 @@ function Party.giveMon(session, species, level, nickname, opts)
   level = tonumber(level) or 5
   if level < 1 then level = 1 end
   local Pokemon = require("src.core.game3.pokemon")
-  if not Pokemon._names then pcall(Pokemon.install, nil) end
+  if not Pokemon._names and not Pokemon._installTried then
+    -- review-v3 S11: log the swallowed install failure once; no silent retries.
+    Pokemon._installTried = true
+    local okI, errI = pcall(Pokemon.install, nil)
+    if not okI and not Pokemon._installWarned then
+      Pokemon._installWarned = true
+      print("[game3/pokemon] install failed: " .. tostring(errI))
+    end
+  end
 
   local Rng = require("src.core.game3.rng")
   local personality = Rng.Random32()
@@ -249,7 +257,7 @@ function Party.giveMon(session, species, level, nickname, opts)
     otName = session.name or session.playerName or "RED",
     otId = session.trainerId or session.id or session.playerId or 12345,
     -- pokefirered/src/pokemon.c:1796 CreateBoxMon OT_ID_PLAYER_ID
-    otSecretId = tonumber(session.secretId or session.otSecretId) or nil,
+    otSecretId = tonumber(session.secretId) or nil, -- review-v3 V4: drop the unwritten otSecretId alias
     -- pokefirered/src/pokemon.c:1822
     otGender = Party.otGender(session),
     pokeball = 4, -- Poké Ball
@@ -272,18 +280,24 @@ function Party.giveMon(session, species, level, nickname, opts)
     return false, code, nil
   end
   -- pokefirered/src/script_pokemon_util.c:66
-  session.dex = session.dex or { seen = {}, owned = {} }
+  session.dex = session.dex or { seen = {}, owned = {}, caught = {} }
   session.dex.seen = session.dex.seen or {}
   session.dex.owned = session.dex.owned or {}
+  -- review-v3 F2: caught mirrors owned (dex.lua Dex.setCaught writes all
+  -- three; save-menu/trainer-card counts read dex.caught).
+  session.dex.caught = session.dex.caught or {}
   session.dex.seen[species] = true
   session.dex.owned[species] = true
+  session.dex.caught[species] = true
   return true, code, mon, boxId, slotIdx
 end
 
 --- Give an egg for script giveegg.
 -- pokefirered/src/script_pokemon_util.c:75
 function Party.giveEgg(session, species, opts)
-  if not session or not session.party then return false, Party.MON_CANT_GIVE end
+  -- review-v3 T4: giveMon initialises `session.party`, so only the session
+  -- needs to be present (the extra clause refused every nil-party session).
+  if not session then return false, Party.MON_CANT_GIVE end
   species = tonumber(species) or 1
   local ok, code, egg = Party.giveMon(session, species, 5, "EGG", opts)
   if ok and egg then

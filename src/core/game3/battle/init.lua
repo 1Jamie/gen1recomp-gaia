@@ -368,8 +368,9 @@ local function finish(result)
     local okF, Fade = pcall(require, "src.ui.game3.fade")
     if okF and Fade and Fade.clear then Fade.clear() end
   end
-  -- Victory BGM starts in begin_win_award (while awards play). Map BGM is
-  -- restored by battle_bridge on exit — do not clobber victory here.
+  -- Victory BGM starts in begin_trainer_win (Audio.playSong role/fallback);
+  -- pret plays it in battle_main.c:3746-3759. Map BGM is restored by
+  -- battle_bridge on exit — do not clobber victory here.
   local cb = Battle._onDone
   Battle._onDone = nil
   if cb then cb(st and st.result or result or "win", st) end
@@ -498,6 +499,10 @@ function Battle.start(opts)
   -- pokefirered/src/trainer_tower.c:735, src/battle_tower.c:933
   st.trainerTower = opts.trainerTower or false
   st.eReader = opts.eReader or false
+  -- pret src/battle_tower.c:895-933 StartSpecialBattle case 0 = Battle Tower,
+  -- case 1 = Secret Base; the steal/swap gates branch on these flags (P5).
+  st.battleTower = opts.battleTower or false
+  st.secretBase = opts.secretBase or false
   local trainerInfo = nil
   -- pokefirered/src/battle_message.c:2043 the tower and e-reader trainers are not gTrainers rows
   if trainerId and not st.wild and not (st.trainerTower or st.eReader) then
@@ -717,9 +722,13 @@ local function begin_start_effects()
   local mark = ad:eventMark()
   local prev = ad._say
   ad._say = function() end
-  local ok = pcall(Engine.battleStartEffects, st, ad)
+  local ok, startErr = pcall(Engine.battleStartEffects, st, ad)
   ad._say = prev
-  if not ok then return false end
+  if not ok then
+    -- review-v3 S4: log the swallowed start-effects error before bailing.
+    print("[game3/battle] start effects failed: " .. tostring(startErr))
+    return false
+  end
   local evs = ad:eventsSince(mark)
   if #evs == 0 then return false end
   if Battle._headless then
@@ -1311,10 +1320,6 @@ local function check_faints_and_end()
   end
 
   return false
-end
-
-local function begin_win_award()
-  handle_enemy_faint()
 end
 
 local function after_actions()

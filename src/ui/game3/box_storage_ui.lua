@@ -78,6 +78,8 @@ end
 
 local function current_box_data()
   local storage = Storage.ensure(BoxStorageUI._session)
+  -- review-v3 T7: a nil session must not crash the box query.
+  if not storage then return nil, nil end
   local bId = storage.currentBox or 1
   return storage.boxes[bId], bId
 end
@@ -88,6 +90,8 @@ local function mon_at_cursor()
   if BoxStorageUI.mode == "action_menu" and BoxStorageUI._actionTarget then
     return BoxStorageUI._actionTarget.mon, BoxStorageUI._actionTarget.loc, BoxStorageUI._actionTarget.boxId, BoxStorageUI._actionTarget.slot
   elseif BoxStorageUI.mode == "party_drawer" or (BoxStorageUI.drawerOpen and BoxStorageUI._actionSource == "party") then
+    -- W12: Storage.ensure returns nil for a nil session; every branch of this
+    -- draw-path helper must tolerate nil storage/session.
     local pIdx = BoxStorageUI.partyCursor or 1
     if pIdx < 1 or pIdx > 6 then return nil, "party", nil, pIdx end
     local isPickedUp = (BoxStorageUI.holdingMon and BoxStorageUI.holdingSource
@@ -96,13 +100,14 @@ local function mon_at_cursor()
     if isPickedUp then
       return nil, "party", nil, pIdx
     end
-    return session.party and session.party[pIdx], "party", nil, pIdx
+    return session and session.party and session.party[pIdx], "party", nil, pIdx
   elseif BoxStorageUI.cursorSlot >= 1 and BoxStorageUI.cursorSlot <= 30 then
+    if not storage then return nil, "box", nil, BoxStorageUI.cursorSlot end
     local box = storage.boxes[storage.currentBox or 1]
     return box and box.mons[BoxStorageUI.cursorSlot], "box", storage.currentBox, BoxStorageUI.cursorSlot
   elseif BoxStorageUI.cursorSlot <= -1 and BoxStorageUI.cursorSlot >= -6 then
     local pIdx = -BoxStorageUI.cursorSlot
-    return session.party and session.party[pIdx], "party", nil, pIdx
+    return session and session.party and session.party[pIdx], "party", nil, pIdx
   end
   return nil, nil, nil, nil
 end
@@ -115,6 +120,9 @@ function BoxStorageUI.show(opts)
   BoxStorageUI.mode = "browse"
   BoxStorageUI.subMode = opts.subMode or "move"
   BoxStorageUI.cursorSlot = 1
+  -- review-v3 T1: a stale return-slot from the previous session must not
+  -- resurrect the cursor (clamp happens on read; reset here too).
+  BoxStorageUI._prevPartySlot = nil
   BoxStorageUI.holdingMon = nil
   BoxStorageUI.holdingSource = nil
   BoxStorageUI.hoverTimer = 0
@@ -697,6 +705,8 @@ function BoxStorageUI.draw()
   if not BoxStorageUI.open then return end
   local session = BoxStorageUI._session
   local storage = Storage.ensure(session)
+  -- review-v3 T7: ensure returns nil for a nil session; do not index it.
+  if not storage then return end
   local box, bId = current_box_data()
 
   -- 1. Full Salmon / Scrolling Background (BG3)

@@ -43,11 +43,11 @@ Rules.POST_PHASES_ORDER = {
   "perish_song",
 }
 
-Rules.PHASE_ORDER = {}
-for _, p in ipairs(Rules.FIELD_PHASES_ORDER) do Rules.PHASE_ORDER[#Rules.PHASE_ORDER + 1] = p end
-for _, p in ipairs(Rules.BATTLER_PHASES_ORDER) do Rules.PHASE_ORDER[#Rules.PHASE_ORDER + 1] = p end
-for _, p in ipairs(Rules.POST_PHASES_ORDER) do Rules.PHASE_ORDER[#Rules.PHASE_ORDER + 1] = p end
-
+-- X2: the phase-classification trio (isFieldPhase / isPostPhase / phaseOrder)
+-- and its derived FIELD_PHASES / POST_PHASES / PHASE_ORDER lookup tables had
+-- ZERO callers anywhere in src/ or tests/ and were deleted. The *_ORDER lists
+-- stay (residuals.lua iterates them at :187/:194/:201) and FAINT_HALT_PHASES
+-- stays (live via residuals.lua:143 shouldHaltBattlerOnFaint).
 Rules.FAINT_HALT_PHASES = {
   ingrain = true,
   leech_seed = true,
@@ -56,24 +56,6 @@ Rules.FAINT_HALT_PHASES = {
   curse = true,
   partial_trap_chip = true,
 }
-
-Rules.FIELD_PHASES = {}
-for _, p in ipairs(Rules.FIELD_PHASES_ORDER) do Rules.FIELD_PHASES[p] = true end
-
-Rules.POST_PHASES = {}
-for _, p in ipairs(Rules.POST_PHASES_ORDER) do Rules.POST_PHASES[p] = true end
-
-function Rules.isFieldPhase(phase)
-  return Rules.FIELD_PHASES[phase] == true
-end
-
-function Rules.isPostPhase(phase)
-  return Rules.POST_PHASES[phase] == true
-end
-
-function Rules.phaseOrder()
-  return Rules.PHASE_ORDER
-end
 
 function Rules.shouldHaltBattlerOnFaint(phase)
   return Rules.FAINT_HALT_PHASES[phase] == true
