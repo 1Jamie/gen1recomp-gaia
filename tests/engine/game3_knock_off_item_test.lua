@@ -1,13 +1,5 @@
--- KNOCK_OFF must persist the removed item to the party mon.
---
--- Regression: the KNOCK_OFF branch of Secondary.set cleared effBattler.item and
--- set effBattler.expKnockedOff, but never wrote through to the party mon.  The
--- battler is a battle-local view: State.makeBattler rebuilds `item` from
--- held_item(mon) on the next send-out, so the knocked-off item came back on
--- switch-out (and could then be stolen or knocked off again).
---
--- persist_item resolves the party mon via State.partyMon(b) (= b._partyMon or
--- b.mon), so this drives the real effect with plain battler tables.
+-- pokefirered/src/battle_script_commands.c:2750,4489
+-- Knock Off suppresses the battle copy across switches, preserving the party item.
 --   luajit tests/engine/game3_knock_off_item_test.lua
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
@@ -18,8 +10,14 @@ love = love or require("tests.love_stub")
 
 local Secondary = require("src.core.game3.battle.effects.secondary")
 
-local function adapter()
+local State = require("src.core.game3.battle.state")
+local Engine = require("src.core.game3.battle.engine")
+local SwitchSeq = require("src.core.game3.battle.switch_seq")
+
+local function adapter(st)
   return {
+    _st = st,
+    pushEvent = function() end,
     abilityOf = function(_, b) return b.ability end,
     hp = function(_, b) return b.hp or 100 end,
     ownSide = function() return nil end,
@@ -41,26 +39,25 @@ local function battler(side, item, ability)
   }
 end
 
-local function knock_off(user, target)
+local function knock_off(user, target, st)
   return Secondary.set({
-    adapter = adapter(), user = user, target = target,
+    adapter = adapter(st), user = user, target = target,
     move = { moveName = "KNOCK OFF" },
   }, "KNOCK_OFF", false, true, false)
 end
 
--- 1. A knocked-off item must not survive on the party mon, or it returns on
---    switch-out (State.makeBattler reads held_item(mon)).
+-- 1. The party keeps the item for future battles.
 local user, target = battler("enemy", 0), battler("player", 13)
 check(knock_off(user, target), "KNOCK_OFF reports the item was removed")
 eq(target.item, 0, "the battler's item is cleared")
-eq(target.mon.item, nil, "the party mon no longer holds the item (does not return on switch-out)")
-eq(target.mon.heldItem, nil, "heldItem is cleared too")
+eq(target.mon.item, 13, "the party retains its item")
+eq(target.mon.heldItem, 13, "the heldItem alias is retained too")
 
--- 2. The enemy side persists as well.
+-- 2. The enemy party retains its item too.
 local user2, target2 = battler("player", 0), battler("enemy", 13)
 knock_off(user2, target2)
 eq(target2.item, 0, "the enemy battler's item is cleared")
-eq(target2.mon.item, nil, "the enemy party mon no longer holds the item")
+eq(target2.mon.item, 13, "the enemy party mon retains its item")
 
 -- 3. STICKY_HOLD refuses and must leave the item intact everywhere.
 local user3, target3 = battler("enemy", 0), battler("player", 13, "STICKY_HOLD")
@@ -71,5 +68,36 @@ eq(target3.mon.item, 13, "STICKY_HOLD keeps the party item")
 -- 4. A target with no item is a no-op.
 local user4, target4 = battler("enemy", 0), battler("player", 0)
 check(not knock_off(user4, target4), "a target with no item is a no-op")
+
+local function mon(item)
+  return { species = 4, level = 10, hp = 30, maxHp = 30,
+    item = item, heldItem = item, ability = "NONE", moves = { 10 }, pp = { 35 } }
+end
+for _, side in ipairs({ "player", "enemy" }) do
+  local party, foes = { mon(13), mon(14) }, { mon(13), mon(14) }
+  local st = State.new({ playerParty = party, foeParty = foes })
+  local victim = st[side]
+  local foe = side == "player" and st.enemy or st.player
+  local members = side == "player" and party or foes
+  knock_off(foe, victim, st)
+  check(State.isKnockedOff(st, victim), "the victim's party slot is marked")
+  check(not State.isKnockedOff(st, foe), "the opposite side's same slot is unaffected")
+  Engine.performSwitch(st, adapter(st), side, 2)
+  eq(st[side].item, 14, "another party slot keeps its active item")
+  Engine.performSwitch(st, adapter(st), side, 1)
+  eq(st[side].item, 0, "engine switch-in suppresses the knocked-off item")
+  eq(members[1].heldItem, 13, "switching preserves the party item")
+  SwitchSeq.beginSendOut(st, side, 1, { headless = true })
+  eq(st[side].item, 0, "presentation send-out also suppresses the item")
+  if side == "player" then
+    SwitchSeq.beginPlayerSwitch(st, 1, { headless = true })
+    eq(st.player.item, 0, "player switch sequence suppresses the item")
+  end
+  SwitchSeq.beginShiftSwitch(st, 1, 1, { headless = true })
+  eq(st[side].item, 0, "shift switch sequence suppresses the item")
+  local fresh = State.new({ playerParty = party, foeParty = foes })
+  eq(fresh[side].item, 13, "the original held item works in the next battle")
+  check(not State.isKnockedOff(fresh, fresh[side]), "the new battle has no knock-off mark")
+end
 
 T.finish("game3_knock_off_item_test")

@@ -62,4 +62,46 @@ st4.swapT = 0
 pcall(Naming.handleInput, input({ down = true }))
 eq(st4.row, 1, "input is ignored while the page swap is running")
 
+-- The real runtime must leave stack input and timers to Hud in both branches.
+local Runtime = require("src.core.game3.runtime")
+local Battle = require("src.core.game3.battle")
+Runtime.active = true
+Runtime.session = {}
+for _, inBattle in ipairs({ false, true }) do
+  Battle._active = inBattle
+  local active = open_naming()
+  Runtime._game = { input = input({ a = true }) }
+  Runtime.update(1 / 60)
+  eq(active.name, "A", "one runtime press adds one character, battle=" .. tostring(inBattle))
+  eq(active.blink, 1 / 60, "runtime advances the naming timer once")
+  active.pcPages = { "first", "second", "third" }
+  active.pcPage = 1
+  Runtime.update(1 / 60)
+  eq(active.pcPage, 2, "one runtime press advances one result page")
+  local swapping = open_naming()
+  swapping.swapT = 124
+  swapping.swapTo = 2
+  Runtime.update(1 / 60)
+  eq(swapping.name, "", "input remains blocked on the swap-completion frame")
+  eq(swapping.swapT, nil, "the page swap finishes")
+  Runtime.update(1 / 60)
+  eq(swapping.name, "a", "the next frame accepts input on the new page")
+end
+Battle._active = false
+Stack.clear()
+-- A prompt that opens Naming during the battle update must consume its A.
+Battle._active = true
+local battleUpdate = Battle.update
+local opened
+Battle.update = function() opened = open_naming() end
+Runtime._game = { input = input({ a = true }) }
+Runtime.update(1 / 60)
+eq(opened.name, "", "the opening prompt's A does not type a character")
+Battle.update = battleUpdate
+Runtime.update(1 / 60)
+eq(opened.name, "A", "the following frame's A reaches naming")
+Battle._active = false
+Runtime.active = false
+Stack.clear()
+
 T.finish("game3_naming_update_contract_test")

@@ -39,7 +39,7 @@ function State.makeBattler(mon, side, opts)
   if not ability and Pokemon.abilityId then
     ability = Pokemon.abilityId(species, mon.personality or 0)
   end
-  return {
+  local battler = {
     mon = mon,
     id = id,
     side = side, -- "player" | "enemy"
@@ -59,6 +59,9 @@ function State.makeBattler(mon, side, opts)
     -- pokefirered/src/battle_main.c:2228
     isFirstTurn = 2,
   }
+  -- pokefirered/src/battle_script_commands.c:4489
+  if State.isKnockedOff(opts.state, battler) then battler.item = 0 end
+  return battler
 end
 
 -- pokefirered/src/battle_main.c:2565

@@ -55,13 +55,11 @@ end
 
 -- Script local scratch space: pret's ScriptContext.data[4] (include/script.h:21).
 local function local_get(ctx, i)
-  ctx.locals = ctx.locals or {}
-  return tonumber(ctx.locals[(tonumber(i) or 0) + 1]) or 0
+  return ctx.data[tonumber(i) or 0] or 0
 end
 
 local function local_set(ctx, i, v)
-  ctx.locals = ctx.locals or {}
-  ctx.locals[(tonumber(i) or 0) + 1] = tonumber(v) or 0
+  ctx.data[tonumber(i) or 0] = v or 0
 end
 
 -- The port has no flat address space, so the *ptr family shares a synthetic
@@ -74,12 +72,13 @@ end
 
 local function mem_set(ctx, ptr, v)
   ctx.scriptMem = ctx.scriptMem or {}
-  ctx.scriptMem[tonumber(ptr) or 0] = tonumber(v) or 0
+  ctx.scriptMem[tonumber(ptr) or 0] = (tonumber(v) or 0) % 256
 end
 
 -- pret src/scrcmd.c:358 Compare()
 local function cmp(a, b)
-  a, b = tonumber(a) or 0, tonumber(b) or 0
+  -- pokefirered/src/scrcmd.c:368: local comparisons read the low byte.
+  a, b = (tonumber(a) or 0) % 256, (tonumber(b) or 0) % 256
   if a < b then return 0 end
   if a == b then return 1 end
   return 2

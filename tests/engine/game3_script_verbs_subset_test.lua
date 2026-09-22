@@ -207,20 +207,22 @@ end
 
 -- 16. Script locals and the synthetic pointer store (src/scrcmd.c:293-375).
 vm = new_vm()
-vm.ctx.locals = { 10, 20 }
+Ops.dispatch(vm, { op = "loadbyte", 0, 10 })
+Ops.dispatch(vm, { op = "loadbyte", 1, 20 })
 Ops.dispatch(vm, { op = "copylocal", [1] = 0, [2] = 1 })
-eq(vm.ctx.locals[1], 20, "copylocal copies a local")
-vm.ctx.locals = { 5, 9 }
+eq(vm.ctx.data[0], 20, "copylocal copies a local")
+Ops.dispatch(vm, { op = "loadbyte", 0, 5 })
+Ops.dispatch(vm, { op = "loadbyte", 1, 9 })
 Ops.dispatch(vm, { op = "compare_local_to_local", [1] = 0, [2] = 1 })
 eq(vm.ctx.comparisonResult, 0, "compare_local_to_local reports LT")
-vm.ctx.locals = { 7, 7 }
+Ops.dispatch(vm, { op = "loadbyte", 0, 7 })
 Ops.dispatch(vm, { op = "compare_local_to_value", [1] = 0, [2] = 7 })
 eq(vm.ctx.comparisonResult, 1, "compare_local_to_value reports EQ")
 Ops.dispatch(vm, { op = "setptr", [1] = 42, [2] = 0x1234 })
 eq(vm.ctx.scriptMem[0x1234], 42, "setptr writes the synthetic byte store")
 Ops.dispatch(vm, { op = "loadbytefromptr", [1] = 1, [2] = 0x1234 })
-eq(vm.ctx.locals[2], 42, "loadbytefromptr reads it back into a local")
-vm.ctx.locals[3] = 9
+eq(vm.ctx.data[1], 42, "loadbytefromptr reads it back into a local")
+Ops.dispatch(vm, { op = "loadbyte", 2, 9 })
 Ops.dispatch(vm, { op = "setptrbyte", [1] = 2, [2] = 0x1235 })
 eq(vm.ctx.scriptMem[0x1235], 9, "setptrbyte stores a local")
 Ops.dispatch(vm, { op = "copybyte", [1] = 0x1236, [2] = 0x1235 })
@@ -229,6 +231,18 @@ Ops.dispatch(vm, { op = "compare_local_to_ptr", [1] = 2, [2] = 0x1234 })
 eq(vm.ctx.comparisonResult, 0, "compare_local_to_ptr compares local vs store")
 Ops.dispatch(vm, { op = "compare_ptr_to_ptr", [1] = 0x1234, [2] = 0x1236 })
 eq(vm.ctx.comparisonResult, 2, "compare_ptr_to_ptr compares two stored bytes")
+
+Ops.dispatch(vm, { op = "loadword", 0, 0x12AB })
+Ops.dispatch(vm, { op = "copylocal", 3, 0 })
+eq(vm.ctx.data[3], 0x12AB, "copylocal preserves the full loadword register")
+Ops.dispatch(vm, { op = "compare_local_to_value", 3, 0xAB })
+eq(vm.ctx.comparisonResult, 1, "local comparisons read the low byte")
+Ops.dispatch(vm, { op = "setptrbyte", 3, 0x1237 })
+Ops.dispatch(vm, { op = "loadbytefromptr", 0, 0x1237 })
+eq(vm.ctx.data[0], 0xAB, "pointer writes truncate a word register to a byte")
+Ops.dispatch(vm, { op = "loadword", 0, "std:1" })
+Ops.dispatch(vm, { op = "copylocal", 1, 0 })
+eq(vm.ctx.data[1], "std:1", "copylocal preserves the host's symbolic text pointers")
 
 -- 17. The RAM-script (v*) control flow (src/scrcmd.c:171-209, :1580).
 vm = new_vm()

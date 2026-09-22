@@ -464,10 +464,8 @@ function Secondary.set(M, eff, primary, certain, affectsUser)
     end
     if tItem == 0 then return false end
     effBattler.item = 0
-    -- The battler is a battle-local view: State.makeBattler rebuilds `item`
-    -- from held_item(mon), so clearing only the battler lets the knocked-off
-    -- item return on the next send-out.  Write the removal through to the mon.
-    persist_item(effBattler, 0)
+    -- pokefirered/src/battle_script_commands.c:2750,4489
+    -- Keep the party item; the battle mask suppresses it on later send-outs.
     effBattler.expKnockedOff = true
     local St = battle_state()
     if St then St.markKnockedOff(ad._st, effBattler) end
