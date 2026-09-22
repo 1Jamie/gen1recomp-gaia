@@ -276,7 +276,8 @@ function Runtime.update(dt)
 
   local okN, Naming = pcall(require, "src.ui.game3.naming")
   if okN and Naming.isOpen and Naming.isOpen() then
-    Naming.update(game and game.input, dt)
+    Naming.handleInput(game and game.input)
+    Naming.update(dt)
   end
 
   if not inMenu then

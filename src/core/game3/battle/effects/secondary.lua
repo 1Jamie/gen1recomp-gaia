@@ -264,6 +264,13 @@ local function persist_item(b, item)
 end
 Secondary.persistItem = persist_item
 
+-- Battle-scoped state (the adapter carries it as `_st`).  Resolved lazily so
+-- this module stays loadable without the battle engine.
+local function battle_state()
+  return package.loaded["src.core.game3.battle.state"]
+    or require("src.core.game3.battle.state")
+end
+
 function Secondary.set(M, eff, primary, certain, affectsUser)
   local ad = M.adapter
   local user, target = M.user, M.target
@@ -357,7 +364,8 @@ function Secondary.set(M, eff, primary, certain, affectsUser)
     return true
   elseif eff == "STEAL_ITEM" then
     if user.side ~= "player" then return false end
-    if user.expKnockedOff then return false end
+    local St = battle_state()
+    if user.expKnockedOff or (St and St.isKnockedOff(ad._st, user)) then return false end
     local tItem = tonumber(target.item) or 0
     if tItem ~= 0 and ad:abilityOf(target) == "STICKY_HOLD" then
       ad:say(Strings("%s's STICKY HOLD\nmade %s ineffective!", name(ad, target), (M.moveName or "THIEF")))
@@ -369,7 +377,9 @@ function Secondary.set(M, eff, primary, certain, affectsUser)
     user.item = tItem
     target.item = 0
     persist_item(user, tItem)
-    if target.side == "player" then persist_item(target, 0) end
+    -- Both sides, not just the player: leaving the victim's party mon holding
+    -- an item its battler no longer has duplicates it on the next send-out.
+    persist_item(target, 0)
     ad:playAnim("general", "ITEM_STEAL", user, target)
     ad:say(Strings("%s stole\n%s's %s!", name(ad, user), name(ad, target), item_name(tItem)))
     return true
@@ -454,7 +464,13 @@ function Secondary.set(M, eff, primary, certain, affectsUser)
     end
     if tItem == 0 then return false end
     effBattler.item = 0
+    -- The battler is a battle-local view: State.makeBattler rebuilds `item`
+    -- from held_item(mon), so clearing only the battler lets the knocked-off
+    -- item return on the next send-out.  Write the removal through to the mon.
+    persist_item(effBattler, 0)
     effBattler.expKnockedOff = true
+    local St = battle_state()
+    if St then St.markKnockedOff(ad._st, effBattler) end
     ad:playAnim("general", "ITEM_KNOCKOFF", user, effBattler)
     ad:say(Strings("%s knocked off\n%s's %s!", name(ad, user), name(ad, effBattler), item_name(tItem)))
     return true
