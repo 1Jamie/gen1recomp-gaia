@@ -193,6 +193,11 @@ function Objects.clear()
   Objects._mapId = nil
   Objects._defs = nil
   Objects._bounds = nil
+  -- rse-seams e10 5.3: virtual objects die with the map teardown (they are
+  -- rendered-only sprites with no collision or interaction, pret
+  -- src/event_object_movement.c:9225 DestroyVirtualObjects).
+  local okVO, VO = pcall(require, "src.core.game3.virtual_objects")
+  if okVO and VO and VO.clear then VO.clear() end
 end
 
 -- pokefirered/src/overworld.c:405
@@ -201,6 +206,8 @@ function Objects.reset()
   Objects._perm = {}
   Objects._templateMt = {}
   Objects._logged = false
+  local okVO, VO = pcall(require, "src.core.game3.virtual_objects")
+  if okVO and VO and VO.reset then VO.reset() end
 end
 
 function Objects.hasMap()
@@ -459,6 +466,48 @@ function Objects.find(localId)
   return Objects._byId[localId]
 end
 
+-- rse-seams e10 spec 5.8 / pret src/event_object_movement.c:2089-2116.
+-- pret's TryGetObjectEventIdByLocalIdAndMap only touches an object that lives
+-- on the script's (mapGroup, mapNum); an unresolvable map means the lookup
+-- fails and the command does nothing.
+local function on_named_map(mapGroup, mapNum)
+  if mapGroup == nil or mapNum == nil then return true end
+  local ok, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+  if not (ok and type(MapCatalog) == "table" and MapCatalog.mapIdFor) then return true end
+  local engineId = MapCatalog.mapIdFor(tonumber(mapGroup), tonumber(mapNum))
+  if engineId == nil then return false end
+  return engineId == Objects._mapId
+end
+
+--- pret src/event_object_movement.c:2089-2101 SetObjectSubpriority: the
+--- object's draw-order freezes (fixedPriority) instead of following elevation
+--- each frame.  The +83 bias is applied by the script op (scrcmd.c:1130), so
+--- `subpriority` arrives already biased.  field_view's half (Refactor lane)
+--- consumes fixedPriority/subpriority and captures the current class; this
+--- half only stores the freeze record.
+function Objects.setSubpriority(localId, mapGroup, mapNum, subpriority)
+  local eo = Objects._byId[tonumber(localId) or -1]
+  if not eo then return false end
+  if not on_named_map(mapGroup, mapNum) then return false end
+  eo.fixedPriority = true
+  eo.subpriority = tonumber(subpriority) or 0
+  eo.fixedClass = nil -- stale class from an earlier freeze must not leak (spec 5.8 record)
+  return true
+end
+
+--- pret src/event_object_movement.c:2104-2116 ResetObjectSubpriority: clears
+--- the freeze (fixedPriority = FALSE) so the dynamic elevation-driven path
+--- resumes — pret does NOT restore a previous value, and neither do we.
+function Objects.resetSubpriority(localId, mapGroup, mapNum)
+  local eo = Objects._byId[tonumber(localId) or -1]
+  if not eo then return false end
+  if not on_named_map(mapGroup, mapNum) then return false end
+  eo.fixedPriority = nil
+  eo.subpriority = nil
+  eo.fixedClass = nil -- spec 5.8: the reset drops all three fields
+  return true
+end
+
 function Objects.listActive(_mod, _game, _mapId)
   local ids = {}
   for _, lid in ipairs(Objects._order) do
@@ -470,6 +519,8 @@ function Objects.listActive(_mod, _game, _mapId)
   return ids
 end
 
+local VIRT_DIR_FACE = { [1] = "down", [2] = "up", [3] = "left", [4] = "right" } -- pret DIR_SOUTH..DIR_EAST
+
 function Objects.forDraw()
   local list = {}
   for _, lid in ipairs(Objects._order) do
@@ -477,6 +528,30 @@ function Objects.forDraw()
     if eo and eo.visible and not eo.hidden
         and not offMap(Objects._bounds, eo) then
       list[#list + 1] = eo
+    end
+  end
+  -- rse-seams e10 5.3: the virtual-object registry feeds the SAME draw pass as
+  -- event objects — rendered-only sprites with no collision and no
+  -- interaction (pret src/event_object_movement.c:1719 CreateVirtualObject;
+  -- they are sprites, not object events).  field_view reads
+  -- {cellX, cellY, elevation, facing, sprite, graphicsId} off each record; the
+  -- records are never in _byId, so Objects.at/blocks cannot see them.
+  local okVO, VO = pcall(require, "src.core.game3.virtual_objects")
+  if okVO and VO and VO.list then
+    for _, vo in ipairs(VO.list()) do
+      local gid = tonumber(vo.graphicsId) or 0
+      local vrec = {
+        virtualId = vo.id,
+        cellX = tonumber(vo.x) or 0,
+        cellY = tonumber(vo.y) or 0,
+        elevation = tonumber(vo.elevation) or 3,
+        facing = VIRT_DIR_FACE[tonumber(vo.direction)] or "down",
+        sprite = GfxIds.spriteFor(gid),
+        graphicsId = gid,
+        visible = true,
+        hidden = false,
+      }
+      if not offMap(Objects._bounds, vrec) then list[#list + 1] = vrec end
     end
   end
   return list

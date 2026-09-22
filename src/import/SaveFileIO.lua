@@ -24,7 +24,16 @@ local SaveFileIO = {}
 -- rather than inside it: export needs the regions the codec does not model,
 -- and 32 KB of binary in the serialized table is 40 KB of Lua source reparsed
 -- on every save and load.
+-- review-v3 L6: validate slot ids at the path interpolators (defence in
+-- depth over SaveData's registry choke point): only `slotN` — plus the
+-- legacy literal "save" the export path falls back to — may enter a path.
+local function valid_slot_id(id)
+  id = tostring(id)
+  return id:match("^slot%d+$") ~= nil or id == "save"
+end
+
 local function cartPath(version, slotId)
+  if not valid_slot_id(slotId) then return nil end
   return ("saves/%s/%s.cart"):format(version, tostring(slotId))
 end
 
@@ -40,13 +49,17 @@ local function writeCart(version, slotId, bytes)
     fs.createDirectory("saves")
     fs.createDirectory("saves/" .. version)
   end
-  fs.write(cartPath(version, slotId), bytes)
+  local rel = cartPath(version, slotId)
+  if not rel then return end -- review-v3 L6: invalid slot id
+  fs.write(rel, bytes)
 end
 
 local function readCart(version, slotId)
   local fs = cartFs()
   if not (fs and fs.read) then return nil end
-  local ok, bytes = pcall(fs.read, cartPath(version, slotId))
+  local rel = cartPath(version, slotId)
+  if not rel then return nil end -- review-v3 L6: invalid slot id
+  local ok, bytes = pcall(fs.read, rel)
   if ok and type(bytes) == "string" then return bytes end
   return nil
 end
@@ -173,6 +186,10 @@ function SaveFileIO.exportActiveSlot(version)
   if not save then return false, "this game has no save to export yet" end
   local activeSlot = SaveData.activeSlot(version)
   local slotId = activeSlot or "save"
+  -- review-v3 L6: never interpolate an unvalidated slot id into the export
+  -- path (registry entries pass SaveData's choke point; this is the last
+  -- mile before format()).
+  if not valid_slot_id(slotId) then return false, "invalid save slot id" end
   if activeSlot and type(save.meta) == "table" then
     local minted, id = pcall(SaveData.slotPlaythroughId, version, activeSlot, save)
     if minted and type(id) == "string" then save.meta.playthroughId = id end

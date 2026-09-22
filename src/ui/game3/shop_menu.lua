@@ -105,6 +105,18 @@ local function bag_sell_rows(bag)
   return rows
 end
 
+-- G7: stock/sell rows are rebuilt only when their inputs change (kind + source
+-- identity + generation); show()/commit_buy()/commit_sell() bump the generation.
+local rows_cache = { key = false, rows = nil }
+local function cached_rows(kind, src)
+  local key = kind .. "|" .. tostring(src) .. "|" .. tostring(ShopMenu._rowsGen or 0)
+  if rows_cache.key == key and rows_cache.rows then return rows_cache.rows end
+  local rows
+  if kind == "stock" then rows = stock_rows(src) else rows = bag_sell_rows(src) end
+  rows_cache.key, rows_cache.rows = key, rows
+  return rows
+end
+
 function ShopMenu.show(opts)
   opts = opts or {}
   ShopMenu.open = true
@@ -116,6 +128,7 @@ function ShopMenu.show(opts)
   ShopMenu._pending = nil
   ShopMenu._shopSe = nil
   ShopMenu._items = opts.items or {}
+  ShopMenu._rowsGen = (ShopMenu._rowsGen or 0) + 1
   ShopMenu._session = opts.session
   ShopMenu._onClose = opts.onClose
   ShopMenu._status = Strings("Welcome! How may I serve you?")
@@ -163,7 +176,7 @@ local function do_fade_transition(onDark, onDone)
 end
 
 local function clamp_buy_cursor()
-  local rows = stock_rows(ShopMenu._items)
+  local rows = cached_rows("stock", ShopMenu._items)
   local total = #rows + 1 -- including CANCEL
   if ShopMenu.cursor > total then ShopMenu.cursor = total end
   if ShopMenu.cursor < 1 then ShopMenu.cursor = 1 end
@@ -178,7 +191,7 @@ local function clamp_buy_cursor()
 end
 
 local function clamp_sell_cursor()
-  local rows = bag_sell_rows(ShopMenu._session and ShopMenu._session.bag)
+  local rows = cached_rows("sell", ShopMenu._session and ShopMenu._session.bag)
   local total = #rows + 1 -- including CANCEL
   if ShopMenu.cursor > total then ShopMenu.cursor = total end
   if ShopMenu.cursor < 1 then ShopMenu.cursor = 1 end
@@ -223,6 +236,7 @@ local function commit_buy()
   local p = ShopMenu._pending
   local session = ShopMenu._session
   if not p or not session then return end
+  ShopMenu._rowsGen = (ShopMenu._rowsGen or 0) + 1
   local cost = (p.price or 0) * ShopMenu.qty
   local curMoney = money_of(session)
   if cost > curMoney then
@@ -258,8 +272,14 @@ local function commit_buy()
   -- The Premier Ball Cap: Strictly 1 Premier Ball when purchasing >= 10 standard Poké Balls (ID 4)
   local premierBonus = 0
   if ItemsData.toNumericId(p.id) == 4 and ShopMenu.qty >= 10 then
-    premierBonus = 1
-    Bag.add(bag, 12, 1) -- PREMIER_BALL = 12
+    -- review-v3 G8: Bag.add can refuse (pocket capacity); grant the bonus
+    -- only on success and log the miss (W2: the canAdd check at :239 covers
+    -- only the purchased balls).
+    if Bag.add(bag, 12, 1) then -- PREMIER_BALL = 12
+      premierBonus = 1
+    else
+      print("[shop] premier ball bonus not granted (no room)")
+    end
   end
 
   if premierBonus > 0 then
@@ -277,8 +297,16 @@ local function commit_sell()
   local p = ShopMenu._pending
   local session = ShopMenu._session
   if not p or not session or not session.bag then return end
+  ShopMenu._rowsGen = (ShopMenu._rowsGen or 0) + 1
   local earn = (p.price or 0) * ShopMenu.qty
-  Bag.remove(session.bag, p.id, ShopMenu.qty)
+  -- review-v3 G9: pay out only when the remove actually happened
+  -- (Bag.remove returns false when the slot or quantity is missing).
+  if not Bag.remove(session.bag, p.id, ShopMenu.qty) then
+    ShopMenu._status = Strings("The trade fell through — nothing sold.")
+    ShopMenu.mode = "sell_msg"
+    ShopMenu._pending = nil
+    return
+  end
   set_money(session, money_of(session) + earn)
   local Q=require("src.core.game3.quest_log_recorder")
   local rt=package.loaded["src.core.game3.runtime"]
@@ -429,7 +457,7 @@ function ShopMenu.handleInput(input)
   end
 
   if ShopMenu.mode == "buy" then
-    local rows = stock_rows(ShopMenu._items)
+    local rows = cached_rows("stock", ShopMenu._items)
     local total = #rows + 1
 
     if input:wasPressed("up") then
@@ -463,7 +491,7 @@ function ShopMenu.handleInput(input)
   end
 
   if ShopMenu.mode == "sell" then
-    local rows = bag_sell_rows(ShopMenu._session and ShopMenu._session.bag)
+    local rows = cached_rows("sell", ShopMenu._session and ShopMenu._session.bag)
     local total = #rows + 1
 
     if input:wasPressed("up") then
@@ -520,7 +548,7 @@ function ShopMenu.handleInput(input)
           ShopMenu._pending = nil
         end)
       elseif e.id == "sell" then
-        local sellRows = bag_sell_rows(ShopMenu._session and ShopMenu._session.bag)
+        local sellRows = cached_rows("sell", ShopMenu._session and ShopMenu._session.bag)
         if #sellRows < 1 then
           ShopMenu._status = Strings("You don't have anything to sell.")
           se(5) -- pokefirered/src/menu.c:376
@@ -591,9 +619,9 @@ function ShopMenu.draw()
   -- Right Stock / Bag List
   local rows
   if isBuy then
-    rows = stock_rows(ShopMenu._items)
+    rows = cached_rows("stock", ShopMenu._items)
   else
-    rows = bag_sell_rows(session and session.bag)
+    rows = cached_rows("sell", session and session.bag)
   end
   local total = #rows + 1
 

@@ -331,7 +331,10 @@ end
 -- pokefirered/src/trade_scene.c:1054 TradeMons
 function Trade.tradeMons(session, playerSlot, offered)
   if not (session and offered) then return nil end
-  local party = session.party or {}
+  -- review-v3 T3: initialise the party first — the write below landed in a
+  -- throw-away table when session.party was nil and the trade silently died.
+  session.party = session.party or {}
+  local party = session.party
   local slot = (tonumber(playerSlot) or 0) + 1
   local sent = party[slot]
   if not sent then return nil end
@@ -355,13 +358,17 @@ function Trade.tradeMons(session, playerSlot, offered)
     if record then Mail.giveMailToMon2(session, offered, record) end
   end
   -- pokefirered/src/trade_scene.c:1081 UpdatePokedexForReceivedMon
-  session.dex = session.dex or { seen = {}, owned = {} }
+  session.dex = session.dex or { seen = {}, owned = {}, caught = {} }
   session.dex.seen = session.dex.seen or {}
   session.dex.owned = session.dex.owned or {}
+  -- review-v3 F2: caught mirrors owned (dex.lua Dex.setCaught writes all
+  -- three; save-menu/trainer-card counts read dex.caught).
+  session.dex.caught = session.dex.caught or {}
   local species = speciesOf(offered)
   if species ~= SPECIES_NONE then
     session.dex.seen[species] = true
     session.dex.owned[species] = true
+    session.dex.caught[species] = true
   end
   return sent
 end

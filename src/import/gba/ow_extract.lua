@@ -100,11 +100,16 @@ local function max_anim_frame(rom, animsPtr, animCount)
     if not po then break end
     for j = 0, 31 do
       local lo = rom:u16(po + j * 4)
-      -- ANIMCMD_END = -2 as s16
-      if lo == 0xFFFE then break end
-      local w = rom:u32(po + j * 4)
-      local img = w % 65536
-      if img > mx then mx = img end
+      -- review-v3 R2: ANIMCMD_END = -1 → 0xFFFF stops the scan; JUMP (-2,
+      -- 0xFFFE) and LOOP (-3, 0xFFFD) are 4-byte control cmds with a u16
+      -- operand, not frames (pret include/sprite.h:84-88).  The old 0xFFFE
+      -- break stopped on JUMP while believing it was END.
+      if lo == 0xFFFF then break end
+      if lo ~= 0xFFFE and lo ~= 0xFFFD then
+        local w = rom:u32(po + j * 4)
+        local img = w % 65536
+        if img > mx then mx = img end
+      end
     end
   end
   return mx

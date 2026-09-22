@@ -452,3 +452,82 @@ RSE carts.
   **Owner: none (no ticket).** Tests that already pin the current behaviour:
   `tests/game3_tower_party_test:3,172,425-426`,
   `tests/drivers/game3_tower_run.lua:289`.
+
+### 5.10 X6 — `mystery_gift` Gift-stat/card API unwired → **verdict (a) NO ACTION**
+
+**Where this lands:** appended here (append-only) rather than edited into the triage
+row, so row X6 keeps its original text and this reasoning sits with the other seam
+decisions. **Effort: zero. No schema row, no Finisher handoff.**
+
+- **The seven APIs** (all defined, **zero production callers**; only
+  `tests/game3_gift_model_test.lua` exercises them — triage X6 verified this pass):
+
+  | Engine API | Engine line | pret authority | pret's only callers |
+  |---|---|---|---|
+  | `disableCardSending` | `mystery_gift.lua:561` | `DisableWonderCardSending` `include/mystery_gift.h:66`, body `src/mystery_gift.c:235` | `src/mystery_gift_server.c:269` — **wireless** MG server |
+  | `sourceByKey` | `:1361` | link-data idents (`MG_LINKID_*`) | link protocol only |
+  | `disableStats` | `:696` | `MysteryGift_DisableStats` `mystery_gift.h:94`, body `src/mystery_gift.c:543` | `src/union_room.c:1781`, `:1874` — **wireless Union Room** |
+  | `tryEnableStatsByFlagId` | `:701` | `MysteryGift_TryEnableStatsByFlagId` `mystery_gift.h:95`, body `src/mystery_gift.c:548` | `src/union_room.c:1777` — **wireless Union Room** (pair exchange) |
+  | `tryIncrementStat` | `:751` | `MysteryGift_TryIncrementStat` `mystery_gift.h:92`, body `src/mystery_gift.c:561` | `src/cable_club.c:792,795` (battles won/lost), `src/trade_scene.c:2609` (trades) — gated by the flag below |
+  | `trySaveStamp` | `:639` | `MysteryGift_TrySaveStamp` `mystery_gift.h:67`, body `src/mystery_gift.c:307` | `src/mystery_gift_client.c:228` — **wireless** MG client |
+  | `isNewsSameAsSaved` | `:539` | `IsWonderNewsSameAsSaved` `src/mystery_gift.c:140` | `src/mystery_gift_client.c:211` — **wireless** MG client |
+
+- **The gate that decides everything:** `MysteryGift_TryIncrementStat` runs only
+  `if (sStatsEnabled)` (`src/mystery_gift.c:561-564`), and `sStatsEnabled` is
+  `static EWRAM_DATA bool32` — **RAM-only, never persisted** (`src/mystery_gift.c:53`).
+  Its **only** writer in the whole tree is `TryEnableStatsByFlagId`, whose **only**
+  caller is `src/union_room.c:1777`, i.e. the wireless Union Room's two-player
+  trainer-card exchange (and the paired `DisableStats` at `:1781`, `:1874`).
+  With no Wireless Adapter, `sStatsEnabled` is FALSE forever, so pret's cable-club
+  and trade increments are **no-ops for every player who cannot reach the Union
+  Room** — which is every player in this engine.
+- **No FRLG script reads the surface either:** `ValidateSavedWonderCard`,
+  `GetMysteryGiftCardStat` and `WonderNews_GetRewardInfo` appear in
+  `data/specials.inc:395/401/404` as `def_special` registrations **only** —
+  `grep '^\s*special X' data/` returns **0 call sites** for all three. So the read
+  special the engine *does* wire (`src/core/game3/scripting/natives_gift.lua:107`
+  → `getCardStatForScript`, `mystery_gift.lua:677`) is itself unreachable from FRLG
+  game data; pret's body also `AGB_ASSERT_EX(0, ...)` on a card-type mismatch
+  (`src/mystery_gift.c:541`), confirming it is a guarded/unused path.
+- **Persistence: already handled, no schema impact.** pret keeps the record at
+  `gSaveBlock1Ptr->mysteryGift.*` (`src/mystery_gift.c:467,473,500,520`), engine
+  parity at `struct WonderCardMetadata` (`include/global.h:671`) →
+  `mystery_gift.lua:278-290`. The engine stores it at
+  `session.modData[MysteryGift.SAVE_KEY]` (`mystery_gift.lua:311,319,322`) and the
+  schema passes `modData` straight through (`save_schema_firered.lua:253`,
+  restore `:323`), so **the record persists with no new save-schema row** — the
+  "save/read path" the triage hint suggests calling from is already this passthrough.
+- **Why not (b) WIRE IT:** the only non-wireless writers are
+  `cable_club.c:792,795` + `trade_scene.c:2609`, and they still sit behind
+  `sStatsEnabled`, which only the Union Room sets. Calling `tryIncrementStat` from
+  `src/link/battle.lua` / `src/link/trade.lua` today would be a permanent no-op,
+  and to make it *do* anything I would also have to invent the Union Room
+  enable/disarm sequence — inventing a caller, which the pret mandate forbids.
+- **Why not (c) DEFER-TO-RSE:** the flow is not RS/e-reader specific — it is
+  **wireless-adapter** specific and exists identically in Emerald
+  (`union_room`/`mystery_gift_client` are shared Gen 3), so "RSE" is not the right
+  drawer; the correct label is "adapter-only, unreachable".
+- **Degradation (what happens today):** the seven functions are inert; the record
+  keeps `cardMetadata = { battlesWon = 0, battlesLost = 0, numTrades = 0, ... }`
+  (`mystery_gift.lua:279-286`), and the Mystery Gift menu renders those zeros
+  (`src/ui/game3/mystery_gift.lua:668-670`). That matches pret for a machine with no
+  wireless link: nothing can increment a counter whose enable flag only the Union
+  Room can set. No nil derefs, no stale data, no save growth.
+- **Coverage:** `tests/game3_gift_model_test.lua:155-169+` already pins
+  `trySaveStamp` accept/refuse, `tryIncrementStat` dedup-by-trainer, and
+  `tryEnableStatsByFlagId` gating; `tests/game3_gift_delivery_test.lua`,
+  `game3_gift_menu_test.lua` cover the wired paths. No new tests needed for NO
+  ACTION.
+- **Reopen condition (design sketched, not needed now):** if an engine Union
+  Room/adapter simulation ever lands, wire in one ticket — `tryEnableStatsByFlagId`
+  at the room's pair exchange (mirroring `src/union_room.c:1777`),
+  `disableStats` at activity start (`:1874`) and on 3+ players (`:1781`), then the
+  increments at `src/link/battle.lua` (won/lost) and `src/link/trade.lua`
+  (trades), matching `cable_club.c:792,795` and `trade_scene.c:2609`. Files:
+  `union_room.lua`, `link/battle.lua`, `link/trade.lua` (Finisher) + a state flag
+  in `mystery_gift.lua`. Effort: small. Blocked on that adapter simulation.
+- **[pret-unverified]:** the exact enable/disable ordering inside
+  `src/union_room.c` (whether `Task_StartActivity`'s `DisableStats` at `:1874`
+  precedes or follows a re-enable for that activity) — settling file
+  `src/union_room.c` state machine; immaterial to this verdict because both paths
+  are wireless-only.

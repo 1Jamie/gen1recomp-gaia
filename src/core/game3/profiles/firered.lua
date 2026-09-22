@@ -29,6 +29,8 @@ return {
 
   -- FRLG repair rules that live in save_schema_firered.lua today; the module
   -- is created by the schema-split handoff (rse-seams T0.2).
+  -- Module created by the RSE-wave schema split (rse-seams section 3.1);
+  -- nothing requires it until then, so this names a target, not a dependency.
   saveRules = "src.core.game3.profiles.firered_rules",
 
   -- src/core/game3/options.lua:5
@@ -149,6 +151,7 @@ return {
     "natives_size_record",
     "natives_tower",
     "natives_trade",
+    "natives_wireless",
   },
 
   -- The aux extractors RomExtractorGen3:runAuxExtracts (:291-438) runs

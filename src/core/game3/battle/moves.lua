@@ -71,15 +71,21 @@ Moves.BY_ID = {
       -- pret src/data/battle_moves.h [MOVE_GROWL] .target = MOVE_TARGET_BOTH
       -- (include/battle.h:63 MOVE_TARGET_BOTH = 1 << 3)
       target = 8 }),
-  TAIL_WHIP = M("TAIL_WHIP", 0, T.NORMAL, "status", 100, 30, { effectId = "EXP_TAIL_WHIP" }),
-  LEER = M("LEER", 0, T.NORMAL, "status", 100, 30, { effectId = "EXP_LEER" }),
-  HARDEN = M("HARDEN", 0, T.NORMAL, "status", 100, 30, { effectId = "EXP_HARDEN" }),
+  TAIL_WHIP = M("TAIL_WHIP", 0, T.NORMAL, "status", 100, 30,
+    { effectId = "EXP_TAIL_WHIP", effect = EffectIds.DEFENSE_DOWN }), -- review-v3 U10: pret EFFECT_DEFENSE_DOWN
+  LEER = M("LEER", 0, T.NORMAL, "status", 100, 30,
+    { effectId = "EXP_LEER", effect = EffectIds.DEFENSE_DOWN }), -- review-v3 U10: pret EFFECT_DEFENSE_DOWN
+  HARDEN = M("HARDEN", 0, T.NORMAL, "status", 100, 30,
+    { effectId = "EXP_HARDEN", effect = EffectIds.DEFENSE_UP }), -- review-v3 U10: pret EFFECT_DEFENSE_UP
   CALM_MIND = M("CALM_MIND", 0, T.PSYCHIC, "status", 0, 20, { effectId = "EXP_CALM_MIND", effect = EffectIds.CALM_MIND }),
   BULK_UP = M("BULK_UP", 0, T.FIGHTING, "status", 0, 20, { effectId = "EXP_BULK_UP", effect = EffectIds.BULK_UP }),
   DRAGON_DANCE = M("DRAGON_DANCE", 0, T.DRAGON, "status", 0, 20, { effectId = "EXP_DRAGON_DANCE", effect = EffectIds.DRAGON_DANCE }),
-  SWORDS_DANCE = M("SWORDS_DANCE", 0, T.NORMAL, "status", 0, 30, { effectId = "EXP_SWORDS_DANCE" }),
-  AGILITY = M("AGILITY", 0, T.PSYCHIC, "status", 0, 30, { effectId = "EXP_AGILITY" }),
-  AMNESIA = M("AMNESIA", 0, T.PSYCHIC, "status", 0, 20, { effectId = "EXP_AMNESIA" }),
+  SWORDS_DANCE = M("SWORDS_DANCE", 0, T.NORMAL, "status", 0, 30,
+    { effectId = "EXP_SWORDS_DANCE", effect = EffectIds.ATTACK_UP_2 }), -- review-v3 U10: pret EFFECT_ATTACK_UP_2
+  AGILITY = M("AGILITY", 0, T.PSYCHIC, "status", 0, 30,
+    { effectId = "EXP_AGILITY", effect = EffectIds.SPEED_UP_2 }), -- review-v3 U10: pret EFFECT_SPEED_UP_2
+  AMNESIA = M("AMNESIA", 0, T.PSYCHIC, "status", 0, 20,
+    { effectId = "EXP_AMNESIA", effect = EffectIds.SPECIAL_DEFENSE_UP_2 }), -- review-v3 U10: pret EFFECT_SPECIAL_DEFENSE_UP_2
   SUNNY_DAY = M("SUNNY_DAY", 0, T.FIRE, "status", 0, 5, { effectId = "EXP_WEATHER_SUNNY", effect = EffectIds.SUNNY_DAY }),
   RAIN_DANCE = M("RAIN_DANCE", 0, T.WATER, "status", 0, 5, { effectId = "EXP_WEATHER_RAINY", effect = EffectIds.RAIN_DANCE }),
   SANDSTORM = M("SANDSTORM", 0, T.ROCK, "status", 0, 10, { effectId = "EXP_WEATHER_SANDSTORM", effect = EffectIds.SANDSTORM }),
@@ -103,6 +109,7 @@ Moves.BY_ID = {
   INGRAIN = M("INGRAIN", 0, T.GRASS, "status", 0, 20, { effectId = "EXP_INGRAIN_EFFECT", effect = EffectIds.INGRAIN }),
   FURY_ATTACK = M("FURY_ATTACK", 15, T.NORMAL, "physical", 85, 20, { hits = { 2, 5 } }),
   DOUBLESLAP = M("DOUBLESLAP", 15, T.NORMAL, "physical", 85, 10, { hits = { 2, 5 } }),
+  KARATE_CHOP = M("KARATE_CHOP", 50, T.FIGHTING, "physical", 100, 25, { effect = EffectIds.HIGH_CRITICAL }),
   PIN_MISSILE = M("PIN_MISSILE", 14, T.BUG, "physical", 85, 20, { hits = { 2, 5 } }),
   COMET_PUNCH = M("COMET_PUNCH", 18, T.NORMAL, "physical", 85, 15, { hits = { 2, 5 } }),
   CUT = M("CUT", 50, T.NORMAL, "physical", 95, 30),
@@ -211,7 +218,11 @@ end
 function Moves._runReloadHooks()
   local snapshot = {}
   for i, h in ipairs(Moves._reloadHooks) do snapshot[i] = h end
-  for _, h in ipairs(snapshot) do pcall(h.fn, Moves) end
+  for _, h in ipairs(snapshot) do
+    local ok, err = pcall(h.fn, Moves)
+    -- review-v3 S6: mirror Pokemon._runReloadHooks and log the discarded error.
+    if not ok then print("[game3/moves] onReload callback failed: " .. tostring(err)) end
+  end
 end
 
 function Moves.romReady()
@@ -315,7 +326,9 @@ function Moves.get(moveId)
     end
     if rom then return rom end
     if curated then return curated end
-    return M("MOVE_" .. tostring(num), 40, T.NORMAL, "physical", 100, 20)
+    -- review-v3 U5: an unknown id must be marked, not silently replaced by a
+    -- 40 BP Normal fake that callers would treat as real data.
+    return { unknown = true, id = num }
   end
 
   local id = Moves.normalizeId(moveId) or "TACKLE"

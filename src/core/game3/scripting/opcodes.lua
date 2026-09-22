@@ -163,8 +163,14 @@ Opcodes.TABLE = {
   [0x91] = op("removemoney", 6, { W, B }),
   [0x92] = op("checkmoney", 6, { W, B }),
   [0x93] = op("showmoneybox", 4, { B, B, B }),
-  [0x94] = op("hidemoneybox", 1),
-  [0x95] = op("updatemoneybox", 3, { B, B }),
+  -- pokefirered/asm/macros/event.inc:1198-1202 hidemoneybox carries TWO
+  -- dummied operand bytes (x, y) that the stream must still skip (the old
+  -- size-1 declaration under-read them and desynced — review-v3 E3 sibling).
+  [0x94] = op("hidemoneybox", 3, { B, B }),
+  -- pokefirered/asm/macros/event.inc:1206-1211 updatemoneybox emits THREE
+  -- operand bytes (dummy x, dummy y, disable); the old 2-byte layout
+  -- under-read and desynced the stream (review-v3 E3).
+  [0x95] = op("updatemoneybox", 4, { B, B, B }),
   [0x96] = op("getpokenewsactive", 3, { H }),
   [0x97] = op("fadescreen", 2, { B }),
   [0x98] = op("fadescreenspeed", 3, { B, B }),

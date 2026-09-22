@@ -118,9 +118,12 @@ function Schema.newGame(opts)
     generation = 3,
     party = {},
     bag = Bag.new(),
-    dex = { seen = {}, owned = {}, national = false },
+    dex = { seen = {}, owned = {}, caught = {}, national = false }, -- review-v3 V6: caught mirrors owned from birth
     money = tonumber(opts.money) or 3000,
     coins = 0,
+    -- review-v3 H8: pret include/global.h:354 SaveBlock2.berryCrush holds
+    -- berryPowderAmount (src/berry_powder.c:50); keyed here, inert at 0.
+    berryPowder = 0,
     name = opts.name or "RED",
     rivalName = opts.rivalName or "BLUE",
     gender = opts.gender or 0, -- 0 boy / 1 girl
@@ -139,6 +142,8 @@ function Schema.newGame(opts)
     easyChatProfile = { 2601, 4128, 526, 2611 },
     options = nil,
     registeredItem = nil,
+    monBoxId = nil,   -- review-v3 V2: written by storage, now persisted
+    monBoxPos = nil,
     -- pokefirered/include/global.h:764
     dynamicWarp = nil,
     escapeWarp = nil,
@@ -155,6 +160,9 @@ function Schema.newGame(opts)
   session.trainerId = Rng.seedNewGame({ seed = opts.rngSeed })
   -- pokefirered/src/new_game.c:56 InitPlayerTrainerId
   session.secretId = Rng.Random()
+  -- review-v3 V3: alias the id fields consumers read (never written before).
+  session.id = session.trainerId
+  session.playerId = session.trainerId
   Rng.captureToSession(session)
   local Storage = require("src.core.game3.storage")
   session.storage = Storage.new()
@@ -189,11 +197,17 @@ function Schema.toSaveTable(session)
     schemaVersion = session.schemaVersion or Schema.VERSION,
     engine = "game3",
     version = session.version or Profile.active().id,
+    -- F3: engine/version/generation now round-trip symmetrically (newGame
+    -- seeds generation=3 at :118; toSave/fromSave previously dropped it).
+    generation = session.generation or 3,
     name = session.name,
     rivalName = session.rivalName,
     gender = session.gender,
     money = session.money,
     coins = session.coins,
+    -- review-v3 H8: pret include/global.h:354 persists berryCrush.berryPowderAmount
+    -- in gSaveBlock2 (src/berry_powder.c:50); the port keeps it on the session.
+    berryPowder = session.berryPowder or 0,
     party = session.party,
     bag = session.bag,
     inventory = session.bag, -- SaveData compatibility alias
@@ -214,6 +228,8 @@ function Schema.toSaveTable(session)
     options = Options.engine(session) or session.options,
     storage = session.storage and require("src.core.game3.storage").serialize(session.storage) or nil,
     registeredItem = session.registeredItem,
+    monBoxId = session.monBoxId,   -- review-v3 V2: the active PC cursor/box
+    monBoxPos = session.monBoxPos,
     -- pokefirered/include/global.h:764
     dynamicWarp = session.dynamicWarp,
     escapeWarp = session.escapeWarp,
@@ -221,6 +237,7 @@ function Schema.toSaveTable(session)
     flashLevel = tonumber(session.flashLevel),
     move_overlay = session.move_overlay or {},
     trainerId = session.trainerId,
+    secretId = session.secretId, -- review-v3 V4: secretId now persists (was never written)
     secretId = session.secretId,
     rng = session.rng,
     vsSeeker = session.vsSeeker,
@@ -258,13 +275,17 @@ function Schema.fromSaveTable(save)
   end
   local session = {
     schemaVersion = save.schemaVersion or Schema.VERSION,
+    engine = save.engine or "game3",      -- F3: symmetric with toSaveTable (raw save tag also read by SaveData engine routing)
     version = save.version or Profile.active().id,
+    generation = tonumber(save.generation) or 3, -- F3: older saves default to 3 like newGame
     party = save.party or {},
     bag = bag,
     dex = save.dex or {},
     money = save.money or 0,
     coins = save.coins or 0,
-    name = save.name or save.playerName or "RED",
+    -- review-v3 H8: additive — older saves load 0 (pret's zeroed SaveBlock2 default).
+    berryPowder = tonumber(save.berryPowder) or 0,
+    name = save.name or "RED", -- F3 dead-legacy-read drop: no schema build ever wrote save.playerName (git log -S) and session.playerName consumers read session.name first
     rivalName = save.rivalName or "BLUE",
     gender = save.gender or 0,
     map = save.map or MapIds.NEW_GAME_START.map,
@@ -283,6 +304,8 @@ function Schema.fromSaveTable(save)
     options = nil,
     storage = require("src.core.game3.storage").restore(save.storage, save.pc, save.pcItems or save.pc_items),
     registeredItem = save.registeredItem,
+    monBoxId = save.monBoxId,   -- review-v3 V2
+    monBoxPos = save.monBoxPos,
     -- pokefirered/include/global.h:764
     dynamicWarp = type(save.dynamicWarp) == "table" and save.dynamicWarp or nil,
     escapeWarp = type(save.escapeWarp) == "table" and save.escapeWarp or nil,
@@ -291,6 +314,8 @@ function Schema.fromSaveTable(save)
     move_overlay = save.move_overlay or {},
     trainerId = save.trainerId,
     secretId = save.secretId,
+    id = save.trainerId,        -- review-v3 V3: alias consumers read
+    playerId = save.trainerId,
     rng = save.rng,
     vsSeeker = type(save.vsSeeker) == "table" and save.vsSeeker or { steps = 0, charging = 0, rematches = {} },
     -- Additive: a save written before this key exists loads as an empty table.

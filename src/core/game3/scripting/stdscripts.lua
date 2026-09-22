@@ -190,6 +190,30 @@ Std.SPECIAL = {
   IsThereMonInRoute5Daycare = 0x178, -- pokefirered/data/specials.inc:387
   GetNumLevelsGainedForRoute5DaycareMon = 0x179, -- pokefirered/data/specials.inc:388
   TakePokemonFromRoute5Daycare = 0x17A, -- pokefirered/data/specials.inc:389
+  -- Unbound-cart specials closed by the Specials Binder wave; every id is the
+  -- 0-based def_special index of pokefirered/data/specials.inc (line noted).
+  BufferEReaderTrainerGreeting = 0xEB, -- pokefirered/data/specials.inc:246
+  ShowDiploma = 0x108, -- pokefirered/data/specials.inc:275
+  BufferEReaderTrainerName = 0x11D, -- pokefirered/data/specials.inc:296
+  Script_FacePlayer = 0x127, -- pokefirered/data/specials.inc:306
+  Script_ClearHeldMovement = 0x128, -- pokefirered/data/specials.inc:307
+  SetEReaderTrainerGfxId = 0x142, -- pokefirered/data/specials.inc:333
+  OpenMuseumFossilPic = 0x18B, -- pokefirered/data/specials.inc:406
+  CloseMuseumFossilPic = 0x18C, -- pokefirered/data/specials.inc:407
+  ChooseMonForWirelessMinigame = 0x18E, -- pokefirered/data/specials.inc:409
+  DoSSAnneDepartureCutscene = 0x191, -- pokefirered/data/specials.inc:412
+  IsPokemonJumpSpeciesInParty = 0x192, -- pokefirered/data/specials.inc:413
+  ShowPokemonJumpRecords = 0x195, -- pokefirered/data/specials.inc:416
+  DisplayBerryPowderVendorMenu = 0x19C, -- pokefirered/data/specials.inc:423
+  RemoveBerryPowderVendorMenu = 0x19D, -- pokefirered/data/specials.inc:424
+  Script_HasEnoughBerryPowder = 0x19E, -- pokefirered/data/specials.inc:425
+  Script_TakeBerryPowder = 0x19F, -- pokefirered/data/specials.inc:426
+  PrintPlayerBerryPowderAmount = 0x1A0, -- pokefirered/data/specials.inc:427
+  DoPokemonLeagueLightingEffect = 0x1A1, -- pokefirered/data/specials.inc:428
+  ShowBerryCrushRankings = 0x1A2, -- pokefirered/data/specials.inc:429
+  DoCredits = 0x1A5, -- pokefirered/data/specials.inc:432
+  ShowDodrioBerryPickingRecords = 0x1A6, -- pokefirered/data/specials.inc:433
+  LoopWingFlapSound = 0x1BA, -- pokefirered/data/specials.inc:453
   -- Engine-extension specials (not cart indices) for shared primitives.
   FadeScreen = 0xF001,
   OpenNaming = 0xF002,

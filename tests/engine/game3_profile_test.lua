@@ -109,12 +109,13 @@ for _, flag in ipairs({ "fameChecker", "teachyTV", "vsSeeker", "trainerTower", "
   check(row.capabilities[flag] == true, "FireRed capability " .. flag .. " is on")
 end
 
--- The native module list the registry merges today (natives.lua:803-820).
+-- The native module list the registry merges today (natives.lua:803-821).
 local expectedNatives = {
   "natives_corner", "natives_cutscene", "natives_daycare", "natives_elevator",
   "natives_events", "natives_fame", "natives_fan_club", "natives_gift",
   "natives_link", "natives_listmenu", "natives_moveteach", "natives_queries",
   "natives_seagallop", "natives_size_record", "natives_tower", "natives_trade",
+  "natives_wireless",
 }
 eq(#row.nativeModules, #expectedNatives, "native module count matches the registry")
 for i, name in ipairs(expectedNatives) do

@@ -71,6 +71,56 @@ vm, store = run({
 }, "t")
 eq(Flags.getVar(store, vm.ctx, VAR_TEMP_1), 7, "subvar VAR_TEMP_1, VAR_TEMP_2 subtracts VAR_TEMP_2's value")
 
+print("[test] E9: incrementgamestat / checkpartymove implement pret")
+local prevSess = Runtime.session
+Runtime.session = { gameStats = {}, party = {} }
+-- pokefirered/src/scrcmd.c:576-579 → overworld.c:366-375
+vm, store = run({
+  t = {
+    { op = "incrementgamestat", [1] = 13 },
+    { op = "incrementgamestat", [1] = 99 },
+    { op = "end" },
+  },
+}, "t")
+eq(Runtime.session.gameStats[13], 1, "incrementgamestat bumps the stat (scrcmd.c:576)")
+eq(Runtime.session.gameStats[99], nil, "an out-of-range statId is ignored (overworld.c:369)")
+Runtime.session.gameStats[13] = 0xFFFFFF
+vm, store = run({
+  t = {
+    { op = "incrementgamestat", [1] = 13 },
+    { op = "end" },
+  },
+}, "t")
+eq(Runtime.session.gameStats[13], 0xFFFFFF, "the stat saturates at 0xFFFFFF (overworld.c:371-374)")
+
+-- pokefirered/src/scrcmd.c:1777-1795: first non-egg mon knowing the move.
+-- NOTE: specialVars are wiped at halt (vm.lua:100), so mirror test 5 and
+-- copyvar the results into TEMP vars before { op = "end" }.
+Runtime.session.party = {
+  { species = 1, moves = { 0, 0, 0, 0 } },
+  { species = 4, moves = { { id = 15 } }, isEgg = true },
+  { species = 7, moves = { { id = 15 } } },
+}
+vm, store = run({
+  t = {
+    { op = "checkpartymove", [1] = 15 },
+    { op = "copyvar", [1] = VAR_TEMP_1, [2] = VAR_RESULT },
+    { op = "copyvar", [1] = VAR_TEMP_2, [2] = VAR_0x8004 },
+    { op = "end" },
+  },
+}, "t")
+eq(Flags.getVar(store, vm.ctx, VAR_TEMP_1), 2, "checkpartymove skips the egg, Result is the 0-based slot")
+eq(Flags.getVar(store, vm.ctx, VAR_TEMP_2), 7, "VAR_0x8004 carries that mon's species")
+vm, store = run({
+  t = {
+    { op = "checkpartymove", [1] = 99 },
+    { op = "copyvar", [1] = VAR_TEMP_1, [2] = VAR_RESULT },
+    { op = "end" },
+  },
+}, "t")
+eq(Flags.getVar(store, vm.ctx, VAR_TEMP_1), 6, "no match leaves Result = PARTY_SIZE (scrcmd.c:1781)")
+Runtime.session = prevSess
+
 vm, store = run({
   t = {
     { op = "setvar", [1] = VAR_TEMP_2, [2] = 5 },

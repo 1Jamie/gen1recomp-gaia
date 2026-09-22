@@ -116,6 +116,17 @@ end
 
 function SessionLifecycle.endProcess()
   for _, fn in ipairs(processShutdowns) do pcall(fn) end
+  -- ChipAudio.shutdown used to be in processShutdowns, registered from
+  -- ChipAudio's own module load -- which required this file at load time and
+  -- closed ChipAudio -> SessionLifecycle -> Music/Sound -> ChipAudio
+  -- (review-v3 I6).  Ask for it through package.loaded like endGameSession
+  -- does for stopMusic, so SessionLifecycle never pulls the audio stack in and
+  -- a system that never loaded audio (headless tools, save editor) is untouched.
+  -- Runs last on purpose: joining the worker thread is independent of the
+  -- Fetch/Check/game3-audio shutdowns above, and a deterministic position beats
+  -- the old load-order-dependent one.
+  local chip = package.loaded["src.core.ChipAudio"]
+  if chip and chip.shutdown then pcall(chip.shutdown) end
 end
 
 return SessionLifecycle

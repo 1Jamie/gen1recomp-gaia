@@ -244,7 +244,9 @@ function Anim.reset(opts)
   Anim._stageTasks = {}
   Anim._headless = opts.headless and true or false
   Anim._hpTweening = false
+  Anim._hpTweenTask = nil
   Anim._expTweening = false
+  Anim._expTweenTask = nil
   Anim._introTweening = 0
   Anim._seqBusy = false
   Anim._statusQueue = {}
@@ -526,9 +528,15 @@ function Anim.tweenHp(side, fromHp, toHp, maxHp, opts)
   end, function()
     Anim._stageTasks[t.id] = nil
     p.displayHp = toHp
-    Anim._hpTweening = false
+    -- review-v3 D3: only the CURRENT tween may drop the busy flag; an older
+    -- overlapping completion must not clear a newer tween's claim.
+    if Anim._hpTweenTask == t.id then
+      Anim._hpTweening = false
+      Anim._hpTweenTask = nil
+    end
     if opts.onComplete then opts.onComplete() end
   end)
+  Anim._hpTweenTask = t.id
   Anim._stageTasks[t.id] = true
 end
 
@@ -572,9 +580,14 @@ function Anim.tweenExp(side, fromRatio, toRatio, opts)
   end, function()
     Anim._stageTasks[task.id] = nil
     p.displayExp = toRatio
-    Anim._expTweening = false
+    -- review-v3 D3: same owner guard as the HP tween.
+    if Anim._expTweenTask == task.id then
+      Anim._expTweening = false
+      Anim._expTweenTask = nil
+    end
     if opts.onComplete then opts.onComplete() end
   end)
+  Anim._expTweenTask = task.id
   Anim._stageTasks[task.id] = true
 end
 

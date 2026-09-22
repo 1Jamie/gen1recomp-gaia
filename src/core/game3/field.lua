@@ -43,6 +43,11 @@ function Field.start(mod, game, session)
   Field.locked = false
   Field.weather = 0
   Field._waterfall = nil
+  -- A stale minigame/landing lock from a previous run must not survive into
+  -- the new one (review-v3 A2: clear the flags on start as well as stop).
+  Field._fishing = nil
+  Field._flyLanding = nil
+  if Player then Player.fishing = false end
   -- pokefirered/src/overworld.c:345
   Field._tempFlagMap = session and session.map
   Field.clearMetatiles()
@@ -72,6 +77,16 @@ function Field.stop()
   Field._session = nil
   Field.locked = false
   Field._waterfall = nil
+  -- Teardown must not leak per-run locks (review-v3 A2/A3/A4): an in-flight
+  -- fishing minigame, the fly-landing lock, plus the warp/door caches.
+  Field._fishing = nil
+  Field._flyLanding = nil
+  local PlayerMod = package.loaded["src.core.game3.player"]
+  if PlayerMod then PlayerMod.fishing = false end
+  local Warp = package.loaded["src.core.game3.warp"]
+  if Warp and Warp.clear then Warp.clear() end -- review-v3 A3
+  local Doors = package.loaded["src.core.game3.doors"]
+  if Doors and Doors.release then Doors.release() end -- review-v3 A4
   Field._tempFlagMap = nil
 end
 
@@ -127,6 +142,12 @@ function Field.update(_dt)
   -- pokefirered/src/field_control_avatar.c:98
   local walkInput = input
   if Field.forcedMovementPending() then walkInput = nil end
+  -- pokefirered/src/overworld.c:1402 DoCB1_Overworld: sign walk-away runs
+  -- before field input is processed (natives_events.Events.pollWalkaway).
+  local NativesEvents = package.loaded["src.core.game3.scripting.natives_events"]
+  if NativesEvents and NativesEvents.pollWalkaway then
+    NativesEvents.pollWalkaway(Space and Space.vm, input)
+  end
   Player.update(game, walkInput)
   Field.updateWaterfall(game)
   -- pokefirered/src/field_player_avatar.c:1691

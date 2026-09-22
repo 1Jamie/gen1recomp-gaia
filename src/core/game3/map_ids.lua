@@ -18,9 +18,6 @@ function MapIds.isGame3Map(mapId, gameId)
   return false
 end
 
--- Deprecated alias kept for moved Sevii call sites.
-MapIds.isSeviiMap = MapIds.isGame3Map
-
 MapIds.NEW_GAME_START = {
   map = "FR_PLAYERS_HOUSE_2F",
   x = 6,

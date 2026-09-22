@@ -47,6 +47,13 @@ local function count_badges(session)
     for i = 1, 8 do
       if session["badge" .. i] == true then count = count + 1 end
     end
+    -- review-v3 V1: game3 sessions carry the badge flags (0x820-0x827), not
+    -- badgeN keys; boot's ContinueInfo reads the same flags via Flags.countBadges.
+    if count == 0 and type(session.flags) == "table" then
+      for id = 0x820, 0x827 do
+        if session.flags[id] or session.flags[tostring(id)] then count = count + 1 end
+      end
+    end
   end
   return count
 end
@@ -54,7 +61,11 @@ end
 local function count_caught(dex)
   if not dex then return 0 end
   local n = 0
-  for sp, on in pairs(dex.caught or {}) do
+  -- review-v3 V6: saves written before the caught key existed (owned-only
+  -- writers) fall back to owned; fresh writers keep the two in step.
+  local t = dex.caught
+  if t == nil then t = dex.owned or {} end
+  for sp, on in pairs(t) do
     if on then n = n + 1 end
   end
   return n
@@ -179,6 +190,14 @@ end
 -- GetMapNameGeneric(dest, gMapHeader.regionMapSectionId) -> region_map.c
 -- GetMapName(dst, mapsec, 0), i.e. the sMapNames place name and never the
 -- engine's internal map id (which is what session.map holds).
+--
+-- CONTRACT (intentional; pinned by tests/engine/save_menu_location_bug2328):
+-- session.mapName / session.regionMapSectionId / session.mapSec are a
+-- session/mod injection seam — when a caller supplies them they win over the
+-- def-derived path. The engine itself never writes these three fields (V8:
+-- zero assignments in src, absent from every save_schema build), so the branch
+-- is dead for engine-authored sessions and live for injected ones. Do not
+-- remove: the bug2328 regression pin exists precisely to keep this override.
 function SaveMenu.locationName(session)
   session = session or {}
   if type(session.mapName) == "string" and session.mapName ~= "" and not session.mapName:find("^FR_") and not session.mapName:find("^SEVII_") then
@@ -225,9 +244,14 @@ function SaveMenu.draw()
   local labels = { Strings("PLAYER"), Strings("BADGES"), Strings("POKéDEX"), Strings("TIME") }
   local valueX = 1 * 8 + SaveMenu.valueX(labels)
   local badges = count_badges(session)
-  local caught = count_caught(session.dex) or tonumber(session.caughtMonsCount) or 0
-  local hours = tonumber(session.playTimeHours or session.hours) or 0
-  local mins = tonumber(session.playTimeMinutes or session.minutes) or 0
+  local caught = count_caught(session.dex) or 0 -- review-v3 V5: no phantom caughtMonsCount fallback
+  -- review-v3 V7: the nested playtime is what the schema persists
+  -- (save_schema_firered.lua playTime ← session.playtime); the flat mirrors
+  -- are only written by the runtime ticker, so a freshly loaded save showed
+  -- 0:00 before.
+  local pt = session.playtime or session.playTime or {}
+  local hours = tonumber(pt.hours or session.playTimeHours or session.hours) or 0
+  local mins = tonumber(pt.minutes or session.playTimeMinutes or session.minutes) or 0
 
   -- 1. Top-Left Save Stats Box (pret sSaveStatsWindowTemplate at (1, 1, 14, 9))
   -- pokefirered/src/start_menu.c:971

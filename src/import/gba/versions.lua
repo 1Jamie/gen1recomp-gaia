@@ -2431,4 +2431,8 @@ function Versions.lookupSha1(sha1)
   return Versions.lookup(sha1)
 end
 
+-- rse-seams T6.3b: the per-game facade lives in versions_game.lua (T6.3a);
+-- Versions.game is the alias its consumers read.
+Versions.game = require("src.import.gba.versions_game").game
+
 return Versions

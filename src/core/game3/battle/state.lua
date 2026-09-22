@@ -19,7 +19,16 @@ local function species_id(mon)
 end
 
 local function types_for(species)
-  if not Pokemon._types then pcall(Pokemon.install, nil) end
+  if not Pokemon._types and not Pokemon._installTried then
+    -- review-v3 S11: log the swallowed install failure once and stop
+    -- hammering an install that already failed.
+    Pokemon._installTried = true
+    local okI, errI = pcall(Pokemon.install, nil)
+    if not okI and not Pokemon._installWarned then
+      Pokemon._installWarned = true
+      print("[game3/pokemon] install failed: " .. tostring(errI))
+    end
+  end
   local t = Pokemon.types(species)
   return t[1] or 0, t[2] or 0
 end

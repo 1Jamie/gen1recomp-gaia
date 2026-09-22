@@ -17,7 +17,9 @@ local Runtime = require("src.mods.Runtime")
 local Semver = require("src.mods.Semver")
 local Boxes = require("src.pokemon.Boxes")
 local Stats = require("src.pokemon.Stats")
-local Bag = require("src.inventory.Bag")
+-- Bag is required at its one call site below (review-v3 I6): a load-time
+-- SaveData -> Bag edge closes Data -> CacheFs -> SaveData -> Bag -> Data, so
+-- the require moves to the call site and the cycle loses its top-level leg.
 local Badges = require("src.inventory.Badges")
 
 local GameVersion = require("src.core.GameVersion")
@@ -108,6 +110,13 @@ local function makePortableFs(dir)
       -- portable mode writes real files through io.*, which will not
       -- create missing parent directories; mkdir the tree so a slot path
       -- like "saves/red" exists before a write lands inside it
+      -- review-v3 L2: this path is slot-derived and reaches a shell — refuse
+      -- anything outside plain path characters (quotes, `;`, `$`, `..` never
+      -- occur in a legitimate save/export directory) instead of interpolating
+      -- it unescaped.
+      if type(name) ~= "string" or name:find("[^%w%._%-%/]") or name:find("%.%.") then
+        return false
+      end
       local osPath = full(name):gsub("/", SEP)
       if SEP == "\\" then
         os.execute('mkdir "' .. osPath .. '" 2>nul')
@@ -2354,7 +2363,7 @@ local function reclaim(save, data, report)
     if type(entry) == "table" and known(data.items, entry.id) then
       table.remove(orphaned.items, i)
       if entry.from == "pcItems" or type(save.inventory) ~= "table"
-          or not Bag.add(save, entry.id, entry.count or 1, data) then
+          or not require("src.inventory.Bag").add(save, entry.id, entry.count or 1, data) then
         save.pcItems = save.pcItems or {}
         save.pcItems[entry.id] = (save.pcItems[entry.id] or 0) + (entry.count or 1)
       end

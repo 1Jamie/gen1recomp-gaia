@@ -169,9 +169,13 @@ local function capture_events(fn)
   local mark = ad:eventMark()
   local prev = ad._say
   ad._say = function() end
-  local ok = pcall(fn, ad)
+  local ok, fnErr = pcall(fn, ad)
   ad._say = prev
-  if not ok then return {} end
+  if not ok then
+    -- review-v3 S4: log the swallowed effect error instead of dropping silently.
+    print("[game3/battle] switch effect failed: " .. tostring(fnErr))
+    return {}
+  end
   return ad:eventsSince(mark)
 end
 
@@ -707,11 +711,16 @@ local function run_step(step)
     local sides = d.sides or { d.side or "player" }
     if d.id ~= nil then sides = { d.id } end
     if #sides > 1 then
-      table.sort(sides, function(a, bSide)
+      -- D9: sort a copy — d.sides is authored shared step data and table.sort
+      -- must not reorder it (the step table is reused across frames/runs).
+      local sorted = {}
+      for i = 1, #sides do sorted[i] = sides[i] end
+      table.sort(sorted, function(a, bSide)
         local spA = st and st[a] and (st[a].speed or (st[a].mon and st[a].mon.speed)) or 0
         local spB = st and st[bSide] and (st[bSide].speed or (st[bSide].mon and st[bSide].mon.speed)) or 0
         return spA > spB
       end)
+      sides = sorted
     end
     local evs = engine_entry_events(st, sides)
     if evs == nil then

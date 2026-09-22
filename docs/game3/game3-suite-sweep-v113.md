@@ -225,3 +225,74 @@ Flips, all one direction (zero regressions):
 - All runs are single-sample; the artifact-conversion task separately showed
   the 21 convertibles stable across two runs each.
 
+
+## FINAL CHECKPOINT (2026-09-22 17:09 IST) — finished-tree measurement before end-game
+
+Read-only measurement (no `src/`/`tests/` edits, no git writes). Two components:
+full gate ×2 with the T3-activating invocation, and a standalone top-level
+sweep of every `tests/game3_*.lua`.
+
+### Full gate ×2 (exit codes captured to files)
+
+```sh
+RED_CACHE="$HOME/Library/Application Support/LOVE/qa-red-data/red" ./scripts/test.sh
+```
+
+| Run | Exit file | Code | Ending |
+| --- | --- | --- | --- |
+| 1 | `final_gate.1.code` | **0** | ALL TIERS PASSED |
+| 2 | `final_gate.2.code` | **0** | ALL TIERS PASSED |
+
+- 30 tier verdicts per run: every tier PASS except the pre-existing
+  `T3 save oversize vendor oracle` skip (no `lua5.4`).
+- **T6 game3: 282 run, 282 passed, 0 known failures, 0 new failures — both
+  runs.** `known-fail` trip count: 0/0 (the 22-name list stays dormant), and
+  the known T6 flake class did not trip in either run.
+
+### Standalone sweep totals (282 top-level files, incl. helper)
+
+| Verdict | v113 baseline (273 files) | FINAL (282 files) | Δ |
+| --- | --- | --- | --- |
+| PASS | 248* | **267** | +19 |
+| PARTIAL | 16* | **9** | −7 |
+| SKIP | 5* | **5** | 0 |
+| FAIL | 3* | **0** | −3 |
+| n/a (helper) | 1 | 1 | 0 |
+
+\* The 248/16/5/3 figures the lead quoted are this doc's earlier **default**
+sweep series (v113-era, measured before the pret-clone/config conversions);
+the per-suite regression comparison below uses the recorded `g3_sweep_v113`
+dataset (220/20/7/25) as the baseline of record for FAIL detection.
+
+**Flip counts vs the recorded baseline (220/20/7/25):** FAIL→PASS **25**,
+PARTIAL→PASS **11**, SKIP→PASS **2** — 38 suites improved, **0 regressions.**
+
+**REGRESSION LIST (PASS→FAIL or any→FAIL): NONE.**
+
+**New suites since baseline (9), all PASS:** `scenario_battle_ai`,
+`scenario_capture`, `scenario_event`, `scenario_menu`, `scenario_move`,
+`scenario_overworld`, `wireless_specials`, `object_subpriority_draworder`,
+`save_legacy_pc_migration`.
+
+**Remaining non-PASS: 14, all invocation-config (0 failures), each documented
+in `game3-artifact-conversions-v3.md` §2/§4:** anim-pack env vars (g1/g2/g4),
+`FIRERED_ROM` (battle_anim_palette), sep20 cache alias (battle_music,
+void_fill), audio identity (se_length), ROM argv (help_rom,
+object_interactions_rom, quest_log), ROM-at-cwd-relative path
+(map_preview_extract, tm_case_berry_pouch, town_map), cache-root argv
+(object_interactions_cache).
+
+### Attribution pass
+
+Zero failures to attribute: **no failure remains against any active work
+stream** — Refactor carve-3/4, Finisher drain, and Architect closure all hold
+under measurement (FAIL = 0 in-gate and in-sweep).
+
+### Environment state (verified at checkpoint time)
+
+- `assets/generated` symlinks resolve: title/pokemon_logo.png (931 B),
+  emotes.png (166 B), slots/symbols.png (342 B).
+- pret clone present at `~/dev/pokefirered` @ `c75f35230`, with both retail
+  ROMs (`pokefirered.gba`, `pokefirered_rev1.gba`).
+- `RED_CACHE` identity present with marker:
+  `~/Library/Application Support/LOVE/qa-red-data/red/rom-cache.complete`.

@@ -94,13 +94,18 @@ local function sanitize_pockets(bag)
     bag.pockets[k] = compact(keep)
   end
 
+  -- review-v3 F5: sanitize must not exceed the invariants it enforces —
+  -- clamp merges to MAX_ITEM_QTY (items.lua:9, Qty ≤ 999) and refuse new
+  -- slots past the pocket capacity (ItemsData.CAPACITY).
   for _, m in ipairs(misplaced) do
     local targetSlots = bag.pockets[m.target] or {}
-    local idx, slot = find_slot(targetSlots, m.id)
+    local cap = ItemsData.CAPACITY[m.target] or 42
+    local _, slot = find_slot(targetSlots, m.id)
+    local qty = Items.clampGame3(m.qty)
     if slot then
-      slot.qty = (tonumber(slot.qty) or 0) + m.qty
-    else
-      targetSlots[#targetSlots + 1] = { id = m.id, qty = m.qty }
+      slot.qty = Items.clampGame3((tonumber(slot.qty) or 0) + qty)
+    elseif qty > 0 and #targetSlots < cap then
+      targetSlots[#targetSlots + 1] = { id = m.id, qty = qty }
     end
     bag.pockets[m.target] = compact(targetSlots)
   end
@@ -296,12 +301,15 @@ function Bag.add(bag, id, qty)
     return placed == qty, placed
   end
 
-  slots[#slots + 1] = { id = storeId, qty = Items.clampGame3(qty) }
+  -- review-v3 F6: report the clamped placed amount, not the requested qty
+  -- (mirrors the existing-slot return above).
+  local placed = Items.clampGame3(qty)
+  slots[#slots + 1] = { id = storeId, qty = placed }
   if pocket == "TM_CASE" then
     sort_tm_pocket(slots)
   end
   rebuild_stacks(bag)
-  return true, qty
+  return placed == qty, placed
 end
 
 function Bag.remove(bag, id, qty)

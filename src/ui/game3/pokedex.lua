@@ -200,11 +200,9 @@ function Pokedex.show(dex, opts)
   if not Pokemon._names then Pokemon.install(nil) end
 
   Pokedex.MODES = build_modes(opts.session, Pokedex._dex)
-  Pokedex.modeCursor = 2 -- Start at NUMERICAL MODE (index 1 is header)
-  Pokedex.modeScroll = 0
-  Pokedex.listCursor = 1
-  Pokedex.cursor = 1
-  Pokedex.listScroll = 0
+  -- review-v3 W5: full per-screen reset (data page, category grid, action
+  -- popup, timers, species) so a previous visit cannot leak state in.
+  Pokedex.resetScreenState()
 
   if opts.mode then
     local m = opts.mode:lower()
@@ -285,12 +283,46 @@ function Pokedex.showRegistration(speciesId, opts)
   play_cry(Pokedex._regSpecies)
 end
 
+-- review-v3 W5: every per-screen field resets on open AND close so stale
+-- state never leaks between visits (pret pokedex_screen.c keeps these
+-- per-screen too).
+function Pokedex.resetScreenState()
+  Pokedex.screen = "mode_select"
+  Pokedex.subScreenPrev = "mode_select"
+  Pokedex.modeCursor = 2 -- Start at NUMERICAL MODE (index 1 is header)
+  Pokedex.modeScroll = 0
+  Pokedex.listCursor = 1
+  Pokedex.listScroll = 0
+  Pokedex.cursor = 1
+  Pokedex.mode = "kanto"
+  Pokedex.page = "list"
+  Pokedex.currentCategory = "grassland"
+  Pokedex.categoryPage = 1
+  Pokedex.categorySlot = 1
+  Pokedex.spotlightTimer = 0
+  Pokedex.currentOrder = "numerical_kanto"
+  Pokedex.actionCursor = 1
+  Pokedex.selectedSpecies = 1
+  Pokedex.dataPage = 1
+  Pokedex.areaMapKey = "kanto"
+  Pokedex.areaPulseTimer = 0
+  Pokedex._regSpecies = nil
+end
+
+-- review-v3 W10: the arrow-bob timer advances once per frame here (Hud
+-- pcall's top.mod.update at hud.lua:197-201); advancing inside the three
+-- draw fns tied animation to draw calls, which run 0..N times per frame.
+function Pokedex.update(_dt)
+  PokedexChrome._animTimer = (PokedexChrome._animTimer or 0) + 0.05
+end
+
 function Pokedex.close()
   Pokedex.open = false
   Stack.pop("pokedex")
+  -- review-v3 W5: reset the full per-screen block on close too.
+  Pokedex.resetScreenState()
   local cb = Pokedex._onClose
   Pokedex._onClose = nil
-  Pokedex._regSpecies = nil
   if cb then cb() end
 end
 

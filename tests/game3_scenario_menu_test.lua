@@ -8,21 +8,19 @@
 --   pokefirered/src/start_menu.c:113-123 item label/callback table
 --   pokefirered/src/start_menu.c:213-223 SetUpStartMenu_NormalField append order
 --   pokefirered/src/start_menu.c:215     POKéDEX gated on FLAG_SYS_POKEDEX_GET
+--   pokefirered/src/start_menu.c:217-218 POKéMON gated on FLAG_SYS_POKEMON_GET
 --   pokefirered/src/start_menu.c:1003-1005 CloseStartMenu plays SE_SELECT
 --   pokefirered/src/menu.c:276           cursor out of range clamps to 0
 --   pokefirered/src/menu.c:376           A press plays SE_SELECT (the NO path's se)
 --   pokefirered/src/menu.c:381           B press returns MENU_B_PRESSED (back-out)
 --
--- Engine gaps designed around (NOT fixed here):
---   1. pret also gates the POKéMON entry on FLAG_SYS_POKEMON_GET
---      (pokefirered/src/start_menu.c:217-218); src/ui/game3/start_menu.lua:37
---      always includes it.  The checks below pin the engine's current
---      behaviour (6 entries when the dex flag is clear: pokemon/bag/trainer/
---      save/option/exit) and note the missing gate rather than asserting it.
---   2. do_save reads Runtime._game.saveGame and must get a truthy confirm
---      (tests/engine/game3_save_menu_failure_test.lua), so this suite supplies
---      the same stub saveGame the real game carries (cf.
---      tests/game3_save_trainer_card_test.lua:91-92).
+-- Engine quirks designed around (NOT fixed here):
+--   do_save reads Runtime._game.saveGame and must get a truthy confirm
+--   (tests/engine/game3_save_menu_failure_test.lua), so this suite supplies
+--   the same stub saveGame the real game carries (cf.
+--   tests/game3_save_trainer_card_test.lua:91-92).
+--   (The former "gap 1: POKéMON entry has no flag gate" is now implemented —
+--   start_menu.lua gates it on 0x828 exactly as start_menu.c:217-218 does.)
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
@@ -82,19 +80,27 @@ check(StartMenu.cursor == 1, "cursor starts on POKéDEX")
 StartMenu.close()
 check(StartMenu.isOpen() == false and Stack.depth() == 0, "close() unwinds the layer")
 
-print("[test] 2. The POKéDEX entry follows FLAG_SYS_POKEDEX_GET (0x829)")
+print("[test] 2. Both entry gates follow their retail flags (0x829 / 0x828)")
 local spaceMod = package.loaded["src.core.game3.scripting.space"]
 local store = Flags.newStore()
 package.loaded["src.core.game3.scripting.space"] = { store = store }
 check(Flags.getFlag(store, nil, 0x829) == false, "fresh store: the dex flag is clear")
+check(Flags.getFlag(store, nil, 0x828) == false, "fresh store: the POKéMON flag is clear")
 StartMenu.show({ session = session })
-check(#StartMenu.ENTRIES == 6, "no POKéDEX entry while the flag is clear (start_menu.c:215)")
-check(StartMenu.ENTRIES[1].id == "pokemon", "POKéMON leads instead (engine gap 1: no 0x82A gate)")
+check(#StartMenu.ENTRIES == 5,
+  "neither gated entry while both flags are clear (start_menu.c:214-218)")
+check(StartMenu.ENTRIES[1].id == "bag", "BAG leads when both gates are shut")
 StartMenu.close()
 Flags.setFlag(store, nil, 0x829, true)
 StartMenu.show({ session = session })
-check(#StartMenu.ENTRIES == 7, "the POKéDEX entry returns once the flag is set")
+check(#StartMenu.ENTRIES == 6, "the POKéDEX entry returns once the flag is set (start_menu.c:215)")
 check(StartMenu.ENTRIES[1].id == "pokedex", "and it leads the list (start_menu.c:216)")
+StartMenu.close()
+Flags.setFlag(store, nil, 0x828, true)
+StartMenu.show({ session = session })
+check(#StartMenu.ENTRIES == 7,
+  "the POKéMON entry returns once FLAG_SYS_POKEMON_GET (0x828) is set (start_menu.c:217-218)")
+check(StartMenu.ENTRIES[2].id == "pokemon", "it sits between POKéDEX and BAG (start_menu.c:218)")
 StartMenu.close()
 package.loaded["src.core.game3.scripting.space"] = spaceMod -- restore default
 

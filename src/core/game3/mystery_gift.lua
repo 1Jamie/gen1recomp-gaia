@@ -905,6 +905,18 @@ local function createEventMon(session, gift)
 end
 MysteryGift.createEventMon = createEventMon
 
+-- rse-seams e10 5.1: the Mystery Event script status slot mirroring pret
+-- src/mystery_event_script.c:92-95 (SetMysteryEventScriptStatus) / :75-80
+-- (MEventScript_Run's status out-param).
+local meScriptStatus = 0
+function MysteryGift.setStatus(v)
+  meScriptStatus = tonumber(v) or 0
+  return meScriptStatus
+end
+function MysteryGift.getStatus()
+  return meScriptStatus
+end
+
 -- pokefirered/data/mystery_event_msg.s:208 MysteryEventScript_AuroraTicket
 function MysteryGift.deliverGift(session, card)
   card = card or MysteryGift.getSavedCard(session)

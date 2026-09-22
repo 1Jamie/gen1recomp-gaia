@@ -71,6 +71,10 @@ local vm = Vm.new({
       { op = "special", [1] = Std.SPECIAL.ChoosePartyMon }, -- data/specials.inc:170
       { op = "setvar", [1] = 0x4031, [2] = 1 },            -- VAR_STARTER_MON = Charmander
       { op = "setflag", [1] = 0x829 },                      -- FLAG_SYS_POKEDEX_GET
+      -- The script just picked a starter, so retail also grants
+      -- FLAG_SYS_POKEMON_GET (0x828) — start_menu.c:217-218 gates the
+      -- POKéMON row on it and this scenario's menu checks need the row.
+      { op = "setflag", [1] = 0x828 },
       { op = "end" },
     },
   },

@@ -228,7 +228,11 @@ function AnimSprites.update()
     end
     if s.active and s._g4anim and AnimSprites.animate then
       local ok, err = pcall(AnimSprites.animate, s)
-      if not ok then print("[battle.anim] sprite anim: " .. tostring(err)) end
+      if not ok then
+        print("[battle.anim] sprite anim: " .. tostring(err))
+        -- review-v3 D4: release the slot so a throwing animation cannot pin it.
+        pcall(AnimSprites.release, s)
+      end
     end
   end
 end

@@ -150,6 +150,27 @@ engine-internal lines (tier b) and observed runs (tier a).
 - Verdict: import-path gap (tier b); fixing it converts
   `region_map_assets` to real coverage.
 
+### 3.4 Import byte-determinism: clause upgraded **UNREACHABLE → MET** (ticket `01a0c8f7`, fixed)
+
+- Root cause: three writers emitted JSON object keys in Lua `pairs()` order,
+  which varies per process on this LuaJIT build — content identical, key order
+  different run to run (920 of 7269 files: 917 `map_tree/*.json` + `census.json`
+  + `meta.json`/`maps.json` + `connections.lua`; all `.bin` blobs including
+  `grid.bin` were already stable). Not the quantizer/RNG/timestamps.
+- Fix (2026-09-22, all in `src/import/`): new `src/import/canonical_json.lua`
+  (sorted-key encoder delegating scalar formatting to `src/link/Json.lua`)
+  wired into `map_tree_extract.write_json` and `RomExtractorGen3.writeJson`;
+  `extract_island1`'s inline `write_json` sorts object keys; both
+  `connections.lua` builders sort the direction keys.
+- Proof: two fresh imports of the same ROM (scratch identity
+  `finisher-determinism`, cache wiped between runs), sha256 inventory diff →
+  **0 differing files — 7269/7269 byte-for-byte identical**; T6.2 gate form
+  re-passed (`import_id:"firered"`, md5 `41cb23d8dccc8ebd7c649cd8fbb58eeace6e2fdc`,
+  `region_map/extract_status.json` present).
+- Verdict: the literal byte-identical import clause (T6.2 gate form,
+  `rse-seams.md` wave log) now holds — status **MET**, replacing the earlier
+  UNREACHABLE reading.
+
 ## 4. Config summary: sticky vs per-run
 
 - **Sticky now:** pret 12 improve without any env var, because the clone is on
@@ -281,3 +302,109 @@ not satisfy these 6 suites' byte-level checks.
 State left behind: pret clone tracked tree clean (HEAD `c75f35230`); untracked
 `build/`, `pokefirered_modern.gba`, `pokefirered_rev1_modern.gba` (+ `.elf`,
 `.map`, `.sym`); symlinks removed; nothing committed, pushed, or published.
+
+### 7e. User-ordered retail build (devkitARM task `01a0c8d9`) — ALL 6 SUITES CONVERTED
+
+**Installs**
+- **devkitARM/devkitPro pacman: BLOCKED at sudo.** No brew cask exists
+  (`brew info --cask devkitpro-pacman` → unavailable), the official installer
+  needs root (`sudo -n installer` → `sudo: a password is required`), and
+  `/opt/devkitpro` does not exist. Latest release: **devkitPro pacman v6.0.2**,
+  `https://github.com/devkitPro/pacman/releases/download/v6.0.2/devkitpro-pacman-installer.pkg`.
+  Per pret INSTALL.md macOS the remaining user-run steps are:
+  `sudo installer -pkg devkitpro-pacman-installer.pkg /`, then
+  `sudo dkp-pacman -Sy && sudo dkp-pacman -S gba-dev && sudo dkp-pacman -S devkitarm-rules`,
+  then export `DEVKITPRO=/opt/devkitpro` + `DEVKITARM=$DEVKITPRO/devkitARM`.
+- **agbcc: INSTALLED.** `git clone https://github.com/pret/agbcc ~/dev/agbcc`
+  (HEAD `da598c1`), `./build.sh` exit 0, `./install.sh ../pokefirered` exit 0 →
+  `~/dev/pokefirered/tools/agbcc/bin/{agbcc, agbcc_arm, old_agbcc}`.
+
+**Retail-layout builds (MODERN=0)**
+
+```sh
+cd ~/dev/pokefirered && rm -rf build/firered
+make firered        # exit 0, 0 errors
+make firered_rev1   # exit 0, 0 errors
+```
+
+| ROM | Size | SHA-1 | Retail target | Verdict |
+| --- | --- | --- | --- | --- |
+| `pokefirered.gba` | 16,777,216 B | `41cb23d8dccc8ebd7c649cd8fbb58eeace6e2fdc` | FireRed v1.0 | **byte-identical (matching build)** |
+| `pokefirered_rev1.gba` | 16,777,216 B | `dd5945db9b930750cb39d00c84da8571feebf417` | FireRed v1.1 | **byte-identical (matching build)** |
+
+Toolchain used (tier b): `CC1 = tools/agbcc/bin/agbcc` (MODERN=0 path,
+Makefile:81-84) plus the system `arm-none-eabi-*` binutils on PATH
+(Makefile:12-20 documents this fallback), so the retail ROMs were produced
+**without** devkitARM present — the devkitARM install is still outstanding for
+the user's standing order but is not required for these builds.
+
+**6 previously-blocked suites, run twice each, no symlinks, plain
+`luajit tests/game3_<x>_test.lua` from the engine root (read-only on the
+engine side):**
+
+| Suite | Before | Run 1 | Run 2 | Skips now |
+| --- | --- | --- | --- | --- |
+| `revision_view` | PARTIAL (needs both ROMs) | EXIT 0 `all passed` | EXIT 0 `all passed` | 0 |
+| `stitchimp_alt_layouts` | PARTIAL | EXIT 0 `[test] all passed` | EXIT 0 | 0 |
+| `stitchimp_braille_text` | PARTIAL | EXIT 0 `[test] all passed` | EXIT 0 | 0 |
+| `stitchimp_chrome_keys` | PARTIAL (1 residual skip) | EXIT 0 `ALL PASS` | EXIT 0 | **0** |
+| `stitchimp_condominiums` | PARTIAL | EXIT 0 `[test] all passed` | EXIT 0 | 0 |
+| `stitchimp_heal_locations` | PARTIAL | EXIT 0 `[test] all passed` | EXIT 0 | 0 |
+
+**All 6 convert PARTIAL → PASS with zero failures and zero skip lines on both
+runs.** Their expectations were written against exactly these retail ROMs and
+all hold — no findings on either side.
+
+**Computed new default-sweep totals** (from the last full default sweep
+248/16/5/3 plus these 6 measured conversions): **PASS 254 / PARTIAL 10 /
+SKIP 5 / FAIL 3** (+1 helper). Remaining PARTIAL/SKIP: the anim/audio+ROM
+argv suite set (config-dependent, §2/§4), `region_map_assets` (importer
+marker, §3.3), and `town_map`/`object_interactions_cache` whose conversions
+need their own ROM-at-relative-path / cache-root args.
+
+State: engine repo unchanged except this documentation append (task step 5);
+no `src/` or `tests/` edits; suite runs read-only; pret clone still tracked-clean
+(untracked `build/`, agbcc install dir, and the three ROMs/ELFs stay in place).
+
+## 8. Gen1 T3 activation recipe (reproducible on a fresh machine)
+
+The T3 content tier needs two halves; both are machine-local/untracked, so
+after a reboot that keeps app data they persist, but after a **reclone** they
+must be rebuilt:
+
+**1. Import Red (data half, app-data only):**
+
+```sh
+cd /Users/shanemcgovern/dev/gen1recomp
+POKEPORT_IDENTITY=qa-red-data POKEPORT_VERSION=red POKEPORT_IMPORT_ONLY=1 \
+  POKEPORT_IMPORT_ROM="$HOME/Downloads/Pokemon - Red Version (USA, Europe).gb" \
+  love .
+# requires the supported Red v1.0 SHA-1 ea9bcae617fdf159b045185467ae58b2e4a48b9a
+```
+
+**2. Point the gate at it:**
+
+```sh
+RED_CACHE="$HOME/Library/Application Support/LOVE/qa-red-data/red" ./scripts/test.sh
+```
+
+(the import's `rom-cache.complete` marker makes test.sh export
+`POKEPORT_DATA_DIR`; no repo-side `data/generated/` is created)
+
+**3. assets/generated symlink bridge (file half, gitignored — zero status):**
+
+```sh
+SRC="$HOME/Library/Application Support/LOVE/qa-red-data/red/assets/generated"
+mkdir -p assets/generated
+ln -sfn "$SRC/title"      assets/generated/title
+ln -sfn "$SRC/emotes.png" assets/generated/emotes.png
+ln -sfn "$SRC/slots"      assets/generated/slots
+```
+
+Verifies `git status --short` is unchanged (`.gitignore:7-8` cover both the
+dir content and `data/generated/`). With both halves, the full gate is
+ALL TIERS PASSED (verified twice, exit 0/0 on 2026-09-22); the only remaining
+gaps are the lua5.4 vendor oracle and opt-in screenshots.
+
+Cleanup note: to remove, `rm -rf assets/generated` (only the symlinks live
+there) — never touches the import.

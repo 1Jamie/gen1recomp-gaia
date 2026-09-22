@@ -63,9 +63,9 @@ done
 | T2 Gen 2 / Crystal suites (`tests/run_gen2.lua`) | PASS — 146 suite lines ok, 0 FAIL |
 | T4 mod-SDK (`tests/run_modkit.lua`) | PASS — 37 suite lines ok, 0 FAIL |
 | T4 title checkpoint cold restart (integration shell) | PASS |
-| T3 content behavior (Red) | **skipped** — no `data/generated/`, no `RED_CACHE` |
-| T3 save editor × 8 + T5 link loopback | **skipped** (same T3 gate) |
-| T3 save oversize vendor oracle | **skipped** — no `lua5.4` (only reachable inside T3 anyway) |
+| T3 content behavior (Red) | **skipped at capture** — no `data/generated/`, no `RED_CACHE` (superseded: now **PASS**, see Update below) |
+| T3 save editor × 8 + T5 link loopback | **skipped at capture** (same T3 gate; superseded: now **PASS**) |
+| T3 save oversize vendor oracle | **skipped** — no `lua5.4` (only reachable inside T3 anyway; still skipped) |
 | T5 golden shots | not requested (`WITH_SHOTS` unset) |
 
 T1/T2 detail: `tests/run_engine.lua` globs `tests/engine/*.lua` (616 files,
@@ -130,3 +130,52 @@ environment artifact and one genuine game3 bug (`game3_battle_move_effects`
 Knock Off party-item persistence). Everything else that this ROM-less
 checkout can run is green. The fix wave target is: both become PASS while
 §3/§5 stay unchanged.
+
+## Update 2026-09-22 — T3 activated: last content tier closed
+
+The T3 gate conditions that made this document's capture read "skipped" are now
+satisfied **without any repo-side data cache** (see `game3-artifact-conversions-v3.md`
+§8 for the reproducible recipe):
+
+1. **RED_CACHE (data half):** an imported Red cache at
+   `~/Library/Application Support/LOVE/qa-red-data/red` (headless import of
+   `Pokemon - Red Version (USA, Europe).gb`, SHA-1 `ea9bcae6…`), supplied as
+   `RED_CACHE=… ./scripts/test.sh`. The `rom-cache.complete` marker makes
+   test.sh export `POKEPORT_DATA_DIR`, so all content checks run against the
+   real 222-map Red dataset. App-data only; `data/generated/` stays absent.
+2. **assets/generated symlink bridge (file half):** the three T3 checks that
+   `io.open` cwd-relative asset paths now resolve through a gitignored real
+   directory whose *entries* are symlinks into the import:
+
+   ```sh
+   SRC="$HOME/Library/Application Support/LOVE/qa-red-data/red/assets/generated"
+   mkdir -p assets/generated
+   ln -sfn "$SRC/title"   assets/generated/title
+   ln -sfn "$SRC/emotes.png" assets/generated/emotes.png
+   ln -sfn "$SRC/slots"   assets/generated/slots
+   ```
+
+   `.gitignore:7-8` (`data/generated/`, `assets/generated/`) make this a
+   zero-footprint addition: `git status --short` count was unchanged before
+   and after, with no `assets/` entry.
+
+**Result — full gate run twice, both green:**
+
+| Run | Command | Exit | Verdict |
+| --- | --- | --- | --- |
+| 1 | `RED_CACHE=… ./scripts/test.sh` | **0** | ALL TIERS PASSED |
+| 2 | `RED_CACHE=… ./scripts/test.sh` | **0** | ALL TIERS PASSED |
+
+- **T3 content behavior (Red): PASS** (was skipped at capture); T3 save editor
+  ×8: PASS; T5 link (loopback): PASS.
+- **T6 game3 tier: 281 run, 281 passed, 0 known failures, 0 new failures —
+  both runs.** The 22-name `KNOWN_GAME3_FAILURES` list no longer fires at all
+  (0 `known-fail` lines), and the known flake class did not trip in either run.
+- Only remaining gaps: **T3 save oversize vendor oracle** (needs `lua5.4` on
+  PATH) and **T5 golden shots** (opt-in via `WITH_SHOTS=1`).
+
+**Reproducibility after reboot/reclone:** both halves are machine-local and
+untracked (the `qa-red-data` import identity and the `assets/generated`
+symlinks), so a fresh clone must rebuild them — re-run the Red import command
+and the three `ln -sfn` lines above; both are recorded step-by-step in
+`docs/game3/game3-artifact-conversions-v3.md` §8.

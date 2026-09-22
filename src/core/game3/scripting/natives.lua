@@ -3,6 +3,8 @@
 
 local Strings = require("src.core.Strings")
 local Std = require("src.core.game3.scripting.stdscripts")
+local Capabilities = require("src.core.game3.capabilities")
+local Profile = require("src.core.game3.profile")
 
 local Natives = {}
 
@@ -52,7 +54,11 @@ local function getSpecialVar(ctx, id)
 end
 
 local function setSpecialVar(ctx, id, value)
-  flagsMod().setVar(nil, ctx, id, value)
+  -- pret src/field_specials.c:2075-2078 VarSet writes the real save var
+  -- (0x4025 = VAR_MASSAGE_COOLDOWN_STEP_COUNTER, include/constants/vars.h:75);
+  -- the old nil store dropped that write (review-v3 E5).
+  local Space = package.loaded["src.core.game3.scripting.space"]
+  flagsMod().setVar(Space and Space.store or nil, ctx, id, value)
   if ctx and type(ctx.setVar) == "function" then ctx:setVar(id, value) end
 end
 
@@ -83,9 +89,15 @@ local function nicknameOf(mon)
   if not mon then return "" end
   if mon.nickname and mon.nickname ~= "" then return tostring(mon.nickname) end
   local Pokemon = require("src.core.game3.pokemon")
-  pcall(function()
-    if not Pokemon._names then Pokemon.install(nil) end
-  end)
+  if not Pokemon._names and not Pokemon._installTried then
+    -- review-v3 S11: log the swallowed install failure once; no silent retries.
+    Pokemon._installTried = true
+    local okI, errI = pcall(Pokemon.install, nil)
+    if not okI and not Pokemon._installWarned then
+      Pokemon._installWarned = true
+      print("[game3/pokemon] install failed: " .. tostring(errI))
+    end
+  end
   return (Pokemon.name and Pokemon.name(mon.species or mon.speciesId)) or ""
 end
 
@@ -621,9 +633,15 @@ Natives.ALLOW = {
       local mon = chosenMon(ctx)
       local species = mon and tonumber(mon.species or mon.speciesId) or 1
       local Pokemon = require("src.core.game3.pokemon")
-      pcall(function()
-        if not Pokemon._names then Pokemon.install(nil) end
-      end)
+      if not Pokemon._names and not Pokemon._installTried then
+        -- review-v3 S11 sibling: same log-once pattern as the cited site.
+        Pokemon._installTried = true
+        local okI, errI = pcall(Pokemon.install, nil)
+        if not okI and not Pokemon._installWarned then
+          Pokemon._installWarned = true
+          print("[game3/pokemon] install failed: " .. tostring(errI))
+        end
+      end
       -- pokefirered/src/field_specials.c:1656
       local before = nicknameOf(mon)
       setStringVar(ctx, adapters, 3, before)
@@ -651,9 +669,15 @@ Natives.ALLOW = {
     return yield_host(ctx, adapters, function(done)
       local species = tonumber(mon.species or mon.speciesId) or 1
       local Pokemon = require("src.core.game3.pokemon")
-      pcall(function()
-        if not Pokemon._names then Pokemon.install(nil) end
-      end)
+      if not Pokemon._names and not Pokemon._installTried then
+        -- review-v3 S11 sibling: same log-once pattern as the cited site.
+        Pokemon._installTried = true
+        local okI, errI = pcall(Pokemon.install, nil)
+        if not okI and not Pokemon._installWarned then
+          Pokemon._installWarned = true
+          print("[game3/pokemon] install failed: " .. tostring(errI))
+        end
+      end
       local before = nicknameOf(mon)
       setStringVar(ctx, adapters, 3, before)
       setStringVar(ctx, adapters, 2, before)
@@ -713,10 +737,12 @@ Natives.ALLOW = {
   end,
   ["special:" .. Std.SPECIAL.PlayCry] = function(ctx, adapters)
     local Audio = require("src.core.game3.audio")
-    local species = 0
-    if ctx and ctx.getVar then
-      species = tonumber(ctx:getVar(0x8000)) or 0
-    end
+    local Flags = require("src.core.game3.scripting.flags")
+    local Space = package.loaded["src.core.game3.scripting.space"]
+    -- Ctx never defined a getVar method (the old guard always failed and the
+    -- cry played as species 0 — review-v3 E4); read 0x8000 through Flags like
+    -- every other special does.
+    local species = tonumber(Flags.getVar(Space and Space.store, ctx, 0x8000)) or 0
     Audio.playCry(species)
     return false
   end,
@@ -817,9 +843,18 @@ local KNOWN_MODULES = {
   "natives_size_record",
   "natives_tower",
   "natives_trade",
+  "natives_wireless",
 }
 Natives.KNOWN_MODULES = KNOWN_MODULES
 Natives.MODULE_DIR = MODULE_DIR
+
+-- rse-seams T3.2: KNOWN_MODULES stays the fallback; a profile's nativeModules
+-- list widens or narrows the merge set for other Gen 3 games.
+local function moduleNames()
+  local names = Profile.active().nativeModules
+  return type(names) == "table" and names or KNOWN_MODULES
+end
+Natives.moduleNames = moduleNames
 
 local function collectModule(names, seen, entry)
   local base = type(entry) == "string" and entry:match("^(natives_[%w_]+)%.lua$")
@@ -846,7 +881,7 @@ local function discoverModules()
       pipe:close()
     end)
   end
-  for _, base in ipairs(KNOWN_MODULES) do collectModule(names, seen, base .. ".lua") end
+  for _, base in ipairs(moduleNames()) do collectModule(names, seen, base .. ".lua") end
   table.sort(names)
   return names
 end
@@ -855,11 +890,17 @@ Natives.MODULE_NAMES = discoverModules()
 Natives.MODULES = {}
 
 for _, base in ipairs(Natives.MODULE_NAMES) do
-  local ok, mod = pcall(require, MODULE_PACKAGE .. base)
-  if ok and type(mod) == "table" then
-    Natives.MODULES[base] = mod
-    for id, handler in pairs(mod.HANDLERS or {}) do
-      Natives.ALLOW["special:" .. id] = handler
+  -- rse-seams T3.2: skip a module whose feature capability is off
+  -- (Capabilities.nativeAllowed maps natives_fame/tower/fan_club/seagallop to
+  -- their features; every other module is shared).  FireRed enables all of
+  -- them, so the same 16 modules merge as before.
+  if Capabilities.nativeAllowed(nil, base) then
+    local ok, mod = pcall(require, MODULE_PACKAGE .. base)
+    if ok and type(mod) == "table" then
+      Natives.MODULES[base] = mod
+      for id, handler in pairs(mod.HANDLERS or {}) do
+        Natives.ALLOW["special:" .. id] = handler
+      end
     end
   end
 end
@@ -880,6 +921,9 @@ local function log_once(kind, id, logger)
 end
 
 --- Returns whether the VM should yield (native wait).
+-- rse-seams e10 5.2: export the once-per-key logger for ops_a's gotonative.
+Natives.log_once = log_once
+
 function Natives.callnative(ctx, fnAddr, adapters)
   local id = tonumber(fnAddr) or 0
   local handler = Natives.ALLOW["native:" .. id]
@@ -888,6 +932,22 @@ function Natives.callnative(ctx, fnAddr, adapters)
   end
   log_once("callnative", id, adapters and adapters.log)
   return false
+end
+
+-- rse-seams e10 5.2: symbol seam for `gotonative`.  pret
+-- src/scrcmd.c:92-97 SetupNativeScript jumps to a C function pointer, which
+-- the engine cannot execute; a symbol table (emitted by the extractor later,
+-- T6.x) maps the address to a `native:` registration instead.  Empty registry
+-- today = every address resolves to nil and the op skips with one log.
+Natives.NATIVE_SYMBOLS = {} -- addr -> symbol
+function Natives.resolveNative(addr)
+  local id = tonumber(addr) or 0
+  local sym = Natives.NATIVE_SYMBOLS[id]
+  if sym then
+    local fn = Natives.ALLOW["native:" .. sym]
+    if fn then return fn end
+  end
+  return Natives.ALLOW["native:" .. id] -- direct registration (callnative's key)
 end
 
 function Natives.special(ctx, specialId, adapters)

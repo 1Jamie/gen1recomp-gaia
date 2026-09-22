@@ -312,7 +312,9 @@ local function get_map_image()
     "assets/generated/region_map/kanto_map.png",
   }
   local img = try_load_image(candidates, 240, 160)
-  RegionMap._images["kanto_map"] = img or false
+  -- review-v3 B5: only cache the success — a transient read failure must be
+  -- retried on the next probe (the ~=nil guard above then passes again).
+  if img then RegionMap._images["kanto_map"] = img end
   return img
 end
 
@@ -638,8 +640,10 @@ local function computeDungeonIcons()
       if dSec then
         local offset = RegionMap.dungeonIconOffset(x, y)
         out[#out + 1] = {
-          px = 32 + x * CELL_SIZE + offset,
-          py = 32 + y * CELL_SIZE + offset,
+          -- MAP_OFFSET_X/Y (28) is the origin every sibling marker uses;
+          -- the hard 32 here pushed dungeon icons 4px down/right (B8).
+          px = MAP_OFFSET_X + x * CELL_SIZE + offset,
+          py = MAP_OFFSET_Y + y * CELL_SIZE + offset,
           frame = RegionMap.dungeonIconFrame(dSec),
         }
       end
@@ -711,14 +715,18 @@ function RegionMap.handleInput(input)
   end
 
   -- START cycles snapping to Player Icon -> Cancel Button -> Switch Button
+  -- (three targets; the switch leg only when the button is present).
   if input:wasPressed("start") then
-    RegionMap._snapIndex = (RegionMap._snapIndex + 1) % 2
-    if RegionMap._snapIndex == 0 then
-      RegionMap.cursorX = RegionMap.playerX
-      RegionMap.cursorY = RegionMap.playerY
-    else
+    RegionMap._snapIndex = (RegionMap._snapIndex + 1) % 3
+    if RegionMap._snapIndex == 1 then
       RegionMap.cursorX = CANCEL_BUTTON_X
       RegionMap.cursorY = CANCEL_BUTTON_Y
+    elseif RegionMap._snapIndex == 2 and RegionMap.hasSwitchButton() then
+      RegionMap.cursorX = SWITCH_BUTTON_X
+      RegionMap.cursorY = SWITCH_BUTTON_Y
+    else
+      RegionMap.cursorX = RegionMap.playerX
+      RegionMap.cursorY = RegionMap.playerY
     end
     se(5)
     return
