@@ -149,12 +149,6 @@ Cutscene.HANDLERS = {
     return false
   end,
 
-  -- pokefirered/src/ss_anne.c:82, data/maps/SSAnne_Exterior/scripts.inc:21
-  [Std.SPECIAL.DoSSAnneDepartureCutscene] = function(ctx, adapters)
-    playSe(adapters, SE_SS_ANNE_HORN)
-    return false
-  end,
-
   -- pokefirered/src/field_specials.c:2133, data/scripts/pokemon_league.inc:63
   [Std.SPECIAL.DoPokemonLeagueLightingEffect] = function()
     return false

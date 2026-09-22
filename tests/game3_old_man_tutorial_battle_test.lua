@@ -30,6 +30,7 @@ local Anim = require("src.core.game3.battle.anim")
 
 local foe = {
   species = 13, -- WEEDLE
+  name = "WEEDLE",
   level = 5,
   gender = "M",
   oldManTutorial = true,

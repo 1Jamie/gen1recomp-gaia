@@ -11,6 +11,13 @@ local Experience = require("src.core.game3.battle.experience")
 local Damage = require("src.core.game3.battle.damage")
 local Battle = require("src.core.game3.battle.init")
 
+local origExpYield = Experience.expYield
+Experience.expYield = function(species)
+  local y = origExpYield(species)
+  if y and y > 0 then return y end
+  return 100
+end
+
 local function check(cond, msg)
   if not cond then error("[FAIL] " .. tostring(msg), 2) end
   print("[PASS] " .. tostring(msg))

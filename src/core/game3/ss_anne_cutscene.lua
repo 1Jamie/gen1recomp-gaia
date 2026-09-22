@@ -29,6 +29,11 @@ SSAnneCutscene._smokeImage = nil
 SSAnneCutscene._smokeQuads = nil
 
 local function playSe(id)
+  local ad = SSAnneCutscene._adapters
+  if ad and ad.playSe then
+    pcall(ad.playSe, id)
+    return
+  end
   local okA, Audio = pcall(require, "src.core.game3.audio")
   if okA and Audio and Audio.playSe then
     pcall(Audio.playSe, id)
@@ -132,6 +137,7 @@ end
 --- pokefirered/src/ss_anne.c:82 DoSSAnneDepartureCutscene
 function SSAnneCutscene.start(ctx, adapters)
   SSAnneCutscene.reset()
+  SSAnneCutscene._adapters = adapters
   SSAnneCutscene._active = true
   SSAnneCutscene._phase = "init"
   SSAnneCutscene._initTimer = INIT_FRAMES
