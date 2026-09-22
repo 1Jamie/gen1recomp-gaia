@@ -156,10 +156,7 @@ NativesLink.HANDLERS = {
   [S.Script_ShowLinkTrainerCard] = function(ctx, adapters)
     return Link.showLinkTrainerCard(ctx, adapters)
   end,
-  -- pokefirered/src/event_object_lock.c:106 Script_FacePlayer —
-  -- data/scripts/cable_club.inc:699/707: the Battle Colosseum and Trade Center
-  -- attendants turn to the player.  Same seam as the faceplayer opcode
-  -- (ops_a.lua:478): face the object in VAR_LAST_TALKED.
+  -- pokefirered/src/event_object_lock.c:106, data/scripts/cable_club.inc:699
   [Std.SPECIAL.Script_FacePlayer] = function(ctx, adapters)
     if adapters and adapters.facePlayer then
       local okF, Flags = pcall(require, "src.core.game3.scripting.flags")
@@ -167,11 +164,7 @@ NativesLink.HANDLERS = {
     end
     return false
   end,
-  -- pokefirered/src/event_object_lock.c:111 Script_ClearHeldMovement —
-  -- data/scripts/cable_club.inc:701/709: ObjectEventClearHeldMovementIfActive
-  -- on the attendant after its line.  The port's applymovement always
-  -- completes through its step_end callback, so there is no held schedule
-  -- left to clear — bound as a safe no-op so the dispatch is never nil.
+  -- pokefirered/src/event_object_lock.c:111, data/scripts/cable_club.inc:701
   [Std.SPECIAL.Script_ClearHeldMovement] = function()
     return false
   end,

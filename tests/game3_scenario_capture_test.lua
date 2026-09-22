@@ -1,33 +1,5 @@
 #!/usr/bin/env luajit
--- Pokemon capture scenario: a wild encounter played through to a caught mon.
--- Flow: encounter -> dex SEEN -> ball checks -> rigged throw -> ball consumed
--- -> dex CAUGHT + party gain -> second encounter with a different ball ->
--- out-of-balls refusal.
---
--- pret citations actually read for this suite:
---   pokefirered/src/battle_main.c:2611            HandleSetPokedexFlag FLAG_SET_SEEN on send-out
---   pokefirered/src/battle_script_commands.c:4526 same, from Cmd_switchinanim
---   pokefirered/src/battle_script_commands.c:9463 Cmd_handleballthrow (the catch roll)
---   pokefirered/src/battle_script_commands.c:9497 safari catch-rate special case
---   pokefirered/src/battle_script_commands.c:9617 Cmd_givecaughtmon (party/PC store)
---   pokefirered/src/pokemon.c:3686                GiveMonToPlayer
---   pokefirered/src/pokemon.c:3692                SetMonData MON_DATA_OT_ID = playerTrainerId
---   pokefirered/src/new_game.c:56                 InitPlayerTrainerId rolls the trainer id
---
--- Engine gaps designed around (NOT fixed here):
---   1. Catching.playerSecretId (src/core/game3/battle/catching.lua:235) mints a
---      secret id from the RNG and cites pokefirered/src/new_game.c:56, but pret
---      FRLG has no playerSecretId at all (grep over src/*.c include/*.h finds
---      none) -- the gen-3 OT id is just playerTrainerId (pokemon.c:3692).  We
---      therefore assert only the engine's own contract: one stable secret id
---      per session, stamped on both the wild mon and the caught mon.
---   2. Battle.start with headless=true auto-runs the whole battle to
---      completion (src/core/game3/battle/init.lua:663-665), so the scenario
---      passes autoFight=false to hold the battle open for the item path.
---      There is no dedicated "start but stay in command phase" API.
---   3. The real catch flow stores via Catching.storeCaught (battle/items.lua:167),
---      never Party.giveMon (that is the script-gift path, party.lua:181); the
---      party assertions below follow storeCaught's own append path.
+-- pokefirered/src/battle_main.c:2611, pokefirered/src/battle_script_commands.c:4526, pokefirered/src/battle_script_commands.c:9463, pokefirered/src/battle_script_commands.c:9497, pokefirered/src/battle_script_commands.c:9617, pokefirered/src/pokemon.c:3686, pokefirered/src/pokemon.c:3692, pokefirered/src/new_game.c:56, pokemon.c:3692
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
@@ -62,9 +34,7 @@ local Battle = require("src.core.game3.battle")
 
 Pokemon.install(nil)
 
--- Deterministic roll handed to the battle as opts.rng (state.lua:284); every
--- shake check draws lo (0), which is below any pret shake threshold
--- (battle_script_commands.c:9463 shake loop), so the ball always holds.
+-- battle_script_commands.c:9463
 local function rigRoll(lo)
   return lo
 end
@@ -83,13 +53,13 @@ local function newSession()
 end
 
 local session = newSession()
-Bag.add(session.bag, 4, 3) -- three Poke Balls
+Bag.add(session.bag, 4, 3)
 
 print("[test] 1. Wild Rattata appears: battle opens and the dex marks it seen")
 local okStart = Battle.start({
   wild = true,
   headless = true,
-  autoFight = false, -- hold the battle open; see gap 2 in the header
+  autoFight = false,
   playerParty = session.party,
   foe = { species = 19, level = 3, hp = 6, maxHp = 15 },
   session = session,
@@ -99,12 +69,11 @@ check(okStart == true, "the wild battle started")
 check(Battle.isActive() == true, "the battle is active and waiting (not auto-run)")
 local st = Battle.getState()
 check(st ~= nil and st.wild == true, "battle state flags the encounter as wild")
--- pret battle_main.c:2611 / battle_script_commands.c:4526 FLAG_SET_SEEN
+-- battle_main.c:2611, battle_script_commands.c:4526
 check(Dex.isSeen(session.dex, 19) == true, "Rattata registered as seen on encounter")
 check(Dex.isCaught(session.dex, 19) == false, "Rattata is not caught yet")
 check(Dex.countSeen(session.dex, "kanto") == 1, "kanto seen count is 1")
 check(Dex.countCaught(session.dex, "kanto") == 0, "kanto caught count is 0")
--- Battle.start stamps the wild mon with the player's ids (battle/init.lua:454-461)
 check(st.enemy.mon.otId == 4242, "wild mon stamped with the trainer id (pokemon.c:3692 contract)")
 check(type(session.secretId) == "number", "playerSecretId minted a session secret id")
 check(st.enemy.mon.otSecretId == session.secretId, "the wild mon carries that secret id")
@@ -119,7 +88,6 @@ check(BattleItems.needsPartySelect(13) == true, "a potion asks which mon to heal
 check(Catching.ballMultiplier(2, foe, st, session) == 20, "Ultra Ball bonus is 2.0x (x10 scale)")
 check(Catching.ballMultiplier(4, foe, st, session) == 10, "Poke Ball bonus is 1.0x")
 check(Catching.catchOdds(1, foe, st, session) == 255, "Master Ball odds are always 255")
--- Odds climb as the wild mon wears down: full HP -> current 6 HP -> 3 HP.
 local curHp = foe.mon.hp
 foe.mon.hp = foe.mon.maxHp
 local fullOdds = Catching.catchOdds(4, foe, st, session)
@@ -158,9 +126,9 @@ check(Dex.registerEncounter(session.dex, 19) == true,
   "meeting it again reports it was already seen")
 
 print("[test] 5. Second encounter: Pidgey, thrown at with the one Ultra Ball")
-Battle.abort("caught") -- wrap up throw #1's battle (battle/init.lua:3113)
+Battle.abort("caught")
 check(Battle.isActive() == false, "the first battle is finished")
-Bag.add(session.bag, 2, 1) -- one Ultra Ball
+Bag.add(session.bag, 2, 1)
 local okStart2 = Battle.start({
   wild = true,
   headless = true,

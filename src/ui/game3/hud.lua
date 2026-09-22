@@ -13,8 +13,6 @@ local SaveMenu = require("src.ui.game3.save_menu")
 local TrainerCard = require("src.ui.game3.trainer_card")
 local PcMenu = require("src.ui.game3.pc_menu")
 
--- review-v3 S9 (hud cites drifted from :183): hot-path pcalls that never
--- logged; warn once per key so a permanently failing module cannot spam.
 local s9Warned = {}
 local function s9log(key, err)
   if s9Warned[key] then return end
@@ -195,14 +193,12 @@ function Hud.update(game, _dt, inputTop)
     if inputTop == nil or top == inputTop then top.mod.handleInput(game and game.input) end
   end
   if top and top.mod and top.mod.update then
-    -- review-v3 S9 (hud.lua:189): log the swallowed top-layer update once.
     local okU, errU = pcall(top.mod.update, dt)
     if not okU then s9log("top.update", errU) end
   end
 
   -- Tick location map name popup banner
   local okPop, MapNamePopup = pcall(require, "src.ui.game3.map_name_popup")
-  -- review-v3 S9 (hud.lua:193): a require that throws retried every frame with no log.
   if not okPop then s9log("map_name_popup", MapNamePopup) end
   if okPop and MapNamePopup and MapNamePopup.update then
     MapNamePopup.update(dt)
@@ -210,7 +206,6 @@ function Hud.update(game, _dt, inputTop)
 
   -- Tick location preview screen (map_preview_screen.c Task_RunMapPreviewScreenForest)
   local okPrev, MapPreviewScreen = pcall(require, "src.ui.game3.map_preview_screen")
-  -- review-v3 S9 (hud.lua:199).
   if not okPrev then s9log("map_preview_screen", MapPreviewScreen) end
   if okPrev and MapPreviewScreen and MapPreviewScreen.update then
     MapPreviewScreen.update(dt)
@@ -350,7 +345,6 @@ function Hud.openStartMenu(game, session)
       if scene >= 1 then
         Flags.setFlag(store, nil, Flags.IDS.OPENED_START_MENU, true)
         if Space.persistSession then
-          -- review-v3 S9 (auditor drift: cited :183, live :338).
           local okP, errP = pcall(Space.persistSession)
           if not okP then s9log("persistSession", errP) end
         end

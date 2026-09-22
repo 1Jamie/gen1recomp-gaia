@@ -41,9 +41,7 @@ local input = { wasPressed = function(_, k) return key == k end }
 
 local function press(k)
   key = k
-  -- pret/pokefirered src/naming_screen.c:559-572: the screen task handles input
-  -- and its timers in one per-frame pass (MainState_HandleInput). The engine
-  -- splits that as handleInput() + update(dt) (src/ui/game3/naming.lua:489-511).
+  -- src/naming_screen.c:559-572
   Naming.handleInput(input)
   Naming.update(1 / 60)
   key = nil

@@ -7,7 +7,6 @@ local AnimTasks = require("src.core.game3.battle.anim_tasks")
 local AnimPal = require("src.core.game3.battle.anim_pal")
 local AnimCoords = require("src.core.game3.battle.anim_coords")
 
--- D1: one reused options table per draw path (AnimPal.resolve reads it synchronously).
 local _blendOpts = {}
 
 local band, rshift = bit.band, bit.rshift

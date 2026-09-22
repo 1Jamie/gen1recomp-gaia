@@ -190,8 +190,7 @@ Std.SPECIAL = {
   IsThereMonInRoute5Daycare = 0x178, -- pokefirered/data/specials.inc:387
   GetNumLevelsGainedForRoute5DaycareMon = 0x179, -- pokefirered/data/specials.inc:388
   TakePokemonFromRoute5Daycare = 0x17A, -- pokefirered/data/specials.inc:389
-  -- Unbound-cart specials closed by the Specials Binder wave; every id is the
-  -- 0-based def_special index of pokefirered/data/specials.inc (line noted).
+  -- pokefirered/data/specials.inc
   BufferEReaderTrainerGreeting = 0xEB, -- pokefirered/data/specials.inc:246
   ShowDiploma = 0x108, -- pokefirered/data/specials.inc:275
   BufferEReaderTrainerName = 0x11D, -- pokefirered/data/specials.inc:296

@@ -78,7 +78,6 @@ end
 
 local function current_box_data()
   local storage = Storage.ensure(BoxStorageUI._session)
-  -- review-v3 T7: a nil session must not crash the box query.
   if not storage then return nil, nil end
   local bId = storage.currentBox or 1
   return storage.boxes[bId], bId
@@ -90,8 +89,6 @@ local function mon_at_cursor()
   if BoxStorageUI.mode == "action_menu" and BoxStorageUI._actionTarget then
     return BoxStorageUI._actionTarget.mon, BoxStorageUI._actionTarget.loc, BoxStorageUI._actionTarget.boxId, BoxStorageUI._actionTarget.slot
   elseif BoxStorageUI.mode == "party_drawer" or (BoxStorageUI.drawerOpen and BoxStorageUI._actionSource == "party") then
-    -- W12: Storage.ensure returns nil for a nil session; every branch of this
-    -- draw-path helper must tolerate nil storage/session.
     local pIdx = BoxStorageUI.partyCursor or 1
     if pIdx < 1 or pIdx > 6 then return nil, "party", nil, pIdx end
     local isPickedUp = (BoxStorageUI.holdingMon and BoxStorageUI.holdingSource
@@ -120,8 +117,6 @@ function BoxStorageUI.show(opts)
   BoxStorageUI.mode = "browse"
   BoxStorageUI.subMode = opts.subMode or "move"
   BoxStorageUI.cursorSlot = 1
-  -- review-v3 T1: a stale return-slot from the previous session must not
-  -- resurrect the cursor (clamp happens on read; reset here too).
   BoxStorageUI._prevPartySlot = nil
   BoxStorageUI.holdingMon = nil
   BoxStorageUI.holdingSource = nil
@@ -705,7 +700,6 @@ function BoxStorageUI.draw()
   if not BoxStorageUI.open then return end
   local session = BoxStorageUI._session
   local storage = Storage.ensure(session)
-  -- review-v3 T7: ensure returns nil for a nil session; do not index it.
   if not storage then return end
   local box, bId = current_box_data()
 

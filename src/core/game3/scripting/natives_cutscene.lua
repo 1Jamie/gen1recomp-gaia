@@ -9,7 +9,7 @@ local VAR_0x8006 = 0x8006 -- pokefirered/include/constants/vars.h:321
 local SE_M_WING_ATTACK = 150 -- pokefirered/include/constants/songs.h:155
 local SE_SS_ANNE_HORN = 249 -- pokefirered/include/constants/songs.h:255
 
-local SPECIES_KABUTOPS = 141 -- pokefirered/src/script_menu.c:1165 (museum_extract.lua:9)
+local SPECIES_KABUTOPS = 141 -- pokefirered/src/script_menu.c:1165
 local SPECIES_AERODACTYL = 142 -- pokefirered/src/script_menu.c:1171
 
 local function flagsMod()
@@ -72,16 +72,7 @@ Cutscene.HANDLERS = {
     end
     return false
   end,
-  -- review-v3 Q7: pret src/special_field_anim.c:223-265
-  -- AnimateTeleporterHousing — 16-frame beats cycle the Sea Cottage
-  -- teleporter light/door metatiles through 13 states (yellow/half-glow ↔
-  -- red/full-glow), then rest on the green light + closed door.  Coord
-  -- offsets: VAR_0x8004==0 → (x+6, y-5) right unit, else (x-1, y-5) left
-  -- (metatile ids: pret include/constants/metatile_labels.h:177-186).
-  -- Field.setMetatile routes through metatileOverrides + applyOverride, so
-  -- the normal per-frame field draw picks the tiles up (same seam as the
-  -- door override at field.lua:1110).  Headless suites cannot render the
-  -- glow cycle — in-game visual check pending (AGENTS.md caveat).
+  -- src/special_field_anim.c:223-265, include/constants/metatile_labels.h:177-186
   [Std.SPECIAL.AnimateTeleporterHousing] = function(ctx)
     local P = package.loaded["src.core.game3.player"]
       or require("src.core.game3.player")
@@ -97,11 +88,11 @@ Cutscene.HANDLERS = {
     Task.spawn(function()
       if timer == 0 then
         if state % 2 == 0 then
-          Field.setMetatile(x, y, 0x2B5, false)     -- Light_Yellow
-          Field.setMetatile(x, y + 2, 0x2B7, false) -- Door_HalfGlowing
+          Field.setMetatile(x, y, 0x2B5, true)
+          Field.setMetatile(x, y + 2, 0x2B7, true)
         else
-          Field.setMetatile(x, y, 0x2B6, false)     -- Light_Red
-          Field.setMetatile(x, y + 2, 0x2B8, false) -- Door_FullGlowing
+          Field.setMetatile(x, y, 0x2B6, true)
+          Field.setMetatile(x, y + 2, 0x2B8, true)
         end
       end
       timer = timer + 1
@@ -109,16 +100,13 @@ Cutscene.HANDLERS = {
       timer = 0
       state = state + 1
       if state ~= 13 then return false end
-      Field.setMetatile(x, y, 0x28A, false)     -- Light_Green (resting)
-      Field.setMetatile(x, y + 2, 0x296, false) -- Door
+      Field.setMetatile(x, y, 0x28A, true)
+      Field.setMetatile(x, y + 2, 0x296, true)
       return true
     end)
     return false
   end,
-  -- review-v3 Q7: pret src/special_field_anim.c:285-330
-  -- AnimateTeleporterCable — every 4 frames walk a cable-ball pair left from
-  -- (x+4, y-5), leaving the plain cable tiles behind, and stop after 4
-  -- steps (state 4 draws the last plain tiles and destroys the task).
+  -- src/special_field_anim.c:285-330
   [Std.SPECIAL.AnimateTeleporterCable] = function()
     local P = package.loaded["src.core.game3.player"]
       or require("src.core.game3.player")
@@ -133,13 +121,13 @@ Cutscene.HANDLERS = {
     Task.spawn(function()
       if timer == 0 then
         if state ~= 0 then
-          Field.setMetatile(x, y, 0x285, false)     -- Cable_Top
-          Field.setMetatile(x, y + 1, 0x2B4, false) -- Cable_Bottom
+          Field.setMetatile(x, y, 0x285, true)
+          Field.setMetatile(x, y + 1, 0x2B4, true)
           if state == 4 then return true end
           x = x - 1
         end
-        Field.setMetatile(x, y, 0x2B9, false)     -- CableBall_Top
-        Field.setMetatile(x, y + 1, 0x2BA, false) -- CableBall_Bottom
+        Field.setMetatile(x, y, 0x2B9, true)
+        Field.setMetatile(x, y + 1, 0x2BA, true)
       end
       timer = timer + 1
       if timer == 4 then
@@ -151,47 +139,28 @@ Cutscene.HANDLERS = {
     return false
   end,
 
-  -- pokefirered/src/credits.c:711 DoCredits — the Indigo Plateau roll
-  -- (data/maps/IndigoPlateau_Exterior/scripts.inc:80 `special / waitstate /
-  -- releaseall`).  The port has no game3 credits sequence yet; bound so the
-  -- waitstate completes and the script releases instead of skipping the
-  -- dispatch as unknown.
+  -- pokefirered/src/credits.c:711, data/maps/IndigoPlateau_Exterior/scripts.inc:80
   [Std.SPECIAL.DoCredits] = function()
     return false
   end,
 
-  -- pokefirered/src/field_specials.c:90 ShowDiploma — pushes CB2_ShowDiploma
-  -- (diploma.c:100); data/maps/CeladonCity_Condominiums_3F/scripts.inc:34
-  -- parks on `waitstate`.  src/ui/Diploma.lua is the Gen 1 diploma page
-  -- (engine/events/diploma.asm) with no FRLG wiring yet, so this completes
-  -- the waitstate: the congratulations message still shows, the certificate
-  -- screen is future work.
+  -- pokefirered/src/field_specials.c:90, diploma.c:100, data/maps/CeladonCity_Condominiums_3F/scripts.inc:34, engine/events/diploma.asm
   [Std.SPECIAL.ShowDiploma] = function()
     return false
   end,
 
-  -- pokefirered/src/ss_anne.c:82 DoSSAnneDepartureCutscene — horn + wake/smoke
-  -- boat task; data/maps/SSAnne_Exterior/scripts.inc:21 runs it after
-  -- `delay 50`, then removes the boat and warps.  The port has no wake/sprite
-  -- sail task, so play the horn (SE_SS_ANNE_HORN) and let the script's own
-  -- object removal + warp carry the beat.
+  -- pokefirered/src/ss_anne.c:82, data/maps/SSAnne_Exterior/scripts.inc:21
   [Std.SPECIAL.DoSSAnneDepartureCutscene] = function(ctx, adapters)
     playSe(adapters, SE_SS_ANNE_HORN)
     return false
   end,
 
-  -- pokefirered/src/field_specials.c:2133 DoPokemonLeagueLightingEffect —
-  -- a timed BG_PLTT_ID(7) tint task (data/scripts/pokemon_league.inc:63);
-  -- FLAG_TEMP_3 selects task-cancel instead of start.  The port never starts
-  -- the tint, so the no-op covers both the start and the cancel arm.
+  -- pokefirered/src/field_specials.c:2133, data/scripts/pokemon_league.inc:63
   [Std.SPECIAL.DoPokemonLeagueLightingEffect] = function()
     return false
   end,
 
-  -- pokefirered/src/field_specials.c:2535 LoopWingFlapSound — plays
-  -- SE_M_WING_ATTACK now, then repeats every VAR_0x8005 frames until
-  -- VAR_0x8004 loops (NavelRock_Summit/scripts.inc:39-41 + :54-55 set
-  -- 3 loops / 35-frame delay while the camera pans).
+  -- pokefirered/src/field_specials.c:2535, NavelRock_Summit/scripts.inc:39-41
   [Std.SPECIAL.LoopWingFlapSound] = function(ctx, adapters)
     local loops = varGet(ctx, VAR_0x8004)
     local delay = varGet(ctx, VAR_0x8005)
@@ -207,10 +176,7 @@ Cutscene.HANDLERS = {
             count = count + 1
             playSe(adapters, SE_M_WING_ATTACK)
           end
-          -- review-v3 Q11: pret destroys the task at data[0] == VAR_0x8004 - 1
-          -- (field_specials.c:2553), so total plays = loops (1 entry + loops-1
-          -- ticks), not loops+1.  The check runs every pump like pret's
-          -- post-increment check (field_specials.c:2546-2554).
+          -- field_specials.c:2553, field_specials.c:2546-2554
           return count >= loops - 1
         end)
       end
@@ -218,14 +184,7 @@ Cutscene.HANDLERS = {
     return false
   end,
 
-  -- pokefirered/src/script_menu.c:1151 OpenMuseumFossilPic — draws the
-  -- 64x64 fossil exhibit over the msgbox (data/maps/PewterCity_Museum_1F/
-  -- scripts.inc:170-187: setvar species/x/y, special, msgbox, special).  The
-  -- art is already extracted (museum_extract.lua -> gba/museum/*.rgba); the
-  -- window widget that composites it is still to come, so this records the
-  -- open state for that seam.  Species guard mirrors script_menu.c:1165-1176
-  -- (only KABUTOPS/AERODACTYL draw; anything else returns FALSE) and, like
-  -- pret, never touches dex flags — the old 0x18B mis-bind did.
+  -- pokefirered/src/script_menu.c:1151, scripts.inc:170-187, script_menu.c:1165-1176
   [Std.SPECIAL.OpenMuseumFossilPic] = function(ctx)
     local species = varGet(ctx, VAR_0x8004)
     if species ~= SPECIES_KABUTOPS and species ~= SPECIES_AERODACTYL then
@@ -241,8 +200,7 @@ Cutscene.HANDLERS = {
     return false
   end,
 
-  -- pokefirered/src/script_menu.c:1184 CloseMuseumFossilPic — retires the
-  -- task that owns the picture window.
+  -- pokefirered/src/script_menu.c:1184
   [Std.SPECIAL.CloseMuseumFossilPic] = function(ctx)
     if ctx then ctx.museumFossilPic = nil end
     return false

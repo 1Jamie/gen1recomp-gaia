@@ -28,8 +28,7 @@ function Trig.sin(i)
   return Trig.SINE[(math.floor(i) % 320) + 1]
 end
 
--- pokefirered/src/trig.c:514 — shared round-to-nearest atan2 expressed in u16 turns.
--- All anim-port generations delegate here so ArcTan2 cannot drift between ports.
+-- pokefirered/src/trig.c:514
 function Trig.arcTan2(x, y)
   local a = math.atan2(y, x)
   if a < 0 then a = a + 2 * math.pi end

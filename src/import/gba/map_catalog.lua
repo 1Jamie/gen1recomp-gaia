@@ -23,7 +23,6 @@ local function pret_to_engine(pret)
   s = s:gsub("(%l)(%u)", "%1_%2")
   s = s:gsub("-", "_"):upper()
   s = s:gsub("_+", "_")
-  -- The synthesized prefix comes from the active game's profile (T1.2).
   return Profile.active().map.enginePrefix .. s
 end
 

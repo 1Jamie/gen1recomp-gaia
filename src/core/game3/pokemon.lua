@@ -1,6 +1,4 @@
 -- Runtime FRLG species names / menu icons / types (extracted pack).
--- rse-seams T6.3b (I8): read the cache root from the zero-require CachePaths
--- module instead of pulling the ROM extractor into the runtime.
 local CachePaths = require("src.core.game3.cache_paths")
 local PokemonExtract = require("src.import.gba.pokemon_extract")
 local Versions = require("src.import.gba.versions")
@@ -85,7 +83,6 @@ local function load_lua(cache, rel)
   if not chunk then return nil end
   local ok, t = pcall(chunk)
   if ok then return t end
-  -- review-v3 S3: log the swallowed chunk error once before the nil fallback.
   if not pkLoadWarned then
     pkLoadWarned = true
     print("[game3/pokemon] load failed for " .. tostring(rel) .. ": " .. tostring(t))
@@ -223,7 +220,6 @@ function Pokemon.invalidate()
   Pokemon._types = nil
   Pokemon._national = nil
   Pokemon._manifest = nil
-  -- review-v3 S11: a failed install may retry after a remount/version change.
   Pokemon._installTried = nil
   Pokemon._installWarned = nil
   Pokemon._byName = nil

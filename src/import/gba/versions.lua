@@ -41,9 +41,9 @@ Versions.ROM_SIZE = 16777216
 -- v114: pokemon/icons/412.rgba, the SPECIES_EGG menu icon — eggs were drawn
 --       with the icon of the species they hatch into.
 -- v115: LeafGreen profiles, edition-specific title assets and Deoxys stats.
-Versions.CACHE_VERSION = 116
+Versions.CACHE_VERSION = 117
 Versions.NATIVE_VERSION = 6
-Versions.OW_VERSION = 2
+Versions.OW_VERSION = 3
 Versions.ANIM_VERSION = 1
 -- Audio pack (M4A banks / DirectSound samples / cries).
 Versions.AUDIO_VERSION = 6
@@ -2485,10 +2485,6 @@ function Versions.select(identity)
   edition = game
 end
 
--- rse-seams T6.3b: the per-game facade lives in versions_game.lua (T6.3a);
--- Versions.game is the alias its consumers read.  Kept alongside the edition
--- selector above: editions remap addresses in place, Versions.game picks the
--- table module.
 Versions.game = require("src.import.gba.versions_game").game
 
 return Versions

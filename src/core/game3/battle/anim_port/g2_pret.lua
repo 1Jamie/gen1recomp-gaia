@@ -3,7 +3,6 @@ local AnimPal = require("src.core.game3.battle.anim_pal")
 local AnimCoords = require("src.core.game3.battle.anim_coords")
 local Trig = require("src.core.game3.trig")
 
--- D1: one reused options table (AnimPal.resolve reads it synchronously).
 local _pfxBlendOpts = { coeff = 0, color = 0 }
 
 local P = {}

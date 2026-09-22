@@ -46,7 +46,6 @@ local function withPrefix(rel)
   return p .. rel
 end
 
--- L5: cache-relative paths must stay under the cache root; reject traversal.
 local function unsafe_rel(rel)
   return type(rel) ~= "string" or rel:find("..", 1, true) ~= nil
 end

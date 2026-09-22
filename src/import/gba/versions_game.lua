@@ -1,23 +1,10 @@
--- Per-game selector over the GBA version tables (T6.3a skeleton).
---
--- Today there is one flat FireRed monolith (src/import/gba/versions.lua) and
--- every extractor reads it as a singleton, so an RSE port has nowhere to put
--- its own ROM offsets (I7).  This module maps a game id to its table module;
--- the FireRed/LeafGreen rows name the monolith, an RSE row lands with
--- versions_rse.lua (T6.4).
---
--- Unwired: nothing requires this file yet.  The T6.2/T6.3 handoff patch aliases
---   Versions.game = require("src.import.gba.versions_game").game
--- and routes extractor reads through it.  Resolution fails closed to FireRed,
--- the same contract as src/core/game3/profile.lua.
-
 local GameVersion = require("src.core.GameVersion")
 
 local VersionsGame = {}
 
 VersionsGame.GAMES = {
   firered = "src.import.gba.versions",
-  leafgreen = "src.import.gba.versions", -- shares FireRed's tables
+  leafgreen = "src.import.gba.versions",
 }
 
 VersionsGame.FALLBACK = "firered"
@@ -36,7 +23,6 @@ local function load(id)
   return nil
 end
 
---- The version table module for a game id (nil or "" = active game).
 function VersionsGame.game(id)
   if type(id) ~= "string" or id == "" then
     local active = GameVersion.get()
@@ -60,7 +46,6 @@ function VersionsGame.game(id)
   return VersionsGame.game(VersionsGame.FALLBACK)
 end
 
---- Register a game's table module (a port adds its row at boot; the test seam).
 function VersionsGame.register(id, modulePath)
   if type(id) ~= "string" or id == "" then return false end
   if type(modulePath) ~= "string" or modulePath == "" then return false end
@@ -69,7 +54,6 @@ function VersionsGame.register(id, modulePath)
   return true
 end
 
---- Test/tool hook: drop resolutions; registrations survive.
 function VersionsGame.reset()
   cache = {}
   warned = {}

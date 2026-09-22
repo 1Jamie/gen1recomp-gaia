@@ -1,13 +1,5 @@
 #!/usr/bin/env luajit
--- Story event end to end: a new game opens the world hidden, Oak's yielding
--- party-pick special runs through the real VM (adapter yield + var hand-off +
--- resume), the granted FLAG_SYS_POKEDEX_GET flips a real consumer branch (the
--- start menu), and a cache-backed object-interaction event runs to completion.
--- pret: data/specials.inc:170 def_special ChoosePartyMon;
--- src/party_menu_specials.c:14-22 ChoosePartyMon with
--- PARTY_MENU_TYPE_CHOOSE_SINGLE_MON; src/start_menu.c:215-216
--- FlagGet(FLAG_SYS_POKEDEX_GET) gates STARTMENU_POKEDEX;
--- data/scripts/questionnaire.inc:4 (prompt) and :35 (decline releases control).
+-- data/specials.inc:170, src/party_menu_specials.c:14-22, src/start_menu.c:215-216, data/scripts/questionnaire.inc:4
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
@@ -30,8 +22,6 @@ local function finish()
   os.exit(0)
 end
 
--- Runtime stub first: natives.partyOf reads package.loaded at call time
--- (same pattern as tests/game3_special_handlers_test.lua session()).
 local session = {
   trainerId = 4242,
   party = { { species = 1, nickname = "", otId = 4242 },
@@ -49,8 +39,6 @@ local Vm = require("src.core.game3.scripting.vm")
 print("[test] 1. a new game opens with the world in its hiding state")
 local store = Flags.newStore()
 Flags.applyNewGameHideFlags(store)
--- Known opening values (tests/game3_event_flags_test.lua:50-60, pret
--- EventScript_ResetAllMapFlags via Flags.NEW_GAME_HIDE_FLAGS).
 check(Flags.getFlag(store, nil, 0x02B) == true, "lab Oak starts hidden (FLAG_HIDE_OAK_IN_HIS_LAB 0x2B)")
 check(Flags.getFlag(store, nil, 0x02C) == true, "Pallet Town Oak starts hidden (0x2C)")
 check(Flags.getFlag(store, nil, 0x092) == true, "Pewter running-shoes guide starts hidden (0x92)")
@@ -69,11 +57,9 @@ local vm = Vm.new({
   scripts = {
     ["scenario:oak_grants_dex"] = {
       { op = "special", [1] = Std.SPECIAL.ChoosePartyMon }, -- data/specials.inc:170
-      { op = "setvar", [1] = 0x4031, [2] = 1 },            -- VAR_STARTER_MON = Charmander
-      { op = "setflag", [1] = 0x829 },                      -- FLAG_SYS_POKEDEX_GET
-      -- The script just picked a starter, so retail also grants
-      -- FLAG_SYS_POKEMON_GET (0x828) — start_menu.c:217-218 gates the
-      -- POKéMON row on it and this scenario's menu checks need the row.
+      { op = "setvar", [1] = 0x4031, [2] = 1 },
+      { op = "setflag", [1] = 0x829 },
+      -- start_menu.c:217-218
       { op = "setflag", [1] = 0x828 },
       { op = "end" },
     },
@@ -117,7 +103,6 @@ local function openMenu()
   StartMenu.show({ session = { name = "TESTER" } })
 end
 
--- The flag test 2's event set drives the retail gate.
 openMenu()
 check(hasRow("pokedex"),
   "with FLAG_SYS_POKEDEX_GET set the POKéDEX row appears (start_menu.c:215)")
@@ -153,7 +138,7 @@ local messages, asked = {}, false
 local objVm = Vm.new({
   scripts = bundle.scripts, text = bundle.text, movements = bundle.movements,
   onMessage = function(text) messages[#messages + 1] = text end,
-  askYesNo = function(cb) asked = true; cb(false) end, -- decline: questionnaire.inc:35
+  askYesNo = function(cb) asked = true; cb(false) end, -- questionnaire.inc:35
 })
 if not objVm:start("EventScript_Questionnaire") then
   check(false, "EventScript_Questionnaire starts from the bundle")

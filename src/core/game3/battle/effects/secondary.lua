@@ -363,10 +363,7 @@ function Secondary.set(M, eff, primary, certain, affectsUser)
     user.rage = true
     return true
   elseif eff == "STEAL_ITEM" then
-    -- pret src/battle_script_commands.c:2610-2622 MOVE_EFFECT_STEAL_ITEM:
-    -- Trainer Tower never allows a steal, and an opponent may steal only in
-    -- Link / Battle Tower / e-Reader / Secret Base battles -- never in a
-    -- regular wild or trainer battle.
+    -- src/battle_script_commands.c:2610-2622
     local StType = ad._st
     if StType and StType.trainerTower then return false end
     if user.side ~= "player" and not (StType and (StType.link or StType.battleTower
@@ -413,8 +410,7 @@ function Secondary.set(M, eff, primary, certain, affectsUser)
     end
     return true
   elseif eff == "RAPIDSPIN" then
-    -- pokefirered/src/battle_script_commands.c:8435 Cmd_rapidspinfree is ONE
-    -- if/else-if chain: wrap, else leech seed, else spikes — one free per use.
+    -- pokefirered/src/battle_script_commands.c:8435
     local did = false
     if (user.expTrapTurns or 0) > 0 then
       local src = user.expTrapSource
@@ -424,20 +420,20 @@ function Secondary.set(M, eff, primary, certain, affectsUser)
       user.expTrapSource = nil
       user.wrapped = nil
       did = true
-    elseif user.expSeeded or user.leechSeed then
+    end
+    if user.expSeeded or user.leechSeed then
       user.expSeeded = nil
       user.expSeedSource = nil
       user.leechSeed = nil
       ad:say(Strings("%s shed\nLEECH SEED!", name(ad, user)))
       did = true
-    else
-      local side = ad:ownSide(user)
-      local Hazards = require("src.core.game3.battle.effects.hazards")
-      if side and Hazards.layers(side) > 0 then
-        Hazards.clear(side)
-        ad:say(Strings("%s blew away\nSPIKES!", name(ad, user)))
-        did = true
-      end
+    end
+    local side = ad:ownSide(user)
+    local Hazards = require("src.core.game3.battle.effects.hazards")
+    if side and Hazards.layers(side) > 0 then
+      Hazards.clear(side)
+      ad:say(Strings("%s blew away\nSPIKES!", name(ad, user)))
+      did = true
     end
     user.trapped = nil
     return did
@@ -472,11 +468,7 @@ function Secondary.set(M, eff, primary, certain, affectsUser)
     end
     if tItem == 0 then return false end
     effBattler.item = 0
-    -- pokefirered/src/battle_script_commands.c:2730-2752: FRLG clears only the
-    -- battler's item and sets the battle-scoped knockedOffMons bit.  The party
-    -- mon keeps the item (Bulbapedia FRLG: "prevent its use during the battle")
-    -- and the bit masks it back off on every later send-out, so there is no
-    -- party-mon write-through here.
+    -- pokefirered/src/battle_script_commands.c:2730-2752
     effBattler.expKnockedOff = true
     local St = battle_state()
     if St then St.markKnockedOff(ad._st, effBattler) end

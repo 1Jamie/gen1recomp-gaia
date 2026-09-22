@@ -44,8 +44,7 @@ local COOLDOWN_SCALE = 256 -- pret keeps minSteps/encRate scaled so the modifier
 
 -- pret AddToWildEncounterRateBuff banks into a u16 field, so it wraps there.
 local RATE_BUFF_MOD = 65536
--- review-v3 U4: pret VAR_REPEL_STEP_COUNT is 0x4020 (include/constants/vars.h:47);
--- the flags table also lists 0x4020, so the old 0x4021 wrote a different var.
+-- include/constants/vars.h:47
 local VAR_REPEL_STEP_COUNT = 0x4020
 
 local function log(msg)

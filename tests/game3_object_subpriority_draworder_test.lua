@@ -1,24 +1,4 @@
--- tests/game3_object_subpriority_draworder_test.lua
--- Seam 7 consumer-half contract (docs/game3/e10-opcode-spec.md §5.8):
---   1. set  -> Objects.setSubpriority stores {fixedPriority, subpriority}; the
---      script op applies the bias (prett scrcmd.c:1130 `priority + 83`).
---   2. draw -> field_view.applyDrawOrder captures the dynamic class once
---      (fixedClass), keeps it across elevation changes, and sorts the frozen
---      actor by subpriority instead of pixel-Y.
---   3. reset-> the record clears, no stale fixedClass survives, and the
---      elevation-driven dynamic path resumes exactly as before.
---   4. an unfrozen neighbour still follows ELEVATION_TO_PRIORITY.
---
--- pret anchors (clone /Users/shanemcgovern/dev/pokefirered, HEAD c75f35230):
---   src/event_object_movement.c:8379-8387 UpdateObjectEventElevationAndPriority
---     -> `if (objEvent->fixedPriority) return;`
---   src/event_object_movement.c:8424-8429 ObjectEventUpdateSubpriority
---     -> same early return (gates SetObjectSubpriorityByElevation :8414-8422)
---   src/event_object_movement.c:2089-2101 SetObjectSubpriority
---     -> `fixedPriority = TRUE; sprite->subpriority = subpriority`
---   src/event_object_movement.c:2104-2116 ResetObjectSubpriority
---     -> `fixedPriority = FALSE` (re-enables the dynamic path; does not restore)
---   src/scrcmd.c:1122-1140 set/resetobjectsubpriority (`priority + 83`).
+-- scrcmd.c:1130, src/event_object_movement.c:8379-8387, src/event_object_movement.c:8424-8429, src/event_object_movement.c:2089-2101, src/event_object_movement.c:2104-2116, src/scrcmd.c:1122-1140
 
 local Objects = require("src.core.game3.objects")
 local FieldView = require("src.core.game3.field_view")
@@ -42,12 +22,11 @@ local function done()
   os.exit(0)
 end
 
--- Current-map live EventObject in the store the producer resolves from.
 local eo = {
   localId = 3,
   def = { x = 4, y = 4, elevation = 0 },
   cellX = 4, cellY = 4, px = 4 * 16, py = 4 * 16,
-  elevation = 0, -- class 2 (ground) per ELEVATION_TO_PRIORITY[0]
+  elevation = 0,
 }
 Objects._byId[3] = eo
 
@@ -74,7 +53,7 @@ end
 
 print("[test] 2. set stores the record with the +83 script bias")
 do
-  local scriptPriority = 0 -- script byte; pret adds 83 in scrcmd.c:1130
+  local scriptPriority = 0 -- scrcmd.c:1130
   local ok = Objects.setSubpriority(3, nil, nil, scriptPriority + 83)
   check(ok == true, "setSubpriority resolves the current-map object")
   check(eo.fixedPriority == true, "fixedPriority flag set")
@@ -91,7 +70,7 @@ end
 
 print("[test] 4. freeze holds across an elevation change (pret early-return)")
 do
-  eo.elevation = 13 -- would be class 0 if the dynamic writer ran
+  eo.elevation = 13
   local under, over = FieldView.applyDrawOrder({ makeActor(eo) })
   check(under[1].priority == 2, "priority stays at fixedClass (2), not ELEVATION_TO_PRIORITY[13]=0")
   check(eo.fixedClass == 2, "fixedClass captured once, not re-derived")
@@ -102,7 +81,7 @@ print("[test] 5. frozen actor sorts by subpriority; neighbour keeps pixel-Y")
 do
   local neighbour = {
     kind = "npc", i = 9, obj = { elevation = 3 }, elevation = 3,
-    x = 16, y = 100, sortY = 100, -- pixel-Y 100 > subpriority 83
+    x = 16, y = 100, sortY = 100,
   }
   local under = FieldView.applyDrawOrder({ neighbour, makeActor(eo) })
   check(#under == 2, "both actors share the under list")
@@ -112,7 +91,7 @@ do
 
   local near = {
     kind = "npc", i = 8, obj = { elevation = 3 }, elevation = 3,
-    x = 32, y = 10, sortY = 10, -- pixel-Y 10 < subpriority 83
+    x = 32, y = 10, sortY = 10,
   }
   local under2 = FieldView.applyDrawOrder({ near, makeActor(eo) })
   check(under2[1] == near, "pixel-Y 10 still sorts before subpriority 83")
@@ -132,7 +111,6 @@ do
   check(over[1].subpriority == nil, "sort key back to pixel-Y")
   check(eo.fixedClass == nil, "no stale fixedClass survives the reset")
 
-  -- a later re-freeze must re-capture from the current elevation, not the old one
   Objects.setSubpriority(3, nil, nil, 5 + 83)
   local under2, over2 = FieldView.applyDrawOrder({ makeActor(eo) })
   check(#under2 == 0, "fresh capture at class 0 keeps the actor out of the under list")

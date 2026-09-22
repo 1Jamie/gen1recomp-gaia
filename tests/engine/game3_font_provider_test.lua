@@ -1,12 +1,3 @@
--- T5.1: the Game3 font provider resolves the active game's implementation
--- through the profile and forwards its API, so a Ruby/Sapphire/Emerald font
--- bank is a profile row plus (optionally) a registration, never a fork of
--- frlg_font.lua.
---
--- FireRed's profile names src.ui.game3.frlg_font, so every forwarded value
--- must be identical to requiring that module directly.
---   luajit tests/engine/game3_font_provider_test.lua
-
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local T = require("tests.harness")
@@ -19,8 +10,6 @@ local FrlgFont = require("src.ui.game3.frlg_font")
 
 local prevVersion = GameVersion.get()
 
--- --------------------------------------------------- FireRed resolution
-
 GameVersion.set("firered")
 Profile.reset()
 Font.reset()
@@ -30,7 +19,6 @@ check(Font.impl(nil) == FrlgFont, "nil resolves the active game's implementation
 check(Font.active() == FrlgFont, "active() is the active game's implementation")
 check(Font.impl("ruby") == FrlgFont, "an overlay-less RSE id falls back to FireRed's font")
 
--- The provider forwards, live and by identity.
 eq(Font.CELL, FrlgFont.CELL, "CELL forwards")
 eq(Font.GLYPH_HEIGHT, FrlgFont.GLYPH_HEIGHT, "GLYPH_HEIGHT forwards")
 eq(Font.LINE_PITCH, FrlgFont.LINE_PITCH, "LINE_PITCH forwards")
@@ -46,8 +34,6 @@ check(Font.invalidate == FrlgFont.invalidate, "invalidate forwards")
 check(Font.countChars == FrlgFont.countChars, "countChars forwards")
 eq(Font.MAX_LETTER_WIDTH, FrlgFont.MAX_LETTER_WIDTH, "MAX_LETTER_WIDTH forwards")
 
--- Forwarding reads the implementation now, not a load-time snapshot: a
--- registration for the ACTIVE game is visible immediately.
 local replacement = {
   CELL = 99,
   measure = function() return 42 end,
@@ -58,26 +44,19 @@ check(Font.register("testgame", 7) == false, "register rejects a non-table")
 check(Font.impl("testgame") == replacement, "a registration wins over the profile module")
 eq(Font.impl("testgame").CELL, 99, "a registered table answers directly")
 
--- Active forwarding follows a registration for the game that is running.
 check(Font.register("firered", replacement) == true, "register the active game")
 eq(Font.CELL, 99, "a forwarded constant follows the active registration")
 check(Font.measure == replacement.measure, "a forwarded function follows the registration")
 
--- reset() drops resolutions and keeps registrations.
 Font.reset()
 check(Font.impl("firered") == replacement, "registrations survive reset")
 check(Font.impl("ruby") == FrlgFont, "the FireRed fallback still answers for an overlay-less id")
 
--- unregister restores the profile's module.
 check(Font.unregister("firered") == true, "unregister returns true")
 Font.reset()
 check(Font.impl("firered") == FrlgFont, "unregister falls back to the profile's module")
 check(Font.unregister("testgame") == true, "clean up the fixture registration")
 
--- ------------------------------------------------ lazy, profile-driven load
-
--- The provider must not require an implementation until asked, and it must
--- load the module the profile names.
 local saved = package.loaded["src.ui.game3.frlg_font"]
 package.loaded["src.ui.game3.frlg_font"] = nil
 Font.reset()
@@ -87,8 +66,6 @@ check(package.loaded["src.ui.game3.frlg_font"] == loaded,
   "the loaded module is the one frlg_font's path names")
 package.loaded["src.ui.game3.frlg_font"] = saved or loaded
 
--- A key the implementation does not carry reads as nil instead of raising, so
--- a headless tool can probe the provider without a graphics context.
 check(Font.NO_SUCH_KEY == nil, "an unknown forwarded key reads as nil")
 
 GameVersion.set(prevVersion)

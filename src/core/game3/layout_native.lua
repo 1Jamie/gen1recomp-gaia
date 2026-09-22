@@ -58,8 +58,6 @@ end
 --- Flat 1-based COLL_* array for Collision.bindMap.
 function LayoutNative:collArray()
   local n = self.width * self.height
-  -- review-v3 B2: a zero-dimension layout must not yield a truthy-but-empty
-  -- array (it would disable the host-map fallback); nil means "no grid".
   if n <= 0 then return nil end
   local out = {}
   for i = 1, n do

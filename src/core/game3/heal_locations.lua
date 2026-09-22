@@ -108,10 +108,6 @@ function HealLocations.load(cache, root)
   if not (cache and cache.read) then return 0 end
   local rel = root .. "/" .. HealLocations.BAKED_REL
   local src = cache:read(rel)
-  -- review-v3 B5: commit the root only together with a real bake — the old
-  -- code installed an empty table first, so one transient read failure pinned
-  -- an empty result forever (HealLocations.get only retries while _baked is
-  -- nil, and a version mount clears through invalidate()).
   if type(src) ~= "string" or src == "" then return 0 end
   local chunk = load(src, "@" .. rel, "t", {})
   if not chunk then return 0 end

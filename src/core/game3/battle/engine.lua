@@ -6,7 +6,6 @@ local State = require("src.core.game3.battle.state")
 local Effects = require("src.core.game3.battle.effects")
 local EffectIds = require("src.core.game3.battle.effect_ids")
 local Residuals = require("src.core.game3.battle.residuals")
--- review-v3 S5: per-site first-failure flags so swallowed pcalls log once.
 local rollWarned = false
 local badgeWarned = false
 local ResidualHandlers = require("src.core.game3.battle.residual_handlers")
@@ -97,7 +96,6 @@ local function roll(adapter, lo, hi)
   if adapter and adapter.rng then
     local ok, v = pcall(adapter:rng(), lo, hi)
     if ok and type(v) == "number" then return v end
-    -- review-v3 S5: log the swallowed rng-pcall once, then fall back.
     if not rollWarned then
       rollWarned = true
       print("[game3/engine] adapter rng failed: " .. tostring(v))
@@ -176,7 +174,6 @@ function Engine.hasBadge(st, n)
   if Space and Space.store and Flags and Flags.hasBadge then
     local ok, v = pcall(Flags.hasBadge, Space.store, n)
     if not ok then
-      -- review-v3 S5: log the swallowed badge-pcall once, then default false.
       if not badgeWarned then
         badgeWarned = true
         print("[game3/battle] hasBadge failed: " .. tostring(v))
@@ -1366,24 +1363,11 @@ function Engine.moveEndLite(M)
 end
 
 -- pokefirered/src/battle_util.c:1208
--- pokefirered/src/battle_util.c:1208-1211: the end-of-action pass runs the
--- held-item check for ALL battlers (ItemBattleEffects(ITEMEFFECT_NORMAL, 0,
--- TRUE) with battler 0), not only for the player's side (review-v3 C8).
-local function heldItemsForAll(st, ad, moveTurn)
-  local list = (ad and ad.activeBattlers and ad:activeBattlers()) or nil
-  if not list or not list[1] then list = { st.player, st.enemy } end
-  local did = false
-  for _, b in ipairs(list) do
-    if b and HeldItems.normal(ad, b, moveTurn) then did = true end
-  end
-  return did
-end
-
 function Engine.afterAction(st, ad)
   if not st or st.over then return end
   for _ = 1, 4 do
     local did = Abilities.runIntimidate(ad) or Abilities.runTrace(ad)
-      or heldItemsForAll(st, ad, true) or Abilities.forecast(ad)
+      or HeldItems.normal(ad, st.player, true) or Abilities.forecast(ad)
     if not did then break end
   end
 end
@@ -1863,9 +1847,6 @@ function Engine.mostSuitableMon(st, adapter, side)
   for i = 1, 6 do
     local mon = party[i]
     if valid(i, mon) then
-      -- STAB comes from the candidate mon's own types (battle_ai_switch_items
-      -- scores the mon we would send in, not the one switching out).
-      local c1, c2 = types_of(mon)
       for j = 1, 4 do
         local mv = mon.moves and mon.moves[j]
         local n = move_num(mv)
@@ -1875,7 +1856,7 @@ function Engine.mostSuitableMon(st, adapter, side)
           if (tonumber(m.power) or 0) ~= 1 then
             local mt = tonumber(m.type) or 0
             dmg = 2
-            if c1 == mt or c2 == mt then dmg = math.floor(dmg * 15 / 10) end
+            if active and (active.type1 == mt or active.type2 == mt) then dmg = math.floor(dmg * 15 / 10) end
             dmg = Types.typeCalc(mt, opp.type1, opp.type2, dmg) or 0
           end
         end
@@ -1892,7 +1873,6 @@ function Engine.performEnemyItem(st, adapter, act)
   return BattleItems.enemyUse(st, adapter, act)
 end
 
--- pokefirered/src/battle_script_commands.c:4467
 -- pokefirered/src/battle_script_commands.c:4467
 local function switched_event(st, adapter, id, nb, old, opts)
   if not ModRuntime.wants("battle.battler_switched") then return end

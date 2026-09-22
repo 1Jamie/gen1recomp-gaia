@@ -758,7 +758,6 @@ function FrlgFont.wrap(text, maxWidth, opts)
   return table.concat(outLines, "\n")
 end
 
--- Reused opts tables for FrlgFont.advance (avoids one allocation per glyph).
 local ADVANCE_SMALL = { small = true }
 local ADVANCE_NORMAL = {}
 

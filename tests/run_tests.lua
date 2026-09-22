@@ -2277,9 +2277,6 @@ end
 -- plays a tink + 40-frame pause per shake, rewinding the same subanim.
 do
   local AnimPlayer = require("src.battle.AnimPlayer")
-  -- Data:load() (line 26) already loaded battle_anims; a plain
-  -- require("data.generated.*") has no package searcher under
-  -- POKEPORT_DATA_DIR and crashes the whole run mid-file.
   local ap = AnimPlayer.new(Data.battle_anims)
   ap:start("SHAKE_ANIM", true, { shakes = 3 })
   local tinks = 0
@@ -3590,12 +3587,6 @@ local function restoreLove(snap)
 end
 
 local function runSuites(paths)
-  -- Parity suites replace these two modules with partial stubs and restore
-  -- them at their end; a mid-suite failure skips that restore and leaks the
-  -- stub to every later suite in this single process (wave-3 T3 classes:
-  -- Music.playMap nil at OverworldController:616, TextBox.strip/paginate/
-  -- arrowPos nils, cascading text-box asserts).  Restore the pre-suite
-  -- binding around each dofile, mirroring the love snapshot below.
   local LEAKED_KEYS = { "src.render.TextBox", "src.core.Music" }
   for _, path in ipairs(paths) do
     local label = path:match("([^/]+)%.lua$") or path

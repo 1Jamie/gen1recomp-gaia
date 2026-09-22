@@ -561,8 +561,6 @@ function CB.beginBreakOut(b)
   b.cb = CB.runBreakOut
   BallOpen.start(b.target or 1, b.x, b.y, b.itemId, true)
   play_se(SE.SE_BALL_OPEN)
-  -- review-v3 D6: a breakout without a staged mon (no target yet) must not
-  -- dereference b.mon; the break-out visuals just skip the mon sprite.
   if b.mon then
     b.mon.visible = true
     b.monAff = { paused = false }

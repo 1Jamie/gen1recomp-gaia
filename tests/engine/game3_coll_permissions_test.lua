@@ -1,11 +1,3 @@
--- I9 import/world seam (review-v3 row I9): native_pack classified COLL bytes
--- through src/world/gen2/Permissions, i.e. an import module reaching into the
--- world layer.  The byte vocabulary now lives in src/core/CollPermissions.lua
--- and Permissions re-exports it.  This suite proves (1) the edge is gone, (2) the
--- two modules answer identically for every byte, and (3) the import path
--- NativePack.resolveLayoutColl behaves exactly as before on all four branches.
---   luajit tests/engine/game3_coll_permissions_test.lua
-
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local T = require("tests.harness")
@@ -22,8 +14,6 @@ local function sourceOf(rel)
   f:close()
   return s
 end
-
--- ------------------------------------------------------- the boundary itself
 
 do
   local pack = sourceOf("src/import/gba/native_pack.lua")
@@ -46,8 +36,6 @@ do
     "the permission table no longer lives in the gen2 world module")
 end
 
--- ------------------------------------------- equivalence (byte-for-byte proof)
-
 eq(Coll.LAND, Permissions.LAND, "LAND matches")
 eq(Coll.WATER, Permissions.WATER, "WATER matches")
 eq(Coll.WALL, Permissions.WALL, "WALL matches")
@@ -69,13 +57,10 @@ for _, c in ipairs(cases) do
   if Coll.isWater(c) ~= Permissions.isWater(c) then mismatches = mismatches + 1 end
   if Coll.isWall(c) ~= Permissions.isWall(c) then mismatches = mismatches + 1 end
 end
--- nil never reaches ipairs, so compare it explicitly.
 if Coll.of(nil) ~= Permissions.of(nil) then mismatches = mismatches + 1 end
 if Coll.isWalkable(nil) ~= Permissions.isWalkable(nil) then mismatches = mismatches + 1 end
 if Coll.isLedge(nil) ~= Permissions.isLedge(nil) then mismatches = mismatches + 1 end
 eq(mismatches, 0, "CollPermissions and Permissions agree on every tested byte")
-
--- ----------------------------------------- spot semantics from the moved table
 
 eq(Coll.of(0), Coll.LAND, "coll 0 is LAND")
 check(Coll.isWalkable(0) == true, "coll 0 is walkable")
@@ -91,13 +76,10 @@ eq(Coll.of(nil), Coll.WALL, "nil reads as WALL")
 eq(Coll.of(-1), Coll.WALL, "negative reads as WALL")
 check(Coll.isLedge(nil) == false, "nil is not a ledge")
 
--- The gen2-specific half of Permissions still works off the re-exported of().
 eq(Permissions.surfable(0x20), "water", "surfable still answers water (Permissions.of re-export)")
 eq(Permissions.surfable(0), "land", "surfable still answers land")
 check(type(Permissions.ledgeFacings(0xa0)) == "table",
   "ledgeFacings still resolves (LEDGE_FACINGS + isLedge)")
-
--- --------------------------------- the import path, all four branches, unchanged
 
 local Seed = require("src.core.game3.scripting.collision")
 local seeded = Seed.seed("BLOCKED")

@@ -4,8 +4,6 @@ local Options = {}
 
 local Profile = require("src.core.game3.profile")
 
--- Kept for compatibility; the live key comes from the profile (T1.1 handoff,
--- docs/game3/rse-seams.md section 4).  No call site may read this directly.
 Options.BLOCK = Profile.FALLBACK_ID
 
 -- pret: textSpeed 0=SLOW 1=MID 2=FAST
@@ -42,8 +40,6 @@ local function migrate_root(engine, o)
   engine.l_equals_a = nil
 end
 
--- The engine options file is keyed per game (option block id).  `blockId`
--- defaults to the active profile; callers holding a save pass that save's game.
 function Options.block(engine, blockId)
   if type(engine) ~= "table" then return fill_defaults({}) end
   blockId = blockId or Profile.active().optionsBlock
@@ -56,7 +52,6 @@ function Options.block(engine, blockId)
   return fill_defaults(o)
 end
 
---- The option block id for a session: its stored game, else the active one.
 function Options.blockId(session)
   if type(session) == "table" and type(session.version) == "string" then
     return Profile.of(session.version).optionsBlock

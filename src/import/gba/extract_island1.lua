@@ -15,11 +15,6 @@ local Maps = require("src.import.gba.maps")
 
 local Extract = {}
 
--- CacheFS paths: the single source of truth is the zero-require CachePaths
--- module (rse-seams T6.3b / I8: the runtime must not pull the ROM extractor
--- just to read a path).  Extract.CACHE_ROOT/NATIVE_ROOT stay as forwarding
--- references so external setters (Dataset.mountExtractRoots) and the many UI
--- readers keep working unchanged.
 local CachePaths = require("src.core.game3.cache_paths")
 setmetatable(Extract, {
   __index = function(t, k)
@@ -58,9 +53,6 @@ local function write_json(cache, rel, obj)
         for i = 1, #v do parts[i] = enc(v[i]) end
         return "[" .. table.concat(parts, ",") .. "]"
       end
-      -- Deterministic bytes: pairs() order varies between processes, which made
-      -- meta.json (and friends) differ run to run.  Sort the object keys the
-      -- same way src/import/canonical_json.lua does.
       local keys = {}
       for k in pairs(v) do keys[#keys + 1] = k end
       table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
@@ -214,9 +206,6 @@ function Extract.nativeReady(cache)
   if not man or (tonumber(man.native_version) or 0) < (Versions.NATIVE_VERSION or 5) then
     return false
   end
-  -- review-v3 B4: smoke-check EVERY pairs entry (writeExtract emits over for
-  -- each one); accepting the cache after the first entry let a half-written
-  -- native cache read as ready.
   local checked = 0
   for pairName in pairs(man.pairs or {}) do
     if not cache:exists(Extract.NATIVE_ROOT .. "/" .. pairName .. "/mids_over.idx") then
@@ -339,8 +328,6 @@ function Extract.run(imports, cache, progressCb)
   progress(progressCb, 2, "maps", 0, 1)
   local Maps = require("src.import.gba.maps")
   local grids = {}
-  -- review-v3 B3: a map whose layout spec or tileset bundle is missing must
-  -- never be dropped silently — log it and surface a non-success status.
   local dropped = {}
   for _, mapId in ipairs(mapOrder) do
     local spec = Versions.MAPS[mapId]
@@ -540,8 +527,6 @@ function Extract.run(imports, cache, progressCb)
   for _, mapId in ipairs(mapOrder) do
     local conns = connections[mapId] or {}
     cl[#cl + 1] = ("  %s = {\n"):format(mapId)
-    -- Deterministic output: sort the direction keys (pairs order varies per
-    -- process and made connections.lua byte-unstable between runs).
     local dirs = {}
     for dir in pairs(conns) do dirs[#dirs + 1] = dir end
     table.sort(dirs)
@@ -1900,8 +1885,6 @@ local function _dormant_quantize_run(imports, cache, progressCb)
   for _, mapId in ipairs(mapOrder) do
     local conns = connections[mapId] or {}
     cl[#cl + 1] = ("  %s = {\n"):format(mapId)
-    -- Deterministic output: sort the direction keys (pairs order varies per
-    -- process and made connections.lua byte-unstable between runs).
     local dirs = {}
     for dir in pairs(conns) do dirs[#dirs + 1] = dir end
     table.sort(dirs)

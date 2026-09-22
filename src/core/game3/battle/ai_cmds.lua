@@ -907,10 +907,7 @@ end
 
 function CMD.get_protect_count(vm, op)
   local b = AiCmds.battler(vm, op.battler)
-  -- pokefirered/src/battle_ai_script_commands.c:1847-1856 reads
-  -- gDisableStructs[battlerId].protectUses; the engine keeps that counter as
-  -- expProtectStreak (effects/volatiles.lua:14-26), and the old read of the
-  -- never-written `protectUses` always returned 0 (review-v3 C7).
+  -- pokefirered/src/battle_ai_script_commands.c:1847-1856
   vm.funcResult = (b and b.expProtectStreak) or 0
   next_ip(vm)
 end

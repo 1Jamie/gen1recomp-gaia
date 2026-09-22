@@ -5,7 +5,6 @@
 -- 4. StickerManGetBragFlags (0x168)
 -- 5. UpdateTrainerCardPhotoIcons (0x167)
 -- 6. SeafoamIslandsB4F_CurrentDumpsPlayerOnLand (0x15C)
--- 7. Sign walk-away: DisableMsgBoxWalkaway (0x171) + Events.pollWalkaway
 
 local Std = require("src.core.game3.scripting.stdscripts")
 local Natives = require("src.core.game3.scripting.natives")
@@ -111,11 +110,8 @@ end
 print("=== 4. StickerManGetBragFlags (0x168) ===")
 do
   local session = Schema.newGame({ name = "RED" })
-  -- Numeric game stats are authoritative (game_stat.h: ENTERED_HOF=10,
-  -- HATCHED_EGGS=13, LINK_BATTLE_WINS=23 — 24 would be LINK_BATTLE_LOSSES).
-  -- The session-field fallbacks deliberately disagree so the assertions fail
-  -- if the reader falls back to them or uses the wrong index.
-  session.gameStats = { [10] = 12, [13] = 70000, [23] = 5 } -- eggs > 0xFFFF
+  -- game_stat.h
+  session.gameStats = { [10] = 12, [13] = 70000, [23] = 5 }
   session.hofClears = 99
   session.eggsHatched = 1
   session.linkBattleWins = 1
@@ -246,31 +242,27 @@ do
     isDown = function(_, k) return k == "up" end,
   }
 
-  -- Arm the sign walk-away with the player facing up (DIR_NORTH = 2).
   Natives.special(ctx, Std.SPECIAL.SetWalkingIntoSignVars)
   ctx.messageOpen = true
-  ctx.specialVars[0x800C] = 2 -- VAR_FACING = up
+  ctx.specialVars[0x800C] = 2
 
-  -- Inhibit window: the timer counts down, nothing is cancelled yet.
   for _ = 1, 6 do Events.pollWalkaway(vm, inputDown) end
   checkEq(ctx.walkAwayFromSignInhibitTimer, 0, "inhibit timer counts down to 0")
   checkEq(halted, false, "no cancel while the inhibit window runs")
   checkEq(closed, 0, "message stays open during the inhibit window")
 
-  -- D-pad away from facing after the window: EventScript_CancelMessageBox.
   Events.pollWalkaway(vm, inputDown)
   checkEq(closed, 1, "walkaway closes the sign message")
   check(halted == true, "walkaway aborts the script (release + end)")
   checkEq(ctx.walkAwayFromSignInhibitTimer, nil, "walkaway state cleared on cancel")
 
-  -- State from a script that ended without cancelling is dropped.
   vm.isRunning = function() return false end
   Natives.special(ctx, Std.SPECIAL.SetWalkingIntoSignVars)
   Events.pollWalkaway(vm, inputUp)
   checkEq(ctx.walkAwayFromSignInhibitTimer, nil, "state cleared once the script stops")
   checkEq(session.msgBoxIsCancelable, nil, "...on ctx and session both")
 
-  -- DisableMsgBoxWalkaway blocks the cancel (script.c:245).
+  -- script.c:245
   vm.isRunning = function() return true end
   halted, closed = false, 0
   Natives.special(ctx, Std.SPECIAL.SetWalkingIntoSignVars)
@@ -285,7 +277,6 @@ do
   checkEq(halted, false, "disabled walkaway never cancels")
   checkEq(closed, 0, "message stays open when walkaway is disabled")
 
-  -- D-pad into the facing direction never cancels.
   halted, closed = false, 0
   Natives.special(ctx, Std.SPECIAL.SetWalkingIntoSignVars)
   ctx.messageOpen = true

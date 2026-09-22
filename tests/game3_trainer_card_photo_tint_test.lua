@@ -1,12 +1,3 @@
--- End-to-end proof for the Game Corner photo -> trainer-card tint chain.
--- Mirrors the real in-game wiring:
---   setvar VAR_0x8004 (ctx.specialVars) -> special UpdateTrainerCardPhotoIcons (0x167)
---   -> Flags.setVar into THE SAME store the card reads (Space.store in-game)
---   -> Flags.serialize (game.save) -> Flags.loadInto (next boot)
---   -> TrainerCard.cardData/gather -> c.monIconTint / c.monSpecies.
--- Ground truth: saves/firered/slot1.lua (Sep 22 18:24) carries
---   ["16450"]=2, ["16451"]=4, ["16452".."16456"]=0 with a 1-mon party (Charmander).
-
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local Std = require("src.core.game3.scripting.stdscripts")
@@ -51,11 +42,9 @@ print("=== 1. Photo script path writes tint + species into THE store the card re
 local session, store, ctx
 do
   session = Schema.newGame({ name = "RED" })
-  session.party = { { speciesId = 4, species = 4 } } -- user's save: one Charmander
+  session.party = { { speciesId = 4, species = 4 } }
 
   store = Flags.newStore()
-  -- In-game both sides resolve Space from package.loaded; share one table so
-  -- scriptStore(ctx) (natives) and script_store() (trainer card) see ONE store.
   package.loaded[SPACE_KEY] = { store = store, getStore = function() return store end }
   package.loaded[RT_KEY] = { getSession = function() return session end }
 
@@ -65,8 +54,7 @@ do
     specialVars = {},
   }
 
-  -- Real setvar opcode path: Flags.setVar routes 0x80xx to ctx.specialVars.
-  Flags.setVar(store, ctx, 0x8004, 2) -- MON_ICON_TINT_PINK
+  Flags.setVar(store, ctx, 0x8004, 2)
   local yielded = Natives.special(ctx, Std.SPECIAL.UpdateTrainerCardPhotoIcons)
   check(yielded == false, "UpdateTrainerCardPhotoIcons completes without yielding")
 
@@ -102,8 +90,8 @@ end
 print("=== 3. Store unavailable: session.vars fallback must read string keys ===")
 do
   local snap = Flags.serialize(store)
-  session.vars = snap.vars -- save-format string keys, numeric miss
-  package.loaded[SPACE_KEY] = nil -- Space not resolvable -> script_store() nil
+  session.vars = snap.vars
+  package.loaded[SPACE_KEY] = nil
 
   local c = TrainerCard.cardData(session)
   checkEq(c.monIconTint, 2, "fallback reads [\"16450\"] -> monIconTint=2")
@@ -126,7 +114,7 @@ do
   package.loaded[RT_KEY] = { getSession = function() return session4 end }
 
   local ctx4 = { flags = session4.flags, vars = session4.vars, specialVars = {} }
-  Flags.setVar(store4, ctx4, 0x8004, 2) -- MON_ICON_TINT_PINK
+  Flags.setVar(store4, ctx4, 0x8004, 2)
   Natives.special(ctx4, Std.SPECIAL.UpdateTrainerCardPhotoIcons)
 
   checkEq(Flags.getVar(store4, ctx4, 0x4042), 2, "multi-mon: store 0x4042 tint idx is 2")

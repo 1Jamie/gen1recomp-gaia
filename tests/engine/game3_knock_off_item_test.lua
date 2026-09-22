@@ -1,17 +1,5 @@
--- KNOCK_OFF renders the held item unusable for the rest of the battle.
 --
--- FRLG semantics (Bulbapedia: "prevent its use during the battle"; pret
--- pokefirered/src/battle_script_commands.c:2730-2752): the effect clears the
--- battler's item and sets the battle-scoped knockedOffMons bit.  The party mon
--- keeps the item -- "it still remains visible on the status screen" -- and the
--- bit masks the battler back to ITEM_NONE on every later send-out
--- (battle_script_commands.c:4489), so the item does not come back on
--- switch-out.  It is usable again after the battle.
---
--- History: an earlier workaround also wrote the removal through to the party
--- mon.  That is wrong for FRLG -- the party copy has to survive the battle --
--- and it is not what stops the item returning on switch-out; the send-out mask
--- below is.
+-- pokefirered/src/battle_script_commands.c:2730-2752, battle_script_commands.c:4489
 --
 --   luajit tests/engine/game3_knock_off_item_test.lua
 
@@ -59,16 +47,12 @@ local function knock_off(user, target, st)
   }, "KNOCK_OFF", false, true, false)
 end
 
--- 1. The battler loses the item, the party mon keeps it (usable again after
---    the battle); the send-out mask below is what hides it for the rest of
---    this battle.
 local user, target = battler("enemy", 0), battler("player", 13)
 check(knock_off(user, target), "KNOCK_OFF reports the item was removed")
 eq(target.item, 0, "the battler's item is cleared")
 eq(target.mon.item, 13, "the party mon keeps the item for after the battle")
 eq(target.mon.heldItem, 13, "heldItem is kept as well")
 
--- 2. The enemy side behaves the same.
 local user2, target2 = battler("player", 0), battler("enemy", 13)
 knock_off(user2, target2)
 eq(target2.item, 0, "the enemy battler's item is cleared")
@@ -84,8 +68,6 @@ eq(target3.mon.item, 13, "STICKY_HOLD keeps the party item")
 local user4, target4 = battler("enemy", 0), battler("player", 0)
 check(not knock_off(user4, target4), "a target with no item is a no-op")
 
--- 5. Send-out mask: State.makeBattler re-reads the item from the party, so a
---    marked mon must come back in with ITEM_NONE while its party copy stays.
 local st = {}
 State.markKnockedOff(st, { side = "enemy", partyIndex = 1 })
 local mon = { species = 1, level = 5, hp = 20, maxHp = 20, moves = {}, pp = {}, item = 13, heldItem = 13 }
@@ -96,9 +78,6 @@ eq(mon.item, 13, "the party mon still holds the item after the send-out")
 local control = State.makeBattler(mon, "enemy", { partyIndex = 1, st = {} })
 eq(control.item, 13, "without the mark the send-out reads the item back")
 
--- 6. The mark is per party slot and survives every switch path the engine
---    exposes: engine switch-in, presentation send-out, player switch and shift
---    switch -- and it does not leak into the next battle.
 local function fresh_mon(item)
   return { species = 4, level = 10, hp = 30, maxHp = 30,
     item = item, heldItem = item, ability = "NONE", moves = { 10 }, pp = { 35 } }

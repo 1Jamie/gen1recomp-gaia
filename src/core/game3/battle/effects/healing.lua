@@ -135,9 +135,7 @@ function Healing.healBell(ctx)
   local State = require("src.core.game3.battle.state")
   local active = State.partyMon(user)
   local blocked = isBell and ad:abilityOf(user) == "SOUNDPROOF"
-  -- review-v3 P1: pret battle_script_commands.c:8015-8016 clears
-  -- STATUS2_NIGHTMARE alongside status1 for the bell user (aroma :8071,
-  -- :8078 the flank partner) — the user path was missing it.
+  -- battle_script_commands.c:8015-8016
   if not blocked then
     ad:clearStatus(user)
     user.expNightmare = nil
@@ -154,8 +152,7 @@ function Healing.healBell(ctx)
     if mon and mon ~= active and mon ~= partnerMon and mon.status then
       mon.status = nil
       mon.sleep = nil
-      -- review-v3 P1: nightmare rides on sleep (cleared with status, pret
-      -- battle_script_commands.c:8015/8031).
+      -- battle_script_commands.c:8015
       mon.expNightmare = nil
     end
   end

@@ -151,7 +151,6 @@ function PcChrome.drawBackground()
 end
 
 --- Draw animated waveforms beside PKMN DATA header
--- W4: one Quad per waveform frame, cached instead of reallocated every draw.
 local function waveform_quad(img, frameIdx)
   local quads = PcChrome._waveformQuads
   if not quads then quads = {}; PcChrome._waveformQuads = quads end
@@ -219,10 +218,6 @@ function PcChrome.drawLeftDataPanel(hoveredMon, hoverFrame)
 
   -- 1. Front Sprite in TV Screen (X: 10..73, Y: 19..80, W: 64, H: 61)
   -- pokefirered/src/pokemon_storage_system_data.c:1034, :1057 MON_DATA_SPECIES_OR_EGG
-  -- Merge fix: upstream inlined the species read into frontPic (egg-aware) while
-  -- our M8 dedup removed block 2's duplicate local — one shared `sp` above
-  -- satisfies both sides (speciesOrEgg == speciesOf for every non-egg, and the
-  -- stats card never prints spName for an egg).
   local sp = Pokemon.speciesOrEgg(hoveredMon)
   local sprite = Pokemon.frontPic(sp)
   if sprite and sprite.image then
@@ -236,7 +231,6 @@ function PcChrome.drawLeftDataPanel(hoveredMon, hoverFrame)
 
   -- 2. Lower Stats Card Text & Info (X: 0..80, Y: 88..160)
   -- Matches pret FRLG PrintDisplayMonInfo (Window 0: left=0, top=11 / Y=88)
-  -- (reuses the `sp` resolved above; the duplicate local shadowed it)
   local spName = (sp and Pokemon.name(sp)) or "----"
   local nick = hoveredMon.nickname
   if not nick or nick == "" then

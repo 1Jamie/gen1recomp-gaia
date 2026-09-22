@@ -308,9 +308,7 @@ function Special.trick(ctx)
   local ad, user, target = ctx.adapter, ctx.user, ctx.target
   if (target.substituteHP or 0) > 0 then return H.sayFail(ctx) end
   if not H.accuracy(ctx, "normal") then return end
-  -- pret src/battle_script_commands.c:8799-8810 Cmd_tryswapitems: Trainer
-  -- Tower never swaps, and an opponent may swap only in Link / Battle Tower /
-  -- e-Reader / Secret Base battles (regular battles keep player-only).
+  -- src/battle_script_commands.c:8799-8810
   local StType = ad._st
   if StType and StType.trainerTower then return H.sayFail(ctx) end
   if user.side ~= "player" and not (StType and (StType.link or StType.battleTower

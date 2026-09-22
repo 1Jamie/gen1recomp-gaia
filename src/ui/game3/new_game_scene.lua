@@ -18,7 +18,6 @@ Scene.__index = Scene
 
 Scene.GBA_HZ = 16777216 / 280896
 
--- Reused input proxy for Scene:update (avoids two closures + a table per GBA step).
 local proxyPressed, proxyInput
 local INPUT_PROXY = {
   wasPressed = function(_, k) return proxyPressed ~= nil and proxyPressed[k] == true end,

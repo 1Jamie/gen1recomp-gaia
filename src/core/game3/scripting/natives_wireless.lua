@@ -1,12 +1,4 @@
--- Wireless / RFU-side specials: Pokemon Jump + Dodrio Berry Picking records,
--- the Berry Powder vendor exchange (CeruleanCity_House5), Berry Crush rankings,
--- and the Seven Island e-Reader trainer house.  The port has no Wireless
--- Adapter hardware, so RF-internal work degrades to safe answers that let the
--- calling scripts finish — no dispatch entry is left nil.
---
--- pret anchors: data/specials.inc, src/berry_powder.c, src/pokemon_jump.c,
--- src/dodrio_berry_picking.c, src/berry_crush.c, src/battle_tower.c,
--- src/field_specials.c.
+-- data/specials.inc, src/berry_powder.c, src/pokemon_jump.c, src/dodrio_berry_picking.c, src/berry_crush.c, src/battle_tower.c, src/field_specials.c
 
 local Strings = require("src.core.Strings")
 local Std = require("src.core.game3.scripting.stdscripts")
@@ -57,9 +49,7 @@ local function setStringVar(ctx, adapters, index, text)
   if ctx and ctx.stringVars then ctx.stringVars[index] = text end
 end
 
--- pokefirered/src/battle_tower.c:1354 ValidateEReaderTrainer / :1368 an
--- all-zero record is no trainer at all.  Reads the session directly so this
--- module never depends on the capability-gated natives_tower module.
+-- pokefirered/src/battle_tower.c:1354
 local function visitingEReaderTrainer(session)
   local trainer = session and session.ereaderTrainer
   if type(trainer) ~= "table" then return nil end
@@ -69,9 +59,7 @@ local function visitingEReaderTrainer(session)
   return trainer
 end
 
--- pokefirered/src/battle_tower.c:830 BufferBattleTowerTrainerMessage — the
--- greeting is an easy-chat phrase; same conversion seam as
--- natives_tower.lua:165 convertSpeech.
+-- pokefirered/src/battle_tower.c:830
 local function convertSpeech(words)
   if type(words) ~= "table" then return "" end
   local okE, EasyChatData = pcall(require, "src.core.game3.easy_chat_data")
@@ -82,51 +70,34 @@ local function convertSpeech(words)
 end
 
 Wireless.HANDLERS = {
-  -- pokefirered/src/party_menu.c:5818 ChooseMonForWirelessMinigame
-  -- data/scripts/cable_club.inc:1181/1196: the picker writes the party slot
-  -- into VAR_0x8004 and the script aborts when it is >= PARTY_SIZE.  The port
-  -- has no RFU minigame behind the picker, so answer "cancel" deterministically
-  -- — the script takes its AbortMinigame path instead of dead-ending.
+  -- pokefirered/src/party_menu.c:5818, data/scripts/cable_club.inc:1181
   [Std.SPECIAL.ChooseMonForWirelessMinigame] = function(ctx)
     varSet(ctx, VAR_0x8004, PARTY_SIZE)
     return false
   end,
 
-  -- pokefirered/src/pokemon_jump.c:2687 IsPokemonJumpSpeciesInParty
-  -- data/scripts/cable_club.inc:1177: VAR_RESULT FALSE prints
-  -- CableClub_EventScript_NoEligiblePkmn and exits.  The sPokeJumpMons
-  -- eligibility table (pokemon_jump.c:766) backs a minigame the port cannot
-  -- host, so the graceful answer is FALSE — no dead air, no nil dispatch.
+  -- pokefirered/src/pokemon_jump.c:2687, data/scripts/cable_club.inc:1177, pokemon_jump.c:766
   [Std.SPECIAL.IsPokemonJumpSpeciesInParty] = function(ctx)
     setResult(ctx, 0)
     return false, 0
   end,
 
-  -- pokefirered/src/pokemon_jump.c:4487 ShowPokemonJumpRecords
-  -- data/scripts/cable_club.inc:1278 + TwoIsland_JoyfulGameCorner scripts:
-  -- `special / waitstate / releaseall`.  No RFU link records exist in the
-  -- port, so the screen is skipped and the waitstate completes instantly.
+  -- pokefirered/src/pokemon_jump.c:4487, data/scripts/cable_club.inc:1278
   [Std.SPECIAL.ShowPokemonJumpRecords] = function()
     return false
   end,
 
-  -- pokefirered/src/dodrio_berry_picking.c:2929 ShowDodrioBerryPickingRecords
-  -- data/scripts/cable_club.inc:1286 + Two Island Game Corner records corner.
+  -- pokefirered/src/dodrio_berry_picking.c:2929, data/scripts/cable_club.inc:1286
   [Std.SPECIAL.ShowDodrioBerryPickingRecords] = function()
     return false
   end,
 
-  -- pokefirered/src/berry_crush.c:3189 ShowBerryCrushRankings
-  -- data/maps/CeruleanCity_House5/scripts.inc:169 EventScript_BerryCrushRankings:
-  -- `lockall / special / waitstate / releaseall`.
+  -- pokefirered/src/berry_crush.c:3189, data/maps/CeruleanCity_House5/scripts.inc:169
   [Std.SPECIAL.ShowBerryCrushRankings] = function()
     return false
   end,
 
-  -- pokefirered/src/berry_powder.c:113 DisplayBerryPowderVendorMenu — draws
-  -- the powder-amount window over the House5 dialogue.  The port shows the
-  -- amount on the POWDER JAR bag line instead (item_use.lua:727), so this
-  -- only records that the vendor window pair is open.
+  -- pokefirered/src/berry_powder.c:113
   [Std.SPECIAL.DisplayBerryPowderVendorMenu] = function(ctx)
     if ctx then ctx.berryPowderVendorOpen = true end
     local session = sessionOf(ctx)
@@ -134,7 +105,7 @@ Wireless.HANDLERS = {
     return false
   end,
 
-  -- pokefirered/src/berry_powder.c:128 RemoveBerryPowderVendorMenu
+  -- pokefirered/src/berry_powder.c:128
   [Std.SPECIAL.RemoveBerryPowderVendorMenu] = function(ctx)
     if ctx then ctx.berryPowderVendorOpen = false end
     local session = sessionOf(ctx)
@@ -142,15 +113,12 @@ Wireless.HANDLERS = {
     return false
   end,
 
-  -- pokefirered/src/berry_powder.c:108 PrintPlayerBerryPowderAmount — repaints
-  -- the vendor window opened by DisplayBerryPowderVendorMenu.  No such window
-  -- in the port (see Display above), so nothing to repaint: bound no-op.
+  -- pokefirered/src/berry_powder.c:108
   [Std.SPECIAL.PrintPlayerBerryPowderAmount] = function()
     return false
   end,
 
-  -- pokefirered/src/berry_powder.c:40 Script_HasEnoughBerryPowder
-  -- VAR_0x8004 holds the cost; answer mirrors the pret bool return.
+  -- pokefirered/src/berry_powder.c:40
   [Std.SPECIAL.Script_HasEnoughBerryPowder] = function(ctx)
     local session = sessionOf(ctx)
     local powder = math.floor(tonumber(session and session.berryPowder) or 0)
@@ -160,9 +128,7 @@ Wireless.HANDLERS = {
     return false, enough
   end,
 
-  -- pokefirered/src/berry_powder.c:77 Script_TakeBerryPowder — subtracts
-  -- VAR_0x8004 when affordable, else answers FALSE and leaves the balance.
-  -- session.berryPowder is the port's powder field (item_use.lua:728).
+  -- pokefirered/src/berry_powder.c:77
   [Std.SPECIAL.Script_TakeBerryPowder] = function(ctx)
     local session = sessionOf(ctx)
     local powder = math.floor(tonumber(session and session.berryPowder) or 0)
@@ -177,11 +143,7 @@ Wireless.HANDLERS = {
     return false, took
   end,
 
-  -- pokefirered/src/field_specials.c:331 BufferEReaderTrainerName —
-  -- CopyEReaderTrainerName5(gStringVar1) (battle_tower.c:1343).  Called by
-  -- data/maps/SevenIsland_House_Room1/scripts.inc:88; the dialogue prints
-  -- {STR_VAR_1} (text.inc:19).  Physical card data never reaches the port, so
-  -- fall back to a generic name when no stored record exists.
+  -- pokefirered/src/field_specials.c:331, battle_tower.c:1343, data/maps/SevenIsland_House_Room1/scripts.inc:88, text.inc:19
   [Std.SPECIAL.BufferEReaderTrainerName] = function(ctx, adapters)
     local trainer = visitingEReaderTrainer(sessionOf(ctx))
     local name = trainer and trainer.name
@@ -190,11 +152,7 @@ Wireless.HANDLERS = {
     return false
   end,
 
-  -- pokefirered/src/battle_tower.c:1401 BufferEReaderTrainerGreeting —
-  -- buffers the card's easy-chat greeting into gStringVar4;
-  -- data/maps/SevenIsland_House_Room2/scripts.inc:18 prints it via
-  -- `msgbox gStringVar4`.  No card => stored greeting if the record carries
-  -- one, else a short stock line so the box is never blank.
+  -- pokefirered/src/battle_tower.c:1401, data/maps/SevenIsland_House_Room2/scripts.inc:18
   [Std.SPECIAL.BufferEReaderTrainerGreeting] = function(ctx, adapters)
     local trainer = visitingEReaderTrainer(sessionOf(ctx))
     local greeting = trainer and trainer.greeting
@@ -209,10 +167,7 @@ Wireless.HANDLERS = {
     return false
   end,
 
-  -- pokefirered/src/battle_tower.c:397 SetEReaderTrainerGfxId —
-  -- VarSet(VAR_OBJ_GFX_ID_0, OBJ_EVENT_GFX_YOUNGSTER) so the visiting trainer
-  -- object has a gfx id; data/maps/SevenIsland_House_Room2/scripts.inc:7 runs
-  -- it on transition.
+  -- pokefirered/src/battle_tower.c:397, data/maps/SevenIsland_House_Room2/scripts.inc:7
   [Std.SPECIAL.SetEReaderTrainerGfxId] = function(ctx)
     varSet(ctx, VAR_OBJ_GFX_ID_0, OBJ_EVENT_GFX_YOUNGSTER)
     return false

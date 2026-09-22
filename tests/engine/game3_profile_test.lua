@@ -1,12 +1,3 @@
--- FireRed profile row: resolution rules + the value contract the wiring
--- tickets in docs/game3/rse-seams.md depend on.
---
--- The profile is deliberately inert until the handoff tickets wire it, so
--- this suite is the guard that keeps its FireRed row equal to the constants
--- the engine reads today.  When a wiring ticket lands, the assertion it
--- replaces moves from a literal to a comparison against the live module.
---   luajit tests/engine/game3_profile_test.lua
-
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local T = require("tests.harness")
@@ -18,8 +9,6 @@ local MapIds = require("src.core.game3.map_ids")
 
 local prevVersion = GameVersion.get()
 
--- ---------------------------------------------------------------- resolution
-
 Profile.reset()
 GameVersion.set("firered")
 local active = Profile.active()
@@ -29,32 +18,24 @@ check(Profile.isGame3Version("firered") == true, "isGame3Version(firered) is tru
 check(Profile.isGame3Version("red") == false, "isGame3Version(red) is false")
 check(Profile.isGame3Version("not-a-game") == false, "isGame3Version(unknown) is false")
 
--- Cached identity: repeated lookups return the same table.
 check(Profile.of("firered") == active, "resolution is cached")
 
--- Unknown game ids fail closed to the active game, not to nil.
 local unknown = Profile.of("not-a-game")
 eq(unknown.id, "firered", "an unknown game id falls back to FireRed")
 
--- A fresh process with no Gen 3 game selected still resolves FireRed, so
--- shared code can require the module during boot and in headless suites.
 Profile.reset()
 GameVersion.set("red")
 eq(Profile.active().id, "firered", "non-Gen3 process fails closed to FireRed")
 
--- Session-scoped capability lookup reads session.version, not the process.
 local caps = Profile.capabilitiesFor({ version = "firered" })
 check(caps.fameChecker == true, "capabilitiesFor(session) reads the session game")
 check(Profile.has({ version = "firered" }, "vsSeeker") == true, "has() reads a flag")
 check(Profile.has({ version = "firered" }, "contests") == false, "has() is false for absent flags")
 
--- ---------------------------------------------------- FireRed value contract
-
 Profile.reset()
 GameVersion.set("firered")
 local row = Profile.active()
 
--- Map identity: the profile describes exactly what MapIds accepts today.
 for _, prefix in ipairs(row.map.prefixes) do
   check(MapIds.isGame3Map(prefix .. "ANYTHING") == true,
     "profile prefix " .. prefix .. " is a Game3 map for MapIds")
@@ -104,12 +85,10 @@ eq(row.trainers.music.victory.trainer, 310, "trainer victory music")
 
 eq(row.regionMap.switchFlag, "FLAG_SYS_SEVII_MAP_123", "region-map switch flag")
 
--- FRLG-only features are on for FireRed, off by default for anything else.
 for _, flag in ipairs({ "fameChecker", "teachyTV", "vsSeeker", "trainerTower", "seagallop" }) do
   check(row.capabilities[flag] == true, "FireRed capability " .. flag .. " is on")
 end
 
--- The native module list the registry merges today (natives.lua:803-821).
 local expectedNatives = {
   "natives_corner", "natives_cutscene", "natives_daycare", "natives_elevator",
   "natives_events", "natives_fame", "natives_fan_club", "natives_gift",
@@ -122,10 +101,6 @@ for i, name in ipairs(expectedNatives) do
   eq(row.nativeModules[i], name, "native module " .. i .. " is " .. name)
 end
 
--- ------------------------------------------------------------ static guards
-
--- FireRed must stay the fallback row: a missing profiles/firered.lua is a
--- hard error, not a silent nil.
 Profile.reset()
 local okMissing = pcall(function()
   local warn = Profile.of("not-a-game")
@@ -133,8 +108,6 @@ local okMissing = pcall(function()
 end)
 check(okMissing == true, "unknown ids resolve without raising")
 
--- The profile names the modules the wiring tickets will create; keep them
--- syntactically valid package names so a typo fails here, not at boot.
 for _, rel in ipairs({
   row.font.module,
   row.dexArea.mapGroups,

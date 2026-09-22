@@ -769,8 +769,6 @@ check(title.logo and title.logo.path == "mods/x/logo.png",
 check(title.version and title.version.path == "mods/x/ribbon.png",
   "versionRibbon wins as the file-12 patch key")
 -- pin against the shipped data itself: a real boot must load the logo
--- art, never fall back to the ASCII placeholder.  Data.field honours
--- POKEPORT_DATA_DIR; a raw dofile of data/generated/* never did.
 local Data = require("src.core.Data")
 if not Data.field then Data:load() end
 title = TitleState.new({ data = { field = Data.field } },

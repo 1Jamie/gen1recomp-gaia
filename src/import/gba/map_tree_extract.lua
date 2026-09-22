@@ -5,7 +5,6 @@
 
 local MapTree = require("src.import.gba.map_tree")
 local Lz77 = require("src.import.gba.lz77")
--- Deterministic (sorted-key) JSON: see src/import/canonical_json.lua.
 local Canon = require("src.import.canonical_json")
 
 local MapTreeExtract = {}
@@ -98,10 +97,6 @@ local function simplify_events(ev)
       x = c.x,
       y = c.y,
       elevation = c.elevation,
-      -- review-v3 R1: parse_coord_events emits var/value (extract_map_events
-      -- :158-180); trigger/index never existed on the producer, and
-      -- field.lua:440 gates coord scripts on ev.var/ev.value — the missing
-      -- keys made every conditional coord trigger fire unconditionally.
       var = c.var,
       value = c.value,
       scriptKey = c.scriptKey,
@@ -123,9 +118,6 @@ local function pack_tileset(rom, cache, root, ts)
     local raw = Lz77.decompress(function(i) return rom:get(i) end, tilesOff)
     tilesBlob = bytes_to_string(raw)
   elseif tilesOff then
-    -- review-v3 R4: uncompressed tilesets have no embedded length — derive
-    -- it from the gap to the palette block and dump the bytes instead of
-    -- silently emitting no tiles.4bpp (meta still written either way).
     local palsOff = rom:ptrOffset(ts.palettesPtr)
     if palsOff and palsOff > tilesOff then
       tilesBlob = rom_blob(rom, ts.tilesPtr, palsOff - tilesOff)

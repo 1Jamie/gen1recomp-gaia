@@ -136,11 +136,6 @@ eq(counted(commands("chipaudio_cmd"), "quit"), 1,
    "shutdown is idempotent and post-shutdown calls stay quiet")
 eq(chipThread.waited, 1, "the joined worker is not waited on twice")
 
--- I6 inversion: ChipAudio used to require SessionLifecycle at module load to
--- register this shutdown, which closed ChipAudio -> SessionLifecycle ->
--- Music/Sound -> ChipAudio.  SessionLifecycle.endProcess now reaches
--- ChipAudio.shutdown through package.loaded instead, so restart the worker and
--- prove the quit path still joins it.
 local SessionLifecycle = require("src.core.SessionLifecycle")
 check(ChipAudio.playMusic(data, song, true) ~= nil,
       "playMusic restarts the chip worker after a shutdown")
@@ -209,9 +204,6 @@ check(lifecycleSrc:find("registerProcessShutdown", 1, true) ~= nil,
       "SessionLifecycle exposes registerProcessShutdown")
 check(lifecycleSrc:find("function SessionLifecycle.endProcess()", 1, true) ~= nil,
       "SessionLifecycle.endProcess fans out registered hooks")
--- I6: ChipAudio's load-time registration required SessionLifecycle and closed
--- ChipAudio -> SessionLifecycle -> Music/Sound -> ChipAudio, so the join now
--- lives in endProcess through package.loaded (behavioural proof above).
 check(source("src/core/ChipAudio.lua"):find("registerProcessShutdown", 1, true) == nil,
       "ChipAudio does not register at load (I6: that require closed a cycle)")
 check(lifecycleSrc:find('package.loaded["src.core.ChipAudio"]', 1, true) ~= nil,

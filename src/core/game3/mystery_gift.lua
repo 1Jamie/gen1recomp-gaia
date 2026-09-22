@@ -858,10 +858,7 @@ local function createEventMon(session, gift)
   if not Pokemon._names then pcall(Pokemon.install, nil) end
   local species = num(gift.species)
   local level = num(gift.level, 5)
-  -- The Wonder Card itself carries no species payload (pret
-  -- src/mystery_gift.c:191-210 validateCard checks the five card fields only),
-  -- so an engine gift that DOES claim one must validate it here or a
-  -- species-0 / out-of-range payload lands straight in the party.
+  -- src/mystery_gift.c:191-210
   local known = type(Pokemon._names) == "table" and Pokemon._names[species] ~= nil
   if not known then return nil, "invalid gift species" end
   if level < 1 or level > 100 then return nil, "invalid gift level" end
@@ -905,9 +902,7 @@ local function createEventMon(session, gift)
 end
 MysteryGift.createEventMon = createEventMon
 
--- rse-seams e10 5.1: the Mystery Event script status slot mirroring pret
--- src/mystery_event_script.c:92-95 (SetMysteryEventScriptStatus) / :75-80
--- (MEventScript_Run's status out-param).
+-- src/mystery_event_script.c:92-95
 local meScriptStatus = 0
 function MysteryGift.setStatus(v)
   meScriptStatus = tonumber(v) or 0

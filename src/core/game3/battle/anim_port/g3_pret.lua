@@ -52,9 +52,7 @@ function P.Sin2(angle)
   if floor(angle / 180) % 2 == 1 then return -v end
   return v
 end
--- O5: pret defines Cos2 at pokefirered/src/trig.c:539-541 but never calls it either
--- (no `Cos2(` callers anywhere in pret src) and the engine port had zero callers;
--- cosine call sites use Sin2(deg + 90), the same path pret's Cos2 wraps.
+-- pokefirered/src/trig.c:539-541
 
 function P.ArcTan2(x, y)
   return Trig.arcTan2(x, y)

@@ -129,9 +129,6 @@ function Rng.getState()
   }
 end
 
---- Apply a full RNG state. review-v3 F8: partial states are rejected with no
--- mutation, so a corrupt/partial save cannot half-restore the RNG (Game3
--- falls back to a fresh reseed).
 function Rng.setState(st)
   if type(st) ~= "table" then return false end
   local v1, v2, wild = tonumber(st.value), tonumber(st.value2), tonumber(st.wild)
@@ -177,7 +174,6 @@ function Rng.restoreFromSession(session)
   if type(session) ~= "table" or type(session.rng) ~= "table" then
     return false
   end
-  -- review-v3 F8: propagate validation — a partial rng table fails here too.
   return Rng.setState(session.rng) == true
 end
 

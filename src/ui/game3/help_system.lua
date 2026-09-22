@@ -9,7 +9,6 @@ local Help = {open=false, seenIntro=false}
 local MENU_CONTEXT = {pokedex=4, party=5, bag=9, berry_pouch=9, tm_case=9,
   trainer=10, save=12, option=13, shop=17, pc_menu=27, box_storage=28}
 local HELD_KEYS = {'up','down','left','right'}
--- Reused input shim for the held-direction repeat (no per-frame table/closure).
 local repeatInput, repeatKey, repeatOn
 local REPEAT_SHIM = {wasPressed=function(_,key)
   if not repeatInput then return false end

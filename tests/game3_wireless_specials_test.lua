@@ -1,12 +1,6 @@
 #!/usr/bin/env luajit
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
--- Specials Binder wave: the 20 previously-unbound cart specials plus the two
--- cable-club object specials (Script_FacePlayer 0x127 / Script_ClearHeldMovement
--- 0x128).  Asserts every id has dispatch coverage and that the live handlers
--- behave: berry-powder math, e-Reader fallbacks, wireless abort answers,
--- museum fossil state (dex flags untouched), and scene audio.
-
 local failed = 0
 local function check(cond, msg)
   if cond then
@@ -35,21 +29,16 @@ local A = { log = function() end }
 
 print("=== 1. all 22 specials of the wave are declared and bound ===")
 local WANT = {
-  -- wireless / berry powder (10)
   "ChooseMonForWirelessMinigame", "IsPokemonJumpSpeciesInParty",
   "ShowPokemonJumpRecords", "ShowDodrioBerryPickingRecords",
   "DisplayBerryPowderVendorMenu", "RemoveBerryPowderVendorMenu",
   "Script_HasEnoughBerryPowder", "Script_TakeBerryPowder",
   "PrintPlayerBerryPowderAmount", "ShowBerryCrushRankings",
-  -- ending / scenes (5)
   "DoCredits", "ShowDiploma", "DoSSAnneDepartureCutscene",
   "DoPokemonLeagueLightingEffect", "LoopWingFlapSound",
-  -- museum fossil (2)
   "OpenMuseumFossilPic", "CloseMuseumFossilPic",
-  -- e-Reader fallback (3)
   "BufferEReaderTrainerName", "BufferEReaderTrainerGreeting",
   "SetEReaderTrainerGfxId",
-  -- cable-club object specials (2)
   "Script_FacePlayer", "Script_ClearHeldMovement",
 }
 for _, name in ipairs(WANT) do
@@ -104,8 +93,7 @@ Natives.special(ctx, Std.SPECIAL.SetEReaderTrainerGfxId, A)
 checkEq(Flags.getVar(session, ctx, 0x4010), 18,
   "VAR_OBJ_GFX_ID_0 = OBJ_EVENT_GFX_YOUNGSTER (18)")
 
--- No card record: both buffers still carry printable text (Room1 scripts.inc:88
--- prints {STR_VAR_1}; Room2 scripts.inc:18-19 prints gStringVar4).
+-- scripts.inc:88, scripts.inc:18-19
 Natives.special(ctx, Std.SPECIAL.BufferEReaderTrainerName, A)
 check(type(ctx.stringVars[1]) == "string" and #ctx.stringVars[1] > 0,
   "STR_VAR_1 holds a fallback name with no card")
@@ -113,7 +101,6 @@ Natives.special(ctx, Std.SPECIAL.BufferEReaderTrainerGreeting, A)
 check(type(ctx.stringVars[4]) == "string" and #ctx.stringVars[4] > 0,
   "STR_VAR_4 holds a fallback greeting with no card")
 
--- A stored record supplies the visiting trainer's name.
 session.ereaderTrainer = { name = "ALPHA", party = { { species = 141 } } }
 Natives.special(ctx, Std.SPECIAL.BufferEReaderTrainerName, A)
 checkEq(ctx.stringVars[1], "ALPHA", "STR_VAR_1 = the visiting trainer's name")
@@ -124,7 +111,7 @@ session.ereaderTrainer = nil
 
 print("=== 5. cable-club object specials ===")
 local faced
-Flags.setVar(nil, ctx, 0x800F, 3) -- VAR_LAST_TALKED
+Flags.setVar(nil, ctx, 0x800F, 3)
 local yFace = Natives.special(ctx, Std.SPECIAL.Script_FacePlayer, {
   log = A.log,
   facePlayer = function(lid) faced = lid end,
@@ -181,17 +168,14 @@ checkEq(horn, 249, "SS Anne departure toots SE_SS_ANNE_HORN (249)")
 
 local flaps = {}
 local function capture(id) flaps[#flaps + 1] = id end
-Flags.setVar(nil, ctx, 0x8004, 2) -- num loops
-Flags.setVar(nil, ctx, 0x8005, 1) -- frame delay
+Flags.setVar(nil, ctx, 0x8004, 2)
+Flags.setVar(nil, ctx, 0x8005, 1)
 Natives.special(ctx, Std.SPECIAL.LoopWingFlapSound, { log = A.log, playSe = capture })
 checkEq(flaps[1], 150, "first flap plays SE_M_WING_ATTACK (150) immediately")
 local okT, Task = pcall(require, "src.core.game3.task")
 if okT and Task then
   for _ = 1, 4 do Task.update(1 / 60) end
-  -- review-v3 Q11 — Knock Off precedent (pret proves the old expectation
-  -- stale, cite mandatory): field_specials.c:2553 destroys at
-  -- data[0] == loops - 1, so loops=2, delay=1 plays exactly 2 total
-  -- (1 entry + 1 tick) — the old ">= 3" asserted the engine's off-by-one.
+  -- field_specials.c:2553
   checkEq(#flaps, 2, "loops=2 plays exactly 2 total flaps (pret parity)")
   Task.clear()
 else

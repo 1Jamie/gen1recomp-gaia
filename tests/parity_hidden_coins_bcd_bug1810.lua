@@ -23,8 +23,6 @@ eq(pay(0), 100, "anything the branch chain misses pays 100")
 
 -- the generated data still carries the raw argument: the runtime mapping,
 -- not the extractor, is what turns the 40 tile into 20
--- Data honours POKEPORT_DATA_DIR; a raw dofile of data/generated/* never did
--- (same seam as run_tests:2280).
 local Data = require("src.core.Data")
 if not Data.field then Data:load() end
 local field = Data.field

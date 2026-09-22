@@ -379,8 +379,6 @@ local function decode_script(rom, startOff, visited, labels, tag_dims)
       i = i + 2
 
     elseif op == 0x24 then
-      -- review-v3 R5: 0x24 = jumpifcontest + .4byte branch target — emit
-      -- the label and eagerly decode the target like call (:0x0E).
       local target_off = rom:ptrOffset(rom:u32(i + 1))
       ops[#ops + 1] = { op = "jumpifcontest", label = target_off and tostring(target_off) }
       i = i + 5

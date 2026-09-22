@@ -19,10 +19,7 @@ local function species_id(mon)
 end
 
 local function types_for(species)
-  if not Pokemon._types and not Pokemon._installTried then
-    -- review-v3 S11: log the swallowed install failure once and stop
-    -- hammering an install that already failed.
-    Pokemon._installTried = true
+  if not Pokemon._types then
     local okI, errI = pcall(Pokemon.install, nil)
     if not okI and not Pokemon._installWarned then
       Pokemon._installWarned = true
@@ -68,9 +65,7 @@ function State.makeBattler(mon, side, opts)
     -- pokefirered/src/battle_main.c:2228
     isFirstTurn = 2,
   }
-  -- pret pokefirered/src/battle_script_commands.c:4489: on send-out the
-  -- battler's item is re-read from the party mon, so a mon whose item was
-  -- knocked off earlier in the battle must be masked back to ITEM_NONE.
+  -- pokefirered/src/battle_script_commands.c:4489
   if opts.st and State.isKnockedOff(opts.st, b) then
     b.item = 0
     b.expKnockedOff = true

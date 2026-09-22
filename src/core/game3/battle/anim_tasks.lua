@@ -21,8 +21,6 @@ local function Cos(index, amp)
 end
 
 local function clear_task(t)
-  -- D8: recycling wipes every non-data field (mirrors anim_sprites.clear_slot)
-  -- so a leftover non-underscore field cannot leak into the next task.
   for k in pairs(t) do
     if k ~= "data" then t[k] = nil end
   end
@@ -1334,11 +1332,7 @@ end
 AnimTasks.REGISTRY.ShakeTargetBasedOnMovePowerOrDmg = AnimTasks.ShakeTargetBasedOnMovePowerOrDmg
 AnimTasks.REGISTRY.AnimTask_ShakeTargetBasedOnMovePowerOrDmg = AnimTasks.ShakeTargetBasedOnMovePowerOrDmg
 
--- O3: the base AnimTask_ShakeTargetInPattern (+ SHAKE_PATTERN_0/1) was shadowed
--- dead code: the g1..g5 port merge below (the require "<port>_tasks" loop)
--- always overrides this registry entry with anim_port/g2_fire.lua:569's
--- version (pokefirered/src/battle_anim_fire.c:1254), which is what
--- tests/game3_anim_port_g2_test.lua:284-292 asserts (sShakeDirsPattern0).
+-- pokefirered/src/battle_anim_fire.c:1254
 
 --- RGB555 unpacker helper (pokefirered RGB_*)
 local function unpackRgb555(col)
@@ -4753,9 +4747,6 @@ function AnimTasks.spawn(name, priority, args, vm)
     end
   end
   if not t then
-    -- review-v3 D5: grow the pool on exhaustion instead of silently dropping
-    -- the effect (a dropped task also lets waitforvisualfinish pass at
-    -- visualCount()==0, so the wait never happens).
     AnimTasks.MAX = AnimTasks.MAX + 1
     t = AnimTasks._pool[AnimTasks.MAX]
     if not t then
@@ -4773,13 +4764,11 @@ function AnimTasks.spawn(name, priority, args, vm)
     for ai, av in ipairs(args) do
       local v = av
       if type(v) == "string" then
-        -- leave string battler tokens in data via parallel map
         t.data[ai - 1] = v
       else
         t.data[ai - 1] = tonumber(v) or 0
       end
     end
-    -- Also store string battler ids in high slots if present
     for ai, av in ipairs(args) do
       if type(av) == "string" then
         t.data[ai - 1] = av
@@ -4814,7 +4803,6 @@ function AnimTasks.draw(minZ, maxZ, vm)
         local ok, err = pcall(t.draw, t, vm)
         if not ok then
           print("[battle.anim] task draw " .. tostring(t.name) .. ": " .. tostring(err))
-          -- review-v3 D4: free the pool slot instead of leaving it active.
           clear_task(t)
         end
       end

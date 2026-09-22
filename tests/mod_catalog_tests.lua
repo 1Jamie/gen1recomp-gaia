@@ -65,8 +65,6 @@ check(not Damage.isSpecial("FAIRY"), "an unknown type is not special")
 
 -- ------- the fixture
 
--- Data honours POKEPORT_DATA_DIR; require("data.generated.*") has no package
--- searcher under it (same seam as run_tests:2280).
 local Data = require("src.core.Data")
 if not Data.type_chart then Data:load() end
 local vanillaChart = Data.type_chart

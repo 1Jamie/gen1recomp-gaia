@@ -1,9 +1,3 @@
--- Gen 2 COLL_* → permission.  The byte vocabulary (permission table, LAND /
--- WATER / WALL, of/isLand/isWater/isWall/isWalkable, isLedge) lives in
--- src/core/CollPermissions.lua and is re-exported here unchanged: the Gen 3
--- import path classifies the same bytes and src/import must not reach into
--- src/world (review-v3 I9).  Every Permissions.* caller keeps working.
-
 local GameVersion = require("src.core.GameVersion")
 local CollPermissions = require("src.core.CollPermissions")
 

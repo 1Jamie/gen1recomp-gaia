@@ -1,8 +1,3 @@
--- Gen 3 extractor (game id from GameVersion): GBA ROM -> cache under
--- CacheFs.prefix.  Parallel to RomExtractor / RomExtractorGen2.  Full Island-1
--- demake lives in src/import/gba/extract_island1.lua; this module publishes
--- the CacheContract override files and, when possible, runs that extract.
-
 local CacheFs = require("src.import.CacheFs")
 local LuaWriter = require("src.import.LuaWriter")
 local GameVersion = require("src.core.GameVersion")
@@ -14,13 +9,10 @@ RomExtractorGen3.__index = RomExtractorGen3
 local STAGE_COUNT = 5
 local GBA_ROOT = CachePaths.CACHE_ROOT
 
--- LeafGreen is FireRed's data; everything else canonicalises to itself.
 local function canonicalImportId(id)
   return id == "leafgreen" and "firered" or id
 end
 
--- The id the ROM itself declares (sha1 -> GameVersion), falling back to the
--- historical FireRed assumption for an unrecognised ROM.
 local function importVersion(sha1)
   return GameVersion.forSha1(sha1) or "firered"
 end
@@ -41,7 +33,6 @@ local function writeText(rel, body)
 end
 
 local function writeJson(rel, obj)
-  -- Deterministic (sorted-key) JSON: see src/import/canonical_json.lua.
   local Canon = require("src.import.canonical_json")
   writeText(rel, Canon.encode(obj) .. "\n")
 end
@@ -168,7 +159,6 @@ function RomExtractorGen3:tickPokemon(name, current, total)
   end
 end
 
--- Minimal trees CacheContract.VERSION_REQUIRED_FILES_OVERRIDE[version] needs,
 -- plus semantic module stubs for SEMANTIC_MODULES[3].
 function RomExtractorGen3:writeRequiredMarkers(sha1)
   local Versions = require("src.import.gba.versions")
@@ -310,8 +300,6 @@ end
 function RomExtractorGen3:runAuxExtracts(sha1)
   local GameVersion = require("src.core.GameVersion")
   local Profile = require("src.core.game3.profile")
-  -- rse-seams T3.4: the aux list comes from the profile row, so an RSE import
-  -- never attempts FRLG-only packs (fame/teachy/tower/seagallop/...).
   local wantedList = Profile.of(GameVersion.get()).extractors
   local wanted = nil
   if type(wantedList) == "table" and #wantedList > 0 then
@@ -345,8 +333,6 @@ function RomExtractorGen3:runAuxExtracts(sha1)
   Extract.CACHE_ROOT = GBA_ROOT
 
   local cache = makeCache()
-  -- rse-seams T3.4: each extractor is eligible only if the profile lists it
-  -- AND its output is still missing (the readiness checks are unchanged).
   local needRegion = wantedExtractor("region_map_extract") and not RegionMapExtract.ready(cache, GBA_ROOT)
   local needSections = wantedExtractor("map_sections_extract")
     and not CacheFs.exists(GBA_ROOT .. "/region_map/map_sections.lua")
@@ -642,10 +628,6 @@ function RomExtractorGen3:run()
 
   local okPar, parErr = self:runParallel(sha1)
   if okPar then
-    -- The parallel workers run the same stages as the sequential path, so a
-    -- fresh import must leave the same status markers behind.  The region_map
-    -- marker gates tests/game3_region_map_assets_test.lua, which skipped on
-    -- fresh imports because only the fallback path wrote it.
     writeJson(GBA_ROOT .. "/pokemon/extract_status.json", { ok = true, error = nil })
     writeJson(GBA_ROOT .. "/region_map/extract_status.json", { ok = true, error = nil })
     self:report(1.00, "Ready", 1, 1)

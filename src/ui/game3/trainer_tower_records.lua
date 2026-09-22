@@ -376,11 +376,7 @@ end
 -- pokefirered/src/battle_records.c:452 PrintTotalRecord
 function Records.totalText(session)
   session = session or Records._session
-  -- review-v3 H3: the live writer is link/battle.lua bumpGameStat into
-  -- session.gameStats (string keys, battle_records.c:355 UpdateLinkBattle-
-  -- GameStats); pret reads GetGameStat(GAME_STAT_LINK_BATTLE_WINS/LOSSES/
-  -- DRAWS = 23/24/25, include/constants/game_stat.h:27-29).  The old
-  -- session.linkBattleWins fields are kept as a legacy fallback.
+  -- battle_records.c:355, include/constants/game_stat.h:27-29
   local gs = type(session) == "table" and session.gameStats or {}
   local wins = record_number(gs[23] or gs.linkBattleWins
     or (type(session) == "table" and session.linkBattleWins))

@@ -1,14 +1,5 @@
 #!/usr/bin/env luajit
--- Overworld navigation end to end on a stub map: a real Player step advances
--- the session, a solid metatile refuses it, the MB_IMPASSABLE_NORTH edge pair
--- blocks one direction only, and stepping onto a warp tile resolves the
--- destination through the real Warp sequence into a (stubbed) Map.load.
--- Driven through the real entry points: Player.tryMove / Player.tick →
--- Collision.canEnter / directionallyImpassable / tryWarpAt → Warp.request.
--- pret: src/field_control_avatar.c:618-623 TryStartStepBasedScript →
--- TryStartWarpEventScript; :856,:901 IsWarpMetatileBehavior; :965 SetupWarp;
--- src/metatile_behavior.c:544-571 MetatileBehavior_Is*Blocked;
--- src/event_object_movement.c:4889 IsMetatileDirectionallyImpassable.
+-- src/field_control_avatar.c:618-623, src/metatile_behavior.c:544-571, src/event_object_movement.c:4889
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
@@ -34,9 +25,6 @@ end
 local GameVersion = require("src.core.GameVersion")
 GameVersion.set("firered")
 
--- Minimal stub surface (pattern: tests/game3_link_session_test.lua:52-68): a
--- recording Map and a session-backed runtime. The REAL Player, Collision and
--- Warp modules run unstubbed against a synthetic map def.
 local HALL = "FR_SCENARIO_HALL"
 local ANNEX = "FR_SCENARIO_ANNEX"
 local PAIR = "scenario_overworld"
@@ -58,8 +46,6 @@ package.loaded["src.core.game3.map"] = {
   end,
 }
 
--- Metatile behaviors for the stub pair: behaviors[pair][mid] = MB byte
--- (src/core/game3/scripting/interaction_scripts.lua behaviorOn lookup).
 local Interactions = require("src.core.game3.scripting.interaction_scripts")
 local behs = {}
 Interactions.behaviors[PAIR] = behs
@@ -85,14 +71,12 @@ local function layoutFor(cells)
   }
 end
 
--- The real classifier decides the walkability bytes (fromCell):
--- mapColl 1 + MB_IMPASSABLE_NORTH → solid COLL 0x07; mapColl 0 stays walkable.
 local ScriptColl = require("src.core.game3.scripting.collision")
 local WALL_BYTE = ScriptColl.fromCell(721, 1, 0x32, "indoor")
 local EDGE_BYTE = ScriptColl.fromCell(721, 0, 0x32, "indoor")
 
-behs[MID_EDGE] = 0x32 -- MB_IMPASSABLE_NORTH on (2,2)
-behs[MID_DOOR] = 0x60 -- MB_CAVE_DOOR on the warp tile (5,3)
+behs[MID_EDGE] = 0x32
+behs[MID_DOOR] = 0x60
 
 local hallDef = {
   pair = PAIR,
@@ -153,7 +137,7 @@ check(Collision.cell(2, 2) == EDGE_BYTE, "and its COLL byte is the walkable band
 local function D(fx, fy, tx, ty, dir)
   return Collision.directionallyImpassable(fx, fy, tx, ty, dir) == true
 end
--- pokefirered/src/event_object_movement.c:4889 leaves-tile + enters-tile pair.
+-- pokefirered/src/event_object_movement.c:4889
 check(D(2, 2, 2, 1, "up"), "leaving northward off the band is blocked")
 check(not D(2, 2, 2, 3, "down"), "leaving southward is allowed")
 check(not D(2, 2, 3, 2, "right"), "leaving eastward is allowed")

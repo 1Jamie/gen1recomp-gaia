@@ -795,8 +795,6 @@ function Collision.canEnter(game, tx, ty, opts)
     surfing = P and P.surfing == true
   end
 
-  -- Prefer owned grid; fall back to host map if unbound (or empty — a
-  -- zero-dimension layout must not strand movement on an empty grid, B2).
   if Collision._grid and Collision._grid[1] ~= nil then
     if not Collision.inBounds(tx, ty) then return false, "bounds" end
     if overrideBlocks(tx, ty) then return false, "tile" end

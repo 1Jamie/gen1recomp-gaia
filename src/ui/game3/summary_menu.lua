@@ -10,7 +10,7 @@ local FrlgFont = require("src.ui.game3.frlg_font")
 local Pokemon = require("src.core.game3.pokemon")
 local Dex = require("src.core.game3.dex")
 local PokedexData = require("src.core.game3.pokedex_data")
-local PokedexChrome = require("src.ui.game3.pokedex_chrome") -- W2: hoisted out of draw
+local PokedexChrome = require("src.ui.game3.pokedex_chrome")
 local SummaryChrome = require("src.ui.game3.summary_chrome")
 local SummaryData = require("src.core.game3.summary_data")
 local Strings = require("src.core.Strings")
@@ -455,13 +455,13 @@ local function draw_header(mon)
   end
 
   if SummaryData.isShiny(mon) then
-    local sx, sy = 8, isMovesPage and 24 or 40 -- review-v3 W9: x was a no-op ternary
+    local sx, sy = 8, isMovesPage and 24 or 40
     SummaryChrome.drawShinyStar(sx, sy)
   end
 
   local ailment = SummaryData.statusAilment(mon)
   if ailment > 0 then
-    local ax, ay = 16, isMovesPage and 44 or 38 -- review-v3 W9: x was a no-op ternary
+    local ax, ay = 16, isMovesPage and 44 or 38
     SummaryChrome.drawStatusIcon(ax, ay, ailment)
   end
 

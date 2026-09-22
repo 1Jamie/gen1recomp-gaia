@@ -423,8 +423,6 @@ function WorldAPI:effectiveEncounters(mapId, terrain, opts)
     return nil, "invalid terrain: " .. tostring(terrain)
   end
   local data = self.game and self.game.data
-  -- review-v3 B10: a not-loaded encounter table is a failure to propagate,
-  -- not an empty pool — reporting 0-rate here silently zeroes encounter odds.
   if not (data and type(data.encounters) == "table") then
     return nil, "encounters data not loaded"
   end

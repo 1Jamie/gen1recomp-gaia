@@ -377,10 +377,7 @@ function choose_move_core(st, id, opts)
   if aiFlags ~= 0 and pack and pack.table and pack.scripts and target then
     aiAction = run_scripts(pack, aiFlags, st, b, target, userSide, targetSide, scores, simulatedRNG, rng)
   elseif st.safari then
-    -- data/battle_ai_scripts.s:3242 AI_Safari is just
-    -- `if_random_safari_flee` -> flee, else watch.  The pack is extracted
-    -- from the ROM, so mirror that two-command script inline when it is not
-    -- available (ROM-less CI); otherwise the Safari foe never flees.
+    -- data/battle_ai_scripts.s:3242
     local okR, Rules = pcall(require, "src.core.game3.battle.rules")
     local rate = okR and Rules.safari.fleeRate(st.safariState) or 0
     aiAction = (random_u16(rng) % 100 < rate) and 0x2 or 0x4

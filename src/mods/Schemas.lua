@@ -677,24 +677,12 @@ Schemas.GEN3 = {
   apricorns = false, landmarks = false, radio_channels = false,
 }
 
--- Per-version Gen 3 overlays (J10): every Gen 3 game routes through
--- Schemas.GEN3 and binds the same live modules today, so a Ruby/Sapphire/
--- Emerald divergence is added here as a sparse row, never by forking GEN3 or
--- LIVE_MODULES.  An unknown or absent version reads the GEN3 row exactly as
--- the old generation-only dispatch did, so FireRed is unchanged.
---
---   Schemas.GEN3_ROUTING.ruby = { trainers = "gen3TrainersRuby" }
---   Schemas.GEN3_LIVE_MODULES.ruby = { gen3Trainers = "src.core.game3.scripting.trainers" }
 Schemas.GEN3_ROUTING = {}
 Schemas.GEN3_LIVE_MODULES = {}
 
--- merged routing views are cached per overlay, never written into the row
 local mergedRouting = setmetatable({}, { __mode = "k" })
 
 -- The routing table for a generation: which one is consulted is the only
--- difference between the directions, and `version` narrows Gen 3 only.
--- An unknown generation routes nothing, so every registry keeps its catalog
--- target.
 local NO_ROUTING = {}
 
 function Schemas.routing(generation, version)
@@ -946,23 +934,16 @@ local LIVE_MODULES = {
   gen3Trainers = "src.core.game3.scripting.trainers",
 }
 
--- The live module behind a gen3* binding, narrowed by the data's game when a
--- per-version overlay registers one (J10).  version nil reads FireRed's set.
 function Schemas.liveModuleFor(key, version)
   local overlay = type(version) == "string" and Schemas.GEN3_LIVE_MODULES[version]
   local path = (overlay and overlay[key]) or LIVE_MODULES[key]
   return package.loaded[path or ""]
 end
 
--- bindGen3 records which game's facades a Data table belongs to; the weak key
--- keeps the table collectable and the value is the GameVersion id (or true
--- when the caller had none).  Version-less callers behave exactly as before.
 function Schemas.bindGen3(data, version)
   if type(data) == "table" then bound[data] = version or true end
 end
 
---- The game id a Data table was bound to, or nil when unbound or bound
--- without a version (the pre-J10 callers).
 function Schemas.boundVersion(data)
   if type(data) ~= "table" then return nil end
   local version = bound[data]

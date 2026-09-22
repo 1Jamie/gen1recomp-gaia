@@ -132,8 +132,6 @@ function BagChrome.install(cache)
 end
 
 function BagChrome.ready()
-  -- review-v3 G2: latch the probe; bag_menu.lua:893 calls this from draw()
-  -- every frame and the disk read of bg.rgba must not repeat.
   if BagChrome._ready ~= nil then return BagChrome._ready end
   local man = BagChrome._manifest or load_lua(bag_root() .. "/manifest.lua")
   BagChrome._manifest = man

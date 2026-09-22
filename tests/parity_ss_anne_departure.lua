@@ -21,7 +21,6 @@ package.loaded["src.core.Music"] = {
   play = function(_, id) music.played[#music.played + 1] = id end,
   playOnce = function() return true end,
   stop = function() music.played[#music.played + 1] = "stop" end,
-  -- T3 class C: OverworldController.lua:616 calls playMap on map enter.
   playMap = function() end,
 }
 package.loaded["src.render.TextBox"] = {
@@ -31,9 +30,6 @@ package.loaded["src.ui.PicBox"] = { new = function() return {} end }
 
 local story3 = dofile("data/scripts/story3.lua")
 local story5 = dofile("data/scripts/story5.lua")
--- Data honours POKEPORT_DATA_DIR; a raw dofile of data/generated/* never did
--- (same seam as run_tests:2280).  story3/story5 stay dofile'd: data/scripts
--- is committed source, not generated output.
 local Data = require("src.core.Data")
 if not Data.maps then Data:load() end
 local text = Data.text

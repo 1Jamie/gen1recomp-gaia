@@ -284,10 +284,7 @@ function Map.load(mod, game, mapId, opts)
   Map._announced = mapId
   Map.current = mapId
   Map._loadedLayouts = { [mapId] = true }
-  -- B9: pret re-reads map data on every load path — LoadMapFromWarp
-  -- (overworld.c:792 LoadCurrentMapData) and LoadMapFromCameraTransition
-  -- (overworld.c:759 LoadCurrentMapData) both end in a fresh InitMap — so the
-  -- refreshWorld world cache must not survive a reload of the same root.
+  -- overworld.c:792, overworld.c:759
   Map._worldRoot = nil
 
   local def = host_map_def(game, mapId)

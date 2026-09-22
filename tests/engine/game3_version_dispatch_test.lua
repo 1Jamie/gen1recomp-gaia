@@ -1,13 +1,3 @@
--- J10: the mod API dispatches Gen 3 on (engine, versionId), with a graceful
--- fallback to the generation's default row so FireRed behaviour is unchanged.
---
--- The seam is three tables: Loader.apiModule (facade module paths),
--- Schemas.GEN3_ROUTING (per-game registry routing) and
--- Schemas.GEN3_LIVE_MODULES (per-game live-module bindings).  This suite pins
--- the defaults and proves an overlay can override one registry/key without
--- forking the shared tables.
---   luajit tests/engine/game3_version_dispatch_test.lua
-
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local T = require("tests.harness")
@@ -18,8 +8,6 @@ local Schemas = require("src.mods.Schemas")
 local Loader = require("src.mods.Loader")
 
 local prevVersion = GameVersion.get()
-
--- ------------------------------------------------------- facade dispatch
 
 eq(Loader.apiModule("battle", 3, nil), "src.battle.game3.BattleAPI",
   "gen3 battle facade default is the FireRed-backed module")
@@ -36,13 +24,10 @@ eq(Loader.apiModule("battle", 3, "ruby"), "src.battle.game3.BattleAPI",
 eq(Loader.apiModule("world", 3, "not-a-game"), "src.world.game3.WorldAPI",
   "an unknown id falls back to the FireRed-backed facade")
 
--- other generations keep their existing arms
 eq(Loader.apiModule("battle", 2, nil), "src.battle.gen2.BattleAPI", "gen2 battle facade")
 eq(Loader.apiModule("world", 2, nil), "src.world.gen2.WorldAPI", "gen2 world facade")
 eq(Loader.apiModule("battle", 1, nil), "src.battle.BattleAPI", "gen1 battle facade")
 eq(Loader.apiModule("world", 1, nil), "src.world.WorldAPI", "gen1 world facade")
-
--- ------------------------------------------------------- routing dispatch
 
 check(Schemas.routing(3, nil) == Schemas.GEN3, "gen3 routing without a version is GEN3")
 check(Schemas.routing(3, "firered") == Schemas.GEN3, "firered has no overlay, so GEN3")
@@ -58,7 +43,6 @@ eq(Schemas.targetFor("pokemon", spec, 3, "ruby"), "gen3Pokemon",
   "an overlay-less RSE id routes pokemon to the shared root")
 check(Schemas.gatedFor("pokemon", 3, "firered") == false, "pokemon is not gated under FireRed")
 
--- a sparse overlay changes one registry and inherits the rest
 Schemas.GEN3_ROUTING["testgame"] = { pokemon = "gen3PokemonTest", moves = false }
 local routed = Schemas.routing(3, "testgame")
 check(routed ~= Schemas.GEN3, "an overlay produces a distinct merged view")
@@ -74,8 +58,6 @@ check(Schemas.gatedFor("moves", 3, "firered") == false,
 check(Schemas.routing(3, "firered") == Schemas.GEN3, "the merged view is never written back")
 Schemas.GEN3_ROUTING["testgame"] = nil
 
--- ---------------------------------------------------- live module dispatch
-
 local probe = { measure = function() return 1 end }
 package.loaded["tests.dispatch_probe"] = probe
 Schemas.GEN3_LIVE_MODULES["testgame"] = { gen3Pokemon = "tests.dispatch_probe" }
@@ -86,15 +68,12 @@ check(Schemas.liveModuleFor("gen3Pokemon", "firered") ~= probe,
 Schemas.GEN3_LIVE_MODULES["testgame"] = nil
 package.loaded["tests.dispatch_probe"] = nil
 
--- bindGen3 records the game so live-module lookups can narrow by it
 local data = { gen3Pokemon = { names = {} } }
 Schemas.bindGen3(data, "testgame")
 eq(Schemas.boundVersion(data), "testgame", "bindGen3 records the version id")
 local legacy = { gen3Pokemon = { names = {} } }
 Schemas.bindGen3(legacy)
 eq(Schemas.boundVersion(legacy), nil, "a version-less bind reports nil")
-
--- ------------------------------------------------------- loader plumbing
 
 local function memfs(files)
   return {

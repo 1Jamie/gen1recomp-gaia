@@ -154,8 +154,6 @@ function MapPreviewScreen.manifest()
   if MapPreviewScreen._manifest then
     return MapPreviewScreen._manifest
   end
-  -- review-v3 B5: no permanent tried-flag — a transient read failure must
-  -- retry on the next probe (this is read per menu open, not per frame).
   local rel = cache_root() .. "/" .. MapPreviewExtract.CACHE_SUB .. "/manifest.lua"
   local t = load_lua(rel)
   if type(t) ~= "table" or type(t.entries) ~= "table" then
@@ -272,8 +270,6 @@ function MapPreviewScreen.show(mapsec, opts)
   MapPreviewScreen._mapsec = entry.mapsec
   MapPreviewScreen._entry = entry
   MapPreviewScreen._name = entry.name
-  -- W6: resolve the artwork once per show; draw() used to re-resolve the
-  -- entry (artworkFor -> entryFor) on every frame.
   MapPreviewScreen._image = image
   MapPreviewScreen._timer = 0
   MapPreviewScreen._duration = duration
@@ -349,8 +345,6 @@ local function nameWindowColors(manifest)
   }
 end
 
--- W6: name-window colours are constant per manifest — memoize instead of
--- rebuilding the colour tables on every frame.
 local nwManifestCache, nwColorsCache, nwFontColors = false, nil, nil
 local function nameWindowColorsCached()
   local m = MapPreviewScreen.manifest()

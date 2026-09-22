@@ -43,9 +43,6 @@ local session = {
   party = {},
   bag = { pockets = { items = { { id = 4, qty = 3 } } } },
 }
--- G1 contract (tests/engine/game3_save_menu_failure_test.lua): the save menu
--- reports success only when saveGame confirms the write (do_save reads
--- Runtime._game.saveGame), so this stub game carries one like the real game.
 local game = { data = { maps = MAPS }, session = session,
   saveGame = function() return true end }
 

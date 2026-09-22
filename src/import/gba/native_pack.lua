@@ -465,7 +465,6 @@ end
 -- midIndex: optional [pair][mid] = { coll, ... } for resolved COLL_* lookup
 -- CollisionFn: function(mid, rawColl, behavior, kind) → collByte
 function NativePack.writeExtract(cache, root, bundles, grids, borders, pairNames, midIndex, behaviorOf, fromCell, scriptMids, warpCells)
-  -- rse-seams T6.3b: the default root comes from the shared CachePaths module.
   root = root or require("src.core.game3.cache_paths").CACHE_ROOT
   local NativeRoot = root .. "/native"
   local manifest = {

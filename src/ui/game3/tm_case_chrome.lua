@@ -91,9 +91,6 @@ local function rgba_to_image(rgba, w, h)
 end
 
 function TmCaseChrome.ready()
-  -- review-v3 G3: latch the probe result; tm_case.lua:250 calls this every
-  -- draw and the old `_bgMale` latch never engaged on female saves (loadBg
-  -- sets only _bgFemale), so female saves re-read bg_male.rgba forever.
   if TmCaseChrome._ready ~= nil then return TmCaseChrome._ready end
   local d = read_bytes(tm_root() .. "/bg_male.rgba")
   TmCaseChrome._ready = d ~= nil and #d > 0

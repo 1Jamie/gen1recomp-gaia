@@ -1,8 +1,3 @@
--- T6.3a: the shared GBA cache-root module.  New file, unwired; this suite
--- pins its contract and keeps it honest with extract_island1.lua until the
--- wiring handoff lands.
---   luajit tests/engine/game3_cache_paths_test.lua
-
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local T = require("tests.harness")
@@ -10,14 +5,10 @@ local check, eq = T.check, T.eq
 
 local CachePaths = require("src.core.game3.cache_paths")
 
--- ------------------------------------------------------------- defaults
-
 eq(CachePaths.CACHE_ROOT, "data/generated/gba", "the packaged cache root")
 eq(CachePaths.NATIVE_ROOT, "data/generated/gba/native", "native root is derived")
 eq(CachePaths.NATIVE_ROOT, CachePaths.CACHE_ROOT .. "/native",
   "NATIVE_ROOT is CACHE_ROOT/native")
-
--- ------------------------------------------------------------ setRoot
 
 check(CachePaths.setRoot("data/generated/gba-rse") == true, "setRoot accepts a root")
 eq(CachePaths.CACHE_ROOT, "data/generated/gba-rse", "setRoot writes CACHE_ROOT")
@@ -30,11 +21,6 @@ CachePaths.reset()
 eq(CachePaths.CACHE_ROOT, "data/generated/gba", "reset restores the packaged root")
 eq(CachePaths.NATIVE_ROOT, "data/generated/gba/native", "reset restores the native root")
 
--- ------------------------------------------- consistency with the extractor
-
--- Until the T6.3 wiring lands, extract_island1.lua pins the same literals.
--- Both states pass so the handoff can replace the pin with a CachePaths read
--- without editing this suite.
 do
   local f = io.open("src/import/gba/extract_island1.lua", "r")
   check(f ~= nil, "extract_island1.lua is readable")
@@ -48,8 +34,6 @@ do
   end
 end
 
--- The defaults must match what the extractor declares, so the handoff is a
--- move, not a behaviour change.
 do
   local f = io.open("src/import/gba/extract_island1.lua", "r")
   if f then

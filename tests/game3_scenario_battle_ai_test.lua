@@ -1,20 +1,5 @@
 #!/usr/bin/env luajit
--- Battle AI decision scenario: given a battle state, the AI scores its four
--- moves and picks one, end to end (Ai.chooseMove / Ai.chooseAction). Scoring
--- runs against an in-line SYNTHETIC pack so the decision flow always executes
--- even where the extracted FireRed AI pack is missing; pack-dependent facts
--- live in the final section and self-skip with "[skip]" (exit 0) in that case.
---
--- pret citations actually read (~/dev/pokefirered):
---   src/battle_ai_script_commands.c:299  every considered move starts at 100
---   src/battle_ai_script_commands.c:302  CheckMoveLimitations zeroes bad slots
---   src/battle_ai_script_commands.c:310  simulatedRNG[i] = 100 - Random() % 16
---   src/battle_ai_script_commands.c:363  BattleAI_ChooseMoveOrAction
---   src/battle_ai_script_commands.c:371  aiFlags bit loop selects AI scripts
---   src/battle_ai_script_commands.c:384  AI_ACTION_FLEE -> AI_CHOICE_FLEE
--- Engine seams exercised: Ai.chooseMove (src/core/game3/battle/ai.lua:423),
--- Ai.chooseAction (ai.lua:431), Ai.battleStart (ai.lua:478),
--- AiVm.run (src/core/game3/battle/ai_vm.lua:58).
+-- src/battle_ai_script_commands.c:299, src/battle_ai_script_commands.c:302, src/battle_ai_script_commands.c:310, src/battle_ai_script_commands.c:363, src/battle_ai_script_commands.c:371, src/battle_ai_script_commands.c:384
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
@@ -41,17 +26,11 @@ local State = require("src.core.game3.battle.state")
 local Ai = require("src.core.game3.battle.ai")
 local AiVm = require("src.core.game3.battle.ai_vm")
 
--- Deterministic rng: always the low bound (pret tie-breaks, simulatedRNG draws).
 local function loRng(lo, hi)
   if lo and hi then return lo end
   return 0
 end
 
--- Synthetic pack. SYN_KO is shaped like pret's AI_TryToFaint: score +40 for
--- the move that can faint the target, -40 for the ones that cannot
--- (CMD.if_can_faint / CMD.score in src/core/game3/battle/ai_cmds.lua; the
--- score op clamps at 127 because pret stores the score as s8 —
--- ai_cmds.lua:318).
 local scripts = {
   SYN_KO = {
     { op = "if_can_faint", target = "SYN_TAKE" },
@@ -65,11 +44,6 @@ local scripts = {
 local synPack = { table = { "SYN_KO" }, data = {}, scripts = scripts }
 local fleePack = { table = { "SYN_FLEE" }, data = {}, scripts = scripts }
 
--- Battle state cribbed from tests/game3_battle_ai_test.lua: player Pidgey
--- (Flying, hence Ground-immune) vs foe Geodude holding EARTHQUAKE + TACKLE.
--- Rigged so the decision discriminates: player at 10/40 HP — Tackle's
--- simulated damage (19) CAN faint it, Earthquake cannot (Ground vs Flying is
--- 0 -> ai_damage clamps to 1). Foe at 80 HP so its own HP never matters here.
 local function aiState(opts)
   opts = opts or {}
   local st = State.new({
@@ -81,8 +55,8 @@ local function aiState(opts)
       attack = 70, defense = 60, spAtk = 40, spDef = 50, speed = 30,
     },
   })
-  st.player.type1 = 2 st.player.type2 = nil -- FLYING
-  st.enemy.type1 = 4 st.enemy.type2 = 5     -- GROUND / ROCK
+  st.player.type1 = 2 st.player.type2 = nil
+  st.enemy.type1 = 4 st.enemy.type2 = 5
   st.aiFlags = opts.aiFlags or 1
   return st
 end
@@ -154,8 +128,6 @@ local actF = Ai.chooseAction(aiState({ wild = true }), 1, { pack = fleePack, aiF
 check(actF and actF.kind == "run", "AI_ACTION_FLEE surfaces as a kind='run' action")
 
 print("[test] 5. Real extracted AI pack (self-skips when absent)")
--- pcall-wrapped: on the CI tier without the imported FireRed cache the
--- on-demand extract can throw instead of returning nil; either way skip.
 local okPack, realPack = pcall(Ai.loadPack, { force = true, extract = true })
 if not okPack or not realPack then
   print("[skip] real AI pack absent")

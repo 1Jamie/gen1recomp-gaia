@@ -1,20 +1,9 @@
--- rse-seams T6.3b / I8: `runtime -> extractor -> runtime`.
---
--- Regression: src/core/game3/pokemon.lua required the ROM extractor
--- (src.import.gba.extract_island1) at module scope just to read the cache
--- root, so loading the runtime pulled in the whole extractor chain
--- (extract_island1 -> extract_scripts -> encounters).  The root now comes
--- from the zero-require CachePaths module (T6.3a), so a plain runtime load
--- must NOT put the extractor in package.loaded.
---   luajit tests/engine/game3_pokemon_no_extractor_require_test.lua
-
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local T = require("tests.harness")
 local check, eq = T.check, T.eq
 love = love or require("tests.love_stub")
 
--- Nothing may have pulled the extractor in before us (clean process).
 eq(package.loaded["src.import.gba.extract_island1"], nil,
   "precondition: the extractor is not loaded yet")
 
@@ -28,8 +17,6 @@ local CachePaths = require("src.core.game3.cache_paths")
 eq(CachePaths.CACHE_ROOT, "data/generated/gba",
   "the shared CachePaths module still carries the default root")
 
--- extract_island1 forwards its roots at CachePaths, so the two agree either
--- way round (Dataset.mountExtractRoots writes through the same seam).
 package.loaded["src.import.gba.extract_island1"] = nil
 local Extract = require("src.import.gba.extract_island1")
 eq(Extract.CACHE_ROOT, CachePaths.CACHE_ROOT,

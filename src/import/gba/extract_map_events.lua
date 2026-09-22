@@ -35,11 +35,7 @@ local function parse_objects(rom, ptr, count)
     local base = off + i * OBJ_SIZE
     local localId = rom:get(base)
     local graphics = rom:get(base + 1)
-    -- pret include/constants/event_objects.h:194-195: kind 0 = normal
-    -- template, 255 = clone.  The union at +8 is then targetLocalId /
-    -- padding / targetMapNum / targetMapGroup instead of the normal
-    -- movement/trainer fields (include/global.fieldmap.h:110-130), so
-    -- decoding a clone as a normal NPC reads garbage movement.
+    -- include/constants/event_objects.h:194-195, fieldmap.h:110-130
     local kind = rom:get(base + 2)
     local isClone = kind == 255
     local x = rom:u16(base + 4)

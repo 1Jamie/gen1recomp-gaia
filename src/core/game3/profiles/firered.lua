@@ -1,21 +1,13 @@
--- FireRed (Game 3) profile row. Every value below is a constant the engine
--- hardcodes today; the field's source is cited so a wiring ticket can move
--- the call site without re-deriving it.
---
--- Data only: no requires, no love, safe to load under luajit.
--- Design: docs/game3/rse-seams.md section 3.1.
-
 return {
   id = "firered",
   label = "FireRed",
   generation = 3,
   engine = "game3",
 
-  -- src/core/game3/map_ids.lua:5-29
   map = {
-    prefixes = { "FR_", "SEVII_" }, -- MapIds.isGame3Map membership
-    enginePrefix = "FR_",           -- map_catalog pret_to_engine synthesis
-    legacyPrefixes = { "SEVII_" },  -- Game3.lua:384 "refuse Sevii leftovers"
+    prefixes = { "FR_", "SEVII_" },
+    enginePrefix = "FR_",
+    legacyPrefixes = { "SEVII_" },
     newGameStart = {
       map = "FR_PLAYERS_HOUSE_2F",
       x = 6,
@@ -27,29 +19,19 @@ return {
     },
   },
 
-  -- FRLG repair rules that live in save_schema_firered.lua today; the module
-  -- is created by the schema-split handoff (rse-seams T0.2).
-  -- Module created by the RSE-wave schema split (rse-seams section 3.1);
-  -- nothing requires it until then, so this names a target, not a dependency.
   saveRules = "src.core.game3.profiles.firered_rules",
 
-  -- src/core/game3/options.lua:5
   optionsBlock = "firered",
 
-  -- src/ui/game3/frlg_font.lua:314-319 and :381-393 (CacheFs-relative paths;
-  -- readActive applies the game's cachePrefix).
   font = {
     module = "src.ui.game3.frlg_font",
     widths = "data/generated/gba/chrome/fonts/latin_widths.lua",
     smallWidths = "data/generated/gba/chrome/fonts/latin_small_widths.lua",
   },
 
-  -- pret: pokefirered/include/constants/species.h:421-423 SPECIES_EGG 412,
-  -- NUM_SPECIES SPECIES_EGG; the same values in pokeemerald :418-420 and
-  -- pokeruby :418,448. Engine side: versions.lua:88, pokemon.lua:510.
+  -- pokefirered/include/constants/species.h:421-423
   species = { num = 412, egg = 412 },
 
-  -- src/core/game3/pokedex_data.lua:111-153 and :283-286
   dexArea = {
     defaultKey = "kanto",
     mapGroups = "src.import.gba.map_groups_firered",
@@ -57,10 +39,7 @@ return {
     stripPrefixes = { "FR_", "SEVII_" },
   },
 
-  -- pret: pokefirered/include/constants/flags.h:1324 SYS_FLAGS 0x800,
-  -- :1364-1371 FLAG_BADGE01_GET = SYS_FLAGS+0x20 … 08 = +0x27.
-  -- Engine side: trainer_card.lua:212-213. RSE differs (pokeruby :779,789-796
-  -- base 0x807; pokeemerald :1348,1359-1366 base 0x867).
+  -- pokefirered/include/constants/flags.h:1324
   badges = {
     count = 8,
     flagBase = 0x820,
@@ -70,21 +49,18 @@ return {
     },
   },
 
-  -- src/core/game3/heal_locations.lua BY_ID table (20 entries)
   heal = { table = "firered" },
 
-  -- src/core/game3/scripting/trainers.lua:11-13, :22-41, :327-364
   trainers = {
     rivalIds = { squirtle = 326, bulbasaur = 327, charmander = 328 },
     fallback = { class = 81, pic = 106, name = "TERRY" },
     music = {
       encounter = {
-        -- pret TRAINER_ENCOUNTER_MUSIC_* codes -> songs 283/284/285
         girlCodes = { 1, 2, 9 },
         rocketCodes = { 3, 6, 7 },
-        girl = 284, -- MUS_ENCOUNTER_GIRL
-        rocket = 283, -- MUS_ENCOUNTER_ROCKET
-        boy = 285, -- MUS_ENCOUNTER_BOY (default)
+        girl = 284,
+        rocket = 283,
+        boy = 285,
       },
       battle = {
         championClass = 90, champion = 299,
@@ -98,17 +74,9 @@ return {
     },
   },
 
-  -- src/ui/game3/region_map.lua:407-414
   regionMap = { switchFlag = "FLAG_SYS_SEVII_MAP_123" },
 
-  -- Flags for the FRLG-only features that are ungated today
-  -- (rse-seams sections 3.4 and 3.5).  The split is pret-grounded:
-  -- pokefirered/src/{help_system,tm_case,fame_checker,teachy_tv,vs_seeker,
-  -- trainer_tower,seagallop,trainer_fan_club}.c all exist; every one of those
-  -- paths 404s in pokeemerald and pokeruby (verified 2026-09-22), except the
-  -- shared primitives below which have RSE counterparts.
   capabilities = {
-    -- shared GBA primitives (RSE implements these too)
     easyChat = true,
     braille = true,
     mysteryGift = true,
@@ -119,8 +87,7 @@ return {
     moveRelearner = true,
     eggs = true,
     berries = true,
-    sizeRecord = true, -- pokeemerald/src/pokemon_size_record.c exists
-    -- FireRed-only (no RSE counterpart in pret)
+    sizeRecord = true, -- pokeemerald/src/pokemon_size_record.c
     helpSystem = true,
     tmCase = true,
     fameChecker = true,
@@ -133,7 +100,6 @@ return {
     sevii = true,
   },
 
-  -- src/core/game3/scripting/natives.lua:803-820
   nativeModules = {
     "natives_corner",
     "natives_cutscene",
@@ -154,8 +120,6 @@ return {
     "natives_wireless",
   },
 
-  -- The aux extractors RomExtractorGen3:runAuxExtracts (:291-438) runs
-  -- unconditionally today; an RSE row lists its own set.
   extractors = {
     "region_map_extract",
     "map_sections_extract",

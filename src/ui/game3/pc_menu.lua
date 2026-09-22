@@ -73,7 +73,6 @@ local function player_pc_name(session)
   return Strings("%s's PC", name)
 end
 
--- G6: root rows are cached and rebuilt only when the labels' inputs change.
 function PcMenu._rootEntries()
   local who = someone_or_bill_name(PcMenu._session)
   local player = player_pc_name(PcMenu._session)

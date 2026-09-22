@@ -6,6 +6,7 @@ local Movement = require("src.core.game3.scripting.movement")
 local Opcodes = require("src.core.game3.scripting.opcodes")
 local GfxIds = require("src.core.game3.scripting.gfx_ids")
 local ModRuntime = require("src.mods.Runtime")
+local VirtualObjects = require("src.core.game3.virtual_objects")
 
 local Objects = {}
 
@@ -193,11 +194,8 @@ function Objects.clear()
   Objects._mapId = nil
   Objects._defs = nil
   Objects._bounds = nil
-  -- rse-seams e10 5.3: virtual objects die with the map teardown (they are
-  -- rendered-only sprites with no collision or interaction, pret
-  -- src/event_object_movement.c:9225 DestroyVirtualObjects).
-  local okVO, VO = pcall(require, "src.core.game3.virtual_objects")
-  if okVO and VO and VO.clear then VO.clear() end
+  -- src/event_object_movement.c:9225
+  VirtualObjects.clear()
 end
 
 -- pokefirered/src/overworld.c:405
@@ -206,8 +204,7 @@ function Objects.reset()
   Objects._perm = {}
   Objects._templateMt = {}
   Objects._logged = false
-  local okVO, VO = pcall(require, "src.core.game3.virtual_objects")
-  if okVO and VO and VO.reset then VO.reset() end
+  VirtualObjects.reset()
 end
 
 function Objects.hasMap()
@@ -466,10 +463,7 @@ function Objects.find(localId)
   return Objects._byId[localId]
 end
 
--- rse-seams e10 spec 5.8 / pret src/event_object_movement.c:2089-2116.
--- pret's TryGetObjectEventIdByLocalIdAndMap only touches an object that lives
--- on the script's (mapGroup, mapNum); an unresolvable map means the lookup
--- fails and the command does nothing.
+-- src/event_object_movement.c:2089-2116
 local function on_named_map(mapGroup, mapNum)
   if mapGroup == nil or mapNum == nil then return true end
   local ok, MapCatalog = pcall(require, "src.import.gba.map_catalog")
@@ -479,32 +473,25 @@ local function on_named_map(mapGroup, mapNum)
   return engineId == Objects._mapId
 end
 
---- pret src/event_object_movement.c:2089-2101 SetObjectSubpriority: the
---- object's draw-order freezes (fixedPriority) instead of following elevation
---- each frame.  The +83 bias is applied by the script op (scrcmd.c:1130), so
---- `subpriority` arrives already biased.  field_view's half (Refactor lane)
---- consumes fixedPriority/subpriority and captures the current class; this
---- half only stores the freeze record.
+-- src/event_object_movement.c:2089-2101, scrcmd.c:1130
 function Objects.setSubpriority(localId, mapGroup, mapNum, subpriority)
   local eo = Objects._byId[tonumber(localId) or -1]
   if not eo then return false end
   if not on_named_map(mapGroup, mapNum) then return false end
   eo.fixedPriority = true
   eo.subpriority = tonumber(subpriority) or 0
-  eo.fixedClass = nil -- stale class from an earlier freeze must not leak (spec 5.8 record)
+  eo.fixedClass = nil
   return true
 end
 
---- pret src/event_object_movement.c:2104-2116 ResetObjectSubpriority: clears
---- the freeze (fixedPriority = FALSE) so the dynamic elevation-driven path
---- resumes — pret does NOT restore a previous value, and neither do we.
+-- src/event_object_movement.c:2104-2116
 function Objects.resetSubpriority(localId, mapGroup, mapNum)
   local eo = Objects._byId[tonumber(localId) or -1]
   if not eo then return false end
   if not on_named_map(mapGroup, mapNum) then return false end
   eo.fixedPriority = nil
   eo.subpriority = nil
-  eo.fixedClass = nil -- spec 5.8: the reset drops all three fields
+  eo.fixedClass = nil
   return true
 end
 
@@ -519,7 +506,7 @@ function Objects.listActive(_mod, _game, _mapId)
   return ids
 end
 
-local VIRT_DIR_FACE = { [1] = "down", [2] = "up", [3] = "left", [4] = "right" } -- pret DIR_SOUTH..DIR_EAST
+local VIRT_DIR_FACE = { [1] = "down", [2] = "up", [3] = "left", [4] = "right" }
 
 function Objects.forDraw()
   local list = {}
@@ -530,15 +517,9 @@ function Objects.forDraw()
       list[#list + 1] = eo
     end
   end
-  -- rse-seams e10 5.3: the virtual-object registry feeds the SAME draw pass as
-  -- event objects — rendered-only sprites with no collision and no
-  -- interaction (pret src/event_object_movement.c:1719 CreateVirtualObject;
-  -- they are sprites, not object events).  field_view reads
-  -- {cellX, cellY, elevation, facing, sprite, graphicsId} off each record; the
-  -- records are never in _byId, so Objects.at/blocks cannot see them.
-  local okVO, VO = pcall(require, "src.core.game3.virtual_objects")
-  if okVO and VO and VO.list then
-    for _, vo in ipairs(VO.list()) do
+  -- src/event_object_movement.c:1719
+  if VirtualObjects.count() > 0 then
+    for _, vo in ipairs(VirtualObjects.list()) do
       local gid = tonumber(vo.graphicsId) or 0
       local vrec = {
         virtualId = vo.id,

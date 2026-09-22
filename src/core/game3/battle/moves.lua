@@ -23,8 +23,7 @@ local function M(id, power, typeId, category, accuracy, pp, extra)
     secondaryChance = extra.secondaryChance,
     priority = extra.priority or 0,
     flags = extra.flags or 0,
-    -- pret src/data/battle_moves.h sets .target on every row; from_rom carries
-    -- it, curated rows must too or headless AI reads `target or 0` as SELECT.
+    -- src/data/battle_moves.h
     target = extra.target,
     hits = extra.hits,
     afterHit = extra.afterHit,
@@ -68,24 +67,23 @@ Moves.BY_ID = {
   WATERFALL = M("WATERFALL", 80, T.WATER, "physical", 100, 15, { effect = EffectIds.FLINCH_HIT, secondaryChance = 20 }),
   GROWL = M("GROWL", 0, T.NORMAL, "status", 100, 40,
     { effectId = "EXP_GROWL", effect = EffectIds.ATTACK_DOWN,
-      -- pret src/data/battle_moves.h [MOVE_GROWL] .target = MOVE_TARGET_BOTH
-      -- (include/battle.h:63 MOVE_TARGET_BOTH = 1 << 3)
+      -- src/data/battle_moves.h, include/battle.h:63
       target = 8 }),
   TAIL_WHIP = M("TAIL_WHIP", 0, T.NORMAL, "status", 100, 30,
-    { effectId = "EXP_TAIL_WHIP", effect = EffectIds.DEFENSE_DOWN }), -- review-v3 U10: pret EFFECT_DEFENSE_DOWN
+    { effectId = "EXP_TAIL_WHIP", effect = EffectIds.DEFENSE_DOWN }),
   LEER = M("LEER", 0, T.NORMAL, "status", 100, 30,
-    { effectId = "EXP_LEER", effect = EffectIds.DEFENSE_DOWN }), -- review-v3 U10: pret EFFECT_DEFENSE_DOWN
+    { effectId = "EXP_LEER", effect = EffectIds.DEFENSE_DOWN }),
   HARDEN = M("HARDEN", 0, T.NORMAL, "status", 100, 30,
-    { effectId = "EXP_HARDEN", effect = EffectIds.DEFENSE_UP }), -- review-v3 U10: pret EFFECT_DEFENSE_UP
+    { effectId = "EXP_HARDEN", effect = EffectIds.DEFENSE_UP }),
   CALM_MIND = M("CALM_MIND", 0, T.PSYCHIC, "status", 0, 20, { effectId = "EXP_CALM_MIND", effect = EffectIds.CALM_MIND }),
   BULK_UP = M("BULK_UP", 0, T.FIGHTING, "status", 0, 20, { effectId = "EXP_BULK_UP", effect = EffectIds.BULK_UP }),
   DRAGON_DANCE = M("DRAGON_DANCE", 0, T.DRAGON, "status", 0, 20, { effectId = "EXP_DRAGON_DANCE", effect = EffectIds.DRAGON_DANCE }),
   SWORDS_DANCE = M("SWORDS_DANCE", 0, T.NORMAL, "status", 0, 30,
-    { effectId = "EXP_SWORDS_DANCE", effect = EffectIds.ATTACK_UP_2 }), -- review-v3 U10: pret EFFECT_ATTACK_UP_2
+    { effectId = "EXP_SWORDS_DANCE", effect = EffectIds.ATTACK_UP_2 }),
   AGILITY = M("AGILITY", 0, T.PSYCHIC, "status", 0, 30,
-    { effectId = "EXP_AGILITY", effect = EffectIds.SPEED_UP_2 }), -- review-v3 U10: pret EFFECT_SPEED_UP_2
+    { effectId = "EXP_AGILITY", effect = EffectIds.SPEED_UP_2 }),
   AMNESIA = M("AMNESIA", 0, T.PSYCHIC, "status", 0, 20,
-    { effectId = "EXP_AMNESIA", effect = EffectIds.SPECIAL_DEFENSE_UP_2 }), -- review-v3 U10: pret EFFECT_SPECIAL_DEFENSE_UP_2
+    { effectId = "EXP_AMNESIA", effect = EffectIds.SPECIAL_DEFENSE_UP_2 }),
   SUNNY_DAY = M("SUNNY_DAY", 0, T.FIRE, "status", 0, 5, { effectId = "EXP_WEATHER_SUNNY", effect = EffectIds.SUNNY_DAY }),
   RAIN_DANCE = M("RAIN_DANCE", 0, T.WATER, "status", 0, 5, { effectId = "EXP_WEATHER_RAINY", effect = EffectIds.RAIN_DANCE }),
   SANDSTORM = M("SANDSTORM", 0, T.ROCK, "status", 0, 10, { effectId = "EXP_WEATHER_SANDSTORM", effect = EffectIds.SANDSTORM }),
@@ -220,7 +218,6 @@ function Moves._runReloadHooks()
   for i, h in ipairs(Moves._reloadHooks) do snapshot[i] = h end
   for _, h in ipairs(snapshot) do
     local ok, err = pcall(h.fn, Moves)
-    -- review-v3 S6: mirror Pokemon._runReloadHooks and log the discarded error.
     if not ok then print("[game3/moves] onReload callback failed: " .. tostring(err)) end
   end
 end
@@ -326,8 +323,6 @@ function Moves.get(moveId)
     end
     if rom then return rom end
     if curated then return curated end
-    -- review-v3 U5: an unknown id must be marked, not silently replaced by a
-    -- 40 BP Normal fake that callers would treat as real data.
     return { unknown = true, id = num }
   end
 

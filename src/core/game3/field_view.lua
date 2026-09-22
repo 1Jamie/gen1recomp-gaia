@@ -241,7 +241,6 @@ local function playerSpriteName(game)
   return "SPRITE_CHRIS"
 end
 
--- Resolve gen2 Palettes once (daytimeFor used to pcall(require) per actor per frame).
 local PalettesMod, PalettesMissing
 local function palettes()
   if PalettesMod then return PalettesMod end
@@ -416,28 +415,18 @@ local function actorPriority(a)
   end
 end
 
--- Seam 7 consumer half (e10-opcode-spec §5.8): honour an object's freeze record.
--- pret event_object_movement.c:8379-8387 (UpdateObjectEventElevationAndPriority)
--- and :8424-8429 (ObjectEventUpdateSubpriority) both `return` while
--- objEvent->fixedPriority is set, so the elevation-driven writer
--- (SetObjectSubpriorityByElevation, :8414-8422) never runs for that object; the
--- script bias is applied in scrcmd.c:1130 (`priority + 83`).
--- The record lives on the live EventObject (Objects.setSubpriority stores
--- fixedPriority/subpriority there), NOT on a.obj — a.obj is the map def — so the
--- live-EventObject constructors carry it as `eventObject`.
+-- event_object_movement.c:8379-8387, scrcmd.c:1130
 local function applyDrawOrder(actors)
   local underActors = {}
   local overActors = {}
   for _, a in ipairs(actors) do
     local obj = a.eventObject
     if obj and obj.fixedPriority then
-      -- Freeze: capture the dynamic class once (first observation), then stop
-      -- the per-frame elevation recompute for this object.
       if obj.fixedClass == nil then obj.fixedClass = a.priority or actorPriority(a) end
       a.priority = obj.fixedClass
-      a.subpriority = obj.subpriority -- sort key, replaces sortY for this actor
+      a.subpriority = obj.subpriority
     else
-      if obj then obj.fixedClass = nil end -- reset side: no stale capture survives
+      if obj then obj.fixedClass = nil end
       a.priority = actorPriority(a)
       a.subpriority = nil
     end
@@ -447,8 +436,6 @@ local function applyDrawOrder(actors)
       underActors[#underActors + 1] = a
     end
   end
-  -- Frozen actors order by the script's subpriority (byte + 83); unfrozen ones
-  -- keep the pixel-Y key, so reset resumes the dynamic path exactly as before.
   local function sortActors(a, b)
     local ay = a.subpriority or a.sortY or a.y
     local by = b.subpriority or b.sortY or b.y
@@ -459,8 +446,6 @@ local function applyDrawOrder(actors)
   table.sort(overActors, sortActors)
   return underActors, overActors
 end
--- Test seam: field_view draws nothing under the headless love stub, so the
--- contract test drives the split/sort directly.
 FieldView.applyDrawOrder = applyDrawOrder
 
 local function drawSingleActor(game, mapDef, a, camX, camY)
@@ -602,7 +587,6 @@ local function collectGame3Actors(game, mapDef, camX, camY, px, py, facing, walk
 end
 
 --- Collect visible tile draws grouped by palette slot for batched GbcPalette.with.
--- K3: reused scratch for per-tile draw records (consumed synchronously by drawTilesColored).
 local tile_draw_pool, tile_draw_count, tile_draw_slots = {}, 0, {}
 
 local function collectTileDraws(mapDef, camX, camY, canvasW, canvasH)
@@ -655,7 +639,6 @@ local function collectTileDraws(mapDef, camX, camY, canvasW, canvasH)
   return bySlot
 end
 
--- K9: one reusable closure for palette-scoped tile runs (was one closure per slot per draw).
 local palAtlas, palList
 local function draw_pal_list()
   for _, d in ipairs(palList) do

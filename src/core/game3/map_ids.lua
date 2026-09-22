@@ -4,8 +4,6 @@ local Profile = require("src.core.game3.profile")
 
 local MapIds = {}
 
--- gameId is a version id (save.version) or nil for the active game.  The
--- prefix list comes from that game's profile (T1.2 handoff, rse-seams §4).
 function MapIds.isGame3Map(mapId, gameId)
   if type(mapId) ~= "string" then return false end
   for _, prefix in ipairs(Profile.of(gameId).map.prefixes) do

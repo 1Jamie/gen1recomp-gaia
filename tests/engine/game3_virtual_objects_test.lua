@@ -1,8 +1,3 @@
--- Sections 5.3/5.4 of docs/game3/e10-opcode-spec.md: the virtual-object
--- registry behind `createvobject` / `turnvobject`. Unwired (the dispatch cases
--- are the Finisher's), so this suite pins the registry contract they will call.
---   luajit tests/engine/game3_virtual_objects_test.lua
-
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local T = require("tests.harness")
@@ -12,15 +7,11 @@ local VirtualObjects = require("src.core.game3.virtual_objects")
 
 VirtualObjects.reset()
 
--- ------------------------------------------------------------ module boundary
-
 check(package.loaded["src.core.game3.objects"] == nil,
   "the registry does not drag in objects.lua")
 check(package.loaded["src.core.game3.collision"] == nil,
   "the registry does not drag in collision (virtual objects never collide)")
 eq(VirtualObjects.DIR_SOUTH, 1, "DIR_SOUTH matches pret include/constants/global.h:110")
-
--- ----------------------------------------------------------------- lifecycle
 
 eq(VirtualObjects.count(), 0, "starts empty")
 
@@ -34,7 +25,7 @@ eq(rec.elevation, 3, "elevation stored")
 eq(rec.direction, 2, "direction stored")
 eq(VirtualObjects.count(), 1, "one live object")
 
--- event.inc:1346 defaults (elevation=3, direction=DIR_SOUTH)
+-- event.inc:1346
 local dflt = VirtualObjects.spawn(2, 7, 0, 0, nil, nil)
 eq(dflt.elevation, 3, "default elevation is 3")
 eq(dflt.direction, VirtualObjects.DIR_SOUTH, "default direction is DIR_SOUTH")
@@ -48,26 +39,20 @@ eq(#list, 2, "list returns both records")
 eq(list[1].id, 1, "list preserves spawn order (first)")
 eq(list[2].id, 2, "list preserves spawn order (second)")
 
--- --------------------------------------------------------------- turn (5.4)
-
 check(VirtualObjects.turn(1, 5) == true, "turn on a live id succeeds")
 eq(VirtualObjects.get(1).direction, 5, "turn updates direction")
 eq(VirtualObjects.get(2).direction, VirtualObjects.DIR_SOUTH,
   "turn on one id leaves the other alone")
 
--- Missing id: logged no-op returning false (pret GetVirtualObjectSpriteId's
--- MAX_SPRITES miss, src/event_object_movement.c:9248-9257).
+-- src/event_object_movement.c:9248-9257
 check(VirtualObjects.turn(99, 1) == false, "turn on a missing id is a no-op")
 check(VirtualObjects.turn(99, 1) == false, "still a no-op on a repeat")
 check(VirtualObjects.turn(nil, 1) == false, "turn(nil) is a no-op")
 eq(VirtualObjects.get(99), nil, "a missed turn creates nothing")
 
--- A non-numeric direction leaves the stored direction untouched (tonumber miss).
 check(VirtualObjects.turn(2, "sideways") == true, "non-numeric direction is accepted")
 eq(VirtualObjects.get(2).direction, VirtualObjects.DIR_SOUTH,
   "a non-numeric direction does not clobber the stored one")
-
--- ------------------------------------------------- replace + numeric coercion
 
 local replaced = VirtualObjects.spawn(1, 99, 12, 14, 5, 6)
 check(replaced == VirtualObjects.get(1), "re-spawning an id replaces the entry")
@@ -80,13 +65,9 @@ check(coerced ~= nil, "a numeric-string id is accepted")
 check(VirtualObjects.get(3) == coerced, "and resolves to the same record")
 check(VirtualObjects.turn("3", 4) == true, "turn accepts the same coercion")
 
--- --------------------------------------------------------------- bad input
-
 eq(VirtualObjects.spawn(nil, 1, 0, 0, 1, 1), nil, "a nil id is refused")
 eq(VirtualObjects.spawn("badge", 1, 0, 0, 1, 1), nil, "a non-numeric id is refused")
 eq(VirtualObjects.count(), 3, "refused spawns add nothing")
-
--- ----------------------------------------------------------- map unload clear
 
 VirtualObjects.clear()
 eq(VirtualObjects.count(), 0, "clear empties the registry (map unload)")
@@ -94,7 +75,6 @@ eq(#VirtualObjects.list(), 0, "list is empty after clear")
 check(VirtualObjects.get(1) == nil, "records are gone")
 check(VirtualObjects.turn(1, 1) == false, "turn after clear is a no-op")
 
--- An id is reusable after clear (a fresh map may spawn the same ids).
 local fresh = VirtualObjects.spawn(1, 5, 2, 2, 3, 1)
 check(fresh ~= nil, "ids are reusable after clear")
 eq(VirtualObjects.count(), 1, "one object after re-spawn")

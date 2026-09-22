@@ -251,21 +251,18 @@ local slot6 = session.party[6]
 ctx = newCtx()
 setVar(ctx, VAR_0x8004, 0)
 local _, refused = Natives.special(ctx, Std.SPECIAL.TakePokemonFromDaycare, nil)
--- pret guards party-full in the script layer
--- (data/maps/FourIsland_PokemonDayCare/scripts.inc:86-88); the special is this
--- engine's mirror of that guard, so a withdrawal never lands.
+-- data/maps/FourIsland_PokemonDayCare/scripts.inc:86-88
 eq(refused, 0, "a full party refuses the withdrawal (SPECIES_NONE)")
 eq(#session.party, 6, "the party is still six mons")
 eq(session.party[6], slot6, "slot 6 still holds its own mon")
 eq(Daycare.mon(dc, 1), second, "and the mon stays in the daycare")
--- src/daycare.c:525 stays index-assign unguarded by design, so pin that write
--- through the model layer directly.
+-- src/daycare.c:525
 eq(Daycare.take(session, 1), 16, "the model still withdraws the mon")
 eq(#session.party, 6, "the party never grows past six")
 eq(session.party[6], second, "pret's gPlayerParty[PARTY_SIZE - 1] write holds the mon")
 
 print("[test] 9b. Route 5 refuses the withdrawal on a full party too")
--- pret data/scripts/day_care.inc:79-81 guards the Route 5 retrieve the same way.
+-- data/scripts/day_care.inc:79-81
 r5 = Daycare.route5Of(session)
 r5.mon = makeMon(19, 5)
 session.party = {}

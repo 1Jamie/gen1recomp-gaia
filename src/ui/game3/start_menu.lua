@@ -34,8 +34,7 @@ local function build_entries(session)
   if hasDex then
     entries[#entries + 1] = { id = "pokedex", label = "POKéDEX" }
   end
-  -- Retail also gates POKéMON on FLAG_SYS_POKEMON_GET (SYS_FLAGS+0x28 = 0x828):
-  -- the player must have received their first Pokémon (start_menu.c:217-218).
+  -- start_menu.c:217-218
   local hasMon = true
   if store and Flags and Flags.getFlag then
     hasMon = Flags.getFlag(store, nil, Flags.IDS and Flags.IDS.SYS_POKEMON_GET or 0x828) == true

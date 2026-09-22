@@ -7,13 +7,6 @@ local Multichoice = {}
 Multichoice.LISTS = {}
 Multichoice.CACHE_REL = "data/generated/gba/scripts/multichoice.lua"
 
--- Cart option counts (gMultichoiceLists, transcribed via
--- src/import/gba/multichoice_extract.lua).  When the extract cache is absent
--- or stale, resolve() still has to serve the cart's list ARITY: a wrong count
--- shifts every case/switch branch downstream — BUG2's Game Corner photo tint
--- collapsed list 2 (NORMAL/BLACK/PINK/SEPIA) to a single option and always
--- picked MON_ICON_TINT_NORMAL.  Labels stay synthetic on a cache miss; only
--- the arity is cart truth.
 Multichoice.COUNTS = {
   [0]=2, [1]=5, [2]=4, [3]=2, [4]=2, [5]=2, [6]=3, [7]=3,
   [8]=3, [9]=4, [10]=1, [11]=1, [12]=1, [13]=2, [14]=6, [15]=6,
@@ -107,9 +100,6 @@ function Multichoice.resolve(listId, countHint)
   if entry and entry.labels and #entry.labels > 0 then
     return entry.labels, { left = entry.left, top = entry.top }
   end
-  -- Fallback synthetic labels (legacy).  Cart arity beats the caller hint:
-  -- positional operands (e.g. multichoice row[4] = ignoreBPress) have leaked
-  -- in here as "counts" before (BUG2 photo tint).
   local n = Multichoice.COUNTS[id] or tonumber(countHint) or 3
   local labels = {}
   for i = 1, math.max(1, n) do

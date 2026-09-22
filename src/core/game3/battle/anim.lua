@@ -528,8 +528,6 @@ function Anim.tweenHp(side, fromHp, toHp, maxHp, opts)
   end, function()
     Anim._stageTasks[t.id] = nil
     p.displayHp = toHp
-    -- review-v3 D3: only the CURRENT tween may drop the busy flag; an older
-    -- overlapping completion must not clear a newer tween's claim.
     if Anim._hpTweenTask == t.id then
       Anim._hpTweening = false
       Anim._hpTweenTask = nil
@@ -580,7 +578,6 @@ function Anim.tweenExp(side, fromRatio, toRatio, opts)
   end, function()
     Anim._stageTasks[task.id] = nil
     p.displayExp = toRatio
-    -- review-v3 D3: same owner guard as the HP tween.
     if Anim._expTweenTask == task.id then
       Anim._expTweening = false
       Anim._expTweenTask = nil

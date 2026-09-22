@@ -1,10 +1,3 @@
--- tests/game3_save_legacy_pc_migration_test.lua
--- V10 (carve-4): the schema KEEPS reading save.pc / save.pcItems / save.pc_items
--- even though toSaveTable never writes them — they are real legacy/converted-save
--- keys (src/save_convert/GenSave.lua:67 writes pcItems when converting a gen1
--- save) and src/core/game3/storage.lua:595 Storage.restore folds them into the
--- modern blob. This test pins that migration so the reads are never "cleaned up"
--- as dead. Also pins the F3 engine/generation round-trip symmetry.
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local failed = 0

@@ -1,8 +1,4 @@
--- rse-seams e10 spec 5.3 draw hookup: virtual objects reach the same draw pass
--- as event objects (Objects.forDraw) and stay invisible to collision queries.
---   pret src/event_object_movement.c:1719  CreateVirtualObject (sprite, not an object event)
---   pret src/event_object_movement.c:9225  DestroyVirtualObjects (map unload)
---   lua: luajit tests/engine/game3_virtual_objects_drawhook_test.lua
+-- src/event_object_movement.c:1719, src/event_object_movement.c:9225
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
@@ -20,8 +16,6 @@ Objects._order = {}
 Objects._byId = {}
 VirtualObjects.clear()
 
--- 1. A spawned virtual object shows up in the draw list with the fields
---    field_view reads, and stays out of the collision store.
 VirtualObjects.spawn(1, 40, 5, 6, 4, 1)
 local found
 for _, eo in ipairs(Objects.forDraw()) do
@@ -37,7 +31,6 @@ eq(found and found.sprite, GfxIds.spriteFor(40), "sprite name reaches the non-OW
 eq(Objects._byId[1], nil, "the registry is not in the object store (no collision)")
 eq(Objects.at(5, 6), nil, "Objects.at cannot see it")
 
--- 2. turnvobject re-emerges on the next draw with the new direction.
 VirtualObjects.turn(1, 2)
 local turned
 for _, eo in ipairs(Objects.forDraw()) do
@@ -45,7 +38,6 @@ for _, eo in ipairs(Objects.forDraw()) do
 end
 eq(turned and turned.facing, "up", "turn(1, DIR_NORTH) shows on the next draw")
 
--- 3. Map unload teardown empties the draw list again.
 VirtualObjects.clear()
 local gone = false
 for _, eo in ipairs(Objects.forDraw()) do

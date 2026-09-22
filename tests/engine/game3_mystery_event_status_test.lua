@@ -1,9 +1,4 @@
--- rse-seams e10 spec 5.1: setmysteryeventstatus writes a real status slot
--- mirroring pret SetMysteryEventScriptStatus
---   pret src/scrcmd.c:269-273          (opcode handler)
---   pret src/mystery_event_script.c:92-95 (writer)
---   pret src/mystery_event_script.c:75-80 (MEventScript_Run status out-param)
---   lua: luajit tests/engine/game3_mystery_event_status_test.lua
+-- src/scrcmd.c:269-273, src/mystery_event_script.c:92-95, src/mystery_event_script.c:75-80
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
@@ -31,18 +26,15 @@ end
 eq(Std.SPECIAL.setmysteryeventstatus or 0xE, 0xE, "opcode 0x0e is setmysteryeventstatus")
 eq(MysteryGift.getStatus(), 0, "the slot starts at 0")
 
--- 1. VM row -> write -> readback (both mirrors).
 local v = vm()
 eq(Ops.dispatch(v, { op = "setmysteryeventstatus", [1] = 2 }), false, "the op does not yield")
 eq(v.ctx.mysteryEventStatus, 2, "the ctx slot carries the written value")
 eq(MysteryGift.getStatus(), 2, "mystery_gift mirrors the value (setStatus/getStatus)")
 
--- 2. Other values round-trip.
 Ops.dispatch(v, { op = "setmysteryeventstatus", [1] = 3 })
 eq(MysteryGift.getStatus(), 3, "value 3 (pret SetIncompatible's status) round-trips")
 eq(v.ctx.mysteryEventStatus, 3, "and the ctx copy agrees")
 
--- 3. A non-numeric byte clamps to 0 rather than raising.
 Ops.dispatch(v, { op = "setmysteryeventstatus", [1] = "bogus" })
 eq(MysteryGift.getStatus(), 0, "non-numeric value normalises to 0")
 eq(#logs, 0, "no log spam on the happy path")

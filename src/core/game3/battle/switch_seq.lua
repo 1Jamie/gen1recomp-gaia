@@ -172,7 +172,6 @@ local function capture_events(fn)
   local ok, fnErr = pcall(fn, ad)
   ad._say = prev
   if not ok then
-    -- review-v3 S4: log the swallowed effect error instead of dropping silently.
     print("[game3/battle] switch effect failed: " .. tostring(fnErr))
     return {}
   end
@@ -711,8 +710,6 @@ local function run_step(step)
     local sides = d.sides or { d.side or "player" }
     if d.id ~= nil then sides = { d.id } end
     if #sides > 1 then
-      -- D9: sort a copy — d.sides is authored shared step data and table.sort
-      -- must not reorder it (the step table is reused across frames/runs).
       local sorted = {}
       for i = 1, #sides do sorted[i] = sides[i] end
       table.sort(sorted, function(a, bSide)

@@ -354,9 +354,7 @@ function Flags.getVar(store, ctx, id)
     if not (ctx and ctx.specialVars) then return 0 end
     return (ctx.specialVars[id]) or 0
   end
-  -- pret src/event_data.c:235-241 VarGet: an id with no var pointer is not a
-  -- var and comes back unchanged (GetVarPointer == NULL -> return idx).  The
-  -- var table starts at VARS_START (0x4000); below that it is a literal.
+  -- src/event_data.c:235-241
   if id < 0x4000 then return id end
   if not (store and store.vars) then return 0 end
   return (store.vars[id]) or 0

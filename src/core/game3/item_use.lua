@@ -747,8 +747,6 @@ local function useField(session, bag, id, partySlot)
 
   if use == "vs_seeker" or id == ItemsData.ITEM_VS_SEEKER or id == "VS_SEEKER"
       or ItemsData.toNumericId(id) == ItemsData.ITEM_VS_SEEKER then
-    -- rse-seams T3.1b: capability check first, before the module require.
-    -- FireRed reads the gate as true, so this branch is unchanged today.
     if not Capabilities.gate(session, "vs_seeker") then
       return false, "vs_seeker", nil
     end
@@ -783,7 +781,6 @@ local function useField(session, bag, id, partySlot)
   -- pokefirered/src/item_use.c:518 FieldUseFunc_TeachyTv
   if id == ITEM_TEACHY_TV or id == "TEACHY_TV"
       or ItemsData.toNumericId(id) == ITEM_TEACHY_TV then
-    -- rse-seams T3.1b: capability gate before the screen require.
     if not Capabilities.gate(session, "teachy_tv") then
       return false, "teachy_tv", nil
     end
@@ -795,7 +792,6 @@ local function useField(session, bag, id, partySlot)
   -- pokefirered/src/item_use.c:680 FieldUseFunc_FameChecker
   if id == ITEM_FAME_CHECKER or id == "FAME_CHECKER"
       or ItemsData.toNumericId(id) == ITEM_FAME_CHECKER then
-    -- rse-seams T3.1b: capability gate before the screen require.
     if not Capabilities.gate(session, "fame_checker") then
       return false, "fame_checker", nil
     end

@@ -48,7 +48,6 @@ Rng.Random()
 Rng.Random()
 Rng.setState(st)
 eq(Rng.getState().value, st.value, "setState restores value")
--- review-v3 F8: partial RNG states are rejected with no mutation.
 eq(Rng.setState({ value = 123 }), false, "setState rejects a partial state")
 eq(Rng.getState().value, st.value, "and leaves the value untouched")
 eq(Rng.restoreFromSession({ rng = { value = 1 } }), false,

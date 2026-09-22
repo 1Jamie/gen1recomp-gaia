@@ -455,10 +455,6 @@ local function saveAfterTrade()
   if game and game.saveGame then
     okSave = select(1, pcall(function() game:saveGame() end))
   end
-  -- review-v3 S2: capture both results, log, and propagate instead of
-  -- reporting a clean done — LT._saveFailed is the observable flag (callers
-  -- are bare statements).  saveDone still fires: the partner block already
-  -- landed, so stalling the scene here would softlock the trade.
   if not (okPersist and okSave) then
     LT._saveFailed = true
     print("[link] post-trade save failed (persist=" .. tostring(okPersist)

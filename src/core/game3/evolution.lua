@@ -303,8 +303,6 @@ function Evolution.apply(mon, newSpecies, session, bag, via)
   local shedId = (preRows[1] and row_method(preRows[1]) == Evolution.EVO_LEVEL_NINJASK
     and preRows[2] and row_target(preRows[2])) or 0
   if shedId > 0 and session then
-    -- review-v3 T5: the Shedinja must land in `session.party` — never in a
-    -- save-side alias and never in a throw-away table when neither exists.
     session.party = session.party or (session.save and session.save.party) or {}
     local party = session.party
     if #party < 6 then

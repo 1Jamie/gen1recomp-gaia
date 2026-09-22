@@ -252,9 +252,6 @@ local function drawFieldPlane(game, vw, vh, Renderer)
   end
 end
 
--- I3: the UI pass runs behind an injected renderer — display no longer
--- requires core/game3.gfx at load (breaks the display <-> gfx load cycle; gfx's
--- drawUi moved to src/ui.game3.ui_pass per I1, which does not require display).
 local uiRenderer
 function Display.setUiRenderer(fn)
   uiRenderer = fn

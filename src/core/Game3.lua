@@ -19,8 +19,6 @@ local QuestLog = require("src.ui.game3.quest_log")
 local QuestRecorder = require("src.core.game3.quest_log_recorder")
 local ModRuntime = require("src.mods.Runtime")
 
--- review-v3 S9 (auditor W3 cites): hot-path pcalls that never logged.  Warn
--- once per key so a permanently failing hook cannot spam the frame loop.
 local s9Warned = {}
 local function s9log(key, err)
   if s9Warned[key] then return end
@@ -393,8 +391,6 @@ function Game3:_handleBootAction(action)
       local modsDiff = SaveData.modsDiff and SaveData.modsDiff(save, activeMods) or nil
       local session = Schema.fromSaveTable(save)
       Options.bind(session, self.options)
-      -- Refuse legacy Sevii leftovers: the prefix list comes from the game's
-      -- profile (T0.2 handoff, rse-seams section 4).
       local legacy = Profile.of(session.version).map.legacyPrefixes or {}
       local legacyMap = false
       if type(session.map) == "string" then
@@ -574,12 +570,10 @@ function Game3:update(dt)
   while self._audioAccum >= STEP and guard < 8 do
     self._audioAccum = self._audioAccum - STEP
     guard = guard + 1
-    -- review-v3 S9: log the swallowed Audio.update failure once (Game3.lua:567).
     local okA, errA = pcall(Audio.update, STEP)
     if not okA then s9log("audio", errA) end
   end
   if self._audioAccum > 0.25 then self._audioAccum = 0 end
-  -- review-v3 S9 (Game3.lua:570).
   local okT, errT = pcall(function() require("src.render.Tilt").update(dt) end)
   if not okT then s9log("tilt", errT) end
 end
@@ -594,7 +588,6 @@ function Game3:_drawHud(w, h)
     scale = scale,
   }
   love.graphics.push("all")
-  -- review-v3 S9 (Game3.lua:583): log the swallowed render.hud hook once.
   local okR, errR = pcall(function() ModRuntime.call("render.hud", noop, self, viewport) end)
   if not okR then s9log("render.hud", errR) end
   love.graphics.pop()
@@ -1015,8 +1008,6 @@ function Game3:reset()
   Audio.endSession()
   require("src.ui.game3.stack").clear()
   clearFieldScreens()
-  -- review-v3 A3/A4: a reset releases the warp busy-state and the cached
-  -- door sheet Images/Quads along with everything else.
   local WarpMod = package.loaded["src.core.game3.warp"]
   if WarpMod and WarpMod.clear then pcall(WarpMod.clear) end
   local DoorsMod = package.loaded["src.core.game3.doors"]

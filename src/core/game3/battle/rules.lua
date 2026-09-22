@@ -43,11 +43,6 @@ Rules.POST_PHASES_ORDER = {
   "perish_song",
 }
 
--- X2: the phase-classification trio (isFieldPhase / isPostPhase / phaseOrder)
--- and its derived FIELD_PHASES / POST_PHASES / PHASE_ORDER lookup tables had
--- ZERO callers anywhere in src/ or tests/ and were deleted. The *_ORDER lists
--- stay (residuals.lua iterates them at :187/:194/:201) and FAINT_HALT_PHASES
--- stays (live via residuals.lua:143 shouldHaltBattlerOnFaint).
 Rules.FAINT_HALT_PHASES = {
   ingrain = true,
   leech_seed = true,

@@ -494,7 +494,6 @@ end
 
 function Oam.buildOamBuffer(pretOrder)
   ensure_pool()
-  -- K6: cache oamTopLeft per sprite so comparators never recompute it.
   local n = 0
   for i = 0, Oam.MAX_SPRITES - 1 do
     local s = Oam._sprites[i]
@@ -504,8 +503,6 @@ function Oam.buildOamBuffer(pretOrder)
       n = n + 1
     end
   end
-  -- K1: reuse the previous buffer when the visible set and sort keys are unchanged
-  -- (total comparator => adjacent-pair check proves the whole array is still sorted).
   local cmp = pretOrder and sort_sprites_pret or sort_sprites
   local cached = Oam._buffer
   if cached and #cached == n then

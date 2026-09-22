@@ -69,12 +69,7 @@ local nicknameOf = Model.nickname
 local slotMon = Model.mon
 local eggPending = Model.isEggPending
 
--- The FRLG scripts guard a full party before a withdrawal or an egg handout:
--- data/maps/FourIsland_PokemonDayCare/scripts.inc:86-88 (retrieve),
--- data/maps/FourIsland/scripts.inc:95-104 (egg) and
--- data/scripts/day_care.inc:79-81 (Route 5 retrieve).  pret's daycare.c stays
--- index-assign unguarded (src/daycare.c:525, :1081), so the special handler is
--- this engine's script-layer seam; every caller gets the same guard.
+-- data/maps/FourIsland_PokemonDayCare/scripts.inc:86-88, data/maps/FourIsland/scripts.inc:95-104, data/scripts/day_care.inc:79-81, daycare.c, src/daycare.c:525, :1081
 local function partyIsFull(session)
   local party = session and session.party or {}
   local count = 0
@@ -193,9 +188,7 @@ Daycare.HANDLERS = {
   -- pokefirered/src/daycare.c:546 TakePokemonFromDaycare
   [Std.SPECIAL.TakePokemonFromDaycare] = function(ctx, adapters)
     local session = sessionOf()
-    -- pret data/maps/FourIsland_PokemonDayCare/scripts.inc:86-88 refuses the
-    -- retrieve when CalculatePlayerPartyCount == PARTY_SIZE, before the
-    -- daycare state is read.
+    -- data/maps/FourIsland_PokemonDayCare/scripts.inc:86-88
     if partyIsFull(session) then
       setResult(ctx, SPECIES_NONE)
       return false, SPECIES_NONE
@@ -213,8 +206,7 @@ Daycare.HANDLERS = {
   -- pokefirered/src/daycare.c:1588 TakePokemonFromRoute5Daycare
   [Std.SPECIAL.TakePokemonFromRoute5Daycare] = function(ctx, adapters)
     local session = sessionOf()
-    -- pret data/scripts/day_care.inc:79-81 refuses the retrieve when
-    -- CalculatePlayerPartyCount == PARTY_SIZE, before the withdrawal runs.
+    -- data/scripts/day_care.inc:79-81
     if partyIsFull(session) then
       setResult(ctx, SPECIES_NONE)
       return false, SPECIES_NONE
@@ -319,8 +311,7 @@ Daycare.HANDLERS = {
     local dc = Daycare.stateOf()
     if not eggPending(dc) then return false end
     local session = sessionOf()
-    -- pokefirered/data/maps/FourIsland/scripts.inc:96 (party-full guard,
-    -- shared with the withdraw specials via partyIsFull)
+    -- pokefirered/data/maps/FourIsland/scripts.inc:96
     if partyIsFull(session) then return false end
     Breeding.giveEggFromDaycare(session)
     return false

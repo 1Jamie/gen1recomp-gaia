@@ -105,8 +105,6 @@ local function bag_sell_rows(bag)
   return rows
 end
 
--- G7: stock/sell rows are rebuilt only when their inputs change (kind + source
--- identity + generation); show()/commit_buy()/commit_sell() bump the generation.
 local rows_cache = { key = false, rows = nil }
 local function cached_rows(kind, src)
   local key = kind .. "|" .. tostring(src) .. "|" .. tostring(ShopMenu._rowsGen or 0)
@@ -272,10 +270,7 @@ local function commit_buy()
   -- The Premier Ball Cap: Strictly 1 Premier Ball when purchasing >= 10 standard Poké Balls (ID 4)
   local premierBonus = 0
   if ItemsData.toNumericId(p.id) == 4 and ShopMenu.qty >= 10 then
-    -- review-v3 G8: Bag.add can refuse (pocket capacity); grant the bonus
-    -- only on success and log the miss (W2: the canAdd check at :239 covers
-    -- only the purchased balls).
-    if Bag.add(bag, 12, 1) then -- PREMIER_BALL = 12
+    if Bag.add(bag, 12, 1) then
       premierBonus = 1
     else
       print("[shop] premier ball bonus not granted (no room)")
@@ -299,8 +294,6 @@ local function commit_sell()
   if not p or not session or not session.bag then return end
   ShopMenu._rowsGen = (ShopMenu._rowsGen or 0) + 1
   local earn = (p.price or 0) * ShopMenu.qty
-  -- review-v3 G9: pay out only when the remove actually happened
-  -- (Bag.remove returns false when the slot or quantity is missing).
   if not Bag.remove(session.bag, p.id, ShopMenu.qty) then
     ShopMenu._status = Strings("The trade fell through — nothing sold.")
     ShopMenu.mode = "sell_msg"

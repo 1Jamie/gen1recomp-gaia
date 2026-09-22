@@ -57,8 +57,6 @@ end
 function Gfx.clearUiBand()
 end
 
--- I1: the UI router (drawUi dispatch) lives in src/ui/game3/ui_pass.lua;
--- this shim keeps the Game3.Gfx surface and the stitchseam/ops drivers working.
 function Gfx.drawUi()
   return require("src.ui.game3.ui_pass").drawUi()
 end

@@ -242,9 +242,7 @@ function Commands.switchError(st, slot, forced, battlerId)
   return nil
 end
 
--- X9: dead AI-hook seam removed — Commands.setAiHook had zero callers in src/tests,
--- so Commands.aiHook could never be non-nil. pret's opponent choice lives in
--- battle_controller_opponent.c:1339/1350 (OpponentHandleChooseAction/Move), no mod hook.
+-- battle_controller_opponent.c:1339
 
 local function first_usable_action(b, id)
   local mon = b and b.mon

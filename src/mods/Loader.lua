@@ -315,9 +315,6 @@ function Loader.new(opts)
     -- builds a loader, and a run never changes generation underneath one.
     -- opts.generation is the test seam.
     generation = (opts and opts.generation) or GameVersion.generation(),
-    -- Which game within the generation (J10): GameVersion id when this boot
-    -- has one, the test seam opts.version otherwise.  nil means "no per-game
-    -- arm", which resolves to the generation's default exactly as before.
     version = (opts and opts.version) or nil,
   }, Loader)
   assert(self.fs, "Loader.new requires opts.fs when love is unavailable")
@@ -1295,10 +1292,6 @@ function Loader:releaseModInput(modId)
   end
 end
 
--- Gen 3 API facades by game id (J10): a second Gen 3 game adds a row when its
--- facade genuinely diverges, and an unknown or absent id falls back to the
--- FireRed-backed module -- exactly what the old generation-only dispatch
--- returned for every Gen 3 game, so FireRed and LeafGreen are unchanged.
 local GEN3_API = {
   firered = { battle = "src.battle.game3.BattleAPI", world = "src.world.game3.WorldAPI" },
   leafgreen = { battle = "src.battle.game3.BattleAPI", world = "src.world.game3.WorldAPI" },

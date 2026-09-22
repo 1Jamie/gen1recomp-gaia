@@ -17,9 +17,6 @@ local Runtime = require("src.mods.Runtime")
 local Semver = require("src.mods.Semver")
 local Boxes = require("src.pokemon.Boxes")
 local Stats = require("src.pokemon.Stats")
--- Bag is required at its one call site below (review-v3 I6): a load-time
--- SaveData -> Bag edge closes Data -> CacheFs -> SaveData -> Bag -> Data, so
--- the require moves to the call site and the cycle loses its top-level leg.
 local Badges = require("src.inventory.Badges")
 
 local GameVersion = require("src.core.GameVersion")
@@ -110,10 +107,6 @@ local function makePortableFs(dir)
       -- portable mode writes real files through io.*, which will not
       -- create missing parent directories; mkdir the tree so a slot path
       -- like "saves/red" exists before a write lands inside it
-      -- review-v3 L2: this path is slot-derived and reaches a shell — refuse
-      -- anything outside plain path characters (quotes, `;`, `$`, `..` never
-      -- occur in a legitimate save/export directory) instead of interpolating
-      -- it unescaped.
       if type(name) ~= "string" or name:find("[^%w%._%-%/]") or name:find("%.%.") then
         return false
       end
@@ -955,10 +948,6 @@ end
 
 local function slotDir(key) return "saves/" .. key end
 
--- A slot id is only ever something like "slot1"; it is joined straight into a
--- save path, so anything else (separators, "..", absolute fragments) is
--- refused at this single choke point (review-v3 L3: slot ids were never
--- validated, so the save root was escapable).
 local function valid_slot_id(id)
   return type(id) == "string" and id:match("^slot%d+$") ~= nil
 end
@@ -1153,8 +1142,6 @@ function saveNames(version, injectedFs)
   local slot = activeSlotCache[key]
   if slot then
     local main, bak, tmp = slotNames(key, slot)
-    -- An unusable slot id in the registry must never reach a path; treat the
-    -- scope as having no slot (the legacy flat names) instead.
     if main then return main, bak, tmp end
   end
   return legacyNames(key)

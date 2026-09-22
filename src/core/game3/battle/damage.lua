@@ -4,7 +4,6 @@ local Rules = require("src.core.game3.battle.rules")
 local Types = require("src.core.game3.battle.types")
 local Moves = require("src.core.game3.battle.moves")
 local EffectIds = require("src.core.game3.battle.effect_ids")
--- review-v3 S5: log the first swallowed rng-pcall once.
 local rngWarned = false
 local ModRuntime = require("src.mods.Runtime")
 
@@ -106,7 +105,6 @@ local function roll_from(rng, lo, hi)
   if type(rng) == "function" then
     local ok, v = pcall(rng, lo, hi)
     if ok and type(v) == "number" then return v end
-    -- review-v3 S5: log the swallowed rng-pcall once, then fall back.
     if not rngWarned then
       rngWarned = true
       print("[game3/damage] rng call failed: " .. tostring(v))

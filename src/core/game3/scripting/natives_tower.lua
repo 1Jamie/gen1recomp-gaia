@@ -570,11 +570,7 @@ TowerNatives.HANDLERS = {
     -- pokefirered/src/battle_records.c:136
     local kind = (varGet(ctx, VAR_0x8004) ~= 0) and "tower" or "link"
     local Screen = recordsScreen()
-    -- Lead adjudication (pret-grounded): with the records Screen up the script
-    -- PARKS on the waitstate — src/battle_records.c:83 + data/scripts/
-    -- cable_club.inc:566-575 — regardless of hosted/headless.  Only the
-    -- no-screen fallback completes the waitstate, so nothing deadlocks when
-    -- the module cannot be loaded.
+    -- src/battle_records.c:83, cable_club.inc:566-575
     if not Screen then
       takeScreenForPartyMenu()()
       return natives().yieldHost(ctx, adapters, function(done) done() end)
@@ -610,7 +606,7 @@ TowerNatives.HANDLERS = {
     return runBattle(ctx, adapters, foe, {
       trainerId = 0,
       eReader = which == SPECIAL_BATTLE.EREADER,
-      -- pret src/battle_tower.c:895-933 StartSpecialBattle case 0/1
+      -- src/battle_tower.c:895-933
       battleTower = which == SPECIAL_BATTLE.BATTLE_TOWER,
       secretBase = which == SPECIAL_BATTLE.SECRET_BASE,
       -- pokefirered/src/battle_message.c:2072 CopyEReaderTrainerName5

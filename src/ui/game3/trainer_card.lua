@@ -209,10 +209,7 @@ local function screen_image(stars, female)
   return img
 end
 
--- J3: badge flags/names come from the active game profile (FRLG row cites
--- pokefirered/include/constants/flags.h:1364-1371, FLAG_BADGE01_GET = 0x820;
--- RSE bases documented in profiles/firered.lua). Falls back to the FRLG
--- literals, so FireRed behaviour is byte-identical.
+-- pokefirered/include/constants/flags.h:1364-1371
 local BADGE_FLAGS = { 0x820, 0x821, 0x822, 0x823, 0x824, 0x825, 0x826, 0x827 }
 local BADGE_NAMES = { "BOULDER", "CASCADE", "THUNDER", "RAINBOW", "SOUL", "MARSH", "VOLCANO", "EARTH" }
 do
@@ -231,7 +228,7 @@ end
 
 local FLAG_SYS_POKEDEX_GET = 0x829
 local FLAG_SYS_NATIONAL_DEX = 0x840
--- src/trainer_card.c:899 VarGet(VAR_TRAINER_CARD_MON_ICON_TINT_IDX)
+-- src/trainer_card.c:899
 local VAR_TRAINER_CARD_MON_ICON_TINT_IDX = 0x4042
 local VAR_TRAINER_CARD_MON_ICON_1 = 0x4043
 local VAR_HOF_BRAG_STATE = 0x4049
@@ -343,8 +340,6 @@ local function get_var(session, varId)
     if type(store.vars) == "table" then return tonumber(store.vars[varId]) or 0 end
   end
   if session and type(session.vars) == "table" then
-    -- persist_sidecar/Flags.serialize write tostring(id) keys into session.vars;
-    -- a numeric miss must fall back to the string key or every var reads 0.
     local v = session.vars[varId]
     if v == nil then v = session.vars[tostring(varId)] end
     return tonumber(v) or 0
@@ -383,7 +378,7 @@ end
 
 local function caught_mons_count(session, national)
   local dex = session and session.dex
-  if not dex then return 0 end -- review-v3 V5: caughtMonsCount is never written
+  if not dex then return 0 end
   local okD, Dex = pcall(require, "src.core.game3.dex")
   if okD and Dex and Dex.countCaught then
     local ok, n = pcall(Dex.countCaught, dex, national and "national" or "kanto")
@@ -445,7 +440,7 @@ local function gather(session)
   if berries >= 200 and jumps >= 200 then stars = stars + 1 end
   c.stars = math.min(4, stars)
 
-  -- src/trainer_card.c:899 trainerCard->monIconTint = VarGet(VAR_TRAINER_CARD_MON_ICON_TINT_IDX)
+  -- src/trainer_card.c:899
   c.monIconTint = get_var(session, VAR_TRAINER_CARD_MON_ICON_TINT_IDX)
 
   c.monSpecies = {}
@@ -519,8 +514,6 @@ function TrainerCard.update(dt)
   end
 end
 
--- W3: the text model is rebuilt only when the card snapshot identity or the
--- blinking colon phase changes (it used to be rebuilt every frame in draw).
 local texts_cache = { c = false, colon = false, front = nil, back = nil }
 local function front_texts_cached(c, colonInvisible)
   if texts_cache.front and texts_cache.c == c and texts_cache.colon == colonInvisible then
@@ -544,7 +537,6 @@ function TrainerCard.show(opts)
   TrainerCard._flip = nil
   TrainerCard._session = opts.session
   TrainerCard._card = gather(opts.session)
-  -- W3: establish the fresh cache with the new snapshot (row: cache in show/beginFlip).
   texts_cache.c, texts_cache.colon, texts_cache.front, texts_cache.back = false, false, nil, nil
   TrainerCard._onClose = opts.onClose
   ensureAssets()
@@ -708,14 +700,12 @@ local function draw_front(c)
   end
 end
 
--- src/trainer_card.c:1411 LoadMonIconGfx — tint the party-snapshot icons per
--- trainerCard->monIconTint. include/constants/trainer_card.h tint indices:
-local MON_ICON_TINT_BLACK = 1 -- TintPalette_CustomTone(pals, 96, 0, 0, 0)
-local MON_ICON_TINT_PINK = 2 -- TintPalette_CustomTone(pals, 96, 500, 330, 310)
-local MON_ICON_TINT_SEPIA = 3 -- TintPalette_SepiaTone(pals, 96)
+-- src/trainer_card.c:1411, include/constants/trainer_card.h
+local MON_ICON_TINT_BLACK = 1
+local MON_ICON_TINT_PINK = 2
+local MON_ICON_TINT_SEPIA = 3
 
--- pokefirered/src/palette.c:832/:852 math adapted to 8-bit pixels: same gray
--- weights, tone/256, truncated like the C >>8, clamped to 255, alpha kept.
+-- pokefirered/src/palette.c:832
 local function tint_pixel(tint, r, g, b)
   local gray = 0.3 * r + 0.59 * g + 0.1133 * b
   local nr, ng, nb
@@ -723,7 +713,7 @@ local function tint_pixel(tint, r, g, b)
     nr, ng, nb = 0, 0, 0
   elseif tint == MON_ICON_TINT_PINK then
     nr, ng, nb = 500 * gray / 256, 330 * gray / 256, 310 * gray / 256
-  else -- MON_ICON_TINT_SEPIA
+  else
     nr, ng, nb = 1.2 * gray, gray, 0.94 * gray
   end
   if nr > 255 then nr = 255 end
@@ -732,14 +722,11 @@ local function tint_pixel(tint, r, g, b)
   return math.floor(nr), math.floor(ng), math.floor(nb)
 end
 
--- Lazily built cache: [tint][species] = icon-shaped entry ({image, quads, ...}),
--- or false when the build failed so we never retry; tint 0/nil/out-of-range and
--- failures return the original icon untouched.
 local _tintedIcons = {}
 
 local function tinted_icon(icon, species, tint)
   if not icon or not icon.image or not tint then return icon end
-  tint = math.floor(tint) -- vars are u16 in C; truncate like the (u16) switch
+  tint = math.floor(tint)
   if tint < MON_ICON_TINT_BLACK or tint > MON_ICON_TINT_SEPIA then return icon end
   local byTint = _tintedIcons[tint]
   if not byTint then
@@ -780,7 +767,7 @@ local function tinted_icon(icon, species, tint)
     h = icon.h,
     sheetH = icon.sheetH,
     frames = icon.frames,
-    quads = icon.quads, -- same sheet dimensions, quads carry over
+    quads = icon.quads,
   }
   return byTint[species]
 end

@@ -54,9 +54,7 @@ local function getSpecialVar(ctx, id)
 end
 
 local function setSpecialVar(ctx, id, value)
-  -- pret src/field_specials.c:2075-2078 VarSet writes the real save var
-  -- (0x4025 = VAR_MASSAGE_COOLDOWN_STEP_COUNTER, include/constants/vars.h:75);
-  -- the old nil store dropped that write (review-v3 E5).
+  -- src/field_specials.c:2075-2078, include/constants/vars.h:75
   local Space = package.loaded["src.core.game3.scripting.space"]
   flagsMod().setVar(Space and Space.store or nil, ctx, id, value)
   if ctx and type(ctx.setVar) == "function" then ctx:setVar(id, value) end
@@ -87,20 +85,21 @@ end
 
 -- GetMonData(MON_DATA_NICKNAME) is gText_EggNickname for an egg
 -- (pokefirered/src/pokemon.c:3020)
+local function ensurePokemonNames(Pokemon)
+  if Pokemon._names then return end
+  local okI, errI = pcall(Pokemon.install, nil)
+  if not okI and not Pokemon._installWarned then
+    Pokemon._installWarned = true
+    print("[game3/pokemon] install failed: " .. tostring(errI))
+  end
+end
+
 local function nicknameOf(mon)
   if not mon then return "" end
   local Pokemon = require("src.core.game3.pokemon")
   if Pokemon.isEgg(mon) then return Strings("EGG") end
   if mon.nickname and mon.nickname ~= "" then return tostring(mon.nickname) end
-  if not Pokemon._names and not Pokemon._installTried then
-    -- review-v3 S11: log the swallowed install failure once; no silent retries.
-    Pokemon._installTried = true
-    local okI, errI = pcall(Pokemon.install, nil)
-    if not okI and not Pokemon._installWarned then
-      Pokemon._installWarned = true
-      print("[game3/pokemon] install failed: " .. tostring(errI))
-    end
-  end
+  ensurePokemonNames(Pokemon)
   return (Pokemon.name and Pokemon.name(mon.species or mon.speciesId)) or ""
 end
 
@@ -636,15 +635,7 @@ Natives.ALLOW = {
       local mon = chosenMon(ctx)
       local species = mon and tonumber(mon.species or mon.speciesId) or 1
       local Pokemon = require("src.core.game3.pokemon")
-      if not Pokemon._names and not Pokemon._installTried then
-        -- review-v3 S11 sibling: same log-once pattern as the cited site.
-        Pokemon._installTried = true
-        local okI, errI = pcall(Pokemon.install, nil)
-        if not okI and not Pokemon._installWarned then
-          Pokemon._installWarned = true
-          print("[game3/pokemon] install failed: " .. tostring(errI))
-        end
-      end
+      ensurePokemonNames(Pokemon)
       -- pokefirered/src/field_specials.c:1656
       local before = nicknameOf(mon)
       setStringVar(ctx, adapters, 3, before)
@@ -672,15 +663,7 @@ Natives.ALLOW = {
     return yield_host(ctx, adapters, function(done)
       local species = tonumber(mon.species or mon.speciesId) or 1
       local Pokemon = require("src.core.game3.pokemon")
-      if not Pokemon._names and not Pokemon._installTried then
-        -- review-v3 S11 sibling: same log-once pattern as the cited site.
-        Pokemon._installTried = true
-        local okI, errI = pcall(Pokemon.install, nil)
-        if not okI and not Pokemon._installWarned then
-          Pokemon._installWarned = true
-          print("[game3/pokemon] install failed: " .. tostring(errI))
-        end
-      end
+      ensurePokemonNames(Pokemon)
       local before = nicknameOf(mon)
       setStringVar(ctx, adapters, 3, before)
       setStringVar(ctx, adapters, 2, before)
@@ -742,9 +725,6 @@ Natives.ALLOW = {
     local Audio = require("src.core.game3.audio")
     local Flags = require("src.core.game3.scripting.flags")
     local Space = package.loaded["src.core.game3.scripting.space"]
-    -- Ctx never defined a getVar method (the old guard always failed and the
-    -- cry played as species 0 — review-v3 E4); read 0x8000 through Flags like
-    -- every other special does.
     local species = tonumber(Flags.getVar(Space and Space.store, ctx, 0x8000)) or 0
     Audio.playCry(species)
     return false
@@ -851,8 +831,6 @@ local KNOWN_MODULES = {
 Natives.KNOWN_MODULES = KNOWN_MODULES
 Natives.MODULE_DIR = MODULE_DIR
 
--- rse-seams T3.2: KNOWN_MODULES stays the fallback; a profile's nativeModules
--- list widens or narrows the merge set for other Gen 3 games.
 local function moduleNames()
   local names = Profile.active().nativeModules
   return type(names) == "table" and names or KNOWN_MODULES
@@ -893,10 +871,6 @@ Natives.MODULE_NAMES = discoverModules()
 Natives.MODULES = {}
 
 for _, base in ipairs(Natives.MODULE_NAMES) do
-  -- rse-seams T3.2: skip a module whose feature capability is off
-  -- (Capabilities.nativeAllowed maps natives_fame/tower/fan_club/seagallop to
-  -- their features; every other module is shared).  FireRed enables all of
-  -- them, so the same 16 modules merge as before.
   if Capabilities.nativeAllowed(nil, base) then
     local ok, mod = pcall(require, MODULE_PACKAGE .. base)
     if ok and type(mod) == "table" then
@@ -924,7 +898,6 @@ local function log_once(kind, id, logger)
 end
 
 --- Returns whether the VM should yield (native wait).
--- rse-seams e10 5.2: export the once-per-key logger for ops_a's gotonative.
 Natives.log_once = log_once
 
 function Natives.callnative(ctx, fnAddr, adapters)
@@ -937,12 +910,8 @@ function Natives.callnative(ctx, fnAddr, adapters)
   return false
 end
 
--- rse-seams e10 5.2: symbol seam for `gotonative`.  pret
--- src/scrcmd.c:92-97 SetupNativeScript jumps to a C function pointer, which
--- the engine cannot execute; a symbol table (emitted by the extractor later,
--- T6.x) maps the address to a `native:` registration instead.  Empty registry
--- today = every address resolves to nil and the op skips with one log.
-Natives.NATIVE_SYMBOLS = {} -- addr -> symbol
+-- src/scrcmd.c:92-97
+Natives.NATIVE_SYMBOLS = {}
 function Natives.resolveNative(addr)
   local id = tonumber(addr) or 0
   local sym = Natives.NATIVE_SYMBOLS[id]
@@ -950,7 +919,7 @@ function Natives.resolveNative(addr)
     local fn = Natives.ALLOW["native:" .. sym]
     if fn then return fn end
   end
-  return Natives.ALLOW["native:" .. id] -- direct registration (callnative's key)
+  return Natives.ALLOW["native:" .. id]
 end
 
 function Natives.special(ctx, specialId, adapters)

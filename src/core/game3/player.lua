@@ -604,8 +604,6 @@ function Player.startSurfing(game, onDone)
     local SE = require("src.core.game3.se_ids")
     if Audio.playSe and SE.SE_LEDGE then Audio.playSe(SE.SE_LEDGE) end
   end)
-  -- forceStep refuses while the avatar is already stepping; without this
-  -- rollback the pending surfHopping flag would strand (review-v3 A7).
   if not Player.forceStep(Player.facing, onDone) then
     Player.surfHopping = false
     return false

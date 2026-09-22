@@ -65,8 +65,6 @@ function PcAnim.update()
     local flickerOff = (t.state % 2) == 1
     local offTile = PcAnim.METATILE_OFF[var]
     local onTile = PcAnim.METATILE_ON[var]
-    -- An out-of-range VAR_0x8004 must not blank the cell with metatile 0
-    -- (review-v3 A6): drop the animation instead of writing garbage.
     if not offTile or not onTile then
       PcAnim.task = nil
       return

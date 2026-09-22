@@ -1,9 +1,3 @@
--- I1: the Gen 3 UI router, split out of core/game3/gfx (drawing primitives
--- stay there). This module owns drawUi dispatch and must NOT require
--- core/game3.display — that require was the gfx -> display half of the
--- display <-> gfx load cycle (I3); display binds to this pass through
--- Display.setUiRenderer (or lazily requires it on first draw).
-
 local Stack = require("src.ui.game3.stack")
 
 local UiPass = {}
@@ -15,7 +9,6 @@ end
 local gfxDrawWarned = {}
 local function tryDraw(mod)
   if mod and mod.draw then
-    -- review-v3 S9 (gfx.lua:64): a throwing mod.draw logged nothing ever.
     local ok, err = pcall(mod.draw)
     if not ok and not gfxDrawWarned[tostring(mod)] then
       gfxDrawWarned[tostring(mod)] = true
@@ -24,7 +17,6 @@ local function tryDraw(mod)
   end
 end
 
---- Draw all active game3 UI widgets onto the current Display canvas.
 function UiPass.drawUi()
   local Message = require("src.ui.game3.message")
   local Choice = require("src.ui.game3.choice")
@@ -41,14 +33,12 @@ function UiPass.drawUi()
   local CoinsBox = require("src.ui.game3.coins_box")
   local ElevatorWindow = require("src.ui.game3.elevator_window")
 
-  -- Stack-driven full-screen menus (bottom → top).
   local order = Stack.drawOrder()
   if #order > 0 then
     for _, layer in ipairs(order) do
       tryDraw(layer.mod)
     end
   else
-    -- Legacy open flags if stack not used yet.
     if StartMenu.isOpen() then tryDraw(StartMenu) end
     if BagMenu.isOpen() then tryDraw(BagMenu) end
     if RegionMap.isOpen() then tryDraw(RegionMap) end
@@ -60,7 +50,6 @@ function UiPass.drawUi()
     if PcMenu.isOpen() then tryDraw(PcMenu) end
   end
 
-  -- Field moneybox sits above the map but under dialogue when script-owned.
   if MoneyBox.isVisible and MoneyBox.isVisible() then
     local ShopMenu = package.loaded["src.ui.game3.shop_menu"]
     if not (ShopMenu and ShopMenu.isOpen and ShopMenu.isOpen()) then
@@ -78,8 +67,7 @@ function UiPass.drawUi()
     tryDraw(ElevatorWindow)
   end
 
-  -- Location change overlay / signpost popup banner (pokefirered/src/map_name_popup.c)
-  -- A running FOREST preview screen owns BG0, so it replaces the popup entirely.
+  -- pokefirered/src/map_name_popup.c
   local okPrev, MapPreviewScreen = pcall(require, "src.ui.game3.map_preview_screen")
   local previewActive = okPrev and MapPreviewScreen and MapPreviewScreen.isActive
     and MapPreviewScreen.isActive()
@@ -103,13 +91,11 @@ function UiPass.drawUi()
     end
   end
 
-  -- Script mon pic (showmonpic) under dialogue / yes-no.
   local okPic, MonPic = pcall(require, "src.ui.game3.mon_pic")
   if okPic and MonPic and MonPic.active then
     tryDraw(MonPic)
   end
 
-  -- Dialog then choice on top (yesnobox overlays stayed message).
   local top = Stack.top()
   local suppressOverworldDialog = top and top.hideBelow
 

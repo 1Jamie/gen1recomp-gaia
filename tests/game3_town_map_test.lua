@@ -219,9 +219,7 @@ do
 
     local detail = RegionExtract.run(rom, mockCache, { cacheRoot = "data/generated/gba" })
     check(detail.ok == true, "RegionMapExtract.run returned ok")
-    -- 10 chrome assets, confirmed against pret: src/region_map.c:424
-    -- (dungeon_icon), :425 (fly_icon), :395-396 and :405-406
-    -- (player_icon_red / player_icon_leaf).
+    -- src/region_map.c:424
     check(detail.count == 10, "Extracted 10 region map chrome assets")
 
     local kantoRgba = mockCache:read("data/generated/gba/region_map/kanto_map.rgba")

@@ -50,8 +50,6 @@ EasyChat.FOOTER_BTNS = FOOTER_BTNS
 
 local function play_se(id)
   local ok, Aud = pcall(require, "src.core.game3.audio")
-  -- review-v3 G5: the API is playSe (audio.lua:574); the old playSE guard
-  -- was always nil, so Easy Chat never played any sound effect.
   if ok and Aud and Aud.playSe then
     Aud.playSe(id)
   end

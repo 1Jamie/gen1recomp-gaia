@@ -265,11 +265,9 @@ do
   Runtime.session = prev
 end
 
-print("[test] berryPowder round-trips through the schema (review-v3 H8)")
+print("[test] berryPowder round-trips through the schema")
 do
-  -- review-v3 H8: pret include/global.h:354 SaveBlock2.berryCrush holds
-  -- berryPowderAmount (src/berry_powder.c:50); the port carries it on the
-  -- session, so the schema must write and restore the key.
+  -- include/global.h:354, src/berry_powder.c:50
   local session = Schema.newGame({ rngSeed = 0x99 })
   eq(session.berryPowder, 0, "a New Game starts with 0 berry powder")
 

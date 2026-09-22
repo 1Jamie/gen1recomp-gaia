@@ -506,9 +506,6 @@ check(removedRefError:find("OPP_TEST", 1, true) ~= nil
 
 -- ------- every vanilla record must satisfy its schema, so the shipped
 -- example's copy-the-base-record override idiom always validates cleanly
--- Data honours POKEPORT_DATA_DIR; require("data.generated.*") has no package
--- searcher under it (same seam as run_tests:2280).  Guard-loaded: run_tests
--- already loaded it, standalone runs it here.
 local Data = require("src.core.Data")
 if not Data.maps then Data:load() end
 local vanillaSets = {

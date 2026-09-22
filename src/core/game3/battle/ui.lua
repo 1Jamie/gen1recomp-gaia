@@ -31,7 +31,6 @@ local SE = require("src.core.game3.se_ids")
 local bit = require("bit")
 
 local Ui = {}
--- review-v3 S9: one-shot warn flag for the swallowed BattleChrome install.
 local chromeInstallWarned = false
 
 -- The stat window may only be on screen while the battle is in a phase that can
@@ -207,7 +206,6 @@ function Ui.reset(opts)
   Ui._oakTexts = nil
   if Message and Message.isHeld and Message.isHeld() then Message.close() end
   if not Ui._headless then
-    -- review-v3 S9 (battle/ui.lua:208): log the swallowed chrome install once.
     local okC, errC = pcall(BattleChrome.install, nil)
     if not okC and not chromeInstallWarned then
       chromeInstallWarned = true

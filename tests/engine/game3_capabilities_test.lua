@@ -1,8 +1,3 @@
--- T3.1/T3.2: the capability registry.  Pins the legal flag names, the composed
--- per-game sets, the FireRed row's conformance, and the feature -> module map
--- (including static file existence for every module a gate will touch).
---   luajit tests/engine/game3_capabilities_test.lua
-
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local T = require("tests.harness")
@@ -13,8 +8,6 @@ local Capabilities = require("src.core.game3.capabilities")
 local FireredProfile = require("src.core.game3.profiles.firered")
 
 local prevVersion = GameVersion.get()
-
--- ------------------------------------------------------------ registry shape
 
 for name, value in pairs(Capabilities.NAMES) do
   check(value == true, "NAMES." .. name .. " is a legal flag")
@@ -38,8 +31,6 @@ for key in pairs(Capabilities.FRLG) do
     "FRLG-only flag " .. key .. " is not shared with RSE")
 end
 
--- ---------------------------------------------------- FireRed row conformance
-
 GameVersion.set("firered")
 local row = FireredProfile
 local okAudit, problems = Capabilities.audit(row.capabilities)
@@ -52,8 +43,6 @@ end
 for _, rseOnly in ipairs({ "contests", "secretBase", "matchCall", "pokeNav", "battleTower" }) do
   check(row.capabilities[rseOnly] == nil, "FireRed row leaves RSE flag " .. rseOnly .. " unset")
 end
-
--- -------------------------------------------------------------- feature map
 
 local function fileExists(rel)
   local f = io.open(rel, "r")
@@ -85,14 +74,12 @@ for id, feature in pairs(Capabilities.FEATURES) do
   end
 end
 
--- The five features the lead named must be present and FireRed-only.
 for _, id in ipairs({ "fame_checker", "teachy_tv", "vs_seeker", "trainer_tower", "seagallop" }) do
   check(Capabilities.FEATURES[id] ~= nil, "feature registered: " .. id)
   check(Capabilities.FRLG[Capabilities.FEATURES[id].cap] == true,
     "feature is in the FRLG set: " .. id)
 end
 
--- pret grounding, when the cited repo is cloned locally (../<repo>).
 local repoCloned = {}
 do
   for _, feature in pairs(Capabilities.FEATURES) do
@@ -108,8 +95,6 @@ do
   end
 end
 
--- --------------------------------------------------------------- semantics
-
 eq(Capabilities.has({ version = "firered" }, "fameChecker"), true,
   "FireRed has the Fame Checker")
 eq(Capabilities.has({ version = "firered" }, "contests"), false,
@@ -123,9 +108,6 @@ eq(Capabilities.gate({ version = "firered" }, "tm_case"), true,
 eq(Capabilities.gate({ version = "firered" }, "contests"), false,
   "an unknown feature id reads false (and warns once)")
 
--- Until profiles/ruby.lua exists, resolution fails closed to FireRed, so an
--- RSE session currently reads FireRed's flags.  Update this assertion when the
--- RSE profile lands (it should flip to false alongside other gates).
 eq(Capabilities.gate({ version = "ruby" }, "fame_checker"), true,
   "an RSE id without a profile fails closed to FireRed")
 
@@ -139,8 +121,6 @@ eq(Capabilities.enabled(Capabilities.RSE, "contests"), true,
   "the RSE set has contests")
 eq(Capabilities.enabled(nil, "fame_checker"), false, "nil caps is false")
 eq(Capabilities.enabled({}, "no_such_feature"), false, "an unknown feature is false")
-
--- ------------------------------------------------- natives registry gating
 
 eq(Capabilities.nativeFeature("natives_fame"), "fame_checker",
   "the Fame Checker natives module maps to its feature")
@@ -156,8 +136,6 @@ eq(Capabilities.nativeAllowed({ version = "firered" }, "natives_bogus"), true,
   "an unknown module name is treated as shared, not gated")
 eq(Capabilities.nativeAllowed({ version = "firered" }, nil), true,
   "a nil module name is shared")
-
--- --------------------------------------------------------------- audit
 
 local okBad, badProblems = Capabilities.audit({ bogusFlag = true })
 check(okBad == false, "audit rejects an unknown flag")

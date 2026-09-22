@@ -233,9 +233,6 @@ check(okLoad and fixture.pokemon.PIDGEY == nil, "and not the generated one")
 check(okLoad and fixture.constants.partyMax == 6,
   "fixture constants pass through seedDefaults")
 
--- restore the caller's env: leaving POKEPORT_DATA_DIR unset poisons every
--- suite and child process that runs after this one in the same runner
--- (run_tests.lua's dofile list and its os.execute tiers see no data dir).
 if originalDataDir and originalDataDir ~= "" then
   setVar("POKEPORT_DATA_DIR", originalDataDir)
 else

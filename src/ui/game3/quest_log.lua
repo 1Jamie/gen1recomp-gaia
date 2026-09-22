@@ -2,11 +2,9 @@
 local Q=require('src.core.game3.quest_log')
 local Font=require('src.ui.game3.frlg_font')
 local Strings=require('src.core.Strings')
--- W11: resolve these once instead of re-requiring on every draw.
 local Ow, PokedexChrome
 local function owSprites() Ow=Ow or require('src.core.game3.ow_sprites');return Ow end
 local function pokedexChrome() PokedexChrome=PokedexChrome or require('src.ui.game3.pokedex_chrome');return PokedexChrome end
--- Hoisted actor draw-order comparator (stable by y then id).
 local function actorOrder(a,b) return a.y<b.y or (a.y==b.y and a.id<b.id) end
 local UI={}
 function UI.install(cache)

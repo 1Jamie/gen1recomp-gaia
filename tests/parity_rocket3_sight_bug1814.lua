@@ -20,8 +20,6 @@ local check, eq = S.check, S.eq
 local MAP = "ROCKET_HIDEOUT_B4F"
 local TEXT = "TEXT_ROCKETHIDEOUTB4F_ROCKET3"
 
--- the sight range the engine reads.  Data honours POKEPORT_DATA_DIR; a raw
--- dofile of data/generated/* never did (same seam as run_tests:2280).
 local Data = require("src.core.Data")
 if not Data.maps then Data:load() end
 local headers = Data.trainer_headers

@@ -185,9 +185,7 @@ function Party.giveMon(session, species, level, nickname, opts)
   level = tonumber(level) or 5
   if level < 1 then level = 1 end
   local Pokemon = require("src.core.game3.pokemon")
-  if not Pokemon._names and not Pokemon._installTried then
-    -- review-v3 S11: log the swallowed install failure once; no silent retries.
-    Pokemon._installTried = true
+  if not Pokemon._names then
     local okI, errI = pcall(Pokemon.install, nil)
     if not okI and not Pokemon._installWarned then
       Pokemon._installWarned = true
@@ -257,7 +255,7 @@ function Party.giveMon(session, species, level, nickname, opts)
     otName = session.name or session.playerName or "RED",
     otId = session.trainerId or session.id or session.playerId or 12345,
     -- pokefirered/src/pokemon.c:1796 CreateBoxMon OT_ID_PLAYER_ID
-    otSecretId = tonumber(session.secretId) or nil, -- review-v3 V4: drop the unwritten otSecretId alias
+    otSecretId = tonumber(session.secretId) or nil,
     -- pokefirered/src/pokemon.c:1822
     otGender = Party.otGender(session),
     pokeball = 4, -- Poké Ball
@@ -283,8 +281,6 @@ function Party.giveMon(session, species, level, nickname, opts)
   session.dex = session.dex or { seen = {}, owned = {}, caught = {} }
   session.dex.seen = session.dex.seen or {}
   session.dex.owned = session.dex.owned or {}
-  -- review-v3 F2: caught mirrors owned (dex.lua Dex.setCaught writes all
-  -- three; save-menu/trainer-card counts read dex.caught).
   session.dex.caught = session.dex.caught or {}
   session.dex.seen[species] = true
   session.dex.owned[species] = true
@@ -295,8 +291,6 @@ end
 --- Give an egg for script giveegg.
 -- pokefirered/src/script_pokemon_util.c:75
 function Party.giveEgg(session, species, opts)
-  -- review-v3 T4: giveMon initialises `session.party`, so only the session
-  -- needs to be present (the extra clause refused every nil-party session).
   if not session then return false, Party.MON_CANT_GIVE end
   species = tonumber(species) or 1
   local ok, code, egg = Party.giveMon(session, species, 5, "EGG", opts)

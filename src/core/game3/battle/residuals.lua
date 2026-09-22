@@ -53,9 +53,7 @@ local function sortedBattlers(adapter)
   local list = adapter:activeBattlers() or {}
   local a, b = list[1], list[2]
   if a and b then
-    -- Reuse this turn's cached order so the speed-tie roll is stable across
-    -- every residual read in the turn (review-v3 C9; collectEvents fills
-    -- _endTurnOrder once, pokefirered/src/battle_util.c:484).
+    -- pokefirered/src/battle_util.c:484
     local ids = st and st._endTurnOrder
     if ids and ids[1] and ids[2] then
       if ids[1] == b.id and ids[2] == a.id then
@@ -172,14 +170,12 @@ function Residuals.collectEvents(adapter)
   local st = adapter._st
   if st then
     st._endTurnOrder = nil
-    -- pokefirered/src/battle_util.c:484: ONE speed order per turn, speed-tie
-    -- roll included; caching it for every mode (was doubles-only) stops the
-    -- singles path re-rolling the tie on each sortedBattlers call (C9).
+    -- pokefirered/src/battle_util.c:484
     local order = {}
     for _, b in ipairs(sortedBattlers(adapter)) do order[#order + 1] = b.id end
     st._endTurnOrder = order
     if st.double then
-      -- pokefirered/src/battle_util.c:484 (turn order also published for doubles)
+      -- pokefirered/src/battle_util.c:484
       st.turnOrder = order
     end
   end

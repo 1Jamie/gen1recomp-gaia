@@ -310,7 +310,6 @@ function AnimPal.begin(s, img, opts)
   return idx
 end
 
--- D1: one reused options table (AnimPal.resolve reads it synchronously).
 local _spriteBlendOpts = {}
 
 function AnimPal.beginSprite(s, img, vm)

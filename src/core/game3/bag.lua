@@ -94,9 +94,6 @@ local function sanitize_pockets(bag)
     bag.pockets[k] = compact(keep)
   end
 
-  -- review-v3 F5: sanitize must not exceed the invariants it enforces —
-  -- clamp merges to MAX_ITEM_QTY (items.lua:9, Qty ≤ 999) and refuse new
-  -- slots past the pocket capacity (ItemsData.CAPACITY).
   for _, m in ipairs(misplaced) do
     local targetSlots = bag.pockets[m.target] or {}
     local cap = ItemsData.CAPACITY[m.target] or 42
@@ -301,8 +298,6 @@ function Bag.add(bag, id, qty)
     return placed == qty, placed
   end
 
-  -- review-v3 F6: report the clamped placed amount, not the requested qty
-  -- (mirrors the existing-slot return above).
   local placed = Items.clampGame3(qty)
   slots[#slots + 1] = { id = storeId, qty = placed }
   if pocket == "TM_CASE" then

@@ -116,6 +116,12 @@ local function run_step(entry)
     local Audio = require("src.core.game3.audio")
     local victorySong = (Audio._currentSong and Audio._currentSong.id) or Audio.role("victoryWild") or 311
     EvoSeq._waiting = true
+    local advanced = false
+    local function advanceOnce()
+      if advanced then return end
+      advanced = true
+      advance()
+    end
     local okStart, startErr = pcall(EvolutionScene.start, mon, toSpecies, {
       canStop = true,
       headless = EvoSeq._headless,
@@ -123,19 +129,20 @@ local function run_step(entry)
       isBattle = true,
       savedSong = victorySong,
       onDone = function(result)
-        advance()
+        advanceOnce()
       end,
     })
-    -- review-v3 D7: a scene that never opens (it throws, or returns without
-    -- pushing its layer) must not park the post-win flow forever; fall back
-    -- to applying directly, like the no-scene branch below.
+    if not okStart then
+      EvolutionScene.open = false
+      EvolutionScene._onDone = nil
+    end
     if not okStart or not (EvolutionScene.isOpen and EvolutionScene.isOpen()) then
       print("[game3/evo] evolution scene failed to open: "
         .. tostring(startErr or "no layer pushed"))
       if mon and mon.species ~= toSpecies then
         Evolution.apply(mon, toSpecies, EvoSeq._session)
       end
-      advance()
+      advanceOnce()
     end
   else
     -- Fallback
