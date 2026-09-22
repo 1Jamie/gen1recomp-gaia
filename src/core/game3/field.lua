@@ -985,7 +985,8 @@ function Field.startFishing(rod)
   if Field._fishing then return false end
   Field.locked = true
   Player.fishing = true
-  Field._fishing = { rod = tonumber(rod) or 0, step = "wait", timer = 0, dots = 0, required = 0 }
+  -- tRoundsPlayed tracks pret's rounds counter (field_player_avatar.c:1667).
+  Field._fishing = { rod = tonumber(rod) or 0, step = "wait", timer = 0, dots = 0, required = 0, rounds = 0 }
   return true
 end
 
@@ -1036,8 +1037,12 @@ function Field.updateFishing()
 
   if f.step == "wait" then
     if f.timer >= FISHING_WAIT_FRAMES then
-      -- pokefirered/src/field_player_avatar.c:1741 Fishing4
-      f.required = math.min(FISHING_DOT_MAX, (Rng.Random() % 10) + FISHING_FIRST_ROUND_DOTS)
+      -- pokefirered/src/field_player_avatar.c:1740-1746 Fishing4: randVal+1,
+      -- but randVal+4 on the first round (tRoundsPlayed == 0), capped at 10.
+      local rand = Rng.Random() % 10
+      local need = rand + 1
+      if (f.rounds or 0) == 0 then need = rand + FISHING_FIRST_ROUND_DOTS end
+      f.required = math.min(FISHING_DOT_MAX, need)
       f.dots = 0
       f.timer = 0
       f.step = "dots"
@@ -1047,6 +1052,9 @@ function Field.updateFishing()
     if f.timer >= FISHING_DOT_FRAMES then
       f.timer = 0
       if f.dots >= f.required then
+        -- pokefirered/src/field_player_avatar.c:1761-1765: the round resolves
+        -- and tRoundsPlayed++ so the next round rolls randVal+1.
+        f.rounds = (f.rounds or 0) + 1
         f.step = "bite"
       else
         f.dots = f.dots + 1

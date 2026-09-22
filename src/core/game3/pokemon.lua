@@ -1052,7 +1052,6 @@ local HM_MOVES = {
   [70] = true,  -- STRENGTH
   [148] = true, -- FLASH
   [249] = true, -- ROCK SMASH
-  [250] = true, -- WHIRLPOOL (Gen2 leftover; still protected in some builds)
   [127] = true, -- WATERFALL
   [291] = true, -- DIVE
 }

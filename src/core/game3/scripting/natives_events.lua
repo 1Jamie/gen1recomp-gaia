@@ -109,49 +109,34 @@ Events.HANDLERS = {
     for i = 1, #ICEFALL_CAVE_ICE_COORDS do
       if Flags.getFlag(store, ctx, i) then
         local c = ICEFALL_CAVE_ICE_COORDS[i]
-        Field.setMetatile(c[1], c[2], METATILE_SEAFOAM_CRACKED_ICE, true)
+        -- MapGridSetMetatileIdAt only swaps the metatile id; cracked ice stays
+        -- walkable (the collision follows the new metatile), so do not force
+        -- the impassable override.
+        Field.setMetatile(c[1], c[2], METATILE_SEAFOAM_CRACKED_ICE, false)
       end
     end
     return false
   end,
-  -- pokefirered/src/field_tasks.c:166
-  [Std.SPECIAL.ShowIcefallCaveCrackedIceAttempt] = function(ctx, adapters)
-    local Flags = flagsMod()
-    local store = scriptStore(ctx)
-    local total = 0
-    for i = 1, #ICEFALL_CAVE_ICE_COORDS do
-      if Flags.getFlag(store, ctx, i) then
-        total = total + 1
-      end
-    end
-    setResult(ctx, total)
-    return false
-  end,
-  -- pokefirered/src/bicycle.c:120
-  [Std.SPECIAL.ForcePlayerOntoBike] = function(ctx)
-    local session = sessionOf(ctx)
-    if session and session.player then
-      session.player.ridingBike = true
-      session.player.state = "bike"
-    end
-    local rt = package.loaded["src.core.game3.runtime"]
-    if rt and rt.player then
-      rt.player.ridingBike = true
-      rt.player.state = "bike"
+  -- pokefirered/src/field_specials.c:97
+  [Std.SPECIAL.ForcePlayerOntoBike] = function()
+    -- SetPlayerAvatarTransitionFlags(PLAYER_AVATAR_FLAG_MACH_BIKE) only runs
+    -- for an on-foot avatar; a surfing player is not forced onto the bike.
+    local okP, Player = pcall(require, "src.core.game3.player")
+    if okP and Player and not Player.surfing then
+      Player.biking = true
+      Player.surfHopping = false
     end
     return false
   end,
-  -- pokefirered/src/field_player_avatar.c:1570
-  [Std.SPECIAL.ForcePlayerToStartSurfing] = function(ctx)
-    local session = sessionOf(ctx)
-    if session and session.player then
-      session.player.surfing = true
-      session.player.state = "surf"
-    end
-    local rt = package.loaded["src.core.game3.runtime"]
-    if rt and rt.player then
-      rt.player.surfing = true
-      rt.player.state = "surf"
+  -- pokefirered/src/field_specials.c:1513
+  [Std.SPECIAL.ForcePlayerToStartSurfing] = function()
+    -- SetPlayerAvatarTransitionFlags(PLAYER_AVATAR_FLAG_SURFING): a forced
+    -- transition, so no surf hop and the bike override is cleared.
+    local okP, Player = pcall(require, "src.core.game3.player")
+    if okP and Player then
+      Player.surfing = true
+      Player.biking = false
+      Player.surfHopping = false
     end
     return false
   end,
@@ -190,8 +175,14 @@ Events.HANDLERS = {
   -- pokefirered/src/field_specials.c:120 ShowFieldMessageStringVar4
   [Std.SPECIAL.ShowFieldMessageStringVar4] = function(ctx, adapters)
     local text = (ctx and ctx.stringVars and ctx.stringVars[4]) or ""
-    if adapters and adapters.showMessage then
-      adapters.showMessage(text)
+    -- pret ShowFieldMessage(gStringVar4): the field box stays up until the
+    -- script closes it, the same seam the msgbox opcode uses (ops_a.lua:170).
+    if ctx then ctx.messageOpen = true end
+    local openStay = adapters and (adapters.openMessageStay or adapters.openMessageAsync)
+    if openStay then
+      openStay(text, nil)
+    elseif adapters and adapters.openMessage then
+      adapters.openMessage(text)
     end
     return false
   end,

@@ -1,6 +1,7 @@
 local P = {}
 
 local bit = require("bit")
+local Trig = require("src.core.game3.trig")
 local AnimPal = require("src.core.game3.battle.anim_pal")
 local AnimCoords = require("src.core.game3.battle.anim_coords")
 P.band, P.bor, P.bxor, P.lshift, P.rshift = bit.band, bit.bor, bit.bxor, bit.lshift, bit.rshift
@@ -68,12 +69,12 @@ function P.Sin2(angle)
   if floor(angle / 180) % 2 == 1 then return -v end
   return v
 end
-function P.Cos2(deg) return P.Sin2(floor(deg) + 90) end
+-- O5: pret defines Cos2 at pokefirered/src/trig.c:539-541 but never calls it either
+-- (no `Cos2(` callers anywhere in pret src) and the engine port had zero callers;
+-- cosine call sites use Sin2(deg + 90), the same path pret's Cos2 wraps.
 
 function P.ArcTan2(x, y)
-  local a = math.atan2(y, x)
-  if a < 0 then a = a + 2 * math.pi end
-  return floor(a / (2 * math.pi) * 65536 + 0.5) % 65536
+  return Trig.arcTan2(x, y)
 end
 -- pokefirered/src/battle_anim_mons.c:1281
 function P.ArcTan2Neg(x, y)
@@ -1341,7 +1342,7 @@ local PicSize
 -- pokefirered/src/battle_anim_mons.c:1999
 function P.coordAttr(vm, side, attr)
   if PicSize == nil then
-    local ok, m = pcall(require, "src.core.game3.battle.anim_port.g3_pic_size")
+    local ok, m = pcall(require, "src.core.game3.battle.anim_port.g1_pic_sizes")
     PicSize = ok and m or false
   end
   local sp = P.species(vm, side) or 0

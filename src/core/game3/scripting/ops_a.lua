@@ -10,6 +10,29 @@ local ModRuntime = require("src.mods.Runtime")
 
 local Ops = {}
 
+-- FRLG no-ops: pret keeps the command but comments its body out
+-- (`return FALSE`), so an explicit no-op branch is the faithful wiring and
+-- stops the Tier-C "skip op" log for them.  Per-op citations:
+-- docs/game3/e10-opcode-spec.md section 3.2 (all scrcmd.c).
+local PRET_NO_OPS = {
+  initclock = true,           -- scrcmd.c:658-664
+  dotimebasedevents = true,   -- scrcmd.c:667-671
+  adddecoration = true,       -- scrcmd.c:526-532
+  removedecoration = true,    -- scrcmd.c:534-540
+  checkdecor = true,          -- scrcmd.c:550-556
+  checkdecorspace = true,     -- scrcmd.c:542-548
+  drawbox = true,             -- scrcmd.c:1464-1472
+  drawboxtext = true,         -- scrcmd.c:1505-1516
+  showcontestpainting = true, -- scrcmd.c:1543-1552
+  setberrytree = true,        -- scrcmd.c:1989-1999
+  startcontest = true,        -- scrcmd.c:2018-2024
+  showcontestresults = true,  -- scrcmd.c:2026-2032
+  contestlinktransfer = true, -- scrcmd.c:2034-2040
+  getpokenewsactive = true,   -- scrcmd.c:2002-2008
+  addelevmenuitem = true,     -- scrcmd.c:2178-2187
+  showelevmenu = true,        -- scrcmd.c:2189-2194
+}
+
 local function cond_ok(ctx, cond)
   local r = ctx.comparisonResult or 0
   -- FRLG: 0=lt, 1=eq, 2=gt from compare; checkflag sets 1 if set else 0
@@ -1156,7 +1179,11 @@ local function dispatch(vm, row)
   elseif op == "warp" or op == "warpsilent" or op == "warpdoor"
       or op == "warpteleport" or op == "warpspinenter" then
     local group, num = row[1], row[2]
-    local warpId, x, y = row[3], row[4], row[5]
+    local warpId = row[3]
+    -- pokefirered/src/scrcmd.c:719-731 ScrCmd_warp: x and y are VarGet'd
+    -- (group/num/warpId stay raw bytes).
+    local x = var_get(store, ctx, row[4])
+    local y = var_get(store, ctx, row[5])
     if a.warp then
       -- waitstate typically follows; mark pending and let waitstate poll.
       ctx.warpPending = true
@@ -1343,9 +1370,12 @@ local function dispatch(vm, row)
       return true
     end
     if op == "setmetatile" and a.setMetatile then
-      a.setMetatile(row[1], row[2], row[3], (tonumber(row[4]) or 0) ~= 0)
+      -- pokefirered/src/scrcmd.c:2103-2108: all four operands are VarGet'd.
+      a.setMetatile(var_get(store, ctx, row[1]), var_get(store, ctx, row[2]),
+        var_get(store, ctx, row[3]), var_get(store, ctx, row[4]) ~= 0)
     elseif op == "dofieldeffect" and a.doFieldEffect then
-      a.doFieldEffect(row[1])
+      -- pokefirered/src/scrcmd.c:2042-2049: the effect id is VarGet'd.
+      a.doFieldEffect(var_get(store, ctx, row[1]))
     elseif op == "setfieldeffectargument" then
       -- pokefirered/src/scrcmd.c:2051 — the value operand is VarGet'd, which
       -- passes raw constants (< 0x4000) straight through.
@@ -1367,7 +1397,8 @@ local function dispatch(vm, row)
     set_map_layout(var_get(store, ctx, row[1]), a.log)
     return false
   elseif op == "setweather" then
-    if a.setWeather then a.setWeather(row[1] or row.weather or 0) end
+    -- pokefirered/src/scrcmd.c:685-691: the weather id is VarGet'd.
+    if a.setWeather then a.setWeather(var_get(store, ctx, row[1] or row.weather or 0)) end
     return false
   elseif op == "doweather" then
     if a.doWeather then a.doWeather() end
@@ -1715,22 +1746,25 @@ local function dispatch(vm, row)
     Flags.setVar(store, ctx, Ctx.VAR_RESULT, ok and 1 or 0)
     return false
   elseif op == "addmoney" or op == "removemoney" or op == "checkmoney" then
-    local amount = tonumber(row[1] or row.amount) or 0
-    if amount >= 0x4000 then
-      amount = Flags.getVar(store, ctx, amount)
-    end
-    amount = math.max(0, math.floor(tonumber(amount) or 0))
-    local Runtime = package.loaded["src.core.game3.runtime"]
-    local session = Runtime and Runtime.getSession and Runtime.getSession()
-    local money = tonumber(session and session.money) or 0
-    if op == "checkmoney" then
-      Flags.setVar(store, ctx, Ctx.VAR_RESULT, money >= amount and 1 or 0)
-    elseif session then
-      local Prize = require("src.core.game3.battle.prize")
-      if op == "addmoney" then
-        Prize.apply(session, amount)
-      else
-        session.money = math.max(0, money - amount)
+    -- pokefirered/src/scrcmd.c:1798-1830: the amount is read RAW (ScriptReadWord,
+    -- never VarGet) and a disable byte gates the whole command —
+    -- asm/macros/event.inc:1166-1186: "If 'disable' is set to anything but 0
+    -- then this command does nothing."
+    local amount = math.max(0, math.floor(tonumber(row[1] or row.amount) or 0))
+    local disable = tonumber(row[2] or row.disable) or 0
+    if disable == 0 then
+      local Runtime = package.loaded["src.core.game3.runtime"]
+      local session = Runtime and Runtime.getSession and Runtime.getSession()
+      local money = tonumber(session and session.money) or 0
+      if op == "checkmoney" then
+        Flags.setVar(store, ctx, Ctx.VAR_RESULT, money >= amount and 1 or 0)
+      elseif session then
+        local Prize = require("src.core.game3.battle.prize")
+        if op == "addmoney" then
+          Prize.apply(session, amount)
+        else
+          session.money = math.max(0, money - amount)
+        end
       end
     end
     return false
@@ -1901,7 +1935,9 @@ local function dispatch(vm, row)
     end
     return false
   elseif op == "random" then
-    local maxv = tonumber(row[1]) or 1
+    -- pokefirered/src/scrcmd.c:455-461: VarGet(ScriptReadHalfword(ctx))
+    local maxv = var_get(store, ctx, row[1])
+    maxv = tonumber(maxv) or 1
     if maxv < 1 then maxv = 1 end
     Flags.setVar(store, ctx, 0x800D, math.random(0, maxv - 1))
     return false
@@ -1951,6 +1987,21 @@ local function dispatch(vm, row)
     local yield, jumped = Gift.runWonderCardScript(ctx, a)
     if jumped then ctx.pc = nil end
     return yield
+  elseif op == "gettime" then
+    -- pokefirered/src/scrcmd.c:673-681: FRLG's RTC lines are commented out and
+    -- the three special vars are zeroed rather than left stale.
+    Flags.setVar(store, ctx, 0x8000, 0)
+    Flags.setVar(store, ctx, 0x8001, 0)
+    Flags.setVar(store, ctx, 0x8002, 0)
+    return false
+  elseif op == "choosecontestmon" then
+    -- pokefirered/src/scrcmd.c:2010-2016: ChooseContestMon() is commented out
+    -- in FRLG but `ScriptContext_Stop(); return TRUE;` are live, so the script
+    -- halts here awaiting a resume FRLG never sends.  Mirrored as a park.
+    ctx.mode = "native"
+    ctx.status = "waiting"
+    ctx.nativePoll = function() return false end
+    return true
   elseif op == "incrementgamestat" or op == "checkpartymove"
       or op == "erasebox" then
     return false
@@ -1974,6 +2025,10 @@ local function dispatch(vm, row)
       end
       return false
     end
+    -- Explicit FRLG no-ops (ops that pret itself defines as `return FALSE`).
+    -- Checked after the host/mod command table so content packs can still
+    -- give one of these a real behaviour.
+    if PRET_NO_OPS[op] then return false end
     -- Unknown / Tier C: skip
     if a.log then a.log("[game3] skip op " .. tostring(op)) end
     return false

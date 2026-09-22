@@ -498,6 +498,10 @@ function Battle.start(opts)
   -- pokefirered/src/trainer_tower.c:735, src/battle_tower.c:933
   st.trainerTower = opts.trainerTower or false
   st.eReader = opts.eReader or false
+  -- pret src/battle_tower.c:895-933 StartSpecialBattle case 0 = Battle Tower,
+  -- case 1 = Secret Base; the steal/swap gates branch on these flags (P5).
+  st.battleTower = opts.battleTower or false
+  st.secretBase = opts.secretBase or false
   local trainerInfo = nil
   -- pokefirered/src/battle_message.c:2043 the tower and e-reader trainers are not gTrainers rows
   if trainerId and not st.wild and not (st.trainerTower or st.eReader) then

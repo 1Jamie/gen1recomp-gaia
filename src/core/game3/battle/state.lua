@@ -39,7 +39,7 @@ function State.makeBattler(mon, side, opts)
   if not ability and Pokemon.abilityId then
     ability = Pokemon.abilityId(species, mon.personality or 0)
   end
-  return {
+  local b = {
     mon = mon,
     id = id,
     side = side, -- "player" | "enemy"
@@ -59,6 +59,14 @@ function State.makeBattler(mon, side, opts)
     -- pokefirered/src/battle_main.c:2228
     isFirstTurn = 2,
   }
+  -- pret pokefirered/src/battle_script_commands.c:4489: on send-out the
+  -- battler's item is re-read from the party mon, so a mon whose item was
+  -- knocked off earlier in the battle must be masked back to ITEM_NONE.
+  if opts.st and State.isKnockedOff(opts.st, b) then
+    b.item = 0
+    b.expKnockedOff = true
+  end
+  return b
 end
 
 -- pokefirered/src/battle_main.c:2565

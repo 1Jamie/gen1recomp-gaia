@@ -183,8 +183,12 @@ Opcodes.TABLE = {
   [0xa5] = op("doweather", 1),
   [0xa6] = op("setstepcallback", 2, { B }),
   [0xa7] = op("setmaplayoutindex", 3, { H }),
-  [0xa8] = op("setobjectsubpriority", 5, { B, B, B, B }),
-  [0xa9] = op("resetobjectsubpriority", 4, { B, B, B }),
+  -- pret src/scrcmd.c:1122-1130 ScrCmd_setobjectsubpriority:
+  -- VarGet(ScriptReadHalfword) = H, then mapGroup, mapNum, priority bytes.
+  [0xa8] = op("setobjectsubpriority", 6, { H, B, B, B }),
+  -- pret src/scrcmd.c:1133-1140 ScrCmd_resetobjectsubpriority:
+  -- VarGet(ScriptReadHalfword) = H, then mapGroup, mapNum bytes.
+  [0xa9] = op("resetobjectsubpriority", 5, { H, B, B }),
   [0xaa] = op("createvobject", 8, { B, B, H, H, B, B }),
   [0xab] = op("turnvobject", 3, { B, B }),
   [0xac] = op("opendoor", 5, { H, H }),

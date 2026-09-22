@@ -23,6 +23,9 @@ local function M(id, power, typeId, category, accuracy, pp, extra)
     secondaryChance = extra.secondaryChance,
     priority = extra.priority or 0,
     flags = extra.flags or 0,
+    -- pret src/data/battle_moves.h sets .target on every row; from_rom carries
+    -- it, curated rows must too or headless AI reads `target or 0` as SELECT.
+    target = extra.target,
     hits = extra.hits,
     afterHit = extra.afterHit,
   }
@@ -63,7 +66,11 @@ Moves.BY_ID = {
   BRICK_BREAK = M("BRICK_BREAK", 75, T.FIGHTING, "physical", 100, 15, { effect = EffectIds.BRICK_BREAK }),
   HEADBUTT = M("HEADBUTT", 70, T.NORMAL, "physical", 100, 15, { effect = EffectIds.FLINCH_HIT, secondaryChance = 30 }),
   WATERFALL = M("WATERFALL", 80, T.WATER, "physical", 100, 15, { effect = EffectIds.FLINCH_HIT, secondaryChance = 20 }),
-  GROWL = M("GROWL", 0, T.NORMAL, "status", 100, 40, { effectId = "EXP_GROWL", effect = EffectIds.ATTACK_DOWN }),
+  GROWL = M("GROWL", 0, T.NORMAL, "status", 100, 40,
+    { effectId = "EXP_GROWL", effect = EffectIds.ATTACK_DOWN,
+      -- pret src/data/battle_moves.h [MOVE_GROWL] .target = MOVE_TARGET_BOTH
+      -- (include/battle.h:63 MOVE_TARGET_BOTH = 1 << 3)
+      target = 8 }),
   TAIL_WHIP = M("TAIL_WHIP", 0, T.NORMAL, "status", 100, 30, { effectId = "EXP_TAIL_WHIP" }),
   LEER = M("LEER", 0, T.NORMAL, "status", 100, 30, { effectId = "EXP_LEER" }),
   HARDEN = M("HARDEN", 0, T.NORMAL, "status", 100, 30, { effectId = "EXP_HARDEN" }),

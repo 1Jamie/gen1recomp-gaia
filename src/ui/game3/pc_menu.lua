@@ -65,6 +65,24 @@ local function player_pc_name(session)
   return Strings("%s's PC", name)
 end
 
+-- G6: root rows are cached and rebuilt only when the labels' inputs change.
+function PcMenu._rootEntries()
+  local who = someone_or_bill_name(PcMenu._session)
+  local player = player_pc_name(PcMenu._session)
+  local key = (Strings.active() and "t" or "e") .. "\0" .. who .. "\0" .. player
+  if PcMenu._rootKey ~= key then
+    PcMenu._rootKey = key
+    PcMenu._rootRows = {
+      { id = "storage", label = who },
+      { id = "player", label = player },
+      { id = "oak", label = Strings("PROF. OAK's PC") },
+      { id = "hall", label = Strings("HALL OF FAME") },
+      { id = "quit", label = Strings("LOG OFF") },
+    }
+  end
+  return PcMenu._rootRows
+end
+
 function PcMenu.show(opts)
   opts = opts or {}
   PcMenu.open = true
@@ -165,13 +183,7 @@ function PcMenu.handleInput(input)
 
   -- Root Menu
   if PcMenu.mode == "root" then
-    local entries = {
-      { id = "storage", label = someone_or_bill_name(PcMenu._session) },
-      { id = "player", label = player_pc_name(PcMenu._session) },
-      { id = "oak", label = Strings("PROF. OAK's PC") },
-      { id = "hall", label = Strings("HALL OF FAME") },
-      { id = "quit", label = Strings("LOG OFF") },
-    }
+    local entries = PcMenu._rootEntries()
 
     if input:wasPressed("up") then
       PcMenu.cursor = ((PcMenu.cursor - 2) % #entries) + 1
@@ -565,13 +577,7 @@ function PcMenu.draw()
 
   -- Root Menu Box
   if PcMenu.mode == "root" then
-    local entries = {
-      { id = "storage", label = someone_or_bill_name(PcMenu._session) },
-      { id = "player", label = player_pc_name(PcMenu._session) },
-      { id = "oak", label = Strings("PROF. OAK's PC") },
-      { id = "hall", label = Strings("HALL OF FAME") },
-      { id = "quit", label = Strings("LOG OFF") },
-    }
+    local entries = PcMenu._rootEntries()
     Window.stdFrame(Window.template(1, 1, 14, 10))
     for i, e in ipairs(entries) do
       local yPx = 10 + (i - 1) * 16

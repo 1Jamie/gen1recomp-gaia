@@ -712,7 +712,11 @@ do
 end
 
 do
-  -- Rapid Spin clears spikes, leech seed, and trapping
+  -- Rapid Spin and each binding state.  pret frees exactly ONE per use:
+  -- pokefirered/src/battle_script_commands.c:8435-8474 Cmd_rapidspinfree is a
+  -- single if/else-if chain in the order
+  --   if (STATUS2_WRAPPED) ... else if (LEECHSEED) ... else if (SIDE_STATUS_SPIKES) ...
+  -- so an engine that clears all three at once contradicted pret.
   local spinId = Moves.numForName("RAPID_SPIN")
   local st = State.new({
     wild = true,
@@ -727,12 +731,22 @@ do
 
   local ad = setup_test_battle(st)
   local out = {}
+  -- Use 1: no expTrapTurns (the engine's wrap state), so the chain lands on
+  -- LEECHSEED and Spikes are untouched.
   Engine.resolveMove(st.player, st.enemy, spinId, 1, ad, st, out)
-  check(st.playerSide.spikes == 0, "Rapid Spin removed Spikes from side")
   check(st.player.leechSeed == nil, "Rapid Spin removed Leech Seed")
   check(st.player.trapped == nil, "Rapid Spin removed trapping effect")
+  check(st.playerSide.spikes == 1, "Spikes survive the same use (pret frees exactly one)")
   local joined = table.concat(out, " || ")
-  check(joined:find("blew away\nSPIKES!", 1, true) ~= nil, "Spikes blown away message printed")
+  check(joined:find("blew away\nSPIKES!", 1, true) == nil,
+    "no Spikes message on the use that freed Leech Seed")
+
+  -- Use 2: the chain now falls through to SIDE_STATUS_SPIKES.
+  local out2 = {}
+  Engine.resolveMove(st.player, st.enemy, spinId, 2, ad, st, out2)
+  check(st.playerSide.spikes == 0, "Rapid Spin removed Spikes from side")
+  local joined2 = table.concat(out2, " || ")
+  check(joined2:find("blew away\nSPIKES!", 1, true) ~= nil, "Spikes blown away message printed")
 end
 
 print("\n=== 8. Two-Turn Charging, Semi-Invulnerable, and Recharge (Solar Beam, Skull Bash, Fly, Hyper Beam) ===")

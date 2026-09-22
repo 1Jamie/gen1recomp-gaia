@@ -857,12 +857,20 @@ local function createEventMon(session, gift)
   local Pokemon = require("src.core.game3.pokemon")
   if not Pokemon._names then pcall(Pokemon.install, nil) end
   local species = num(gift.species)
+  local level = num(gift.level, 5)
+  -- The Wonder Card itself carries no species payload (pret
+  -- src/mystery_gift.c:191-210 validateCard checks the five card fields only),
+  -- so an engine gift that DOES claim one must validate it here or a
+  -- species-0 / out-of-range payload lands straight in the party.
+  local known = type(Pokemon._names) == "table" and Pokemon._names[species] ~= nil
+  if not known then return nil, "invalid gift species" end
+  if level < 1 or level > 100 then return nil, "invalid gift level" end
   local isEgg = gift.kind == "egg"
   local ok, code, mon
   if isEgg then
     ok, code, mon = Party.giveEgg(session, species)
   else
-    ok, code, mon = Party.giveMon(session, species, num(gift.level, 5), gift.nickname)
+    ok, code, mon = Party.giveMon(session, species, level, gift.nickname)
   end
   if not (ok and mon) then return nil, code end
   if gift.personality then

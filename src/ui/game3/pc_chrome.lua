@@ -125,6 +125,7 @@ function PcChrome.ensure()
   PcChrome._partySlotFilledImg = load_texture("party_slot_filled.png")
   PcChrome._partySlotEmptyImg = load_texture("party_slot_empty.png")
   PcChrome._waveformImg = load_texture("waveform.png")
+  PcChrome._waveformQuads = nil
 
   for id, name in ipairs(PcChrome.WALLPAPER_NAMES) do
     PcChrome._wallpapers[id] = load_texture("wallpapers/" .. name .. ".png")
@@ -150,6 +151,19 @@ function PcChrome.drawBackground()
 end
 
 --- Draw animated waveforms beside PKMN DATA header
+-- W4: one Quad per waveform frame, cached instead of reallocated every draw.
+local function waveform_quad(img, frameIdx)
+  local quads = PcChrome._waveformQuads
+  if not quads then quads = {}; PcChrome._waveformQuads = quads end
+  local q = quads[frameIdx + 1]
+  if not q then
+    local iw, ih = img:getDimensions()
+    q = love.graphics.newQuad(0, frameIdx * 8, 16, 8, iw, ih)
+    quads[frameIdx + 1] = q
+  end
+  return q
+end
+
 function PcChrome.drawWaveforms(active, frame)
   PcChrome.ensure()
   if not PcChrome._waveformImg then return end
@@ -166,9 +180,8 @@ function PcChrome.drawWaveforms(active, frame)
     rightFrameIdx = rightSeq[idx]
   end
 
-  local iw, ih = PcChrome._waveformImg:getDimensions()
-  local leftQuad = love.graphics.newQuad(0, leftFrameIdx * 8, 16, 8, iw, ih)
-  local rightQuad = love.graphics.newQuad(0, rightFrameIdx * 8, 16, 8, iw, ih)
+  local leftQuad = waveform_quad(PcChrome._waveformImg, leftFrameIdx)
+  local rightQuad = waveform_quad(PcChrome._waveformImg, rightFrameIdx)
 
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.draw(PcChrome._waveformImg, leftQuad, 0, 5)
@@ -218,7 +231,7 @@ function PcChrome.drawLeftDataPanel(hoveredMon, hoverFrame)
 
   -- 2. Lower Stats Card Text & Info (X: 0..80, Y: 88..160)
   -- Matches pret FRLG PrintDisplayMonInfo (Window 0: left=0, top=11 / Y=88)
-  local sp = Pokemon.speciesOf(hoveredMon)
+  -- (reuses the `sp` resolved above; the duplicate local shadowed it)
   local spName = (sp and Pokemon.name(sp)) or "----"
   local nick = hoveredMon.nickname
   if not nick or nick == "" then

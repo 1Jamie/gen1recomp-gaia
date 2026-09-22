@@ -143,7 +143,6 @@ Std.SPECIAL = {
   ExitSafariMode = 0xCE, -- pokefirered/data/specials.inc:217
   InitRoamer = 0x129, -- pokefirered/data/specials.inc:308
   SetIcefallCaveCrackedIceMetatiles = 0x135, -- pokefirered/data/specials.inc:320
-  ShowIcefallCaveCrackedIceAttempt = 0x136, -- pokefirered/data/specials.inc:321
   ShakeScreen = 0x136, -- pokefirered/data/specials.inc:321
   SetPostgameFlagsUnusedSlot = 0x155, -- pokefirered/data/specials.inc:352
   ForcePlayerOntoBike = 0x157, -- pokefirered/data/specials.inc:354

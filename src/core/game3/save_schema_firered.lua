@@ -2,6 +2,7 @@
 
 local MapIds = require("src.core.game3.map_ids")
 local Options = require("src.core.game3.options")
+local Profile = require("src.core.game3.profile")
 local ModRuntime = require("src.mods.Runtime")
 
 local Schema = {}
@@ -113,7 +114,7 @@ function Schema.newGame(opts)
   local session = {
     schemaVersion = Schema.VERSION,
     engine = "game3",
-    version = opts.version or "firered",
+    version = opts.version or Profile.active().id,
     generation = 3,
     party = {},
     bag = Bag.new(),
@@ -187,7 +188,7 @@ function Schema.toSaveTable(session)
   return {
     schemaVersion = session.schemaVersion or Schema.VERSION,
     engine = "game3",
-    version = "firered",
+    version = session.version or Profile.active().id,
     name = session.name,
     rivalName = session.rivalName,
     gender = session.gender,
@@ -257,6 +258,7 @@ function Schema.fromSaveTable(save)
   end
   local session = {
     schemaVersion = save.schemaVersion or Schema.VERSION,
+    version = save.version or Profile.active().id,
     party = save.party or {},
     bag = bag,
     dex = save.dex or {},

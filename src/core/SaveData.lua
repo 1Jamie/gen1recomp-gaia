@@ -926,7 +926,16 @@ end
 
 local function slotDir(key) return "saves/" .. key end
 
+-- A slot id is only ever something like "slot1"; it is joined straight into a
+-- save path, so anything else (separators, "..", absolute fragments) is
+-- refused at this single choke point (review-v3 L3: slot ids were never
+-- validated, so the save root was escapable).
+local function valid_slot_id(id)
+  return type(id) == "string" and id:match("^slot%d+$") ~= nil
+end
+
 local function slotNames(key, id)
+  if not valid_slot_id(id) then return nil end
   local main = slotDir(key) .. "/" .. id .. ".lua"
   return main, main .. ".bak", main .. ".tmp"
 end
@@ -994,6 +1003,7 @@ end
 -- summarizes.  nil when nothing readable is present.
 local function decodeSlot(fs, key, id)
   local main, bak, tmp = slotNames(key, id)
+  if not main then return nil end
   local data = fs.getInfo(main) and SaveSerializer.decode(fs.read(main) or "")
   if data then return data end
   data = fs.getInfo(tmp) and SaveSerializer.decode(fs.read(tmp) or "")
@@ -1112,7 +1122,12 @@ function saveNames(version, injectedFs)
   local fs = persistFs(injectedFs)
   ensureSlots(key, fs)
   local slot = activeSlotCache[key]
-  if slot then return slotNames(key, slot) end
+  if slot then
+    local main, bak, tmp = slotNames(key, slot)
+    -- An unusable slot id in the registry must never reach a path; treat the
+    -- scope as having no slot (the legacy flat names) instead.
+    if main then return main, bak, tmp end
+  end
   return legacyNames(key)
 end
 
@@ -1129,7 +1144,7 @@ function SaveData.slotSummary(save)
   -- counts come off wJohtoBadges/wPokedexCaught (engine/menus/intro_menu.asm:461).
   local vinfo = type(save.version) == "string" and GameVersion.info(save.version)
   local gen2 = save.generation == 2 or (vinfo and vinfo.generation == 2) or false
-  local gen3 = save.generation == 3 or (vinfo and vinfo.generation == 3) or (save.engine == "game3") or (save.version == "firered") or false
+  local gen3 = save.generation == 3 or (vinfo and vinfo.generation == 3) or (save.engine == "game3") or false
   local dexCount = 0
   if gen3 then
     local dex = save.dex or save.pokedex or {}
@@ -1215,6 +1230,7 @@ function SaveData.slotDiskPath(version, slotId)
   if not base then return nil end
   local sep = package.config:sub(1, 1)
   local rel = select(1, slotNames(version, slotId))
+  if not rel then return nil end
   return base .. sep .. rel:gsub("/", sep)
 end
 
@@ -1251,6 +1267,7 @@ local function readSlotSourceIn(key, slotId, injectedFs)
   if type(slotId) ~= "string" then return nil end
   local fs = persistFs(injectedFs)
   local main, bak, tmp = slotNames(key, slotId)
+  if not main then return nil end
   for _, name in ipairs({ main, tmp, bak }) do
     if fs.getInfo(name) then
       local body = fs.read(name)
@@ -1384,6 +1401,9 @@ end
 -- options.  Returns true, or false + an error string on a failed write.
 local function writeSlotIn(key, slotId, saveTable)
   if type(slotId) ~= "string" then return false, "missing slot id" end
+  if not (type(slotId) == "string" and slotId:match("^slot%d+$")) then
+    return false, "invalid slot id"
+  end
   if type(saveTable) ~= "table" then return false, "missing save table" end
   local main, bak, tmp = slotNames(key, slotId)
   local encoded = SaveSerializer.encode(saveTable)
@@ -1428,6 +1448,7 @@ local function deleteSlotIn(key, slotId)
   if not found then return false, "slot not registered" end
 
   local main, bak, tmp = slotNames(key, slotId)
+  if not main then return false, "invalid slot id" end
   remove(fs, main)
   remove(fs, bak)
   remove(fs, tmp)

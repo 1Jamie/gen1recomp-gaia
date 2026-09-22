@@ -1834,6 +1834,9 @@ function Engine.mostSuitableMon(st, adapter, side)
   for i = 1, 6 do
     local mon = party[i]
     if valid(i, mon) then
+      -- STAB comes from the candidate mon's own types (battle_ai_switch_items
+      -- scores the mon we would send in, not the one switching out).
+      local c1, c2 = types_of(mon)
       for j = 1, 4 do
         local mv = mon.moves and mon.moves[j]
         local n = move_num(mv)
@@ -1843,7 +1846,7 @@ function Engine.mostSuitableMon(st, adapter, side)
           if (tonumber(m.power) or 0) ~= 1 then
             local mt = tonumber(m.type) or 0
             dmg = 2
-            if active and (active.type1 == mt or active.type2 == mt) then dmg = math.floor(dmg * 15 / 10) end
+            if c1 == mt or c2 == mt then dmg = math.floor(dmg * 15 / 10) end
             dmg = Types.typeCalc(mt, opp.type1, opp.type2, dmg) or 0
           end
         end
@@ -1887,7 +1890,7 @@ function Engine.performSwitch(st, adapter, side, slot, opts)
   end
   Engine.switchOutEffects(st, adapter, old)
   State.syncBattlerToParty(old, party)
-  local nb = State.makeBattler(party[slot], side, { partyIndex = slot, id = id })
+  local nb = State.makeBattler(party[slot], side, { partyIndex = slot, id = id, st = st })
   if opts.batonPass then
     -- pokefirered/src/battle_main.c:2350
     for k, v in pairs(old.stages or {}) do nb.stages[k] = v end

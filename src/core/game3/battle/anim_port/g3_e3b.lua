@@ -150,6 +150,8 @@ C.GreenStar = P.cb(function(s, vm)
   s.callbackFn = H.greenStarStep1
 end)
 
+-- pret sDoomDesireCoords has 4 entries; the trailing 0 is the explicit guard for the
+-- out-of-range step index pret reads OOB at the two DOOM_COORDS lookups below.
 H.DOOM_COORDS = { [0] = 0x78, 0x50, 0x28, 0x00, 0 }
 H.DOOM_DELAYS = { [0] = 0, 0, 0, 0, 50 }
 

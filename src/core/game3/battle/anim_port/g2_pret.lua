@@ -1,6 +1,7 @@
 local AnimSprites = require("src.core.game3.battle.anim_sprites")
 local AnimPal = require("src.core.game3.battle.anim_pal")
 local AnimCoords = require("src.core.game3.battle.anim_coords")
+local Trig = require("src.core.game3.trig")
 
 local P = {}
 
@@ -84,8 +85,7 @@ function P.Cos(i, amp)
 end
 
 function P.ArcTan2(x, y)
-  local a = math.atan2(y, x)
-  return floor(a / (2 * math.pi) * 65536) % 65536
+  return Trig.arcTan2(x, y)
 end
 
 function P.ArcTan2Neg(x, y)

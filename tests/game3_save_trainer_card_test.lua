@@ -83,6 +83,14 @@ end)
 print("[test] 2. SaveMenu lifecycle and state machine")
 local SaveMenu = require("src.ui.game3.save_menu")
 
+-- G1 contract (tests/engine/game3_save_menu_failure_test.lua): do_save()
+-- reports "saved" only when the game's saveGame confirms the write, and it
+-- reads that off Runtime._game (not SaveMenu._game), so supply the stub the
+-- real game carries.  Runtime.pumpRtc reads only Runtime.session/game.save,
+-- so this cannot leak into the playtime test below.
+local Runtime = require("src.core.game3.runtime")
+Runtime._game = { saveGame = function() return true end }
+
 local saveClosed = false
 SaveMenu.show({
   session = session,

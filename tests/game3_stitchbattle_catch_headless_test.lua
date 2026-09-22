@@ -94,7 +94,10 @@ local key = nil
 local input = { wasPressed = function(_, k) return key == k end }
 local function press(k)
   key = k
-  Naming.update(input, 1 / 60)
+  -- pret/pokefirered src/naming_screen.c:559-572: input and timers run in the
+  -- same per-frame screen task; engine split: naming.lua:489-511.
+  Naming.handleInput(input)
+  Naming.update(1 / 60)
   key = nil
 end
 press("start")

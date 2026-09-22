@@ -5,6 +5,8 @@ local FixedStep = require("src.core.FixedStep")
 local Input = require("src.core.Input")
 local SaveData = require("src.core.SaveData")
 local Schema = require("src.core.game3.save_schema_firered")
+local MapIds = require("src.core.game3.map_ids")
+local Profile = require("src.core.game3.profile")
 local Runtime = require("src.core.game3.runtime")
 local Audio = require("src.core.game3.audio")
 local Options = require("src.core.game3.options")
@@ -43,7 +45,8 @@ function Game3:_hasContinueSave()
   if not SaveData.load then return false end
   local ok, save = pcall(SaveData.load)
   if not ok or type(save) ~= "table" then return false end
-  return save.engine == "game3" and type(save.map) == "string" and save.map:sub(1, 3) == "FR_"
+  return save.engine == "game3" and type(save.map) == "string"
+    and MapIds.isGame3Map(save.map, save.version)
 end
 
 function Game3:_enterField(session, reason)
@@ -380,8 +383,16 @@ function Game3:_handleBootAction(action)
       local modsDiff = SaveData.modsDiff and SaveData.modsDiff(save, activeMods) or nil
       local session = Schema.fromSaveTable(save)
       Options.bind(session, self.options)
-      -- Refuse Sevii leftovers.
-      if type(session.map) == "string" and session.map:sub(1, 6) == "SEVII_" then
+      -- Refuse legacy Sevii leftovers: the prefix list comes from the game's
+      -- profile (T0.2 handoff, rse-seams section 4).
+      local legacy = Profile.of(session.version).map.legacyPrefixes or {}
+      local legacyMap = false
+      if type(session.map) == "string" then
+        for _, prefix in ipairs(legacy) do
+          if session.map:sub(1, #prefix) == prefix then legacyMap = true break end
+        end
+      end
+      if legacyMap then
         print("[game3] ignoring legacy Sevii save map " .. session.map)
         session = Schema.newGame({ gender = 0 })
       end

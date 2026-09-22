@@ -606,6 +606,12 @@ function RomExtractorGen3:run()
 
   local okPar, parErr = self:runParallel(sha1)
   if okPar then
+    -- The parallel workers run the same stages as the sequential path, so a
+    -- fresh import must leave the same status markers behind.  The region_map
+    -- marker gates tests/game3_region_map_assets_test.lua, which skipped on
+    -- fresh imports because only the fallback path wrote it.
+    writeJson(GBA_ROOT .. "/pokemon/extract_status.json", { ok = true, error = nil })
+    writeJson(GBA_ROOT .. "/region_map/extract_status.json", { ok = true, error = nil })
     self:report(1.00, "Ready", 1, 1)
     collectgarbage("collect")
     return {
