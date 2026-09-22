@@ -205,6 +205,7 @@ if [ "$HAVE_RED_DATA" = "1" ]; then
     run_tier "T3 save editor: gold / gen2" "$LUA" tests/save_editor_gen2_tests.lua
     run_tier "T3 save editor: wheel scrolling" "$LUA" tests/save_editor_wheel_bug595_test.lua
     run_tier "T3 save editor: pad / NX input" "$LUA" tests/save_editor_pad_input_test.lua
+    run_tier "T3 save editor: bag / PC move" "$LUA" tests/save_editor_item_move_bug1951_test.lua
     run_tier "T5 link (loopback lockstep)" "$LUA" tests/run_link_tests.lua
     # The oversize-save vendor oracle (tests/save_oversize_vendor_test.lua)
     # cross-checks the launcher's footer-truncation import against the
