@@ -480,6 +480,9 @@ function BattleBridge.start(mod, game, foe, opts)
       playerLevel = playerLv,
       enemyLevel = foeLv,
       trainerId = startOpts.trainerId,
+      trainerClass = (not opts.wild) and foe and foe.trainerClass or nil,
+      trainerTower = startOpts.trainerTower,
+      eReader = startOpts.eReader,
       playerGender = startOpts.playerGender,
       transitionId = opts.transitionId,
     }
