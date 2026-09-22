@@ -144,9 +144,9 @@ else
 fi
 
 # --------------------------------------------------------------- app icon
-# One source of truth for every platform's launcher icon; iOS resizes the
-# same file in scripts/build_ios.sh (apply_ios_icon) and the Android res/
-# drawables are generated from it too.
+# Desktop and Linux resize this file in place. iOS does the same in
+# scripts/build_ios.sh. Android, Switch, and Xbox tiles are generated from
+# it by tools/generate_android_icons.py and tools/brand_platform_icons.py.
 ICON_SRC="$ROOT/assets/logo/gen1recomp_cover.png"
 
 # pipx installs peresed (Windows exe icon patcher) here, off the default PATH.
