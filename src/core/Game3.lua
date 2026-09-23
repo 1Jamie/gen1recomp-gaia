@@ -762,7 +762,7 @@ end
 -- pokefirered/src/start_menu.c:198
 function Game3:saveOffered()
   local session = (Runtime.getSession and Runtime.getSession()) or self.session
-  return require("src.ui.game3.start_menu").saveOffered(session)
+  return require("src.ui.game3.start_menu").saveOffered(session, self)
 end
 
 function Game3:saveGame()
