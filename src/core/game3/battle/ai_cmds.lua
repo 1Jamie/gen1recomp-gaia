@@ -941,6 +941,48 @@ function CMD.if_target_not_taunted(vm, op)
   branch(vm, op.target) -- always true (taunt unsupported)
 end
 
+local function can_escape_check(user, target)
+  if not user then return true end
+  if user.meanLook or user.escapePrevention or user.expTrapped or user.expTrappedBy or (user.expTrapTurns or 0) > 0 or user.wrapped or user.expIngrain then
+    return false
+  end
+  if target and not (target.fainted or (target.mon and (tonumber(target.mon.hp) or 0) <= 0)) then
+    local tab = ability_of(target)
+    local uab = ability_of(user)
+    -- SHADOW_TAG: 23
+    if tab == 23 and uab ~= 23 then
+      return false
+    end
+    -- ARENA_TRAP: 71, LEVITATE: 26, FLYING: 2
+    if tab == 71 and uab ~= 26 then
+      local t1, t2 = mon_types(user)
+      if t1 ~= Types.ID.FLYING and t2 ~= Types.ID.FLYING then
+        return false
+      end
+    end
+    -- MAGNET_PULL: 42, STEEL: 8
+    if tab == 42 then
+      local t1, t2 = mon_types(user)
+      if t1 == Types.ID.STEEL or t2 == Types.ID.STEEL then
+        return false
+      end
+    end
+  end
+  return true
+end
+
+function CMD.if_can_escape(vm, op)
+  if can_escape_check(vm.user, vm.target) then branch(vm, op.target) else next_ip(vm) end
+end
+
+function CMD.if_cant_escape(vm, op)
+  if not can_escape_check(vm.user, vm.target) then branch(vm, op.target) else next_ip(vm) end
+end
+
+function AiCmds.canEscape(user, target)
+  return can_escape_check(user, target)
+end
+
 function AiCmds.dispatch(vm, op)
   if not op or not op.op then
     vm.done = true

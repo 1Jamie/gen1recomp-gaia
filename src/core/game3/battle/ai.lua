@@ -281,8 +281,8 @@ function choose_move_core(st, id, opts)
     -- data/battle_ai_scripts.s: BattleAI_Roaming checks if_can_escape
     local okCmd, Cmds = pcall(require, "src.core.game3.battle.ai_cmds")
     local canEscape = true
-    if okCmd and Cmds and Cmds.if_can_escape then
-      canEscape = Cmds.if_can_escape(st, b, target, userSide, targetSide, ad)
+    if okCmd and Cmds and Cmds.canEscape then
+      canEscape = Cmds.canEscape(b, target)
     end
     if canEscape then
       aiAction = 0x2
