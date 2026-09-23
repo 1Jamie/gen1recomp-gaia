@@ -163,11 +163,12 @@ end
 local function status2_bits(battler)
   if not battler then return 0 end
   local b = 0
+  if battler.status2 then b = bit_or_local(b, tonumber(battler.status2) or 0) end
   if battler.confusionTurns and battler.confusionTurns > 0 then b = bit_or_local(b, STATUS2.CONFUSION) end
   if battler.focusEnergy or battler.expFocusEnergy then b = bit_or_local(b, STATUS2.FOCUS_ENERGY) end
   if (battler.substituteHP or 0) > 0 then b = bit_or_local(b, STATUS2.SUBSTITUTE) end
-  if battler.wrapped or battler.trapped then b = bit_or_local(b, STATUS2.WRAPPED) end
-  if battler.meanLook or battler.escapePrevention then b = bit_or_local(b, STATUS2.ESCAPE_PREVENTION) end
+  if battler.wrapped or battler.trapped or battler.expWrapped then b = bit_or_local(b, STATUS2.WRAPPED) end
+  if battler.meanLook or battler.escapePrevention or battler.expTrapped or battler.expTrappedBy then b = bit_or_local(b, STATUS2.ESCAPE_PREVENTION) end
   if battler.bideTurns then b = bit_or_local(b, STATUS2.BIDE) end
   if battler.recharge then b = bit_or_local(b, STATUS2.RECHARGE) end
   if battler.rage then b = bit_or_local(b, STATUS2.RAGE) end
@@ -253,7 +254,15 @@ local function ability_of(battler)
   if battler.mon then
     a = a or battler.mon.ability or battler.mon.abilityId
   end
-  return tonumber(a) or 0
+  if type(a) == "number" then return a end
+  if type(a) == "string" then
+    local ok, Abilities = pcall(require, "src.core.game3.battle.abilities")
+    if ok and Abilities and Abilities.id then
+      local okId, id = pcall(Abilities.id, a)
+      if okId and id then return id end
+    end
+  end
+  return 0
 end
 
 local function hp_percent(battler)

@@ -163,8 +163,9 @@ function Moves.displayName(moveId)
 end
 
 function Moves.priority(moveId)
-  local m = Moves.get(moveId)
-  return tonumber(m and m.priority) or 0
+  if not moveId or moveId == 0 or moveId == "" then return 0 end
+  local ok, m = pcall(Moves.get, moveId)
+  return (ok and m and tonumber(m.priority)) or 0
 end
 
 return Moves

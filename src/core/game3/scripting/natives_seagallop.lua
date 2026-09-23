@@ -144,9 +144,26 @@ Seagallop.MENU_LIST_ID = 0xF001
 
 -- pokefirered/src/seagallop.c:174
 function Seagallop.ferryTask(ctx, adapters, destId)
+  local originId = varGet(ctx, VAR_ORIGIN)
+  local warp = WARPS[destId]
+  local done = false
+  local okS, SeagallopUi = pcall(require, "src.ui.game3.seagallop")
+  local hasGraphics = _G.love and type(_G.love.graphics) == "table" and _G.love.window ~= nil
+  if okS and SeagallopUi and SeagallopUi.start and hasGraphics then
+    SeagallopUi.start(originId, destId, function()
+      if warp and adapters and adapters.warp then
+        adapters.warp(warp[1], warp[2], -1, warp[3], warp[4], function() end)
+      elseif adapters and adapters.log then
+        adapters.log(string.format("[game3] seagallop has no warp for dest %s", tostring(destId)))
+      end
+    end, function()
+      done = true
+    end)
+    return function() return done end
+  end
+
   local frames = 0
   local phase = "cross"
-  local warp = WARPS[destId]
   return function()
     if phase == "cross" then
       frames = frames + 1

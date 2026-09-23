@@ -1516,6 +1516,68 @@ local function step_safari_enemy(act)
   Battle._phase = "animating"
 end
 
+local function step_enemy_flee(act)
+  local st, ad = Battle._st, Battle._adapter
+  if not st or not st.enemy then return end
+  if State.isFainted(st.enemy) then
+    if not Battle._actions[Battle._actionI] then after_actions() end
+    return
+  end
+  if ad:hasStatus(st.enemy, "SLP") or ad:hasStatus(st.enemy, "FRZ") then
+    if not Battle._actions[Battle._actionI] then after_actions() end
+    return
+  end
+  local canEscape = Engine.canSwitch(st, ad, st.enemy)
+  if not canEscape then
+    local mark = ad:eventMark()
+    local prev = ad._say
+    ad._say = function() end
+    -- pokefirered/src/battle_main.c:4321, battle_message.c:909
+    ad:sayText("STRINGID_ATTACKERCANTESCAPE", { atk = st.enemy })
+    ad._say = prev
+    local evs = ad:eventsSince(mark)
+    if Battle._headless then
+      for _, e in ipairs(evs) do
+        if e.kind == "msg" then Ui.push(e.text) end
+      end
+      if not Battle._actions[Battle._actionI] then after_actions() end
+      return
+    end
+    AnimSeq.beginEvents(evs, seq_push)
+    Battle._phase = "animating"
+    return
+  end
+
+  local mark = ad:eventMark()
+  local prev = ad._say
+  ad._say = function() end
+  -- pokefirered/src/battle_main.c:3819
+  local monName = State.displayName(st.enemy) or "The wild Pokémon"
+  ad:sayText("STRINGID_WILDPKMNFLED", { buff1 = monName })
+  ad._say = prev
+  local evs = ad:eventsSince(mark)
+  pcall(function()
+    local SE = require("src.core.game3.se_ids")
+    if SE and SE.SE_FLEE then
+      require("src.core.game3.audio").playSe(SE.SE_FLEE)
+    end
+  end)
+  st.over = true
+  st.result = "fled"
+  st.endReason = "enemy_fled"
+  if Battle._headless then
+    for _, e in ipairs(evs) do
+      if e.kind == "msg" then Ui.push(e.text) end
+    end
+    Battle._pendingEnd = "fled"
+    Battle._phase = "ending"
+    return
+  end
+  AnimSeq.beginEvents(evs, seq_push)
+  Battle._pendingEnd = "fled"
+  Battle._phase = "ending"
+end
+
 local function step_action()
   local st = Battle._st
   local ad = Battle._adapter
@@ -1739,6 +1801,9 @@ local function step_action()
 
   if st.safari and (act.kind == "watch" or act.kind == "run") then
     return step_safari_enemy(act)
+  end
+  if (act.kind == "run" or act.kind == "flee") and (act.battler == 1 or act.user == "enemy" or (type(act.user) == "table" and act.user.side == "enemy")) then
+    return step_enemy_flee(act)
   end
   if act.meta then
     if not Battle._actions[Battle._actionI] then after_actions() end

@@ -303,6 +303,14 @@ function BattleBridge.start(mod, game, foe, opts)
       session.battleOutcome = Natives.outcome_to_code(result or "win")
     end
     writeback(session, battleParty, remap, result, save, opts)
+    if opts.roamer or (foe and foe.roamer) then
+      local okR, Roamer = pcall(require, "src.core.game3.roamer")
+      if okR and Roamer and Roamer.onBattleEnd then
+        local st = package.loaded["src.core.game3.battle"] and package.loaded["src.core.game3.battle"].getState and package.loaded["src.core.game3.battle"].getState()
+        local enemyMon = (st and st.enemy and st.enemy.mon) or foe
+        Roamer.onBattleEnd(session, enemyMon, result, st and st.endReason)
+      end
+    end
     -- pokefirered/src/battle_main.c:3861
     if ModRuntime.wants("battle.ended") then
       local B = package.loaded["src.core.game3.battle"]

@@ -162,6 +162,7 @@ function Schema.newGame(opts)
     secretId = nil,
     rng = nil,
     vsSeeker = { steps = 0, charging = 0, rematches = {} },
+    roamer = nil,
   }
   -- pret new_game.c: SeedWildEncounterRng(Random()) after title SeedRngAndSetTrainerId.
   local Rng = require("src.core.game3.rng")
@@ -245,6 +246,7 @@ function Schema.toSaveTable(session)
     secretId = session.secretId,
     rng = session.rng,
     vsSeeker = session.vsSeeker,
+    roamer = session.roamer,
     -- GAME_STAT_* counters: slot-machine jackpots, hatched eggs, link W/L/D,
     -- link trades, and the sticker-man brags that read them.
     gameStats = session.gameStats or {},
@@ -350,6 +352,7 @@ function Schema.fromSaveTable(save)
     playerId = save.trainerId,
     rng = save.rng,
     vsSeeker = type(save.vsSeeker) == "table" and save.vsSeeker or { steps = 0, charging = 0, rematches = {} },
+    roamer = type(save.roamer) == "table" and save.roamer or nil,
     -- Additive: a save written before this key exists loads as an empty table.
     gameStats = type(save.gameStats) == "table" and save.gameStats or {},
     -- Additive: older saves load these as empty tables.
@@ -374,12 +377,28 @@ function Schema.fromSaveTable(save)
   Schema.repairOwnMons(session)
   local Flags = require("src.core.game3.scripting.flags")
   Flags.repairSaveState(session)
+  Schema.repairRoamer(session)
   if type(save.options) == "table" then
     Options.bind(session, save.options)
   else
     Options.ensure(session)
   end
   return session
+end
+
+function Schema.repairRoamer(session)
+  if not session or session.roamer then return end
+  local Flags = require("src.core.game3.scripting.flags")
+  local FLAG_SYS_CAN_LINK_WITH_RS = 0x844
+  local VAR_MAP_SCENE_ONE_ISLAND_POKEMON_CENTER_1F = 0x4076
+  local VAR_STARTER_MON = 0x4031
+  local hasLink = Flags.get(session, FLAG_SYS_CAN_LINK_WITH_RS)
+  local sceneVal = tonumber(session.vars and session.vars[VAR_MAP_SCENE_ONE_ISLAND_POKEMON_CENTER_1F]) or 0
+  if hasLink or sceneVal >= 6 then
+    local Roamer = require("src.core.game3.roamer")
+    local starter = (session.vars and session.vars[VAR_STARTER_MON]) or 0
+    Roamer.init(session, starter)
+  end
 end
 
 function Schema.ensureMonBall(mon)
