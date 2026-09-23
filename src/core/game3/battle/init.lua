@@ -534,10 +534,12 @@ function Battle.start(opts)
   }))
 
   st.trainerId = trainerId
+  st.trainerClass = trainerInfo and tonumber(trainerInfo.class)
   st.trainerClassName = trainerInfo and trainerInfo.className
   st.trainerName = (trainerInfo and trainerInfo.name) or opts.trainerName
   -- pokefirered/src/battle_message.c:394 the link opponent is named, never classed
   if st.link and not st.unionRoom and st.peerName then
+    st.trainerClass = nil
     st.trainerClassName = ""
     st.trainerName = st.peerName
   end
