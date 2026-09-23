@@ -164,11 +164,7 @@ end
 -- pokefirered/src/trainer_tower.c:631
 local function convertSpeech(words)
   if type(words) ~= "table" then return "" end
-  local okE, EasyChatData = pcall(require, "src.core.game3.easy_chat_data")
-  if not (okE and EasyChatData and EasyChatData.formatPhrase) then return "" end
-  local ok, text = pcall(EasyChatData.formatPhrase, words, 3, 2)
-  if ok and type(text) == "string" then return text end
-  return ""
+  return require("src.core.game3.easy_chat_text").phrase(words, 3, 2)
 end
 
 local function natives()
@@ -465,8 +461,9 @@ FUNCS[Tower.FUNC.ENCOUNTER_MUSIC] = function(ctx)
   local lut = pack and pack.encounterMusic
   local song = row and row.facilityClass and type(lut) == "table" and lut[row.facilityClass]
   local okA, Audio = pcall(require, "src.core.game3.audio")
-  if okA and Audio and Audio.playMapSong then
-    pcall(Audio.playMapSong, tonumber(song) or Tower.MUS_ENCOUNTER_BOY)
+  if okA and Audio and Audio.playSong then
+    -- pokefirered/src/sound.c:129 PlayNewMapMusic
+    pcall(Audio.playSong, tonumber(song) or Tower.MUS_ENCOUNTER_BOY)
   end
   return false
 end

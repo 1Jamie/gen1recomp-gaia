@@ -80,8 +80,9 @@ do
     log = function(m)
       if tostring(m):match("skip unknown") then unknown[#unknown + 1] = m end
     end,
-    warp = function(g, n, w, x, y, done)
-      warps[#warps + 1] = { g, n, w, x, y }
+    warp = function(g, n, w, x, y, done, kind)
+      local covered = not Fade.isActive() and (tonumber(Fade.t) or 0) >= 16
+      warps[#warps + 1] = { g, n, w, x, y, done, kind, covered }
       if done then done() end
     end,
   })
@@ -110,14 +111,11 @@ do
   check(w and w[4] == 8 and w[5] == 5,
     "landed on sSeag coords (8,5), got (" .. tostring(w and w[4]) .. "," .. tostring(w and w[5]) .. ")")
 
-  print("[test] 3. the FADE_TO_BLACK is undone on arrival")
-  check(Fade.mode == Fade.MODE.FROM_BLACK, "a FADE_FROM_BLACK was started on arrival")
-  check(Fade.active == true, "the arrival fade is running, not left black")
-  for _ = 1, 40 do
-    if not Fade.active then break end
-    Fade.tick(1 / 60)
-  end
-  check(Fade.active == false and Fade.t == 0, "the veil cleared (t=" .. tostring(Fade.t) .. ")")
+  print("[test] 3. the ferry warps from a covered screen and leaves the fade-in to the warp")
+  check(w and w[7] == "seagallop", "the ferry warp is a seagallop warp (got " .. tostring(w and w[7]) .. ")")
+  check(w and w[8] == true, "the screen was covered when the ferry warped")
+  check(Fade.mode ~= Fade.MODE.FROM_BLACK and Fade.t >= 16,
+    "the ferry does not start its own FADE_FROM_BLACK (mode=" .. tostring(Fade.mode) .. ")")
 
   print("[test] 4. the script finishes after the warp")
   for _ = 1, 10 do vm:tick() end
@@ -192,7 +190,9 @@ for _, row in ipairs(NUM) do
 end
 
 print("[test] 8. the destination menu drops the port you are standing in")
-do
+if not require("tests.game3_cache").mount() then
+  print("[skip] sSeagallopDestStrings come from the ROM: " .. tostring(require("tests.game3_cache").reason))
+else
   local labels = Seagallop.destinationMenu(SEAGALLOP_ONE_ISLAND, 0)
   check(#labels == 6, "page 0 has six rows (got " .. #labels .. ")")
   check(labels[1] == "VERMILION" and labels[2] == "TWO ISLAND"
@@ -223,7 +223,9 @@ do
 end
 
 print("[test] 10. the menu special drives the shared multichoice and sets VAR_0x8006")
-do
+if not require("tests.game3_cache").mount() then
+  print("[skip] the ferry menu labels come from the ROM: " .. tostring(require("tests.game3_cache").reason))
+else
   local shown
   local a = logAdapters({
     multichoice = function(row, cb)

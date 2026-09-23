@@ -1200,7 +1200,7 @@ function Adapters.host(mod, game, world)
       Fade.clear()
       EasyChat.open(opts)
     end,
-    warp = function(group, num, warpId, x, y, done)
+    warp = function(group, num, warpId, x, y, done, kind)
       local Versions = require("src.import.gba.versions")
       -- Prefer FR standalone ids; fall back to Sevii ferry maps.
       local mapId = (Versions.frMapFor and Versions.frMapFor(group, num))
@@ -1266,18 +1266,26 @@ function Adapters.host(mod, game, world)
       end
       -- Sevii destinations: game3 Map.load rebinds collision + EventObjects
       -- (localIds are per-map; town Bill lid1 ≠ PC Nurse lid1).
+      local function settle()
+        if w and w.mapSetup then
+          a._warpPoll = function()
+            if w.mapSetup then return false end
+            a._warpPoll = nil
+            finish()
+            return true
+          end
+          return
+        end
+        finish()
+      end
       if type(mapId) == "string" and MapIds.isGame3Map(mapId) then
         local Map = require("src.core.game3.map")
         local Runtime = package.loaded["src.core.game3.runtime"]
         local mod = Runtime and Runtime._mod
-        -- src/overworld.c:2144
-        require("src.core.game3.player").setVisible(true)
-        Map.load(mod, resolveGame(), mapId, {
-          x = cx,
-          y = cy,
-          facing = facing,
-          depth1Connections = true,
-        })
+        local game = resolveGame()
+        -- src/scrcmd.c:719
+        require("src.core.game3.warp").scripted(mod, game, kind, mapId, cx, cy, facing, settle)
+        return
       elseif w and w.warpToMapId then
         w:warpToMapId(mapId, cx, cy, facing)
       elseif w and w.setMap then
@@ -1288,17 +1296,7 @@ function Adapters.host(mod, game, world)
           OC.loadMap(w, mapId)
         end
       end
-      -- Hold waitstate until Gen2 mapSetup fade-in finishes (avoids white+text).
-      if w and w.mapSetup then
-        a._warpPoll = function()
-          if w.mapSetup then return false end
-          a._warpPoll = nil
-          finish()
-          return true
-        end
-        return
-      end
-      finish()
+      settle()
     end,
     playSe = function(id, fanfare)
       local Audio = require("src.core.game3.audio")

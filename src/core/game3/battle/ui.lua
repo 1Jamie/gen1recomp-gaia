@@ -23,6 +23,8 @@ local Types = require("src.core.game3.battle.types")
 local BallOpen = require("src.core.game3.battle.ball_open")
 local Oak = require("src.core.game3.battle.oak_advice")
 local Strings = require("src.core.Strings")
+local RomText = require("src.core.game3.rom_text")
+local BattleText = require("src.core.game3.battle.battle_text")
 local Anim = require("src.core.game3.battle.anim")
 local PicCoords = require("src.core.game3.battle.pic_coords")
 local TrainerPic = require("src.core.game3.trainer_pic")
@@ -32,6 +34,9 @@ local bit = require("bit")
 
 local Ui = {}
 local chromeInstallWarned = false
+
+-- pokefirered/src/text.c:537 TextPrinterWaitAutoMode
+local POKEDUDE_AUTO_SCROLL = 120
 
 -- The stat window may only be on screen while the battle is in a phase that can
 -- still dismiss it; init.lua owns the list (#2324).  Resolved lazily because
@@ -208,6 +213,9 @@ function Ui.reset(opts)
   Ui._menuIndex = 1
   Ui._moveIndex = 1
   Ui._moveIndexBattler = nil
+  Ui._menuLabels = {}
+  Ui._promptFor = nil
+  Ui._promptText = nil
   Ui._st = nil
   Ui._pendingCommand = nil
   Ui._pendingYesNo = nil
@@ -221,6 +229,8 @@ function Ui.reset(opts)
   Ui._partnerAction = nil
   Ui._oak = nil
   Ui._oakTexts = nil
+  Ui._oakLit = nil
+  Ui._oakShown = nil
   Ui._oldManTimer = nil
   Ui._oldManSubstate = nil
   if Message and Message.isHeld and Message.isHeld() then Message.close() end
@@ -243,10 +253,19 @@ function Ui.bindSession(session)
 end
 
 -- pokefirered/src/battle_controller_oak_old_man.c:647
-function Ui.markVoiceover(text)
+function Ui.markVoiceover(text, opts)
   if type(text) ~= "string" or text == "" then return end
   Ui._oakTexts = Ui._oakTexts or {}
   Ui._oakTexts[text] = true
+  if opts and opts.litHealthbox then
+    -- pokefirered/src/battle_controller_pokedude.c:2586 PokedudeAction_PrintMessageWithHealthboxPals
+    Ui._oakLit = Ui._oakLit or {}
+    Ui._oakLit[text] = true
+  end
+end
+
+function Ui.litHealthboxShown()
+  return Ui._oakShown ~= nil and Ui._oakLit ~= nil and Ui._oakLit[Ui._oakShown] == true
 end
 
 function Ui.isVoiceoverText(text)
@@ -257,6 +276,10 @@ function Ui.push(text, cb)
   if not text or text == "" then
     if cb then cb() end
     return
+  end
+  -- pokefirered/src/battle_message.c:2773 BATTLE_TYPE_POKEDUDE autoScroll
+  if Ui._st and Ui._st.pokedude and type(text) == "string" and not Ui.isVoiceoverText(text) then
+    return Ui.pushTimed(text, POKEDUDE_AUTO_SCROLL, cb)
   end
   Ui._log[#Ui._log + 1] = text
   if Ui.isVoiceoverText(text) then
@@ -409,7 +432,7 @@ local function restore_action_menu()
   Ui._linger = false
   Ui._timed = nil
   Ui._showing = false
-  if Message and Message.open then Message.open = false end
+  if Message and Message.open then Message.reset() end
 end
 
 local function open_battle_bag()
@@ -427,10 +450,14 @@ local function open_battle_bag()
   BagMenu.show(bag, {
     session = session,
     battle = true,
-    onBattleUse = function(itemId, partySlot, moveSlot)
+    onBattleUse = function(itemId, partySlot, moveSlot, usedInMenu)
       if itemId == nil then
         restore_action_menu()
         return
+      end
+      if usedInMenu and Ui._st then
+        -- pokefirered/src/reshow_battle_screen.c:299
+        require("src.core.game3.battle.anim").syncDisplayFromState(Ui._st)
       end
       Ui._pendingCommand = {
         kind = "bag",
@@ -438,6 +465,7 @@ local function open_battle_bag()
         itemId = itemId,
         partySlot = partySlot,
         moveSlot = moveSlot,
+        usedInMenu = usedInMenu or nil,
       }
       if is_double() then Ui._pendingCommand.battler = Ui._active or 0 end
       Ui._mode = "none"
@@ -595,9 +623,18 @@ function Ui.openMenu(battlerId, opts)
     end
   end
   if Message and Message.open then
-    Message.open = false
+    Message.reset()
   end
   Ui._showing = false
+  local pb = not is_double() and Ui._st and Ui._st.player
+  if pb and (pb.expLockedMove or pb.expMustRecharge) then
+    -- pokefirered/src/battle_main.c:3125
+    local slot = pb.expLockedSlot or 1
+    local mon = pb.mon or {}
+    Ui._pendingCommand = { kind = "move", user = "player", slot = slot,
+      move = pb.expLockedMove or pb.lastMoveId or pb.lastMove or (mon.moves and mon.moves[slot]) }
+    Ui._mode = "none"
+  end
 end
 
 function Ui.clearLinger()
@@ -711,11 +748,13 @@ local function tick_oak()
     local p = f.pending
     f.pending = nil
     Ui._showing = true
+    Ui._oakShown = p.text
     Message.show(p.text, {
       frame = "voiceover",
       hold = true,
       done = function()
         Ui._showing = false
+        Ui._oakShown = nil
         if p.cb then p.cb() end
       end,
     })
@@ -727,9 +766,19 @@ end
 local function tick_timed()
   local t = Ui._timed
   if not t then return false end
-  local onLast = Message and Message.isWaiting and Message.isWaiting()
-    and (Message._page or 1) >= #(Message._pages or {})
-  if not onLast then return true end
+  local waiting = Message and Message.isWaiting and Message.isWaiting()
+  local onLast = waiting and (Message._page or 1) >= #(Message._pages or {})
+  if not onLast then
+    -- pokefirered/src/text.c:537 TextPrinterWaitAutoMode
+    if waiting and Ui._st and Ui._st.pokedude then
+      t.pageFrames = (t.pageFrames or 0) + 1
+      if t.pageFrames >= POKEDUDE_AUTO_SCROLL then
+        t.pageFrames = 0
+        Message.advance()
+      end
+    end
+    return true
+  end
   t.frames = t.frames + 1
   if t.frames < t.wait then return true end
   Ui._timed = nil
@@ -1830,25 +1879,61 @@ local function draw_mon_sprite(battler, base, back, id)
   end
 end
 
+-- src/battle_message.c:1282
+local function menu_labels(key)
+  Ui._menuLabels = Ui._menuLabels or {}
+  if Ui._menuLabels[key] then return Ui._menuLabels[key] end
+  local labels, buf = {}, {}
+  local function flush()
+    if #buf > 0 then
+      local label = table.concat(buf)
+      labels[#labels + 1] = Strings(label, key)
+      buf = {}
+    end
+  end
+  for _, seg in ipairs(RomText.ir(key)) do
+    if seg.t == "text" then
+      buf[#buf + 1] = seg.s
+    elseif seg.t == "nl" or (seg.t == "ext" and seg.cmd == 19) then
+      flush()
+    end
+  end
+  flush()
+  Ui._menuLabels[key] = labels
+  return labels
+end
+
+local function action_prompt(st, ab)
+  local mode = (st and st.safari and "safari") or (st and st.oldManTutorial and "oldman") or "pkmn"
+  local mon = ab and ab.mon
+  local cached = Ui._promptFor
+  if cached and cached.st == st and cached.mode == mode and cached.mon == mon and Ui._promptText then
+    return Ui._promptText
+  end
+  local text
+  if mode == "safari" then
+    -- pokefirered/src/battle_controller_safari.c:446
+    text = BattleText.get("gText_WhatWillPlayerThrow", { playerName = st.playerName })
+  elseif mode == "oldman" then
+    -- pokefirered/src/battle_controller_oak_old_man.c:1825
+    text = BattleText.get("gText_WhatWillOldManDo")
+  else
+    -- pokefirered/src/battle_controller_player.c:2422
+    text = BattleText.get("gText_WhatWillPkmnDo", { active = ab, trainer = st and not st.wild })
+  end
+  Ui._promptFor = { st = st, mode = mode, mon = mon }
+  Ui._promptText = text
+  return text
+end
+
 local function draw_action_menu(st)
   -- B_WIN_ACTION_PROMPT @ (1,15) after scroll → px (8,120); printer (2,2) → (10,122)
   -- B_WIN_ACTION_MENU @ (17,15) → (136,120); printer (0,2) → (136,122)
   -- ActionSelectionCreateCursorAt: tile (16+7*col, 35+row) → after scroll (128,120);
   -- cursor is a 1×2 BG pip whose ink lines up with printer y=2 text → draw at text Y.
   local ab = st and (is_double(st) and active_battler(st) or st.player)
-  local name = ab and State.displayName(ab) or "POKéMON"
-  local labels = { Strings("FIGHT"), Strings("BAG"), Strings("POKéMON"), Strings("RUN") }
-  if st and st.safari then
-    -- pokefirered/src/battle_controller_safari.c:446
-    local pname = (st.playerName ~= nil and st.playerName ~= "" and st.playerName) or "RED"
-    draw_prompt_text(Strings("What will %s\nthrow?", pname), 10, 122)
-    labels = { Strings("BALL"), Strings("BAIT"), Strings("ROCK"), Strings("RUN") }
-  elseif st and st.oldManTutorial then
-    -- pokefirered/src/battle_message.c: gText_WhatWillOldManDo
-    draw_prompt_text(Strings("What will\nOLD MAN do?"), 10, 122)
-  else
-    draw_prompt_text(Strings("What will\n%s do?", name), 10, 122)
-  end
+  local labels = menu_labels((st and st.safari) and "gText_SafariZoneMenu" or "gText_BattleMenu")
+  draw_prompt_text(action_prompt(st, ab), 10, 122)
   local positions = {
     { 136, 122 }, { 184, 122 },
     { 136, 138 }, { 184, 138 },
@@ -1894,8 +1979,13 @@ local function draw_move_menu(st)
     local def = Moves.get(mv)
     local pp = mon.pp and mon.pp[slot] or 0
     local maxPp = mon.maxPp and mon.maxPp[slot] or (def and def.pp) or pp
-    draw_menu_text(Strings("PP %d/%d", pp, maxPp), 168, 122, { small = true, colors = FrlgFont.COLOR.NORMAL })
-    draw_menu_text(Strings(Types.get(def and def.type) or "NORMAL"), 168, 138, { small = true, colors = FrlgFont.COLOR.NORMAL })
+    -- pokefirered/src/battle_controller_player.c:1387
+    draw_menu_text(RomText.plain("gText_MoveInterfacePP"), 168, 122, { small = true, colors = FrlgFont.COLOR.NORMAL })
+    -- pokefirered/src/battle_controller_player.c:1402
+    draw_menu_text(string.format("%2d/%2d", pp, maxPp), 202, 122, { small = false, colors = FrlgFont.COLOR.NORMAL })
+    -- pokefirered/src/battle_controller_player.c:1413
+    draw_menu_text(RomText.plain("gText_MoveInterfaceType") .. Types.name(def.type), 168, 138,
+      { small = true, colors = FrlgFont.COLOR.NORMAL })
   end
 end
 
@@ -2192,6 +2282,10 @@ function Ui.draw(w, h)
     love.graphics.setColor(0, 0, 0, oakDim)
     love.graphics.rectangle("fill", 0, 0, w, h)
     love.graphics.setColor(1, 1, 1, 1)
+    -- pokefirered/src/battle_controller_pokedude.c:2607
+    if st and not dbl and Ui.litHealthboxShown() then
+      Healthbox.draw("player", Anim.shownBattler("player", st.player), { oy = Ui.bounceOffset("hb", 0) })
+    end
   end
 
   local BagMenu = package.loaded["src.ui.game3.bag_menu"]

@@ -2,7 +2,7 @@
 
 local Stack = require("src.ui.game3.stack")
 local FrlgFont = require("src.ui.game3.frlg_font")
-local Strings = require("src.core.Strings")
+local RomText = require("src.core.game3.rom_text")
 
 local TrainerCard = {}
 
@@ -391,6 +391,17 @@ local function caught_mons_count(session, national)
   return n
 end
 
+local function capped_stat(session, id, key, cap)
+  local stats = session.gameStats
+  local v
+  if type(stats) == "table" then
+    v = stats[id] or stats[key]
+  else
+    v = session[key]
+  end
+  return math.min(cap, math.max(0, math.floor(tonumber(v) or 0)))
+end
+
 -- src/trainer_card.c:858 TrainerCard_GenerateCardForLinkPlayer
 local function gather(session)
   session = session or {}
@@ -418,14 +429,13 @@ local function gather(session)
   c.caughtMonsCount = caught_mons_count(session, national)
 
   c.money = math.max(0, math.floor(tonumber(session.money) or 0))
-  c.linkBattleWins = math.min(9999, math.max(0, math.floor(tonumber(session.linkBattleWins) or 0)))
-  c.linkBattleLosses = math.min(9999, math.max(0, math.floor(tonumber(session.linkBattleLosses) or 0)))
-  c.pokemonTrades = math.min(65535, math.max(0, math.floor(
-    tonumber(session.pokemonTrades or session.trades) or 0)))
-  c.berryCrushPoints = math.min(65535, math.max(0, math.floor(
-    tonumber(session.berryCrushPoints) or 0)))
-  c.unionRoomNum = math.min(65535, math.max(0, math.floor(
-    tonumber(session.unionRoomNum or session.unionTrades) or 0)))
+  -- src/trainer_card.c:822
+  c.linkBattleWins = capped_stat(session, 23, "linkBattleWins", 9999)
+  c.linkBattleLosses = capped_stat(session, 24, "linkBattleLosses", 9999)
+  c.pokemonTrades = capped_stat(session, 21, "pokemonTrades", 0xFFFF)
+  -- src/trainer_card.c:876
+  c.berryCrushPoints = capped_stat(session, 51, "berryCrushPoints", 0xFFFF)
+  c.unionRoomNum = capped_stat(session, 50, "unionRoomNum", 0xFFFF)
 
   c.hasHofResult = (c.hofDebutHours ~= 0 or c.hofDebutMinutes ~= 0 or c.hofDebutSeconds ~= 0)
   c.hasLinkResults = (c.linkBattleWins ~= 0 or c.linkBattleLosses ~= 0)
@@ -603,23 +613,23 @@ function TrainerCard.frontTexts(c, colonInvisible)
     t[#t + 1] = { id = id, text = text, x = WIN_X + x, y = WIN_Y + y, stat = stat or false }
   end
 
-  add("name", Strings("NAME: ") .. c.playerName, 20, 29)
-  add("id", Strings("IDNo.") .. leading_zeros(c.trainerId, 5), 142, 10)
+  add("name", RomText.plain("gText_TrainerCardName") .. c.playerName, 20, 29)
+  add("id", RomText.plain("gText_TrainerCardIDNo") .. leading_zeros(c.trainerId, 5), 142, 10)
 
-  add("money_label", Strings("MONEY"), 20, 56)
-  local moneyStr = Strings("¥") .. tostring(c.money)
+  add("money_label", RomText.plain("gText_TrainerCardMoney"), 20, 56)
+  local moneyStr = RomText.plain("gText_TrainerCardYen") .. tostring(c.money)
   add("money", moneyStr, 134 - CHAR_ADVANCE * str_length(moneyStr), 56)
 
   if c.hasPokedex then
-    add("dex_label", Strings("POKéDEX"), 20, 72)
+    add("dex_label", RomText.plain("gText_TrainerCardPokedex"), 20, 72)
     local dexStr = tostring(c.caughtMonsCount)
     add("dex", dexStr, 136 - CHAR_ADVANCE * str_length(dexStr), 72)
   end
 
-  add("time_label", Strings("TIME"), 20, 88)
+  add("time_label", RomText.plain("gText_TrainerCardTime"), 20, 88)
   add("hours", right_align(c.playTimeHours, 3), 101, 88)
   if not colonInvisible then
-    add("colon", ":", 119, 88)
+    add("colon", RomText.plain("gText_Colon2"), 119, 88)
   end
   add("minutes", leading_zeros(c.playTimeMinutes, 2), 124, 88)
   return t
@@ -636,14 +646,14 @@ function TrainerCard.backTexts(c)
   add("name", c.playerName, 138, 11)
 
   if c.hasHofResult then
-    add("hof_label", Strings("HALL OF FAME DEBUT"), 10, 35)
+    add("hof_label", RomText.plain("gText_HallOfFameDebut"), 10, 35)
     add("hof", right_align(c.hofDebutHours, 3)
       .. ":" .. leading_zeros(c.hofDebutMinutes, 2)
       .. ":" .. leading_zeros(c.hofDebutSeconds, 2), 164, 35, true)
   end
 
   if c.hasLinkResults then
-    add("link_label", Strings("LINK BATTLES"), 10, 51)
+    add("link_label", RomText.plain("gText_LinkBattles"), 10, 51)
     add("link_w", "W:", 130, 51)
     add("link_wins", right_align(c.linkBattleWins, 4), 144, 51, true)
     add("link_l", "L:", 178, 51)
@@ -651,17 +661,17 @@ function TrainerCard.backTexts(c)
   end
 
   if c.hasTrades then
-    add("trades_label", Strings("POKéMON TRADES"), 10, 67)
+    add("trades_label", RomText.plain("gText_PokemonTrades"), 10, 67)
     add("trades", right_align(c.pokemonTrades, 5), 186, 67, true)
   end
 
   if c.unionRoomNum ~= 0 then
-    add("union_label", Strings("UNION TRADES & BATTLES"), 10, 83)
+    add("union_label", RomText.plain("gText_UnionRoomTradesBattles"), 10, 83)
     add("union", right_align(c.unionRoomNum, 5), 186, 83, true)
   end
 
   if c.berryCrushPoints ~= 0 then
-    add("berry_label", Strings("BERRY CRUSH"), 10, 99)
+    add("berry_label", RomText.plain("gText_BerryCrushes"), 10, 99)
     add("berry", right_align(c.berryCrushPoints, 5), 186, 99, true)
   end
   return t

@@ -48,7 +48,7 @@ check(MapPreviewExtract.PALETTE_COLORS == 32 and MapPreviewExtract.PALETTE_BANKS
   "0x40 palette bytes split into 2 banks")
 check(MapPreviewExtract.TYPE_CAVE == 0 and MapPreviewExtract.TYPE_FOREST == 1,
   "extractor cave/forest types match Versions")
-check(MapPreviewScreen.FADE_OUT_FRAMES == 48, "fade-out lasts 48 frames")
+check(MapPreviewScreen.FADE_OUT_FRAMES == 47, "fade-out lasts 47 frames")
 check(MapPreviewScreen.DURATION_FIRST_VISIT == 120, "first visit holds 120 frames")
 check(MapPreviewScreen.DURATION_REVISIT == 40, "revisit holds 40 frames")
 
@@ -72,12 +72,12 @@ local FOREST_SEC, CAVE_SEC = 176, 100
 local ARTWORK = 999
 synthCache:write(SYNTH_ROOT .. "/map_preview/manifest.lua", ([[
 return {
-  format_version = 2,
+  format_version = 3,
   width = 240, height = 160,
   type_cave = 0, type_forest = 1,
   artwork_count = 1, entry_count = 2,
-  name_window = { fill = { 247, 247, 255 }, fg = { 247, 247, 255 },
-                  shadow = { 0, 0, 0 }, bg = { 214, 214, 214 } },
+  name_window = { fill = { 247, 247, 255 }, fg = { 0, 0, 0 },
+                  shadow = { 214, 214, 214 }, bg = { 247, 247, 255 } },
   entries = {
     { mapsec = %d, name = "BERRY FOREST", type = 1, flagId = 2231, artwork = %d },
     { mapsec = %d, name = "ROCK TUNNEL", type = 0, flagId = 2200, artwork = %d },
@@ -97,6 +97,17 @@ check(not MapPreviewScreen.has(FOREST_SEC, MapPreviewExtract.TYPE_CAVE), "Berry 
 check(MapPreviewScreen.has(CAVE_SEC, MapPreviewExtract.TYPE_CAVE), "Rock Tunnel is a cave preview")
 check(not MapPreviewScreen.has(4242), "unknown mapsec has no preview")
 
+local nwc = MapPreviewScreen._nameWindowColors
+check(type(nwc) == "function", "name window colour reader is exposed")
+if type(nwc) == "function" then
+  local c = nwc(MapPreviewScreen.manifest())
+  check(c.fill[3] == 1 and c.fg[1] == 0 and math.abs(c.shadow[1] - 214 / 255) < 1e-9 and c.bg[1] == 247 / 255,
+    "name window colours come from the manifest")
+  check(not pcall(nwc, { entries = {} }), "a manifest without name_window is an error")
+  check(not pcall(nwc, { name_window = { fill = { 1, 2, 3 }, fg = {}, shadow = { 1, 2, 3 }, bg = { 1, 2, 3 } } }),
+    "a malformed name_window colour is an error")
+end
+
 -- MapPreview_SetFlag captures the pre-visit state: first visit 120, revisit 40.
 MapPreviewScreen.hasVisitedBefore = false
 check(MapPreviewScreen.durationFor(FOREST_SEC) == 40, "forest without a prior visit holds 40")
@@ -113,6 +124,27 @@ check(MapPreviewScreen.show(CAVE_SEC) == false, "show() refuses a cave preview b
 check(MapPreviewScreen.show(FOREST_SEC) == true, "show() accepts a forest preview")
 check(MapPreviewScreen.isActive(), "screen is active after show()")
 check(MapPreviewScreen.mapsec() == FOREST_SEC, "active mapsec is Berry Forest")
+do
+  local hold, fade, seq = 0, 0, {}
+  for _ = 1, 400 do
+    if not MapPreviewScreen.isActive() then break end
+    local wasFade = MapPreviewScreen._state == MapPreviewScreen.STATE.FADE_OUT
+    MapPreviewScreen.update(1 / 60)
+    if wasFade then
+      fade = fade + 1
+      seq[#seq + 1] = { MapPreviewScreen._eva, MapPreviewScreen._evb }
+    else
+      hold = hold + 1
+    end
+  end
+  check(hold == 41, "forest revisit hold lasts duration + 1 frames")
+  check(fade == 47, "forest dissolve lasts 47 frames")
+  check(seq[1] and seq[1][1] == 16 and seq[1][2] == 1, "dissolve frame 0 is BLEND(16, 1)")
+  check(seq[2] and seq[2][1] == 15 and seq[2][2] == 1, "dissolve frame 1 is BLEND(15, 1)")
+  check(seq[4] and seq[4][1] == 15 and seq[4][2] == 2, "dissolve frame 3 is BLEND(15, 2)")
+  check(seq[46] and seq[46][1] == 1 and seq[46][2] == 16, "dissolve frame 45 is BLEND(1, 16)")
+end
+check(MapPreviewScreen.show(FOREST_SEC) == true, "show() restarts the forest preview")
 MapPreviewScreen.dismiss()
 check(not MapPreviewScreen.isActive(), "dismiss() clears the active screen")
 
@@ -164,10 +196,12 @@ else
     "dungeon entry 1 is Viridian Forest")
   check(plan.dungeonInfo[1].desc:find("\n", 1, true) ~= nil,
     "dungeon flavour text keeps its ROM line breaks")
-  check(plan.nameWindow and plan.nameWindow.fg[1] == plan.nameWindow.fill[1],
-    "name window fill and fg share palette bank 14 entry 1")
-  check(plan.nameWindow.shadow[1] < plan.nameWindow.fg[1],
-    "name window shadow is darker than its fg")
+  local nw = plan.nameWindow
+  local function rgbIs(c, r, g, b) return c and c[1] == r and c[2] == g and c[3] == b end
+  check(nw and rgbIs(nw.fill, 247, 247, 255), "name window fill is bank 14 entry 1 (247,247,255)")
+  check(nw and rgbIs(nw.fg, 0, 0, 0), "name window glyph fg is bank 14 entry 4 (black)")
+  check(nw and rgbIs(nw.shadow, 214, 214, 214), "name window shadow is bank 14 entry 3 (214,214,214)")
+  check(nw and rgbIs(nw.bg, 247, 247, 255), "name window glyph bg is bank 14 entry 1, same as the fill")
 
   local files = 0
   for name, bytes in pairs(plan.files) do

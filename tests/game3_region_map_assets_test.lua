@@ -18,7 +18,7 @@ local MultichoiceExtract = require("src.import.gba.multichoice_extract")
 print("[test] 1. extractor readiness contract")
 check(type(RegionMapExtract.run) == "function", "region_map_extract has a run()")
 check(type(RegionMapExtract.ready) == "function", "region_map_extract has a ready()")
-check(#RegionMapExtract.FILES == 6, "region_map_extract names 6 baked files")
+check(#RegionMapExtract.FILES == 29, "region_map_extract names 29 baked files")
 
 local function stubCache(present)
   return {
@@ -83,18 +83,71 @@ end
 
 local EXPECT = {
   ["kanto_map.png"] = { 240, 160 },
-  ["cursor.png"] = { 16, 16 },
+  ["sevii123_map.png"] = { 240, 160 },
+  ["sevii45_map.png"] = { 240, 160 },
+  ["sevii67_map.png"] = { 240, 160 },
+  ["frame_normal.png"] = { 240, 160 },
+  ["frame_normal_untinted.png"] = { 240, 160 },
+  ["frame_fly.png"] = { 240, 160 },
+  ["switch_menu_123.png"] = { 240, 160 },
+  ["switch_menu_all.png"] = { 240, 160 },
+  ["switch_button.png"] = { 24, 24 },
+  ["navel_rock_patch.png"] = { 24, 16 },
+  ["birth_island_patch.png"] = { 24, 24 },
+  ["switch_cursor_left.png"] = { 32, 64 },
+  ["switch_cursor_right.png"] = { 32, 64 },
+  ["edge_top_left.png"] = { 32, 64 },
+  ["edge_top_right.png"] = { 32, 64 },
+  ["edge_mid_left.png"] = { 32, 64 },
+  ["edge_mid_right.png"] = { 32, 64 },
+  ["edge_bottom_left.png"] = { 32, 64 },
+  ["edge_bottom_right.png"] = { 32, 64 },
+  ["cursor.png"] = { 16, 32 },
+  ["fly_icon.png"] = { 16, 32 },
   ["dungeon_icon.png"] = { 8, 8 },
   ["dungeon_icon_visited.png"] = { 8, 8 },
   ["player_red.png"] = { 16, 16 },
   ["player_leaf.png"] = { 16, 16 },
 }
 for _, name in ipairs(RegionMapExtract.FILES) do
+  if not name:find("%.png$") then goto continue end
   local data = readFile("region_map/" .. name)
   local w, h = pngSize(data)
   local want = EXPECT[name]
   check(w == want[1] and h == want[2], string.format(
     "region_map/%s is %sx%s (want %dx%d)", name, tostring(w), tostring(h), want[1], want[2]))
+  ::continue::
+end
+
+-- pokefirered/src/region_map.c:939, :959, :2572
+local function darken8(u)
+  local v5 = math.floor(u * 31 / 255 + 0.5)
+  local d = math.floor(math.floor(math.floor(v5 * 256 / 100) * 95) / 256)
+  return math.floor(d * 255 / 31 + 0.5)
+end
+for _, base in ipairs({ "frame_normal" }) do
+  local tinted = readFile("region_map/" .. base .. ".rgba")
+  local raw = readFile("region_map/" .. base .. "_untinted.rgba")
+  check(tinted and raw and #tinted == 240 * 160 * 4 and #raw == #tinted,
+    base .. " has a same-size untinted twin")
+  if tinted and raw and #raw == #tinted then
+    local diff, bad = 0, 0
+    for i = 1, #raw, 4 do
+      local same = true
+      for c = 0, 2 do
+        if tinted:byte(i + c) ~= raw:byte(i + c) then same = false end
+      end
+      if not same then
+        diff = diff + 1
+        for c = 0, 2 do
+          if tinted:byte(i + c) ~= darken8(raw:byte(i + c)) then bad = bad + 1 break end
+        end
+      end
+      if tinted:byte(i + 3) ~= raw:byte(i + 3) then bad = bad + 1 end
+    end
+    check(diff > 0, string.format("%s differs from its untinted twin (%d pixels)", base, diff))
+    check(bad == 0, string.format("every differing %s pixel is the untinted one darkened to 95%% (%d bad)", base, bad))
+  end
 end
 
 -- pokefirered/src/region_map.c:790 sAnim_DungeonIconVisited is frame 1, :795 frame 0

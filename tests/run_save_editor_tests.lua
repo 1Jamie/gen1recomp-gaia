@@ -70,7 +70,8 @@ do
   local path = SaveIO.defaultPath()
   check(type(path) == "string" and #path > 0, "defaultPath nonempty")
   check(path:match("save%.lua$"), "defaultPath ends with save.lua")
-  check(path:match("pokemon%-love2d"), "defaultPath uses game identity folder")
+  local identity = os.getenv("POKEPORT_IDENTITY") or "pokemon-love2d"
+  check(path:find(identity, 1, true) ~= nil, "defaultPath uses game identity folder")
   local sys = ""
   if package.config:sub(1, 1) ~= "\\" then
     -- no uname on Windows; the macOS-only check below just skips there
@@ -1620,6 +1621,14 @@ do
 
   love.graphics.getDimensions = oldDimensions
   love.window.getSafeArea = oldSafe
+end
+
+do
+  local interp = arg and arg[-1] or "luajit"
+  for _, suite in ipairs({ "tests/save_editor_gen3_tests.lua", "tests/save_editor_gen3_persistence_tests.lua" }) do
+    local r = os.execute(interp .. " " .. suite)
+    check(r == true or r == 0, suite .. " passes")
+  end
 end
 
 print(string.format("save editor tests: %d passed, %d failed", passed, failed))

@@ -1,5 +1,4 @@
 local SE = require("src.core.game3.se_ids")
-local Strings = require("src.core.Strings")
 local RomText = require("src.core.game3.rom_text")
 
 local TradeScene = {}
@@ -217,7 +216,7 @@ end
 -- gText_EggNickname for an egg (pokemon.c:3020)
 local function nameOf(mon)
   if not mon then return "" end
-  if isEgg(mon) then return Strings("EGG") end
+  if isEgg(mon) then return RomText.plain("gText_EggNickname") end
   local nick = mon.nickname or mon.name
   if type(nick) == "string" and nick ~= "" then return nick end
   local ok, Pokemon = pcall(require, "src.core.game3.pokemon")
@@ -238,6 +237,11 @@ end
 -- pokefirered/src/trade_scene.c:2808 DrawTextOnTradeWindow
 local function setText(s, text)
   s.text = text or ""
+end
+
+-- pokefirered/src/trade_scene.c:1238 TradeBufferOTnameAndNicknames
+local function tradeText(s, key)
+  return RomText.plain(key, { stringVars = { s.otName, s.sentName, s.recvName } })
 end
 
 local function evolutionOpen()
@@ -308,7 +312,7 @@ end)
 
 -- pokefirered/src/trade_scene.c:1366
 phase("send_msg", function(s)
-  setText(s, Strings("%s will be\nsent to %s.", s.sentName, s.otName))
+  setText(s, tradeText(s, "gText_XWillBeSentToY"))
   playCry(s, s.offer)
   return true
 end)
@@ -317,7 +321,7 @@ end)
 phase("bye_bye", function(s)
   s.timer = s.timer + 1
   if s.timer ~= BYE_BYE_DELAY then return false end
-  setText(s, Strings("Bye-bye, %s!", s.sentName))
+  setText(s, tradeText(s, "gText_ByeByeVar1"))
   s.ballVisible = true
   s.ballX, s.ballY, s.ballY2 = 120, 32, 0
   return true
@@ -376,6 +380,8 @@ phase("wait_fade_out_to_gba_send", function(s)
   if s.frames < FADE_FRAMES then return false end
   s.veil = 1
   setText(s, "")
+  -- pokefirered/src/trade_scene.c:1404
+  s.monShadowBg = false
   -- pokefirered/src/trade_scene.c:1166
   s.bg2Zoom = ZOOM_MAX
   return true
@@ -650,6 +656,9 @@ phase("wait_fade_out_to_new_mon", function(s)
   if s.frames < FADE_FRAMES then return false end
   s.veil = 1
   s.gbaVisible = false
+  -- pokefirered/src/trade_scene.c:1670
+  s.monShadowBg = true
+  s.bg2hofs = 0
   return true
 end)
 
@@ -714,7 +723,7 @@ end)
 
 -- pokefirered/src/trade_scene.c:1725
 phase("new_mon_msg", function(s)
-  setText(s, Strings("%s sent over %s.", s.otName, s.recvName))
+  setText(s, tradeText(s, "gText_XSentOverY"))
   s.timer = 0
   return true
 end)
@@ -738,7 +747,7 @@ phase("take_care_of_mon", function(s)
   s.timer = s.timer + 1
   if s.timer == FANFARE_AT then playFanfare(s, MUS_EVOLVED) end
   if s.timer ~= TAKE_CARE_AT then return false end
-  setText(s, Strings("Take good care of %s!", s.recvName))
+  setText(s, tradeText(s, "gText_TakeGoodCareOfX"))
   s.timer = 0
   return true
 end)
@@ -981,6 +990,8 @@ function TradeScene.play(offer, received, onDone, opts)
     phaseIndex = 1,
     -- pokefirered/src/trade_scene.c:1119
     bg2hofs = MON_SLIDE_HOFS,
+    -- pokefirered/src/trade_scene.c:1120
+    monShadowBg = true,
     bg1vofs = BG1_GBA_TOP,
     -- pokefirered/src/trade_scene.c:1172
     bg2Zoom = ZOOM_MAX,

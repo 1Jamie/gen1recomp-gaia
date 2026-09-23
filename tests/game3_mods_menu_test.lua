@@ -4,6 +4,14 @@
 -- the game3.stack push/close path. No GBA cache required.
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
+local function romTextKey(n, i, j) return j and (n .. "[" .. i .. "][" .. j .. "]") or (n .. "[" .. i .. "]") end
+local function romTextPlain(key) return key end
+package.loaded["src.core.game3.rom_text"] = {
+  plain = romTextPlain, box = romTextPlain, ascii = romTextPlain, has = function() return true end,
+  key = romTextKey, at = function(n, i, j) return romTextKey(n, i, j) end,
+  count = function() return 0 end, list = function() return {} end,
+  lazy = function(map) return setmetatable({}, { __index = function(_, k) return map[k] end }) end,
+}
 
 local love = _G.love or require("tests.love_stub")
 _G.love = love

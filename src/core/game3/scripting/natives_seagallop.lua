@@ -1,5 +1,5 @@
 
-local Strings = require("src.core.Strings")
+local RomText = require("src.core.game3.rom_text")
 local Std = require("src.core.game3.scripting.stdscripts")
 
 local Seagallop = {}
@@ -31,6 +31,8 @@ local SE_EXIT = 9 -- pokefirered/include/constants/songs.h:13
 
 -- pokefirered/src/seagallop.c:286
 local CROSSING_FRAMES = 140
+-- pokefirered/src/overworld.c:1128
+local MUSIC_FADE_FRAMES = 64
 
 -- pokefirered/src/seagallop.c:62
 local WARPS = {
@@ -51,14 +53,7 @@ Seagallop.WARP_COUNT = 11
 
 -- pokefirered/src/script_menu.c:664
 local function destLabel(id)
-  if id == VERMILION_CITY then return Strings("VERMILION") end
-  if id == ONE_ISLAND then return Strings("ONE ISLAND") end
-  if id == TWO_ISLAND then return Strings("TWO ISLAND") end
-  if id == THREE_ISLAND then return Strings("THREE ISLAND") end
-  if id == FOUR_ISLAND then return Strings("FOUR ISLAND") end
-  if id == FIVE_ISLAND then return Strings("FIVE ISLAND") end
-  if id == SIX_ISLAND then return Strings("SIX ISLAND") end
-  return Strings("SEVEN ISLAND")
+  return RomText.at("sSeagallopDestStrings", id)
 end
 
 local function flagsMod()
@@ -118,8 +113,8 @@ function Seagallop.destinationMenu(originId, page)
     destinationId = destinationId + 1
     if destinationId == SEVEN_ISLAND + 1 then destinationId = VERMILION_CITY end
   end
-  labels[#labels + 1] = Strings("OTHER")
-  labels[#labels + 1] = Strings("EXIT")
+  labels[#labels + 1] = RomText.plain("gText_Other")
+  labels[#labels + 1] = RomText.plain("gOtherText_Exit")
   return labels, top
 end
 
@@ -154,34 +149,44 @@ function Seagallop.ferryTask(ctx, adapters, destId)
   local frames = 0
   local phase = "cross"
   local warp = WARPS[destId]
+  local waited, arrived = 0, false
+  local okA, Audio = pcall(require, "src.core.game3.audio")
+  if not okA then Audio = nil end
+  local okF, Fade = pcall(require, "src.ui.game3.fade")
+  if not okF then Fade = nil end
   return function()
     if phase == "cross" then
       frames = frames + 1
-      if frames == 1 then
-        local okA, Audio = pcall(require, "src.core.game3.audio")
-        if okA and Audio and Audio.playSe then pcall(Audio.playSe, SE_SHIP) end
-      end
+      if frames == 1 and Audio and Audio.playSe then pcall(Audio.playSe, SE_SHIP) end
       if frames < CROSSING_FRAMES then return false end
-      phase = "warp"
+      -- pokefirered/src/seagallop.c:286
+      if Audio and Audio.fadeOutBgm then pcall(Audio.fadeOutBgm, 4) end
+      if Fade and Fade.begin then
+        local covered = not Fade.isActive() and (tonumber(Fade.t) or 0) >= 16
+        if not covered then Fade.begin(Fade.MODE.TO_BLACK, 1, function() end) end
+      end
+      phase = "fade"
       return false
     end
-    if phase == "warp" then
-      phase = "arrived"
-      local okA, Audio = pcall(require, "src.core.game3.audio")
-      if okA and Audio and Audio.playSe then pcall(Audio.playSe, SE_EXIT) end
+    if phase == "fade" then
+      -- pokefirered/src/seagallop.c:294
+      waited = waited + 1
+      if Fade and Fade.isActive() then return false end
+      if Audio and Audio._fadeOut and waited < MUSIC_FADE_FRAMES then return false end
+      phase = "warp"
+      if Audio and Audio.playSe then pcall(Audio.playSe, SE_EXIT) end
       if warp and adapters and adapters.warp then
-        adapters.warp(warp[1], warp[2], -1, warp[3], warp[4], function() end)
-      elseif adapters and adapters.log then
-        adapters.log(string.format("[game3] seagallop has no warp for dest %s", tostring(destId)))
+        adapters.warp(warp[1], warp[2], -1, warp[3], warp[4], function() arrived = true end,
+          "seagallop")
+      else
+        if adapters and adapters.log then
+          adapters.log(string.format("[game3] seagallop has no warp for dest %s", tostring(destId)))
+        end
+        arrived = true
       end
-      -- pokefirered/src/seagallop.c:316
-      local okF, Fade = pcall(require, "src.ui.game3.fade")
-      if okF and Fade and Fade.begin then
-        Fade.begin(Fade.MODE.FROM_BLACK, 1, function() end)
-      end
-      return true
+      return arrived
     end
-    return true
+    return arrived
   end
 end
 

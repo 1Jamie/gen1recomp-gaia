@@ -127,8 +127,9 @@ local PAL = {
 -- os.execute (issue #74: that flashed a console window per file on Windows
 -- and froze the app).
 
--- Remove a cache subtree from the OS save directory.  The realDirectory
--- guard keeps this from ever deleting the game folder (portable installs
+-- Remove a cache subtree from the OS save directory.  Files are deleted by
+-- their real save-directory path and directories through the write
+-- directory only, so this never deletes the game folder (portable installs
 -- read the cache from there) or a developer's checked-out source tree.
 local function removeTree(path)
   local info = love.filesystem.getInfo(path)
@@ -137,14 +138,15 @@ local function removeTree(path)
     for _, child in ipairs(love.filesystem.getDirectoryItems(path)) do
       removeTree(path .. "/" .. child)
     end
-  end
-  if love.filesystem.getRealDirectory
-      and love.filesystem.getRealDirectory(path)
-        ~= love.filesystem.getSaveDirectory() then
+    love.filesystem.remove(path)
     return
   end
-  local ok, err = love.filesystem.remove(path)
-  if ok == false then
+  local real = love.filesystem.getSaveDirectory() .. "/" .. path
+  local f = io.open(real, "rb")
+  if not f then return end
+  f:close()
+  local ok, err = os.remove(real)
+  if not ok then
     error("could not remove stale cache: " .. tostring(err))
   end
 end
@@ -4381,16 +4383,17 @@ function RomImporter:_runImporter(importerId, path)
 end
 
 function RomImporter:_runImporterData(importerId, data)
-  local LttpImport = require("src.import.lttp.LttpImport")
-  if importerId ~= LttpImport.IMPORTER then return end
-  local source, err = LttpImport.identify(data)
+  local modules = { lttp = "src.import.lttp.LttpImport", pmd_red = "src.import.pmd.PmdImport" }
+  if not modules[importerId] then return end
+  local importer = require(modules[importerId])
+  local source, err = importer.identify(data)
   if not source then
     self._importerNotice = { text = tostring(err) }
     return
   end
   self._importerJob = {
     id = importerId,
-    co = LttpImport.job(data),
+    co = importer.job(data),
     progress = 0,
     status = "Reading " .. source.name,
   }
@@ -4400,7 +4403,7 @@ end
 function RomImporter:_stepImporter()
   local job = self._importerJob
   if not job then return end
-  local budget = 24
+  local budget = job.id == "pmd_red" and 1 or 24
   while budget > 0 do
     budget = budget - 1
     if coroutine.status(job.co) == "dead" then break end
