@@ -14,8 +14,17 @@ function Ai.loadPack(opts)
   if Ai._pack and not opts.force then return Ai._pack end
   Ai._packTried = true
   local rel = "data/generated/gba/battle_ai/pack.lua"
-  local src = require("src.core.game3.dataset").cache():read(rel)
-  if not src then error("battle AI: " .. rel .. " is missing from the cache") end
+  local src
+  local ok, cache = pcall(function() return require("src.core.game3.dataset").cache() end)
+  if ok and cache and cache.read then
+    src = cache:read(rel)
+  end
+  if not src then
+    if opts.required then
+      error("battle AI: " .. rel .. " is missing from the cache")
+    end
+    return nil
+  end
   local t = assert(load(src, "@" .. rel, "t", {}))()
   if type(t) ~= "table" or type(t.table) ~= "table" or type(t.scripts) ~= "table" then
     error("battle AI: " .. rel .. " is not a script pack")
@@ -268,6 +277,16 @@ function choose_move_core(st, id, opts)
   local aiAction = 0
   if aiFlags ~= 0 and pack and pack.table and pack.scripts and target then
     aiAction = run_scripts(pack, aiFlags, st, b, target, userSide, targetSide, scores, simulatedRNG, rng)
+  elseif st.roamer then
+    -- data/battle_ai_scripts.s: BattleAI_Roaming checks if_can_escape
+    local okCmd, Cmds = pcall(require, "src.core.game3.battle.ai_cmds")
+    local canEscape = true
+    if okCmd and Cmds and Cmds.if_can_escape then
+      canEscape = Cmds.if_can_escape(st, b, target, userSide, targetSide, ad)
+    end
+    if canEscape then
+      aiAction = 0x2
+    end
   elseif st.safari then
     -- data/battle_ai_scripts.s:3242
     local okR, Rules = pcall(require, "src.core.game3.battle.rules")
