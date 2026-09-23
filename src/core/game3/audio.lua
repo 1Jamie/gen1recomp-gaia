@@ -518,7 +518,12 @@ function Audio.resumeBgm()
   Audio._bgmPaused = false
   if Audio._cmdCh then Audio._cmdCh:push({ cmd = "resume" }) end
   if Audio._bgmSource then
-    pcall(function() Audio._bgmSource:setVolume(bgm_gain()) end)
+    pcall(function()
+      Audio._bgmSource:setVolume(bgm_gain())
+      if not Audio._bgmSource:isPlaying() then
+        Audio._bgmSource:play()
+      end
+    end)
   end
   Audio.pumpBgm()
 end

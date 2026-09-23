@@ -1191,6 +1191,14 @@ function FieldView.draw(game, canvasW, canvasH, opts)
     end
   end
 
+  -- S.S. Anne wake (pret oam.priority = 2, subpriority = 0xFF: under boat hull).
+  if not opts.actorsOnly then
+    local okSS, SSAnne = pcall(require, "src.core.game3.ss_anne_cutscene")
+    if okSS and SSAnne and SSAnne.drawWake then
+      SSAnne.drawWake(camX, camY)
+    end
+  end
+
   -- Collect Game3 actors partitioned by OAM priority.
   local underActors, overActors = nil, nil
   if not opts.skipActors then
@@ -1245,6 +1253,10 @@ function FieldView.draw(game, canvasW, canvasH, opts)
       love.graphics.translate(screenOx, screenOy)
       FieldEffects.drawOverlay(camX, camY)
       love.graphics.pop()
+    end
+    local okSS, SSAnne = pcall(require, "src.core.game3.ss_anne_cutscene")
+    if okSS and SSAnne and SSAnne.drawSmoke then
+      SSAnne.drawSmoke(camX, camY)
     end
   end
 
