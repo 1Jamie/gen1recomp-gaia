@@ -279,6 +279,12 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/gba/chrome/user_frame_9.rgba",
     "data/generated/gba/chrome/fonts/latin_normal_fg.rgba",
     "data/generated/gba/chrome/fonts/latin_widths.lua",
+    -- src/text.c:141, :227, :228 (the Japanese fonts)
+    "data/generated/gba/chrome/fonts/japanese_normal_fg.rgba",
+    "data/generated/gba/chrome/fonts/japanese_normal_shadow.rgba",
+    "data/generated/gba/chrome/fonts/japanese_widths.lua",
+    "data/generated/gba/chrome/fonts/japanese_small_fg.rgba",
+    "data/generated/gba/chrome/fonts/japanese_small_shadow.rgba",
     -- src/braille_text.c:15
     "data/generated/gba/chrome/fonts/braille_fg.rgba",
     "data/generated/gba/chrome/fonts/braille_shadow.rgba",

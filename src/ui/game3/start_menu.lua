@@ -23,8 +23,8 @@ StartMenu._confirmCursor = 2 -- 1=YES, 2=NO (default NO)
 
 local function player_label(session)
   local name = (session and (session.name or session.playerName)) or "PLAYER"
-  name = tostring(name)
-  if #name > 7 then name = name:sub(1, 7) end
+  -- PLAYER_NAME_LENGTH counts characters, and a kana is three bytes
+  name = FrlgFont.truncate(name, 7)
   return string.upper(name)
 end
 
