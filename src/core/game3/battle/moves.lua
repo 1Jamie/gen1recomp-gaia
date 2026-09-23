@@ -116,6 +116,7 @@ end
 
 local function from_rom(numId)
   Moves.romReady()
+  if not Moves._rom then return nil end
   local row = Moves._rom[numId]
   if not row then return nil end
   local cat = Types.isPhysical(row.type) and "physical" or "special"

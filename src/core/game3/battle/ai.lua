@@ -124,8 +124,8 @@ end
 local function move_target_byte(mv)
   if move_num(mv) == 0 then return 0 end
   local Moves = require("src.core.game3.battle.moves")
-  local m = Moves.get(mv)
-  return tonumber(m and m.target) or 0
+  local ok, m = pcall(Moves.get, mv)
+  return tonumber(ok and m and m.target) or 0
 end
 
 local function random_u16(rng)
