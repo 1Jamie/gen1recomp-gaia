@@ -415,6 +415,8 @@ function Ctx:accuracyCheck(mode, printFail)
     local mask = (power > 0) and Oak.FLAG_INFLICT_DMG or Oak.FLAG_STAT_CHG
     if not Oak.testFlag(self.st, mask) then return not self:absorbed() end
   end
+  -- pokefirered/src/battle_script_commands.c:1015
+  if self.st and self.st.pokedude then return not self:absorbed() end
   if self:lockOnActive() then return not self:absorbed() end
   local semi = target and target ~= user and target.semiInvulnerable
   if semi == "ON_AIR" and not self.ignoreOnAir then failMsg("miss"); return false end

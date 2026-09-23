@@ -216,6 +216,10 @@ local function writeback(session, battleParty, remap, result, save, opts)
         spDef = src.spDef or src.spd,
         _allowMoveRewrite = true,
       })
+      -- pokefirered/src/battle_controller_player.c:1909
+      local held = src.item or src.heldItem
+      if held == 0 or held == "" then held = nil end
+      mon.item, mon.heldItem = held, held
     end
   end
   local lost = (result == "lose" or result == "whiteout" or result == "blackout")
