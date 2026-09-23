@@ -963,37 +963,7 @@ function FrlgFont.drawKeypadIcon(iconId, x, y)
   return icon.w
 end
 
--- src/text.c:1087
-local EXT_ARGC = {
-  [0x01] = 1, [0x02] = 1, [0x03] = 1, [0x04] = 3, [0x05] = 1, [0x06] = 1, [0x08] = 1,
-  [0x0B] = 2, [0x0C] = 1, [0x0D] = 1, [0x0E] = 1, [0x10] = 2, [0x11] = 1, [0x12] = 1,
-  [0x13] = 1, [0x14] = 1,
-}
-
-local function protect_ext(s)
-  if not s:find("\252", 1, true) then return s end
-  local out, i, n = {}, 1, #s
-  while i <= n do
-    local b = s:byte(i)
-    local argc = b == 0xFC and EXT_ARGC[s:byte(i + 1) or -1]
-    if argc and i + 1 + argc <= n then
-      local hex = {}
-      for k = i + 1, i + 1 + argc do hex[#hex + 1] = string.format("%02X", s:byte(k)) end
-      out[#out + 1] = "\255" .. table.concat(hex) .. "\254"
-      i = i + 2 + argc
-    else
-      out[#out + 1] = string.char(b)
-      i = i + 1
-    end
-  end
-  return table.concat(out)
-end
-
-local function restore_ext(s)
-  return (s:gsub("\255(%x+)\254", function(h)
-    return "\252" .. h:gsub("%x%x", function(x) return string.char(tonumber(x, 16)) end)
-  end))
-end
+local restore_ext = TextIR.restoreExt
 
 --- Word-wrap text to fit within maxWidth pixels.
 function FrlgFont.wrap(text, maxWidth, opts)
@@ -1002,7 +972,7 @@ function FrlgFont.wrap(text, maxWidth, opts)
   local spaceW = FrlgFont.measure(" ", opts)
   local outLines = {}
   local rawLines = {}
-  local clean = protect_ext(tostring(text or ""):gsub("\\n", "\n"):gsub("\\p", "\n"):gsub("\\l", "\n"))
+  local clean = TextIR.protectExt(text):gsub("\\n", "\n"):gsub("\\p", "\n"):gsub("\\l", "\n")
   for line in (clean .. "\n"):gmatch("(.-)\r?\n") do
     rawLines[#rawLines + 1] = line
   end
