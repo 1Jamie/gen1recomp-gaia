@@ -180,6 +180,8 @@ local function foe_mon_from(foe)
   end
   local mon = {
     species = species,
+    name = foe.name or foe.nickname,
+    nickname = foe.nickname,
     level = foe.level or 5,
     hp = foe.hp,
     maxHp = foe.maxHp,
