@@ -4004,6 +4004,7 @@ local function buildConfirmModal(imp, m)
   local lineH = Kit.textHeight("small") + math.floor(4 * m.s)
   local h = pad + Kit.textHeight("stat") + math.floor(12 * m.s)
     + #(c.lines or {}) * lineH + math.floor(12 * m.s) + m.btnH + pad
+  if c.toggle then h = h + m.btnH + math.floor(10 * m.s) end
   local px, py, pw = modalPanel(m, w, h)
   local cy = py + pad
   Kit.text("stat", c.title or Strings("Confirm"), px + pad, cy, PAL.heading)
@@ -4015,13 +4016,35 @@ local function buildConfirmModal(imp, m)
   end
   cy = cy + math.floor(12 * m.s)
   local gap = math.floor(10 * m.s)
+  if c.toggle then
+    local t = c.toggle
+    local rw = pw - 2 * pad
+    btn(imp, px + pad, cy, rw, m.btnH, "confirm-toggle", "", {
+      face = "tab",
+      action = function()
+        t.on = not t.on
+        if t.set then t.set(t.on) end
+      end,
+    })
+    local box = math.floor(22 * m.s)
+    local bx, by = px + pad + gap, cy + (m.btnH - box) / 2
+    Theme.strokeRounded(bx, by, box, box, t.on and PAL.green or PAL.line, 0.8, 1, 4)
+    if t.on then
+      require("src.ui.kit.Icons").draw("check", bx + 2, by + 2, box - 4, PAL.green)
+    end
+    Kit.text("small", Kit.ellipsize("small", t.label, rw - box - 3 * gap),
+      bx + box + gap, cy + (m.btnH - Kit.textHeight("small")) / 2, PAL.text)
+    cy = cy + m.btnH + gap
+  end
   local halfW = math.floor((pw - 2 * pad - gap) / 2)
   btn(imp, px + pad, cy, halfW, m.btnH, "confirm-yes",
     c.yesLabel or Strings("OK"), {
       kind = "primary", font = "small",
       action = function()
         imp._modConfirm = nil
-        if c.indexEntry then
+        if c.onYes then
+          c.onYes()
+        elseif c.indexEntry then
           imp:_findInstall(c.indexEntry)
         elseif c.kind == "cartPins" then
           imp:_installCartPins(c.version, c.id)
@@ -4041,8 +4064,11 @@ local function buildConfirmModal(imp, m)
       end,
     })
   btn(imp, px + pad + halfW + gap, cy, halfW, m.btnH, "confirm-no",
-    Strings("Cancel"), { font = "small",
-      action = function() imp._modConfirm = nil end })
+    c.noLabel or Strings("Cancel"), { font = "small",
+      action = function()
+        imp._modConfirm = nil
+        if c.onNo then c.onNo() end
+      end })
 end
 
 -- A body of text, paginated rather than scrolled (release notes, mod

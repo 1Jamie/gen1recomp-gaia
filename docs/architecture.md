@@ -140,3 +140,28 @@ sprite's feet" checks.
   exit, cross into Route 1, win a wild battle) that captures screenshots.
 - `POKEPORT_DRIVER=tests/drivers/audio_runtime_test.lua love .` - imports
   and queues title music, a sound effect, and a Pokemon cry.
+
+### Headless caches and driver runs
+
+- `tools/reimport.sh <version|all> [--identity NAME] [--rom PATH] [--force]`
+  imports a ROM into a `POKEPORT_IDENTITY` save dir through the real
+  importer (`POKEPORT_IMPORT_ONLY=1`), then checks the result against
+  `CacheContract`. Default identity is `<version>-<YYMMDD>`; an identity
+  that is already current prints `ready` unless `--force`. ROMs come from
+  `--rom`, then `tools/reimport.local` (gitignored, `version=path` lines,
+  relative paths resolve against the repo root), then the first file in
+  `$POKEPORT_ROM_DIR` matching the version's No-Intro style name:
+  `Pokemon - Red Version*.gb`, `Pokemon - Blue Version*.gb`,
+  `Pokemon - Yellow Version*.gbc`, `Pokemon - Gold Version*.gbc`,
+  `Pokemon - Silver Version*.gbc`, `Pokemon - Crystal Version*.gbc`,
+  `Pokemon - Fire*Red Version*.gba`, `Pokemon - Leaf*Green Version*.gba`.
+  The importer still SHA-checks whatever file is found. `--timeout` (default
+  900) must be a positive integer. Each tool prints its usage with `--help`.
+- `luajit tools/driver_preflight.lua <identity> <version>` prints `READY` or
+  `STALE <reason>` using the same checks as `RomImporter.isReady`.
+- `tools/run_driver.sh <version> <identity> <driver.lua> [shotdir]` runs the
+  preflight, reimports a stale identity, then runs the driver under a 300s
+  alarm (`RUN_DRIVER_ALARM` overrides) and exits with the driver's code.
+  Relative driver and shotdir paths resolve against the caller's directory.
+  `tools/pty_run.py` is the pty wrapper both scripts use: it kills only the
+  `love` it spawned and passes its exit status through.
