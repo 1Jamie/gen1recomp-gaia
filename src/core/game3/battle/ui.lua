@@ -162,6 +162,22 @@ local function battler_sprite_center(side, species, base, form, ghost)
 end
 Ui.battlerSpriteCenter = battler_sprite_center
 
+-- pokefirered/src/battle_gfx_sfx_util.c:328, :715
+local function pic_args(battler, sp)
+  local mon = battler and battler.mon
+  local personality = mon and mon.personality
+  local tf = battler and battler.expTransform
+  if tf and tonumber(tf.species) == tonumber(sp) and tf.personality ~= nil then
+    personality = tf.personality
+  end
+  return Pokemon.picSpecies(sp, personality), Pokemon.isShiny(mon), personality
+end
+Ui.picArgs = pic_args
+
+function Ui.sidePicArgs(side, sp)
+  return pic_args((live_battler(side)), sp)
+end
+
 function Ui.battlerPic(side, battler, species)
   local b, st = live_battler(side)
   if type(side) == "number" then side = (side % 2 == 0) and "player" or "enemy" end
@@ -173,9 +189,10 @@ function Ui.battlerPic(side, battler, species)
   local sp = tonumber(species) or (battler and tonumber(battler.species))
   if not sp then return nil, 0, false end
   local form = (sp == SPECIES_CASTFORM) and castform_form(side, battler) or 0
+  local picSp, shiny, personality = pic_args(battler, sp)
   local entry
-  if side == "player" and Pokemon.backPic then entry = Pokemon.backPic(sp, form) end
-  if not entry and Pokemon.frontPic then entry = Pokemon.frontPic(sp, form) end
+  if side == "player" and Pokemon.backPic then entry = Pokemon.backPic(picSp, form, shiny) end
+  if not entry and Pokemon.frontPic then entry = Pokemon.frontPic(picSp, form, shiny, personality) end
   return entry, form, false
 end
 
@@ -410,7 +427,7 @@ local function open_battle_bag()
   BagMenu.show(bag, {
     session = session,
     battle = true,
-    onBattleUse = function(itemId, partySlot)
+    onBattleUse = function(itemId, partySlot, moveSlot)
       if itemId == nil then
         restore_action_menu()
         return
@@ -420,6 +437,7 @@ local function open_battle_bag()
         user = "player",
         itemId = itemId,
         partySlot = partySlot,
+        moveSlot = moveSlot,
       }
       if is_double() then Ui._pendingCommand.battler = Ui._active or 0 end
       Ui._mode = "none"
@@ -1718,11 +1736,12 @@ local function draw_mon_sprite(battler, base, back, id)
   if not entry and ghost and Pokemon.ghostPic then
     entry = Pokemon.ghostPic()
   end
+  local picSp, shiny, personality = pic_args(battler, sp)
   if not entry and back and Pokemon.backPic then
-    entry = Pokemon.backPic(sp, form)
+    entry = Pokemon.backPic(picSp, form, shiny)
   end
   if not entry then
-    entry = Pokemon.frontPic and Pokemon.frontPic(sp, form)
+    entry = Pokemon.frontPic and Pokemon.frontPic(picSp, form, shiny, personality)
   end
   if entry and entry.image then
     local a = (pres and pres.alpha) or 1
@@ -1943,7 +1962,6 @@ local function draw_ball_entry(ball)
   if img == nil then
     local candidates = {
       "data/generated/gba/intro/ball_poke.png",
-      "data/generated/gba/intro/ballPoke.png",
     }
     for _, rel in ipairs(candidates) do
       if love and love.filesystem and love.filesystem.getInfo(rel) then
@@ -1969,22 +1987,6 @@ local function draw_ball_entry(ball)
     local blended = blend and BallOpen.setBlendShader(blend.coeff, blend.r, blend.g, blend.b)
     love.graphics.draw(img, Ui._ballQuads[key], bx, by, rot, 1, 1, 8, 8)
     if blended then love.graphics.setShader() end
-  else
-    -- Procedural 16x16 Poké Ball fallback
-    love.graphics.push()
-    love.graphics.translate(bx, by)
-    love.graphics.rotate(rot)
-    love.graphics.setColor(0.9, 0.2, 0.2, 1)
-    love.graphics.arc("fill", 0, 0, 7, math.pi, 0)
-    love.graphics.setColor(0.95, 0.95, 0.95, 1)
-    love.graphics.arc("fill", 0, 0, 7, 0, math.pi)
-    love.graphics.setColor(0.15, 0.15, 0.15, 1)
-    love.graphics.circle("line", 0, 0, 7)
-    love.graphics.rectangle("fill", -7, -1, 14, 2)
-    love.graphics.circle("fill", 0, 0, 2.5)
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.circle("fill", 0, 0, 1.2)
-    love.graphics.pop()
   end
 
   love.graphics.setColor(1, 1, 1, 1)

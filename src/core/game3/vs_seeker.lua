@@ -620,10 +620,18 @@ function VsSeeker.chargingDoneEvent()
     if not ev.done then return end
     local Player = package.loaded["src.core.game3.player"]
     if Player and Player.moving then return end
+    -- src/vs_seeker.c:616
+    local waiting = false
     for _, lid in ipairs(Objects._order or {}) do
       local eo = Objects._byId[lid]
-      if eo and (eo.moving or (eo.raiseY or 0) ~= 0) then return end
+      if eo then
+        if not eo.frozen then
+          if (eo.raiseY or 0) ~= 0 then waiting = true else eo.frozen = true end
+        end
+        if eo.moving then waiting = true end
+      end
     end
+    if waiting then return end
     if Objects.hasActiveTracks and Objects.hasActiveTracks() then return end
     freezeAll(Objects)
     VsSeeker.resetObjectMovementAfterChargeComplete(Objects)

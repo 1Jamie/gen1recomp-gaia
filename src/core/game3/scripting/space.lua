@@ -476,10 +476,10 @@ end
 
 --- Resolve FRLG OBJ_EVENT_GFX id (honours graphicsVar + OBJ_EVENT_GFX_VAR_*).
 -- pret: graphicsId >= 240 → VarGetObjectEventGraphicsId(id - 240).
-function Space.resolveObjectGraphicsId(obj)
+function Space.resolveObjectGraphicsId(obj, neighbor)
   if not obj then return nil end
   local graphics = tonumber(obj.graphics or obj.graphicsId)
-  local store = Space.store or Flags.newStore()
+  local store = (neighbor and neighbor.store) or Space.store or Flags.newStore()
   local ctx = (Space.vm and Space.vm.ctx) or Ctx.new()
   if obj.graphicsVar then
     local v = Flags.getVar(store, ctx, obj.graphicsVar)
@@ -487,12 +487,77 @@ function Space.resolveObjectGraphicsId(obj)
   end
   if graphics and graphics >= 240 and graphics <= 255 then
     local varId = Ctx.GFX_VAR_LO + (graphics - 240)
-    local v = Flags.getVar(store, ctx, varId)
-    if type(v) == "number" and v > 0 and v < 240 then
-      graphics = v
+    if neighbor and store.vars[varId] == nil then return nil end
+    -- src/event_object_movement.c:2043
+    graphics = (tonumber(Flags.getVar(store, ctx, varId)) or 0) % 256
+  end
+  -- src/event_object_movement.c:2045
+  if graphics and graphics >= 152 then graphics = 16 end
+  return graphics
+end
+
+local NEIGHBOR_FLOW_OPS = {
+  ["end"] = true, ["return"] = true, call = true, ["goto"] = true,
+  call_if = true, goto_if = true, compare_var_to_value = true,
+  compare_var_to_var = true, checkflag = true, setvar = true,
+  addvar = true, subvar = true, copyvar = true,
+}
+
+local function runNeighborTransition(mapId)
+  local ev = Space.bundle and Space.bundle.events and Space.bundle.events[mapId]
+  if not ev then return nil end
+  local src = Space.store or Flags.newStore()
+  local store = { flags = {}, vars = {} }
+  for k, v in pairs(src.flags or {}) do store.flags[k] = v end
+  for k, v in pairs(src.vars or {}) do store.vars[k] = v end
+  for id = Ctx.GFX_VAR_LO, Ctx.GFX_VAR_HI do store.vars[id] = nil end
+  local state = { store = store, perm = {}, movementType = {} }
+  local key = ev.mapScripts and ev.mapScripts.onTransition
+  local scripts = Space.vm and Space.vm.scripts
+  if type(key) ~= "string" or not (scripts and scripts[key]) then return state end
+  local Ops = require("src.core.game3.scripting.ops_a")
+  local vm = Vm.new({ store = store, scripts = scripts })
+  local ctx = vm.ctx
+  vm:setPc(key, 1)
+  ctx.status = "running"
+  -- src/overworld.c:807
+  for _ = 1, 2000 do
+    local pc = ctx.pc
+    local list = pc and scripts[pc.listKey]
+    local row = list and list[pc.index]
+    if not row then break end
+    pc.index = pc.index + 1
+    local op = row.op
+    if op == "setobjectxyperm" then
+      local lid = Flags.getVar(store, ctx, row.localId or row[1])
+      state.perm[lid] = {
+        x = Flags.getVar(store, ctx, row[2]),
+        y = Flags.getVar(store, ctx, row[3]),
+      }
+    elseif op == "setobjectmovementtype" then
+      local lid = Flags.getVar(store, ctx, row.localId or row[1])
+      state.movementType[lid] = tonumber(row[2]) or 0
+    elseif NEIGHBOR_FLOW_OPS[op] then
+      Ops.dispatchUnhooked(vm, row)
     end
   end
-  return graphics
+  return state
+end
+
+function Space.neighborObjectState(mapId)
+  if not mapId or mapId == Space.mapId then return nil end
+  local cache = Space._neighborState
+  if not cache or cache.host ~= Space.mapId or cache.store ~= Space.store then
+    cache = { host = Space.mapId, store = Space.store, maps = {} }
+    Space._neighborState = cache
+  end
+  local st = cache.maps[mapId]
+  if st == nil then
+    local ok, res = pcall(runNeighborTransition, mapId)
+    st = (ok and res) or false
+    cache.maps[mapId] = st
+  end
+  return st or nil
 end
 
 --- After ON_TRANSITION sets VAR_OBJ_GFX_ID_*, refresh spawned sprites.

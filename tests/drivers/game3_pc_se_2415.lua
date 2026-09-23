@@ -93,12 +93,39 @@ return function(game)
   U.shot(game, DIR .. "/2415_02_storage_menu_after_login.png")
 
   local M = PcMenu()
-  for _ = 1, 8 do
-    if M.mode == "root" then break end
-    U.tap(game, "b")
-    U.wait(15)
+  local function advanceUntil(pred, n)
+    for _ = 1, n do
+      if pred() then return true end
+      local Msg = Message()
+      local page = Msg and Msg.isOpen() and tostring(Msg.currentPage() or ""):gsub("[\n\f]", " ") or ""
+      if Msg and Msg.isOpen() and Msg.isWaiting() and not page:find("Which PC", 1, true) then
+        U.tap(game, "a")
+      end
+      U.wait(1)
+    end
+    return pred()
   end
-  if not result(M.mode == "root", "back to root menu") then return finish() end
+  local function released()
+    local S = Space()
+    local running = S and S.vm and S.vm.isRunning and S.vm:isRunning()
+    local Msg = Message()
+    return not M.isOpen() and not running and not (Msg and Msg.isOpen and Msg.isOpen())
+  end
+  local function waitReleased(n)
+    for _ = 1, n do
+      if released() then return true end
+      U.wait(1)
+    end
+    return released()
+  end
+
+  if not result(advanceUntil(function() return M.isOpen() and M.mode == "storage_menu" end, 600),
+    "storage system menu opens") then return finish() end
+  mark = #log
+  U.tap(game, "b")
+  if not result(advanceUntil(menuOpen, 600), "B out of storage reshows the PC menu") then return finish() end
+  result(since(mark) == tostring(SE_SELECT),
+    "B out of storage plays SE_SELECT only (got " .. since(mark) .. ")")
   local rows = M._rootEntries()
   local ids = {}
   for _, r in ipairs(rows) do ids[#ids + 1] = r.id end
@@ -111,15 +138,48 @@ return function(game)
   end
   mark = #log
   U.tap(game, "a")
-  local released = waitFor(function()
-    local S = Space()
-    local running = S and S.vm and S.vm.isRunning and S.vm:isRunning()
-    local Msg = Message()
-    return not M.isOpen() and not running and not (Msg and Msg.isOpen and Msg.isOpen())
-  end, 180)
-  result(released, "LOG OFF releases the player")
+  result(waitReleased(180), "LOG OFF releases the player")
   result(since(mark) == SE_SELECT .. "," .. SE_PC_OFF,
     "LOG OFF plays SE_SELECT then SE_PC_OFF once (got " .. since(mark) .. ")")
+
+  U.wait(30)
+  U.tap(game, "a")
+  if not result(advanceUntil(menuOpen, 600), "Center PC reopens the root menu") then return finish() end
+  mark = #log
+  U.tap(game, "b")
+  result(waitReleased(180), "B on the PC menu releases the player")
+  result(since(mark) == SE_SELECT .. "," .. SE_PC_OFF,
+    "B on the PC menu plays SE_SELECT then SE_PC_OFF once (got " .. since(mark) .. ")")
+
+  Map.load(nil, game, "FR_PLAYERS_HOUSE_2F", { x = 1, y = 2, facing = "up" })
+  game.session.x, game.session.y, game.session.facing = 1, 2, "up"
+  U.wait(90)
+  mark = #log
+  U.tap(game, "a")
+  if not result(advanceUntil(function() return M.isOpen() and M.mode == "player_pc" end, 600),
+    "bedroom PC opens the player PC menu") then return finish() end
+  result(since(mark) == tostring(SE_PC_ON), "bedroom PC plays SE_PC_ON (got " .. since(mark) .. ")")
+  U.shot(game, DIR .. "/2415_03_bedroom_pc_menu.png")
+  for _ = 1, 4 do
+    if M.cursor == #M.TOP_ACTIONS then break end
+    U.tap(game, "down")
+    U.wait(8)
+  end
+  mark = #log
+  U.tap(game, "a")
+  result(waitReleased(180), "bedroom TURN OFF releases the player")
+  result(since(mark) == SE_SELECT .. "," .. SE_PC_OFF,
+    "bedroom TURN OFF plays SE_SELECT then SE_PC_OFF once (got " .. since(mark) .. ")")
+
+  U.wait(30)
+  U.tap(game, "a")
+  if not result(advanceUntil(function() return M.isOpen() and M.mode == "player_pc" end, 600),
+    "bedroom PC reopens") then return finish() end
+  mark = #log
+  U.tap(game, "b")
+  result(waitReleased(180), "bedroom B releases the player")
+  result(since(mark) == SE_SELECT .. "," .. SE_PC_OFF,
+    "bedroom B plays SE_SELECT then SE_PC_OFF once (got " .. since(mark) .. ")")
 
   Audio.playSe = orig
   finish()

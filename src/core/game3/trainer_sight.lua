@@ -166,7 +166,9 @@ function TrainerSight.checkLineOfSight(eo, P, game)
   local d = DELTA[facing]
   if not d then return false, 0 end
 
-  local ex, ey = eo.cellX, eo.cellY
+  -- src/trainer_see.c:151
+  local ex = eo.moving and eo.targetX or eo.cellX
+  local ey = eo.moving and eo.targetY or eo.cellY
   local px, py = P.cellX, P.cellY
   local dx, dy = d[1], d[2]
   local dist = 0
@@ -377,7 +379,7 @@ function TrainerSight.check(game, specificTrainer)
 
   if specificTrainer then
     local eo = specificTrainer
-    if eo.visible and not eo.hidden and not eo.moving and not eo.scriptBusy and not eo.frozen then
+    if eo.visible and not eo.hidden and not eo.scriptBusy and not eo.frozen then
       local sight = tonumber(eo.sight or (eo.def and (eo.def.sight or eo.def.trainerRange))) or 0
       if sight > 0 and TrainerSight.isTrainerType(eo)
         and not TrainerSight.isDefeated(eo, store, ctx) then
@@ -395,7 +397,7 @@ function TrainerSight.check(game, specificTrainer)
   local order = Objs._order or {}
   for _, lid in ipairs(order) do
     local eo = Objs.find(lid)
-    if eo and eo ~= P and eo.visible and not eo.hidden and not eo.moving and not eo.scriptBusy and not eo.frozen then
+    if eo and eo ~= P and eo.visible and not eo.hidden and not eo.scriptBusy and not eo.frozen then
       local sight = tonumber(eo.sight or (eo.def and (eo.def.sight or eo.def.trainerRange))) or 0
       if sight > 0 and TrainerSight.isTrainerType(eo)
         and not TrainerSight.isDefeated(eo, store, ctx) then

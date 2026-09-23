@@ -40,80 +40,20 @@ local function playSe(id)
   end
 end
 
-local function makeTransparentImage(path)
-  if not (love and love.image and love.image.newImageData and love.graphics and love.graphics.newImage) then
-    return nil
-  end
-  local okData, imgData = pcall(love.image.newImageData, path)
-  if not (okData and imgData) then return nil end
-
-  local w, h = imgData:getWidth(), imgData:getHeight()
-  for y = 0, h - 1 do
-    for x = 0, w - 1 do
-      local r, g, b, _ = imgData:getPixel(x, y)
-      local r8 = math.floor(r * 255 + 0.5)
-      local g8 = math.floor(g * 255 + 0.5)
-      local b8 = math.floor(b * 255 + 0.5)
-      -- Key out GBA background blue palette entry (57, 115, 180)
-      if (r8 >= 45 and r8 <= 68) and (g8 >= 105 and g8 <= 130) and (b8 >= 165 and b8 <= 195) then
-        imgData:setPixel(x, y, 0, 0, 0, 0)
-      end
-    end
-  end
-  local img = love.graphics.newImage(imgData)
-  if img.setFilter then img:setFilter("nearest", "nearest") end
-  return img
-end
-
 local function loadGfx()
-  if not (love and love.graphics and love.graphics.newQuad) then
-    return
-  end
+  local FieldEffects = require("src.core.game3.field_effects")
   if not SSAnneCutscene._wakeImage then
-    local paths = {
-      "pokefirered/graphics/ss_anne/wake_transparent.png",
-      "pokefirered/graphics/ss_anne/wake.png",
-      "graphics/ss_anne/wake.png",
-    }
-    for _, p in ipairs(paths) do
-      local img = makeTransparentImage(p)
-      if img then
-        SSAnneCutscene._wakeImage = img
-        -- 16x64 image with two 16x32 frames
-        SSAnneCutscene._wakeQuads = {
-          [0] = love.graphics.newQuad(0, 0, 16, 32, 16, 64),
-          [1] = love.graphics.newQuad(0, 32, 16, 32, 16, 64),
-        }
-        break
-      end
+    local sheet = FieldEffects.loadSheet("ss_anne_wake", 16, 32, 2)
+    if sheet then
+      SSAnneCutscene._wakeImage = sheet.image
+      SSAnneCutscene._wakeQuads = sheet.quads
     end
   end
   if not SSAnneCutscene._smokeImage then
-    local paths = {
-      "pokefirered/graphics/ss_anne/smoke_transparent.png",
-      "pokefirered/graphics/ss_anne/smoke.png",
-      "graphics/ss_anne/smoke.png",
-    }
-    for _, p in ipairs(paths) do
-      local img = makeTransparentImage(p)
-      if img then
-        SSAnneCutscene._smokeImage = img
-        local sw, sh = 16, 72
-        if img.getDimensions then
-          local iw, ih = img:getDimensions()
-          if iw and ih then sw, sh = iw, ih end
-        elseif img.getHeight and img:getHeight() then
-          sh = img:getHeight()
-        end
-        -- Four 16x16 frames
-        SSAnneCutscene._smokeQuads = {
-          [0] = love.graphics.newQuad(0, 0, 16, 16, sw, sh),
-          [1] = love.graphics.newQuad(0, 16, 16, 16, sw, sh),
-          [2] = love.graphics.newQuad(0, 32, 16, 16, sw, sh),
-          [3] = love.graphics.newQuad(0, 48, 16, 16, sw, sh),
-        }
-        break
-      end
+    local sheet = FieldEffects.loadSheet("ss_anne_smoke", 16, 16, 4)
+    if sheet then
+      SSAnneCutscene._smokeImage = sheet.image
+      SSAnneCutscene._smokeQuads = sheet.quads
     end
   end
 end

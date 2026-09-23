@@ -2,6 +2,7 @@
 -- pokefirered/data/scripts/pc.inc:1
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
+package.loaded["src.core.game3.rom_text"] = { plain = function(key) return key end, box = function(key) return key end }
 
 local failed = 0
 local function check(cond, msg)
@@ -53,39 +54,37 @@ local Bag = require("src.core.game3.bag")
 local Storage = require("src.core.game3.storage")
 local function session() return { bag = Bag.new(), storage = Storage.new(), name = "RED" } end
 
-print("[test] 1. EventScript_PC carries playse SE_PC_ON right after AnimatePcTurnOn")
-local rows = Std.SCRIPTS.EventScript_PC
-local onIdx, animIdx
-for i, r in ipairs(rows) do
-  if r.op == "special" and r.id == Std.SPECIAL.AnimatePcTurnOn then animIdx = i end
-  if r.op == "playse" and r[1] == 4 then onIdx = i end
-end
-check(animIdx ~= nil and onIdx == animIdx + 1, "playse 4 follows AnimatePcTurnOn")
-
-print("[test] 2. Center PC flow: ON, message, menu, storage LOGIN, LOG OFF")
+print("[test] 2. Center PC flow (pc.inc fixture): ON, menu, storage LOGIN, menu again, LOG OFF")
 local Vm = require("src.core.game3.scripting.vm")
 local Adapters = require("src.core.game3.scripting.adapters")
+local Fixture = require("tests.fixture_data.game3_pc_scripts")
+local picks = { 1, 3 }
+local results = {}
 local vm = Vm.new({
-  scripts = Std.SCRIPTS,
-  text = Std.TEXT,
+  scripts = Fixture.SCRIPTS,
+  text = Fixture.TEXT,
   adapters = Adapters.stub({
     onMessage = function() events[#events + 1] = "msg" end,
-    openPc = function(done)
-      events[#events + 1] = "menu"
-      PcMenu.show({ session = session() })
+    openPc = function(done, opts)
+      local mode = opts and opts.mode
+      events[#events + 1] = mode or "pc"
+      if mode ~= "select" then return done() end
+      PcMenu.show({ session = session(), startMode = "select", silentClose = true,
+        onClose = function(r) results[#results + 1] = r; done(r) end })
+      PcMenu.cursor = table.remove(picks, 1)
       PcMenu.handleInput(input("a"))
-      PcMenu.close()
-      done()
     end,
   }),
 })
 check(vm:start("EventScript_PC") == true, "vm started EventScript_PC")
 local steps = 0
-while vm:isRunning() and steps < 80 do vm:step(); steps = steps + 1 end
+while vm:isRunning() and steps < 200 do vm:step(); steps = steps + 1 end
 check(not vm:isRunning(), "EventScript_PC completed")
 local seq = table.concat(events, ",")
-check(seq == "anim_on,se4,msg,menu,se5,se2,se3",
-  "ordered events anim_on,se4,msg,menu,se5,se2,se3 (got " .. seq .. ")")
+local want = "anim_on,se4,msg,msg,select,se5,se2,msg,msg,storage,msg,select,se5,se3"
+check(seq == want, "ordered events " .. want .. " (got " .. seq .. ")")
+check(results[1] == 0 and results[2] == 2, "CreatePCMenu returns row indexes 0 then 2 (got "
+  .. tostring(results[1]) .. "," .. tostring(results[2]) .. ")")
 
 local function flagged(dex, clear)
   local s = session()
@@ -119,32 +118,39 @@ for _, c in ipairs({
   PcMenu.close()
 end
 
-print("[test] 4. root menu open plays nothing; each access row plays SELECT then LOGIN")
+print("[test] 4. CreatePCMenu: open plays nothing; A plays SELECT only and returns the row index")
 for i, id in ipairs({ "storage", "player", "oak", "hall" }) do
   local s = flagged(true, true)
   events = {}
-  PcMenu.show({ session = s })
+  local got
+  PcMenu.show({ session = s, startMode = "select", silentClose = true, onClose = function(r) got = r end })
   check(seOnly() == "", id .. ": root open plays no SE")
   PcMenu.cursor = i
   check(PcMenu._rootEntries()[i].id == id, id .. " is root row " .. i)
   PcMenu.handleInput(input("a"))
-  check(seOnly() == "se5,se2", id .. ": A plays se5,se2 (got " .. seOnly() .. ")")
-  PcMenu.close()
+  check(seOnly() == "se5", id .. ": A plays se5 (got " .. seOnly() .. ")")
+  check(got == i - 1, id .. ": VAR_RESULT " .. (i - 1) .. " (got " .. tostring(got) .. ")")
 end
 
-print("[test] 5. LOG OFF and B play SE_SELECT then SE_PC_OFF")
+print("[test] 5. CreatePCMenu LOG OFF returns its row, B returns SCR_MENU_CANCEL")
 for _, c in ipairs({ { false, false, 3 }, { true, false, 4 }, { true, true, 5 } }) do
   events = {}
-  PcMenu.show({ session = flagged(c[1], c[2]) })
+  local got
+  PcMenu.show({ session = flagged(c[1], c[2]), startMode = "select", silentClose = true,
+    onClose = function(r) got = r end })
   PcMenu.cursor = c[3]
   check(PcMenu._rootEntries()[c[3]].id == "quit", "LOG OFF is row " .. c[3])
   PcMenu.handleInput(input("a"))
-  check(seOnly() == "se5,se3", "LOG OFF row " .. c[3] .. " plays se5,se3 (got " .. seOnly() .. ")")
+  check(seOnly() == "se5", "LOG OFF row " .. c[3] .. " plays se5 (got " .. seOnly() .. ")")
+  check(got == c[3] - 1, "LOG OFF row " .. c[3] .. " returns " .. (c[3] - 1) .. " (got " .. tostring(got) .. ")")
 end
 events = {}
-PcMenu.show({ session = flagged(false, false) })
+local cancel
+PcMenu.show({ session = flagged(false, false), startMode = "select", silentClose = true,
+  onClose = function(r) cancel = r end })
 PcMenu.handleInput(input("b"))
-check(seOnly() == "se5,se3", "B plays se5,se3 (got " .. seOnly() .. ")")
+check(seOnly() == "se5", "B plays se5 (got " .. seOnly() .. ")")
+check(cancel == 127, "B returns 127 (got " .. tostring(cancel) .. ")")
 
 print("[test] 6. bedroom player_pc open plays nothing")
 events = {}

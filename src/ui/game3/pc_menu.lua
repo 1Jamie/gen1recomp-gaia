@@ -14,6 +14,7 @@ local ItemsData = require("src.core.game3.items_data")
 local Bag = require("src.core.game3.bag")
 local Storage = require("src.core.game3.storage")
 local Strings = require("src.core.Strings")
+local RomText = require("src.core.game3.rom_text")
 
 local PcMenu = {}
 
@@ -91,9 +92,9 @@ function PcMenu._rootEntries()
       { id = "storage", label = who },
       { id = "player", label = player },
     }
-    if dex then rows[#rows + 1] = { id = "oak", label = Strings("PROF. OAK's PC") } end
-    if clear then rows[#rows + 1] = { id = "hall", label = Strings("HALL OF FAME") } end
-    rows[#rows + 1] = { id = "quit", label = Strings("LOG OFF") }
+    if dex then rows[#rows + 1] = { id = "oak", label = RomText.plain("gText_ProfOakSPc") } end
+    if clear then rows[#rows + 1] = { id = "hall", label = RomText.plain("gText_HallOfFame") } end
+    rows[#rows + 1] = { id = "quit", label = RomText.plain("gText_LogOff") }
     PcMenu._rootRows = rows
   end
   return PcMenu._rootRows
@@ -105,6 +106,9 @@ function PcMenu.show(opts)
   PcMenu._session = opts.session
   PcMenu._onClose = opts.onClose
   PcMenu._closeOnExit = opts.closeOnExit == true
+  PcMenu._silentClose = opts.silentClose == true
+  PcMenu._select = opts.startMode == "select"
+  PcMenu._result = nil
   PcMenu.cursor = 1
   PcMenu._prevStatus = nil
   PcMenu._prevCursor = nil
@@ -112,6 +116,14 @@ function PcMenu.show(opts)
   if opts.startMode == "player_pc" then
     PcMenu.mode = "player_pc"
     PcMenu._status = Strings(PcMenu.TEXT_WHAT_TO_DO) -- pokefirered/src/player_pc.c:160
+  elseif opts.startMode == "storage" then
+    PcMenu.mode = "storage_menu"
+    PcMenu.storageCursor = 1
+    PcMenu._status = PcMenu._storageOptions()[1].desc
+  elseif PcMenu._select then
+    PcMenu.mode = "root"
+    if opts.prompt then PcMenu._lastPrompt = opts.prompt end
+    PcMenu._status = PcMenu._lastPrompt
   else
     PcMenu.mode = "root"
     PcMenu._status = Strings("Which PC would you like to access?")
@@ -119,13 +131,21 @@ function PcMenu.show(opts)
   Stack.push("pc_menu", PcMenu, { hideBelow = false })
 end
 
-function PcMenu.close()
+function PcMenu.close(result)
   PcMenu.open = false
   Stack.pop("pc_menu")
-  se(3) -- SE_PC_OFF
+  if not PcMenu._silentClose then se(3) end
+  PcMenu._result = result
   local cb = PcMenu._onClose
   PcMenu._onClose = nil
-  if cb then cb() end
+  if cb then cb(result) end
+end
+
+-- pokefirered/src/script_menu.c:831
+local SCR_MENU_CANCEL = 127
+local function return_row(index)
+  PcMenu._silentClose = true
+  PcMenu.close(index)
 end
 
 function PcMenu.isOpen()
@@ -171,6 +191,16 @@ local function draw_status_lines()
   if #lines > 1 then Window.print(lines[2], 2, 17, { clipTiles = 26 }) end
 end
 
+function PcMenu._storageOptions()
+  return {
+    { id = "withdraw", label = RomText.plain("gText_WithdrawPokemon"), desc = RomText.plain("gText_WithdrawMonDescription") },
+    { id = "deposit", label = RomText.plain("gText_DepositPokemon"), desc = RomText.plain("gText_DepositMonDescription") },
+    { id = "move", label = RomText.plain("gText_MovePokemon"), desc = RomText.plain("gText_MoveMonDescription") },
+    { id = "move_items", label = RomText.plain("gText_MoveItems"), desc = RomText.plain("gText_MoveItemsDescription") },
+    { id = "quit", label = RomText.plain("gText_SeeYa"), desc = RomText.plain("gText_SeeYaDescription") },
+  }
+end
+
 function PcMenu.handleInput(input)
   if not PcMenu.open then return end
 
@@ -188,13 +218,7 @@ function PcMenu.handleInput(input)
   end
 
   -- Storage System Menu (WITHDRAW POKéMON, DEPOSIT POKéMON, MOVE POKéMON, MOVE ITEMS, SEE YA!)
-  local STORAGE_OPTIONS = {
-    { id = "withdraw", label = Strings("WITHDRAW POKéMON"), desc = Strings("You can withdraw a POKéMON if you\nhave any in a BOX.") },
-    { id = "deposit", label = Strings("DEPOSIT POKéMON"), desc = Strings("You can deposit your party\nPOKéMON in any BOX.") },
-    { id = "move", label = Strings("MOVE POKéMON"), desc = Strings("You can move POKéMON that are\nstored in any BOX.") },
-    { id = "move_items", label = Strings("MOVE ITEMS"), desc = Strings("You can move items held by any\nPOKéMON in a BOX or your party.") },
-    { id = "quit", label = Strings("SEE YA!"), desc = Strings("See you later!") },
-  }
+  local STORAGE_OPTIONS = PcMenu._storageOptions()
 
   -- Root Menu
   if PcMenu.mode == "root" then
@@ -208,7 +232,10 @@ function PcMenu.handleInput(input)
       se(5)
     elseif input:wasPressed("a") then
       local choice = entries[PcMenu.cursor]
-      if choice.id == "quit" then
+      if PcMenu._select or choice.id == "oak" or choice.id == "hall" then
+        se(5) -- pokefirered/src/menu.c:347
+        return_row(PcMenu.cursor - 1)
+      elseif choice.id == "quit" then
         se(5) -- pokefirered/src/menu.c:347
         PcMenu.close()
       elseif choice.id == "storage" then
@@ -223,27 +250,15 @@ function PcMenu.handleInput(input)
         se(2) -- data/scripts/pc.inc:39
         PcMenu.mode = "player_pc"
         PcMenu.cursor = 1
-        PcMenu._status = Strings("What would you like to do?")
-      elseif choice.id == "oak" then
-        se(5)
-        se(2) -- data/scripts/pc.inc:88
-        local Dex = require("src.core.game3.dex")
-        local dex = PcMenu._session and PcMenu._session.dex
-        local caught = dex and Dex.countCaught(dex, "kanto") or 0
-        local seen = dex and Dex.countSeen(dex, "kanto") or 0
-        PcMenu._status = Strings("Current POKéDEX status:\nSeen: %d   Owned: %d", seen, caught)
-        PcMenu._prevMode = "root"
-        PcMenu.mode = "msg"
-      elseif choice.id == "hall" then
-        se(5)
-        se(2) -- data/scripts/pc.inc:76
-        PcMenu._status = Strings("No records in the HALL OF FAME.")
-        PcMenu._prevMode = "root"
-        PcMenu.mode = "msg"
+        PcMenu._status = RomText.plain("gText_WhatWouldYouLikeToDo")
       end
     elseif input:wasPressed("b") then
       se(5) -- pokefirered/src/script_menu.c:831
-      PcMenu.close()
+      if PcMenu._select then
+        return_row(SCR_MENU_CANCEL)
+      else
+        PcMenu.close()
+      end
     end
     return
   end
@@ -262,7 +277,10 @@ function PcMenu.handleInput(input)
       se(5)
     elseif input:wasPressed("a") then
       local choice = STORAGE_OPTIONS[PcMenu.cursor]
-      if choice.id == "quit" then
+      if choice.id == "quit" and PcMenu._closeOnExit then
+        se(5)
+        PcMenu.close()
+      elseif choice.id == "quit" then
         PcMenu.mode = "root"
         PcMenu.cursor = 1
         PcMenu._status = Strings("Which PC would you like to access?")
@@ -270,7 +288,7 @@ function PcMenu.handleInput(input)
       elseif choice.id == "withdraw" then
         local party = (PcMenu._session and PcMenu._session.party) or {}
         if #party >= 6 then
-          PcMenu._status = Strings("Can't take any more POKéMON.")
+          PcMenu._status = RomText.plain("gText_PartyFull")
           PcMenu._prevMode = "storage_menu"
           PcMenu.mode = "msg"
           se(5) -- pokefirered/src/pokemon_storage_system_tasks.c:992
@@ -291,7 +309,7 @@ function PcMenu.handleInput(input)
       elseif choice.id == "deposit" then
         local party = (PcMenu._session and PcMenu._session.party) or {}
         if #party <= 1 then
-          PcMenu._status = Strings("Can't deposit the last POKéMON!")
+          PcMenu._status = RomText.plain("gText_JustOnePkmn")
           PcMenu._prevMode = "storage_menu"
           PcMenu.mode = "msg"
           se(26) -- pokefirered/src/pokemon_storage_system_tasks.c:1052
@@ -324,6 +342,9 @@ function PcMenu.handleInput(input)
           end,
         })
       end
+    elseif input:wasPressed("b") and PcMenu._closeOnExit then
+      se(5)
+      PcMenu.close()
     elseif input:wasPressed("b") then
       PcMenu.mode = "root"
       PcMenu.cursor = 1
@@ -438,7 +459,7 @@ function PcMenu.handleInput(input)
               "item_storage", Strings(PcMenu.ITEM_STORAGE_ACTIONS[1].desc), 1)
             se(246)
           else
-            PcMenu._status = Strings("The BAG is full.")
+            PcMenu._status = RomText.plain("gText_NoMoreRoomInBag")
             PcMenu._prevMode = "withdraw_item"
             PcMenu.mode = "msg"
             se(5) -- pokefirered/src/item_pc.c:863
@@ -476,7 +497,7 @@ function PcMenu.handleInput(input)
           "item_storage", Strings(PcMenu.ITEM_STORAGE_ACTIONS[1].desc), 1)
         se(246)
       else
-        PcMenu._status = Strings("The BAG is full.")
+        PcMenu._status = RomText.plain("gText_NoMoreRoomInBag")
         PcMenu._prevMode = "withdraw_item"
         PcMenu.mode = "msg"
         se(5) -- pokefirered/src/item_pc.c:984
@@ -621,18 +642,11 @@ function PcMenu.draw()
 
   -- Storage Submenu Box (WITHDRAW, DEPOSIT, MOVE, MOVE ITEMS, SEE YA!)
   if PcMenu.mode == "storage_menu" then
-    local storageOptions = {
-      "WITHDRAW POKéMON",
-      "DEPOSIT POKéMON",
-      "MOVE POKéMON",
-      "MOVE ITEMS",
-      "SEE YA!",
-    }
     Window.stdFrame(Window.template(1, 1, 16, 10))
-    for i, opt in ipairs(storageOptions) do
+    for i, opt in ipairs(PcMenu._storageOptions()) do
       local yPx = 10 + (i - 1) * 16
       if i == PcMenu.cursor then Window.cursorPx(12, yPx) end
-      Window.printPx(Strings(opt), 20, yPx)
+      Window.printPx(opt.label, 20, yPx)
     end
 
     -- Bottom Dialogue

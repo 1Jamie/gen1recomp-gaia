@@ -449,9 +449,11 @@ function Battle.start(opts)
         and not st.oldManTutorial
         and not (st.ghostBattle and not st.ghostUnveiled) then
       local Dex = require("src.core.game3.dex")
-      Dex.setSeen(session.dex, foeMon.species or foeMon.speciesId)
+      Dex.handleSetPokedexFlag(session.dex, foeMon.species or foeMon.speciesId, false, foeMon.personality)
       local b3 = st.double and not st.absent[3] and st.battlers[3]
-      if b3 and b3.mon then Dex.setSeen(session.dex, b3.mon.species or b3.mon.speciesId) end
+      if b3 and b3.mon then
+        Dex.handleSetPokedexFlag(session.dex, b3.mon.species or b3.mon.speciesId, false, b3.mon.personality)
+      end
     end
     -- pokefirered/src/pokemon.c:1796
     local wildMon = st.wild and st.enemy and st.enemy.mon
@@ -1641,7 +1643,7 @@ local function step_action()
       else
         local BattleItems = require("src.core.game3.battle.items")
         local result, _msgs, endsTurn, endsBattle = BattleItems.use(
-          st, ad, bag, session, meta.itemId, meta.partySlot)
+          st, ad, bag, session, meta.itemId, meta.partySlot, nil, meta.moveSlot)
         if endsBattle then
           Battle._actions = {}
           if result == "catch" then
@@ -2563,7 +2565,7 @@ function D.useBag(act)
     return D.afterEach()
   end
   local BattleItems = require("src.core.game3.battle.items")
-  local result = BattleItems.use(st, ad, bag, session, act.itemId, act.partySlot, act.battler)
+  local result = BattleItems.use(st, ad, bag, session, act.itemId, act.partySlot, act.battler, act.moveSlot)
   if result == "heal" then
     for _, id in ipairs(SEL_ORDER) do
       local b = State.battler(st, id)

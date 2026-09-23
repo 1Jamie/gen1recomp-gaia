@@ -15,6 +15,10 @@ OwSprites._logged = false
 local STAND = { down = 0, up = 1, left = 2, right = 2 }
 local WALK_A = { down = 3, up = 5, left = 7, right = 7 }
 local WALK_B = { down = 4, up = 6, left = 8, right = 8 }
+-- src/data/object_events/object_event_anims.h:601
+local RUN_BASE = { down = 9, up = 12, left = 15, right = 15 }
+local RUN_A = { down = 10, up = 13, left = 16, right = 16 }
+local RUN_B = { down = 11, up = 14, left = 17, right = 17 }
 
 local function owRoot()
   -- Must follow Dataset.mountExtractRoots() — do not bake CACHE_ROOT at require.
@@ -365,6 +369,13 @@ function OwSprites.pose(spr, facing, walkPhase, stepFlip, opts)
     local f = tonumber(opts.fieldMoveFrame) or 4
     if f >= spr.frameCount then f = 0 end
     return f, false
+  end
+
+  if opts and opts.running ~= nil and spr.frameCount >= 18 then
+    if opts.running == 1 then
+      return (stepFlip and RUN_A[facing] or RUN_B[facing]) or RUN_BASE[facing] or 9, flip
+    end
+    return RUN_BASE[facing] or 9, flip
   end
 
   if spr.frameCount == 3 then

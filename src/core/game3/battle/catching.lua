@@ -301,7 +301,7 @@ function Catching.storeCaught(session, foeBattler, ballId)
     mon.name = Pokemon.name(species) or "POKéMON"
   end
 
-  local wasCaught = Dex.registerCapture(session.dex, species)
+  local wasCaught = Dex.registerCapture(session.dex, species, nil, mon.personality)
   local firstTimeCaught = not wasCaught
 
   local location = "party"

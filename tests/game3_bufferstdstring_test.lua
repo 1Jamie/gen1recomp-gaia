@@ -4,6 +4,8 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local GameVersion = require("src.core.GameVersion")
 GameVersion.set("firered")
+local Game3Cache = require("tests.game3_cache")
+if not Game3Cache.bundle() then print("[skip] bufferstdstring: " .. tostring(Game3Cache.reason)) return end
 
 local Flags = require("src.core.game3.scripting.flags")
 local Vm = require("src.core.game3.scripting.vm")

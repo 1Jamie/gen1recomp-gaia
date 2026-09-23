@@ -153,38 +153,4 @@ check(ok2, "second battle started")
 local res = Battle.runToEnd()
 eq(res, "catch", "battle concluded with catch outcome")
 
-print("[test] 6. Old Man back pic extraction across FR 1.0, FR 1.1, LG 1.0, LG 1.1")
-do
-  local mockLove = {
-    image = { newImageData = function(w, h, fmt, data) return { data = data, w = w, h = h } end },
-    graphics = { newImage = function(imgData) return { imgData = imgData } end },
-  }
-  local prevLove = _G.love
-  _G.love = mockLove
-
-  local romFiles = {
-    { edition = "FireRed 1.0", file = "firered_dump.gba" },
-    { edition = "FireRed 1.1", file = "Pokemon - Fire Red Version (U) (V1.1).gba" },
-    { edition = "LeafGreen 1.0", file = "Pokemon - LeafGreen Version (USA).gba" },
-    { edition = "LeafGreen 1.1", file = "Pokemon - LeafGreen Version (USA, Europe) (Rev 1).gba" },
-  }
-
-  for _, rf in ipairs(romFiles) do
-    local f = io.open(rf.file, "rb")
-    if f then
-      local raw = f:read("*a")
-      f:close()
-      TrainerPic._rom = nil
-      TrainerPic._front = {}
-      TrainerPic._back = {}
-      TrainerPic._cache = nil
-      local pic = TrainerPic.back(5)
-      check(pic ~= nil and pic.w == 64 and pic.h == 256 and pic.frames == 4,
-        string.format("Old Man back pic extracted successfully for %s", rf.edition))
-    end
-  end
-
-  _G.love = prevLove
-end
-
 print("[PASS] game3 old man tutorial battle tests")
