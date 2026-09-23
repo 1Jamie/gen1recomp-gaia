@@ -368,6 +368,7 @@ function Hud.openMessageStay(game, text, opts)
 end
 
 function Hud.openPc(game, session)
+  pcall(function() require("src.core.game3.audio").playSe(4) end) -- data/scripts/pc.inc:9
   PcMenu.show({ session = session or (require("src.core.game3.runtime").getSession()) })
 end
 

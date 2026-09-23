@@ -334,7 +334,7 @@ function Gen3Compat.setFlag(name, value)
     Flags.setFlag(store, nil, id, value and true or false)
     local Objects = package.loaded["src.core.game3.objects"]
     if Objects and Objects.syncFlagVisibility then
-      Objects.syncFlagVisibility(id, value and true or false)
+      Objects.syncFlagVisibility(id, value and true or false, true)
     end
     return true
   end

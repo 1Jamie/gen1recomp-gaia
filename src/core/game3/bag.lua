@@ -258,6 +258,18 @@ function Bag.canAdd(bag, id, qty)
 end
 
 
+local FLAG_SYS_GOT_BERRY_POUCH = 0x847 -- include/constants/flags.h:1405
+
+local function mark_berry_pouch()
+  local Space = package.loaded["src.core.game3.scripting.space"]
+  local store = type(Space) == "table" and Space.store
+  if store then
+    require("src.core.game3.scripting.flags").setFlag(store, nil, FLAG_SYS_GOT_BERRY_POUCH, true)
+  end
+end
+
+Bag.FLAG_SYS_GOT_BERRY_POUCH = FLAG_SYS_GOT_BERRY_POUCH
+
 function Bag.add(bag, id, qty)
   bag = ensure(bag)
   qty = math.max(0, math.floor(tonumber(qty) or 1))
@@ -283,8 +295,9 @@ function Bag.add(bag, id, qty)
       return false, 0
     end
   end
-  if num == ItemsData.ITEM_BERRY_POUCH or storeId == ItemsData.ITEM_BERRY_POUCH then
-    -- Flag handled by scripting later; bag just stores the key item.
+  -- src/item.c:242
+  if pocket == "BERRY_POUCH" or num == ItemsData.ITEM_BERRY_POUCH or storeId == ItemsData.ITEM_BERRY_POUCH then
+    mark_berry_pouch()
   end
 
   local slots = bag.pockets[pocket]

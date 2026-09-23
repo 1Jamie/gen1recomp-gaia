@@ -17,6 +17,22 @@ local WARP_SLOT_FIELD = {
   setholewarp = "holeWarp",
 }
 
+-- pokefirered/src/script_menu.c:574
+local STD_STRINGS = {
+  [0] = "COOL", "BEAUTY", "CUTE", "SMART", "TOUGH",
+  "COOL", "BEAUTY", "CUTE", "SMART", "TOUGH",
+  "ITEMS", "KEY ITEMS", "POKé BALLS", "TMs & HMs", "BERRIES",
+  "BOULDERBADGE", "CASCADEBADGE", "THUNDERBADGE", "RAINBOWBADGE",
+  "SOULBADGE", "MARSHBADGE", "VOLCANOBADGE", "EARTHBADGE",
+  "COINS",
+  "ITEMS POCKET", "KEY ITEMS POCKET", "POKé BALLS POCKET", "TM CASE", "BERRY POUCH",
+}
+
+local function stdString(id)
+  local s = STD_STRINGS[tonumber(id) or -1]
+  return s and Strings(s) or nil
+end
+
 -- pokefirered/src/event_object_movement.c:5208 GetOppositeDirection
 local OPPOSITE_DIR = { down = "up", up = "down", left = "right", right = "left" }
 
@@ -148,14 +164,7 @@ function Adapters.stub(opts)
       end
     end
     if op == "bufferstdstring" then
-      local STD = {
-        [24] = Strings("ITEMS POCKET"),
-        [25] = Strings("KEY ITEMS POCKET"),
-        [26] = Strings("POKé BALLS POCKET"),
-        [27] = Strings("TM CASE"),
-        [28] = Strings("BERRY POUCH"),
-      }
-      return STD[tonumber(src) or -1]
+      return stdString(src)
     end
     return nil
   end
@@ -817,7 +826,9 @@ function Adapters.host(mod, game, world)
     onFlagChanged = function(flagId, hidden)
       local G3 = useGame3Objects()
       if G3 and G3.syncFlagVisibility then
-        G3.syncFlagVisibility(flagId, hidden and true or false)
+        local Space = package.loaded["src.core.game3.scripting.space"]
+        G3.syncFlagVisibility(flagId, hidden and true or false,
+          Space and Space._inTransition and true or nil)
       end
     end,
     hideObject = function(localId)
@@ -1483,20 +1494,7 @@ function Adapters.host(mod, game, world)
         return ItemsData.displayName(src)
       end
       if op == "bufferstdstring" then
-        -- pret constants/menu.h STDSTRING_*
-        local STD = {
-          [10] = Strings("ITEMS"),
-          [11] = Strings("KEY ITEMS"),
-          [12] = Strings("POKé BALLS"),
-          [13] = Strings("TMs & HMs"),
-          [14] = Strings("BERRIES"),
-          [24] = Strings("ITEMS POCKET"),
-          [25] = Strings("KEY ITEMS POCKET"),
-          [26] = Strings("POKé BALLS POCKET"),
-          [27] = Strings("TM CASE"),
-          [28] = Strings("BERRY POUCH"),
-        }
-        return STD[tonumber(src) or -1] or tostring(src)
+        return stdString(src) or tostring(src)
       end
       if op == "bufferpartymonnick" then
         local Runtime = package.loaded["src.core.game3.runtime"]

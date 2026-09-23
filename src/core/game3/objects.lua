@@ -18,6 +18,9 @@ local WALK_FRAMES = 16
 local RUN_FRAMES = 8
 -- pokefirered/src/event_object_movement.c:9029 UpdateRunSlowAnim
 local RUN_SLOW_FRAMES = 11
+-- include/constants/event_object_movement.h:81
+local MOVEMENT_TYPE_INVISIBLE = 0x4C
+Objects.MOVEMENT_TYPE_INVISIBLE = MOVEMENT_TYPE_INVISIBLE
 local DELTA = {
   up = { 0, -1 },
   down = { 0, 1 },
@@ -173,6 +176,8 @@ local function newEventObject(def)
     flag = def.flag,
     visible = objectVisible(def),
     hidden = not objectVisible(def),
+    -- src/event_object_movement.c:1569
+    invisible = mt == MOVEMENT_TYPE_INVISIBLE,
     frozen = false,
     passable = def.passable and true or false,
     moving = false,
@@ -287,6 +292,8 @@ local function applyPerm(eo, mapId)
     end
     local face = ({ [7] = "up", [8] = "down", [9] = "left", [10] = "right" })[row.movementType]
     if face then eo.facing = face end
+    -- src/event_object_movement.c:1569
+    eo.invisible = tonumber(row.movementType) == MOVEMENT_TYPE_INVISIBLE
     if eo.def then eo.def.movementType = row.movementType end
   end
   if row.facing ~= nil then
@@ -435,6 +442,8 @@ function Objects.loadMap(game, mapId, mapDef)
       local tmt = Objects._templateMt[eo.localId]
       if tmt then
         Objects.setTrainerMovementType(eo, tmt)
+        -- src/event_object_movement.c:1569
+        eo.invisible = tmt == MOVEMENT_TYPE_INVISIBLE
         local face = ({ [7] = "up", [8] = "down", [9] = "left", [10] = "right" })[tmt]
         if face then eo.facing = face end
       end
@@ -512,7 +521,8 @@ function Objects.forDraw()
   local list = {}
   for _, lid in ipairs(Objects._order) do
     local eo = Objects._byId[lid]
-    if eo and eo.visible and not eo.hidden
+    -- src/event_object_movement.c:8014
+    if eo and eo.visible and not eo.hidden and not eo.invisible
         and not offMap(Objects._bounds, eo) then
       list[#list + 1] = eo
     end
@@ -1050,7 +1060,8 @@ function Objects.poolForDraw(pool)
   if type(pool) ~= "table" then return list end
   for _, lid in ipairs(pool.order or {}) do
     local eo = pool.byId[lid]
-    if eo and eo.visible and not eo.hidden and not offMap(pool.bounds, eo) then
+    if eo and eo.visible and not eo.hidden and not eo.invisible
+        and not offMap(pool.bounds, eo) then
       list[#list + 1] = eo
     end
   end
@@ -1086,6 +1097,10 @@ function Objects.addObject(localId)
   localId = tonumber(localId) or 0
   local eo = Objects._byId[localId]
   if eo then
+    if eo.hidden then
+      -- src/event_object_movement.c:1569
+      eo.invisible = Objects.templateMovementType(localId) == MOVEMENT_TYPE_INVISIBLE
+    end
     applyPerm(eo, Objects._mapId)
     eo.hidden = false
     eo.visible = true
@@ -1119,9 +1134,26 @@ function Objects.refreshVisibility()
   end
 end
 
+-- src/event_object_movement.c:1841
+local function inCameraView(eo)
+  local P = Player()
+  if not P then return false end
+  local px, py = tonumber(P.cellX), tonumber(P.cellY)
+  if not px or not py then return false end
+  local function inside(x, y)
+    x, y = tonumber(x), tonumber(y)
+    return x ~= nil and y ~= nil
+      and x >= px - 9 and x <= px + 10 and y >= py - 7 and y <= py + 9
+  end
+  return inside(eo.cellX, eo.cellY) or inside(eo.homeX, eo.homeY)
+end
+
+Objects.inCameraView = inCameraView
+
 --- pret FlagClear/FlagSet on an object template hide flag.
 -- clearflag after removeobject must bring the NPC back at perm coords.
-function Objects.syncFlagVisibility(flagId, hidden)
+-- src/scrcmd.c:558
+function Objects.syncFlagVisibility(flagId, hidden, force)
   flagId = tonumber(flagId) or 0
   if flagId == 0 or flagId == 0xFFFF or flagId == 65535 then return end
   for _, lid in ipairs(Objects._order) do
@@ -1130,10 +1162,16 @@ function Objects.syncFlagVisibility(flagId, hidden)
       local f = tonumber(eo.flag) or (eo.def and tonumber(eo.def.flag or eo.def.flagId)) or 0
       if f == flagId then
         if hidden then
-          eo.hidden = true
-          eo.visible = false
-          if eo.def then eo.def.hidden = true end
+          if force or not inCameraView(eo) then
+            eo.hidden = true
+            eo.visible = false
+            if eo.def then eo.def.hidden = true end
+          end
         else
+          if eo.hidden then
+            -- src/event_object_movement.c:1569
+            eo.invisible = Objects.templateMovementType(lid) == MOVEMENT_TYPE_INVISIBLE
+          end
           applyPerm(eo, Objects._mapId)
           eo.hidden = false
           eo.visible = true
@@ -1253,6 +1291,8 @@ function Objects.setTrainerMovementType(localId, mt)
     if hostMv.radius then eo.radius = hostMv.radius end
   end
   clearRaiseHand(eo)
+  -- src/event_object_movement.c:4543
+  if mt == MOVEMENT_TYPE_INVISIBLE then eo.invisible = true end
   if eo.movement == "RAISE_HAND" then
     eo.facing = "down"
   end

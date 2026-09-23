@@ -568,7 +568,10 @@ function VsSeeker.use(session, game, onDone)
       fieldLock(true)
       freezeAll(Objects)
       local Player = package.loaded["src.core.game3.player"]
-      if Player and Player.startFieldMove then Player.startFieldMove(VsSeeker.EFFECT_FRAMES) end
+      -- src/field_player_avatar.c:1336
+      if Player and Player.startFieldMove then
+        Player.startFieldMove(VsSeeker.EFFECT_FRAMES, Player.biking and "vs_seeker_bike" or "vs_seeker")
+      end
     end,
     tick = function()
       if seq.finished or seq.waitingText then return end

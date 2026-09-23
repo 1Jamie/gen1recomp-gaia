@@ -54,6 +54,8 @@ local function se(id)
 end
 
 local FLAG_SYS_NOT_SOMEONES_PC = 0x834 -- pokefirered/include/constants/flags.h:1386
+local FLAG_SYS_POKEDEX_GET = 0x829 -- pokefirered/include/constants/flags.h:1375
+local FLAG_SYS_GAME_CLEAR = 0x82C -- pokefirered/include/constants/flags.h:1378
 
 local function script_store(session)
   local Space = package.loaded["src.core.game3.scripting.space"]
@@ -73,19 +75,26 @@ local function player_pc_name(session)
   return Strings("%s's PC", name)
 end
 
+-- pokefirered/src/script_menu.c:1006
 function PcMenu._rootEntries()
   local who = someone_or_bill_name(PcMenu._session)
   local player = player_pc_name(PcMenu._session)
+  local Flags = require("src.core.game3.scripting.flags")
+  local store = script_store(PcMenu._session)
+  local clear = Flags.getFlag(store, nil, FLAG_SYS_GAME_CLEAR)
+  local dex = clear or Flags.getFlag(store, nil, FLAG_SYS_POKEDEX_GET)
   local key = (Strings.active() and "t" or "e") .. "\0" .. who .. "\0" .. player
+    .. "\0" .. (dex and "d" or "") .. (clear and "c" or "")
   if PcMenu._rootKey ~= key then
     PcMenu._rootKey = key
-    PcMenu._rootRows = {
+    local rows = {
       { id = "storage", label = who },
       { id = "player", label = player },
-      { id = "oak", label = Strings("PROF. OAK's PC") },
-      { id = "hall", label = Strings("HALL OF FAME") },
-      { id = "quit", label = Strings("LOG OFF") },
     }
+    if dex then rows[#rows + 1] = { id = "oak", label = Strings("PROF. OAK's PC") } end
+    if clear then rows[#rows + 1] = { id = "hall", label = Strings("HALL OF FAME") } end
+    rows[#rows + 1] = { id = "quit", label = Strings("LOG OFF") }
+    PcMenu._rootRows = rows
   end
   return PcMenu._rootRows
 end
@@ -106,7 +115,6 @@ function PcMenu.show(opts)
   else
     PcMenu.mode = "root"
     PcMenu._status = Strings("Which PC would you like to access?")
-    se(2) -- SE_PC_ON / SE_PC_LOGIN
   end
   Stack.push("pc_menu", PcMenu, { hideBelow = false })
 end
@@ -201,20 +209,24 @@ function PcMenu.handleInput(input)
     elseif input:wasPressed("a") then
       local choice = entries[PcMenu.cursor]
       if choice.id == "quit" then
+        se(5) -- pokefirered/src/menu.c:347
         PcMenu.close()
       elseif choice.id == "storage" then
         se(5)
+        se(2) -- data/scripts/pc.inc:47
         PcMenu.mode = "storage_menu"
         PcMenu.storageCursor = PcMenu.storageCursor or 1
         PcMenu.cursor = PcMenu.storageCursor
         PcMenu._status = STORAGE_OPTIONS[PcMenu.cursor].desc
       elseif choice.id == "player" then
         se(5)
+        se(2) -- data/scripts/pc.inc:39
         PcMenu.mode = "player_pc"
         PcMenu.cursor = 1
         PcMenu._status = Strings("What would you like to do?")
       elseif choice.id == "oak" then
         se(5)
+        se(2) -- data/scripts/pc.inc:88
         local Dex = require("src.core.game3.dex")
         local dex = PcMenu._session and PcMenu._session.dex
         local caught = dex and Dex.countCaught(dex, "kanto") or 0
@@ -224,11 +236,13 @@ function PcMenu.handleInput(input)
         PcMenu.mode = "msg"
       elseif choice.id == "hall" then
         se(5)
+        se(2) -- data/scripts/pc.inc:76
         PcMenu._status = Strings("No records in the HALL OF FAME.")
         PcMenu._prevMode = "root"
         PcMenu.mode = "msg"
       end
     elseif input:wasPressed("b") then
+      se(5) -- pokefirered/src/script_menu.c:831
       PcMenu.close()
     end
     return
@@ -585,7 +599,7 @@ function PcMenu.draw()
   -- Root Menu Box
   if PcMenu.mode == "root" then
     local entries = PcMenu._rootEntries()
-    Window.stdFrame(Window.template(1, 1, 14, 10))
+    Window.stdFrame(Window.template(1, 1, 14, #entries * 2))
     for i, e in ipairs(entries) do
       local yPx = 10 + (i - 1) * 16
       if i == PcMenu.cursor then Window.cursorPx(12, yPx) end

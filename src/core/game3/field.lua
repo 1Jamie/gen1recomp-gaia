@@ -1002,8 +1002,20 @@ function Field.startFishing(rod)
   Field.locked = true
   Player.fishing = true
   -- field_player_avatar.c:1667
-  Field._fishing = { rod = tonumber(rod) or 0, step = "wait", timer = 0, dots = 0, required = 0, rounds = 0 }
+  Field._fishing = { rod = tonumber(rod) or 0, step = "wait", timer = 0, dots = 0, required = 0, rounds = 0,
+    anim = "takeout", animT = 0 }
   return true
+end
+
+-- pokefirered/src/field_player_avatar.c:1954 AlignFishingAnimationFrames
+function Field.fishingPose()
+  local f = Field._fishing
+  if not (f and Player.fishing) then return nil end
+  local OwSprites = require("src.core.game3.ow_sprites")
+  local facing = Player.facing or "down"
+  local g = OwSprites.fishingFrame(facing, f.anim, f.animT)
+  local x2, y2 = OwSprites.fishingOffset(OwSprites.fishingAbsFrame(facing, g), facing)
+  return g, x2, y2
 end
 
 -- pokefirered/src/field_player_avatar.c:1936 Fishing16
@@ -1050,6 +1062,14 @@ function Field.updateFishing()
   local Message = require("src.ui.game3.message")
   local Rng = require("src.core.game3.rng")
   f.timer = f.timer + 1
+  f.animT = (f.animT or 0) + 1
+
+  if f.step == "result" and f.anim == "putaway" and Player.fishing then
+    local OwSprites = require("src.core.game3.ow_sprites")
+    local _, ended = OwSprites.fishingFrame(Player.facing, f.anim, f.animT)
+    -- pokefirered/src/field_player_avatar.c:1918 Fishing15
+    if ended then Player.fishing = false end
+  end
 
   if f.step == "wait" then
     if f.timer >= FISHING_WAIT_FRAMES then
@@ -1082,9 +1102,13 @@ function Field.updateFishing()
     local hasMons = okE and Encounters and Encounters.hasFishingMons
       and Encounters.hasFishingMons(fishingMapId()) or false
     if (not hasMons) or (Rng.Random() % 2 == 1) then
+      -- pokefirered/src/field_player_avatar.c:1890 Fishing12
+      f.anim, f.animT = "putaway", 0
       -- pokefirered/src/strings.c:1060 gText_NotEvenANibble
       Message.show(Strings("Not even a nibble…"), function() fishingStop() end)
     else
+      -- pokefirered/src/field_player_avatar.c:1791
+      f.anim, f.animT = "hooked", 0
       -- pokefirered/src/strings.c:1059 gText_PokemonOnHook
       local rod = f.rod
       Message.show(Strings("A POKéMON's on the hook!"), function()

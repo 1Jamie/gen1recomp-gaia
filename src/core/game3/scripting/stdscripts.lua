@@ -285,6 +285,7 @@ Std.SCRIPTS = {
     { op = "lockall" },
     { op = "setvar", var = 0x8004, value = 0 },
     { op = "special", id = Std.SPECIAL.AnimatePcTurnOn },
+    { op = "playse", [1] = 4 }, -- data/scripts/pc.inc:9
     { op = "loadword", dest = 0, value = "Text_BootedUpPC" },
     { op = "message", ptr = 0 },
     { op = "waitmessage" },

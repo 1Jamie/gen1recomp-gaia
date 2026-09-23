@@ -611,8 +611,10 @@ function Player.startSurfing(game, onDone)
   return true
 end
 
-function Player.startFieldMove(duration)
+function Player.startFieldMove(duration, kind)
   Player.fieldMoveAnim = duration or 28
+  Player.fieldMoveTotal = Player.fieldMoveAnim
+  Player.fieldMoveKind = kind
 end
 
 local function finishStep(game)

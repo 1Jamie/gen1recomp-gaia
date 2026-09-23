@@ -351,6 +351,8 @@ local function collectNeighborActors(actors, baseIndex, hostMapId, hostDef)
             local ox, oy = tonumber(obj.x) or 0, tonumber(obj.y) or 0
             local out = bounds and (ox < 0 or oy < 0
               or ox >= bounds.w or oy >= bounds.h)
+            -- src/event_object_movement.c:8014
+            if tonumber(obj.movementType) == 0x4C then out = true end
             if objectVisible(obj) and not out then
               baseIndex = baseIndex + 1
               actors[#actors + 1] = {
@@ -459,6 +461,9 @@ local function drawSingleActor(game, mapDef, a, camX, camY)
     local opts = {
       bow = a.bow,
       fieldMove = a.fieldMove,
+      fieldMoveFrame = a.fieldMoveFrame,
+      fishing = a.fishing,
+      fishFrame = a.fishFrame,
       frame = a.frame,
     }
     drew = OwSprites.draw(
@@ -568,16 +573,31 @@ local function collectGame3Actors(game, mapDef, camX, camY, px, py, facing, walk
     if PlayerMod and PlayerMod.moving and PlayerMod.targetY and PlayerMod.targetY > (PlayerMod.cellY or 0) then
       playerSortY = math.max(playerSortY, PlayerMod.targetY * CELL)
     end
+    local fieldMove = (PlayerMod and PlayerMod.fieldMoveAnim and PlayerMod.fieldMoveAnim > 0) or false
+    local fieldMoveFrame
+    if fieldMove and useOw and OwSprites.fieldMoveFrame then
+      fieldMoveFrame = OwSprites.fieldMoveFrame(
+        (PlayerMod.fieldMoveTotal or PlayerMod.fieldMoveAnim) - PlayerMod.fieldMoveAnim,
+        PlayerMod.fieldMoveKind)
+    end
+    local FieldMod = package.loaded["src.core.game3.field"]
+    local fishFrame, fishX2, fishY2
+    if not fieldMove and FieldMod and FieldMod.fishingPose then
+      fishFrame, fishX2, fishY2 = FieldMod.fishingPose()
+    end
     actors[#actors + 1] = {
       kind = "player",
       elevation = PlayerMod and PlayerMod.elevation or 3,
-      x = px + (playerXOff or 0),
-      y = py + (playerYOff or 0),
+      x = px + (playerXOff or 0) + (fishX2 or 0),
+      y = py + (playerYOff or 0) + (fishY2 or 0),
       sortY = playerSortY,
       facing = facing or "down",
       walkPhase = (walkPhase == 1 or walkPhase == true) and 1 or 0,
       stepFlip = stepFlip and true or false,
-      fieldMove = (PlayerMod and PlayerMod.fieldMoveAnim and PlayerMod.fieldMoveAnim > 0),
+      fieldMove = fieldMove,
+      fieldMoveFrame = fieldMoveFrame,
+      fishing = fishFrame ~= nil,
+      fishFrame = fishFrame,
       sprite = playerSpriteName(game),
       graphicsId = useOw and OwSprites.playerGraphicsId(game) or nil,
     }

@@ -343,7 +343,7 @@ print("[ok] BoxStorageUI navigation and hover bounce passed")
 print("=== [TEST 11] PcMenu Root Navigation & Submenu Lifecycle ===")
 local pcSession = {
   name = "RED",
-  flags = { [0x828] = true }, -- BILL'S PC unlocked
+  flags = { [0x828] = true, [0x82C] = true }, -- BILL'S PC unlocked
   party = { { species = 25, level = 10, hp = 30, maxHp = 30 } },
   storage = Storage.new(),
   bag = Bag.new(),

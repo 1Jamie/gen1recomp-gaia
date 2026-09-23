@@ -7,6 +7,7 @@ local Vm = require("src.core.game3.scripting.vm")
 local Adapters = require("src.core.game3.scripting.adapters")
 local ExtractScripts = require("src.import.gba.extract_scripts")
 local GfxIds = require("src.core.game3.scripting.gfx_ids")
+local ItemsData = require("src.core.game3.items_data")
 
 local Space = {}
 
@@ -116,6 +117,10 @@ local function load_sidecar(mod, game)
       vars = session.vars,
     })
     Flags.ensurePalletOakHidden(Space.store)
+    local Bag = require("src.core.game3.bag")
+    if session.bag and Bag.has(session.bag, ItemsData.ITEM_BERRY_POUCH, 1) then
+      Flags.setFlag(Space.store, nil, Bag.FLAG_SYS_GOT_BERRY_POUCH, true) -- src/item.c:249
+    end
     return
   end
   game = resolve_game(mod, game)
@@ -400,18 +405,25 @@ function Space.runEnterScripts(mod, mapId, game, world, opts)
   if not ev then return Space.vm end
   local vm = Space.vm
   local ms = ev.mapScripts or {}
-  if ms.onTransition and type(ms.onTransition) == "string" then
-    vm:start(ms.onTransition)
-    -- Drain short transition scripts so ON_FRAME can run this enter.
-    for _ = 1, 64 do
-      if not vm:isRunning() then break end
-      vm:tick()
-    end
-    -- VAR_OBJ_GFX_ID_* / setobjectxyperm applied — refresh NPC sprites.
-    Space.refreshObjectGraphics()
-  end
   -- pokefirered/src/overworld.c:807
-  Space.runOnLoad(mapId)
+  -- pokefirered/src/event_object_movement.c:1813
+  Space._inTransition = true
+  local ok, err = pcall(function()
+    if ms.onTransition and type(ms.onTransition) == "string" then
+      vm:start(ms.onTransition)
+      -- Drain short transition scripts so ON_FRAME can run this enter.
+      for _ = 1, 64 do
+        if not vm:isRunning() then break end
+        vm:tick()
+      end
+      -- VAR_OBJ_GFX_ID_* / setobjectxyperm applied — refresh NPC sprites.
+      Space.refreshObjectGraphics()
+    end
+    -- pokefirered/src/fieldmap.c:93
+    Space.runOnLoad(mapId)
+  end)
+  Space._inTransition = false
+  if not ok then error(err, 0) end
   -- pokefirered/src/overworld.c:783
   Space.runOnResume(mapId)
   -- pokefirered/src/overworld.c:2148
