@@ -388,15 +388,16 @@ end
 
 function Schema.repairRoamer(session)
   if not session or session.roamer then return end
-  local Flags = require("src.core.game3.scripting.flags")
   local FLAG_SYS_CAN_LINK_WITH_RS = 0x844
   local VAR_MAP_SCENE_ONE_ISLAND_POKEMON_CENTER_1F = 0x4076
   local VAR_STARTER_MON = 0x4031
-  local hasLink = Flags.get(session, FLAG_SYS_CAN_LINK_WITH_RS)
-  local sceneVal = tonumber(session.vars and session.vars[VAR_MAP_SCENE_ONE_ISLAND_POKEMON_CENTER_1F]) or 0
+  local flags = session.flags or {}
+  local hasLink = (flags[FLAG_SYS_CAN_LINK_WITH_RS] == true) or (flags["FLAG_SYS_CAN_LINK_WITH_RS"] == true)
+  local vars = session.vars or {}
+  local sceneVal = tonumber(vars[VAR_MAP_SCENE_ONE_ISLAND_POKEMON_CENTER_1F] or vars["VAR_MAP_SCENE_ONE_ISLAND_POKEMON_CENTER_1F"]) or 0
   if hasLink or sceneVal >= 6 then
     local Roamer = require("src.core.game3.roamer")
-    local starter = (session.vars and session.vars[VAR_STARTER_MON]) or 0
+    local starter = tonumber(vars[VAR_STARTER_MON] or vars["VAR_STARTER_MON"]) or 0
     Roamer.init(session, starter)
   end
 end
