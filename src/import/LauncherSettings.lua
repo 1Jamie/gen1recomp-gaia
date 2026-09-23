@@ -819,6 +819,14 @@ function LauncherSettings.open(hooks, version)
     label = Strings("Forget Saved ROMs"),
     actionLabel = Strings("Forget"),
     danger = true,
+    confirm = {
+      title = Strings("Forget saved ROMs?"),
+      lines = {
+        Strings("Kept ROM copies are deleted and the launcher stops offering to re-import from them."),
+        Strings("Imported games stay playable."),
+      },
+    },
+    doneText = Strings("Saved ROMs forgotten."),
     action = function()
       RomSources.forgetAll(opts)
       forgotRoms = true

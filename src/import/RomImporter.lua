@@ -2095,7 +2095,7 @@ function RomImporter:_rememberRomSource(version, displayName)
     rec.path = source
   elseif self.mobileFileBridge then
     if prior and prior.kept and prior.sha1 == rec.sha1
-        and love.filesystem.getInfo(kept, "file") then
+        and RomSources.keptExists(kept) then
       rec.path, rec.kept = kept, true
     elseif self.launcher and RomSources.promptsAllowed()
         and type(displayName) == "string" and not displayName:find("[/\\]") then
@@ -2107,7 +2107,7 @@ function RomImporter:_rememberRomSource(version, displayName)
   end
   if prior and prior.kept and not rec.kept and prior.sha1 ~= rec.sha1
       and type(prior.path) == "string" then
-    love.filesystem.remove(prior.path)
+    RomSources.removeKept(prior.path)
   end
   RomSources.remember(version, rec)
 end
@@ -2119,8 +2119,8 @@ function RomImporter:_offerKeepRom(version, data, rec)
     kind = "keepRom",
     title = Strings("Keep a copy of this ROM?"),
     lines = {
-      Strings("Store a private copy of %s in app storage", info.displayName),
-      Strings("so game data can be re-imported after updates."),
+      Strings("Store a private copy of %s in app storage so game data can be re-imported after updates.",
+        info.displayName),
       Strings("You can delete it later in Settings."),
     },
     yesLabel = Strings("Keep copy"),
@@ -2158,6 +2158,7 @@ function RomImporter:_queueLaunchReimports()
   if not self.launcher or self.forceImport then return end
   local RomSources = require("src.import.RomSources")
   if not RomSources.promptsAllowed() then return end
+  pcall(RomSources.migrateKept)
   local okOpt, opts = pcall(require("src.core.SaveData").loadOptions)
   if not okOpt then return end
   if RomSources.autoReimport(opts) then
@@ -2180,6 +2181,7 @@ function RomImporter:_queueLaunchReimports()
 end
 
 function RomImporter:_beginReimport(version, cand)
+  local RomSources = require("src.import.RomSources")
   self._reimportRunning = version
   if GameVersion.VERSIONS[self.tab] and self.tab ~= version then
     self.tab = version
@@ -2188,7 +2190,8 @@ function RomImporter:_beginReimport(version, cand)
   if cand.pick then
     self:choose(version)
   elseif cand.kept then
-    self:startData(love.filesystem.read(cand.path), cand.path, cand.path)
+    self:startData(RomSources.readKept(cand.path),
+      cand.path:match("[^/\\]+$") or cand.path, cand.path)
   else
     self:startPath(cand.path)
   end
@@ -2198,6 +2201,11 @@ function RomImporter:_offerReimport(version, cand)
   local RomSources = require("src.import.RomSources")
   self._reimportDeclined = self._reimportDeclined or {}
   self._reimportDeclined[version] = true
+  if cand.broken then
+    Logger.warn("kept ROM copy for %s is unreadable or does not match; dropping it",
+      tostring(version))
+    pcall(RomSources.drop, version)
+  end
   if not cand.pick and RomSources.autoReimport() then
     self:_beginReimport(version, cand)
     return
@@ -2233,14 +2241,36 @@ function RomImporter:_offerReimport(version, cand)
   }
 end
 
+local function reimportFailReason(detail)
+  detail = tostring(detail or "")
+  local lower = detail:lower()
+  if lower:find("could not write", 1, true) or lower:find("could not create", 1, true)
+      or lower:find("no space", 1, true) or lower:find("read%-only") then
+    return Strings("The game data could not be saved. Check that the device has free storage space.")
+  end
+  if lower:find("out of memory", 1, true) or lower:find("not enough memory", 1, true) then
+    return Strings("The device ran out of memory while importing.")
+  end
+  local stripped = detail
+  repeat
+    local before = stripped
+    stripped = stripped:gsub("^%s*[^%s:]+%.lua:%d+:%s*", "")
+  until stripped == before
+  if stripped == "" or stripped:find("%.lua:%d+") or stripped:find("stack traceback", 1, true) then
+    return Strings("Something went wrong while importing. Details were written to the log.")
+  end
+  return stripped
+end
+
 function RomImporter:_offerReimportFailed(version)
   local name = GameVersion.info(version).displayName
+  Logger.error("re-import of %s failed: %s", tostring(version), tostring(self.detail))
   self._modConfirm = {
     kind = "reimportFailed",
     title = Strings("Re-import failed"),
     lines = {
       Strings("%s could not be re-imported.", name),
-      tostring(self.detail or ""),
+      reimportFailReason(self.detail),
     },
     yesLabel = Strings("Continue"),
     noLabel = Strings("Stop"),
@@ -5246,7 +5276,13 @@ function RomImporter:keypressed(key)
     return
   end
   if self._settings then
-    if key == "escape" then self:_closeSettings() end
+    if key == "escape" then
+      if self._settings.confirm then
+        self._settings.confirm = nil
+      else
+        self:_closeSettings()
+      end
+    end
     return
   end
   if self._syncModal then
