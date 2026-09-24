@@ -87,18 +87,11 @@ local function filesystem_cache()
   }
 end
 
-local function worker_prefix()
-  if not require("src.core.Platform").isNX() then return nil end
-  local prefix = require("src.core.GameVersion").cachePrefix()
-  if type(prefix) == "string" and prefix ~= "" then return prefix end
-  return nil
-end
-
 local function push_install()
   Audio._cmdCh:push({
     cmd = "install",
     root = Audio._root,
-    prefix = worker_prefix(),
+    prefix = require("src.core.WorkerFs").prefix(),
     sampleRate = Mix.SAMPLE_RATE,
   })
 end

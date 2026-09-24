@@ -513,7 +513,6 @@ end
 local ARRIVAL_FACING = {
   [MB_CAVE_DOOR] = "down",
   [MB_WARP_DOOR] = "down",
-  [MB_LADDER] = "down",
   [MB_SOUTH_ARROW_WARP] = "up",
   [MB_NORTH_ARROW_WARP] = "down",
   [MB_WEST_ARROW_WARP] = "right",
@@ -527,6 +526,8 @@ local ARRIVAL_FACING = {
 function Collision.arrivalFacing(destBeh, storedDir)
   local f = ARRIVAL_FACING[destBeh]
   if f then return f end
+  -- pokefirered/src/overworld.c:933
+  if destBeh == MB_LADDER then return storedDir or "down" end
   return "down"
 end
 
@@ -773,10 +774,10 @@ function Collision.isWater(cx, cy)
   return Collision.isWaterOn(Collision._mapDef, cx, cy, Collision.cell(cx, cy))
 end
 
-local function entityBlocks(game, tx, ty)
+local function entityBlocks(game, tx, ty, elevation)
   local okO, Objects = pcall(require, "src.core.game3.objects")
   if okO and Objects and Objects.hasMap and Objects.hasMap() then
-    if Objects.blocks(tx, ty) then return true end
+    if Objects.blocks(tx, ty, nil, elevation) then return true end
     return false
   end
   local world = hostWorld(game)
@@ -826,17 +827,22 @@ function Collision.canEnter(game, tx, ty, opts)
     -- pokefirered/src/event_object_movement.c:4839
     local mismatch = Collision.elevationMismatchOn(Collision._mapDef, opts.elevation, tx, ty)
     if mismatch and not surfing then return false, "elevation" end
-    if entityBlocks(game, tx, ty) then return false, "entity" end
     local isW = Collision.isWater(tx, ty)
+    local entElevation = opts.elevation
+    if mismatch then
+      if isW then return false, "elevation" end
+      if not Collision.isWalkable(tx, ty) then return false, "tile" end
+      -- pokefirered/src/field_player_avatar.c:597
+      if Collision.elevationAt(tx, ty) ~= 3 then return false, "elevation" end
+      entElevation = 3
+    end
+    if entityBlocks(game, tx, ty, entElevation) then return false, "entity" end
     if surfing then
       if isW then
-        if mismatch then return false, "elevation" end
         return true, nil
       else
         -- Dismount onto land: verify land tile is walkable
         if not Collision.isWalkable(tx, ty) then return false, "tile" end
-        -- pokefirered/src/field_player_avatar.c:597
-        if mismatch and Collision.elevationAt(tx, ty) ~= 3 then return false, "elevation" end
         return true, nil
       end
     else
@@ -881,8 +887,13 @@ function Collision.ledgeLanding(game, fromX, fromY, dir)
   local facings = P.ledgeFacings(coll)
   if not (facings and facings[dir]) then return nil end
   local tx, ty = fromX + d[1] * 2, fromY + d[2] * 2
-  local ok = Collision.canEnter(game, tx, ty, {})
-  if not ok then return nil end
+  -- pokefirered/src/field_player_avatar.c:613 ShouldJumpLedge
+  if Collision._grid and Collision._grid[1] ~= nil then
+    if not Collision.inBounds(tx, ty) then return nil end
+  else
+    local map = hostWorld(game) and hostWorld(game).map
+    if map and map.inBounds and not map:inBounds(tx, ty) then return nil end
+  end
   return tx, ty
 end
 

@@ -207,10 +207,16 @@ return function(game)
       end
     end
   end
-  local function push(dir, lid, bx, by)
+  local function push(dir, lid, bx, by, beforeShot)
     Flags.setFlag(Space.store, Space.vm and Space.vm.ctx, FieldMoves.SYS_FLAGS.USE_STRENGTH, true)
     Objects.setObjectXY(lid, bx, by)
     U.wait(4)
+    if beforeShot then
+      local eo = Objects.find(lid)
+      result(eo and eo.cellX == bx and eo.cellY == by, "seafoam_boulder_before_push",
+        eo and string.format("boulder (%d,%d) %s", eo.cellX, eo.cellY, pos()))
+      U.still(game, beforeShot)
+    end
     for _ = 1, 10 do
       U.hold(game, dir, 2)
       if Player.boulderPush then break end
@@ -229,17 +235,51 @@ return function(game)
   if result(sb ~= nil, "seafoam_boulder_found") then
     local lid = sb.localId
     goTo(SF, 5, 8, "down")
-    local b = push("down", lid, 5, 9)
-    result(b and b.cellX == 5 and b.cellY == 9 and at(5, 8), "seafoam_boulder_not_pushed_onto_elev4",
+    local b = push("down", lid, 5, 9, DIR .. "/2441_seafoam_boulder_before_push.png")
+    result(b and b.cellX == 5 and b.cellY == 9 and at(5, 8) and Player.facing == "down",
+      "seafoam_boulder_not_pushed_onto_elev4",
       b and string.format("boulder (%d,%d) cur=%s", b.cellX, b.cellY, tostring(b.currentElevation)))
-    U.still(game, DIR .. "/2441_seafoam_boulder_stays_on_floor.png")
+    U.still(game, DIR .. "/2441_seafoam_boulder_after_refused_push.png")
     goTo(SF, 4, 9, "right")
     b = push("right", lid, 5, 9)
     result(b and b.cellX == 6 and b.cellY == 9, "seafoam_boulder_pushes_along_floor",
       b and string.format("boulder (%d,%d)", b.cellX, b.cellY))
   end
 
-  print("[driver] 7. save and continue standing on a Cerulean Cave platform")
+  print("[driver] 7. Pokemon Center escalator cells")
+  local Warp = require("src.core.game3.warp")
+  local PC1 = "FR_VIRIDIAN_CITY_POKEMON_CENTER_1F"
+  local PC2 = "FR_VIRIDIAN_CITY_POKEMON_CENTER_2F"
+  goTo(PC1, 3, 6, "left")
+  step("left")
+  result(Map.current == PC1 and at(2, 6) and Player.currentElevation == 4, "pc1f_elev0_to_elev4_approach",
+    pos() .. " cur=" .. tostring(Player.currentElevation))
+  local onStairs = false
+  for _ = 1, 20 do
+    U.hold(game, "left", 1)
+    for _ = 1, 60 do
+      if Map.current == PC1 and at(1, 6) and not Player.moving then break end
+      if Map.current ~= PC1 then break end
+      U.wait(1)
+    end
+    if Map.current == PC1 and at(1, 6) and not Player.moving then
+      onStairs = true
+      U.still(game, DIR .. "/2441_pc1f_on_stairs.png")
+      break
+    end
+    if Map.current ~= PC1 then break end
+  end
+  result(onStairs and Warp.isEscalatorActive(), "pc1f_on_stairs_before_warp", pos())
+  for _ = 1, 600 do
+    if Map.current == PC2 and not Warp.isBusy() then break end
+    U.wait(1)
+  end
+  settle(300)
+  U.wait(30)
+  result(Map.current == PC2, "pc_stairs_up_reach_2f", tostring(Map.current) .. " " .. pos())
+  U.still(game, DIR .. "/2441_pc2f_arrival.png")
+
+  print("[driver] 8. save and continue standing on a Cerulean Cave platform")
   local CC = "FR_CERULEAN_CAVE_B1F"
   goTo(CC, 16, 9, "up")
   Bridge.persistSessionOnly(Runtime._mod, game)

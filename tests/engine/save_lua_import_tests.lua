@@ -55,7 +55,7 @@ local function gbaChecksum(data, size)
 end
 
 -- src/save.c:54
-local CHUNK = { 0xF24, 0xF80, 0xF80, 0xF80, 0xCE8, 0xF80, 0xF80, 0xF80,
+local CHUNK = { 0xF24, 0xF80, 0xF80, 0xF80, 0xEE8, 0xF80, 0xF80, 0xF80,
   0xF80, 0xF80, 0xF80, 0xF80, 0xF80, 0x7D0 }
 
 local function sector(id, counter, seed)
@@ -94,25 +94,86 @@ local function writeTmp(files, name, bytes)
   return name
 end
 
+local function unrle(s)
+  local out = {}
+  for tok in s:gmatch("%S+") do
+    local k, n = tok:match("^([ZF])(%x+)$")
+    if k then
+      out[#out + 1] = string.rep(k == "Z" and "\0" or "\255", tonumber(n, 16))
+    else
+      out[#out + 1] = (tok:gsub("%x%x", function(h) return string.char(tonumber(h, 16)) end))
+    end
+  end
+  return table.concat(out)
+end
+
+local Gen3Save = require("src.save_convert.Gen3Save")
+local FR_CART = unrle(require("tests.fixture_data.gen3_saves").images.fr_rich_game)
+
 for _, version in ipairs({ "firered", "leafgreen" }) do
   for _, shape in ipairs({
-    { "128K flash", gbaFlash(131072, 7) },
-    { "128K + RTC trailer", gbaFlash(131072, 7) .. string.rep("\0", 16) },
-    { "64K flash", gbaFlash(65536, 7) },
-    { "32K", gbaFlash(65536, 7):sub(1, 32768) },
-    { "forged Gen 1 checksum", forgeGen1Checksum(gbaFlash(131072, 7)) },
+    { "128K flash", FR_CART },
+    { "128K + RTC trailer", FR_CART .. string.rep("\0", 16) },
+    { "64K flash", FR_CART:sub(1, 65536) },
+  }) do
+    local files = fresh()
+    local path = writeTmp(files, "picked_save.sav", shape[2])
+    local ok, slotId, info = SaveFileIO.importToSlot(path, version)
+    eq(ok, true, version .. " " .. shape[1] .. " cart save imports (" .. tostring(slotId) .. ")")
+    check(info == nil, version .. " " .. shape[1] .. " never asks to confirm")
+    eq(#SaveData.listSlots(version), 1, version .. " " .. shape[1] .. " creates one slot")
+    eq(SaveData.activeSlot(version), slotId, version .. " " .. shape[1] .. " is made active")
+    eq(files[("saves/%s/%s.cart"):format(version, tostring(slotId))], shape[2],
+      version .. " " .. shape[1] .. " keeps the cart image beside the slot")
+    local back = SaveSerializer.decode(SaveData.readSlotSource(version, slotId) or "")
+    eq(back and back.version, version, version .. " " .. shape[1] .. " slot is tagged " .. version)
+    eq(back and back.money, 123456, version .. " " .. shape[1] .. " money")
+    eq(back and back.party and #back.party, 4, version .. " " .. shape[1] .. " party")
+    eq(back and back.map, "FR_PLAYERS_HOUSE_2F", version .. " " .. shape[1] .. " map")
+    local exOk, exRes = SaveFileIO.exportActiveSlot(version)
+    if exOk then
+      local out = files[("exports/%s/gen1recomp-%s-%s.sav"):format(version, version, tostring(slotId))]
+      local c = out and Gen3Save.decode(out)
+      eq(c and c.money, 123456, version .. " " .. shape[1] .. " cart export decodes as a FireRed/LeafGreen save")
+    else
+      eq(exRes, Gen3Save.MSG.noData, version .. " " .. shape[1] .. " cart export without game data says so")
+    end
+  end
+  for _, shape in ipairs({
+    { "32K", FR_CART:sub(1, 32768), Gen3Save.MSG.size:format(32768) },
+    { "synthetic flash", gbaFlash(131072, 7), Gen3Save.MSG.notFrlg },
+    { "forged Gen 1 checksum", forgeGen1Checksum(gbaFlash(131072, 7)), Gen3Save.MSG.notFrlg },
   }) do
     local files = fresh()
     local path = writeTmp(files, "picked_save.sav", shape[2])
     local ok, msg, info = SaveFileIO.importToSlot(path, version, true)
-    eq(ok, false, version .. " " .. shape[1] .. " cart save is refused")
-    eq(msg, SaveConvert.GEN3_IMPORT_REFUSAL,
-      version .. " " .. shape[1] .. " gets the honest refusal")
+    eq(ok, false, version .. " " .. shape[1] .. " is refused")
+    eq(msg, shape[3], version .. " " .. shape[1] .. " gets its own sentence")
     check(info == nil, version .. " " .. shape[1] .. " never asks to import anyway")
     check(not tostring(msg):find("checksum"),
       version .. " " .. shape[1] .. " is not described as a checksum failure")
     eq(#SaveData.listSlots(version), 0, version .. " " .. shape[1] .. " creates no slot")
   end
+end
+
+for _, version in ipairs({ "firered", "leafgreen" }) do
+  local files = fresh()
+  GameVersion.set(version)
+  local ok, slotId = SaveFileIO.importToSlot(writeTmp(files, "picked_save.sav", FR_CART), version)
+  eq(ok, true, version .. " cart imported for the stale-template check")
+  local cartFile = ("saves/%s/%s.cart"):format(version, tostring(slotId))
+  local same = SaveSerializer.decode(SaveData.readSlotSource(version, slotId))
+  check(SaveData.save(same) ~= false, version .. " the imported player saves")
+  check(files[cartFile] ~= nil, version .. " the imported player's cart stays")
+  local newbie = { engine = "game3", version = version, generation = 3, name = "NEWBIE", trainerId = 1, secretId = 2,
+    party = {}, map = "FR_PLAYERS_HOUSE_2F", x = 3, y = 6 }
+  check(SaveData.save(newbie) ~= false, version .. " NEW GAME saves over the imported slot")
+  eq(SaveData.activeSlot(version), slotId, version .. " the NEW GAME wrote the imported slot")
+  eq(files[cartFile], nil, version .. " NEW GAME over the slot drops the old player's cart")
+  files[cartFile] = FR_CART
+  eq(SaveFileIO.dropStaleCart(version, slotId, newbie), true, version .. " dropStaleCart removes another player's cart")
+  files[cartFile] = FR_CART
+  eq(SaveFileIO.dropStaleCart(version, slotId, same), false, version .. " dropStaleCart keeps the player's own cart")
 end
 
 do
@@ -124,13 +185,14 @@ do
     "SaveConvert never runs the Gen 1 rule over a GBA flash image")
   eq(SaveConvert.mainChecksumValid(forged), nil,
     "SaveConvert never runs the Gen 1 rule over a GBA flash image (no game)")
-  eq(SaveConvert.importSupported("firered"), false, "FireRed cart import is unsupported")
-  eq(SaveConvert.importSupported("leafgreen"), false, "LeafGreen cart import is unsupported")
+  eq(SaveConvert.importSupported("firered"), true, "FireRed cart import is supported")
+  eq(SaveConvert.importSupported("leafgreen"), true, "LeafGreen cart import is supported")
   eq(SaveConvert.importSupported("red"), true, "Red cart import stays supported")
   eq(SaveConvert.importSupported("crystal"), true, "Crystal cart import stays supported")
-  local sav, err = SaveConvert.importSav(string.rep("\0", 32768), "firered", "firered")
-  eq(sav, nil, "importSav refuses a FireRed cart")
-  eq(err, SaveConvert.GEN3_IMPORT_REFUSAL, "importSav gives the same refusal")
+  local sav, err = SaveConvert.importSav(FR_CART, "firered", "firered")
+  check(sav ~= nil, "importSav converts a FireRed cart (" .. tostring(err) .. ")")
+  local lg = SaveConvert.importSav(FR_CART, "leafgreen", "leafgreen")
+  check(lg ~= nil, "the same cart converts for LeafGreen")
 end
 
 for _, target in ipairs({ "red", "yellow", "gold", "crystal" }) do

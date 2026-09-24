@@ -275,6 +275,12 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/gba/native/layouts/alt_319.mid",
     "data/generated/gba/pokemon/summary/manifest.lua",
     "data/generated/gba/pokemon/summary/menu_info.rgba",
+    -- src/pokemon_summary_screen.c:1862
+    "data/generated/gba/pokemon/summary/bg3_info.rgba",
+    "data/generated/gba/pokemon/summary/bg3_moves.rgba",
+    "data/generated/gba/pokemon/summary/layer_moves_info.rgba",
+    "data/generated/gba/pokemon/summary/progress_moves_info_select.rgba",
+    "data/generated/gba/pokemon/summary/markings.rgba",
     "data/generated/gba/pokemon/storage/manifest.lua",
     "data/generated/gba/pokedex/manifest.lua",
     "data/generated/gba/chrome/manifest.lua",

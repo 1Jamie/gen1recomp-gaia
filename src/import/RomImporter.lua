@@ -2921,7 +2921,8 @@ function RomImporter:_importSave(version, source, force)
     self:_refreshSlots(version)
     self.activeSlot[version] = res
     self.slotScroll[version] = math.huge   -- pin the new row on screen (clamped in draw)
-    self.saveNotice[version] = { ok = true, text = "Imported save into " .. tostring(res) .. "." }
+    self.saveNotice[version] = { ok = true, text = "Imported save into " .. tostring(res) .. "."
+      .. (info and info.note and (" " .. info.note) or "") }
     return
   end
   if res == nil and info and info.needsConfirm then

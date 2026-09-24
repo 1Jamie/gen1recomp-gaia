@@ -106,6 +106,14 @@ return function(game)
     return false
   end
 
+  local Healthbox = require("src.core.game3.battle.healthbox")
+  local BattleChrome = require("src.ui.game3.battle_chrome")
+  local function enemyBoxRect()
+    local hb = Anim.stage().healthbox and Anim.stage().healthbox.enemy
+    local w, h = BattleChrome._enemyBox:getDimensions()
+    return Healthbox.ENEMY_CENTER.x - 32 + ((hb and hb.ox) or 0), Healthbox.ENEMY_CENTER.y - 16, w, h
+  end
+
   local function throw(item)
     local prev = CatchSeq._ball
     Ui._pendingCommand = { kind = "bag", user = "player", itemId = item }
@@ -136,8 +144,27 @@ return function(game)
     local b = throw(item)
     if not b then pass("2445 throw " .. name, false) break end
     draws = {}
-    U.wait(14)
-    U.still(game, DIR .. "/2445_" .. name .. "_midthrow.png")
+    local clear = false
+    local startX
+    for _ = 1, 120 do
+      U.wait(1)
+      local s = Anim.stage().ball
+      if s.visible and s.frame == 0 then
+        local bx = (s.x or 0) + (s.ox or 0) - 8
+        local by = (s.y or 0) + (s.oy or 0) - 8
+        startX = startX or bx
+        local hbx, hby, hbw, hbh = enemyBoxRect()
+        local apart = bx + 16 <= hbx or bx >= hbx + hbw or by + 16 <= hby or by >= hby + hbh
+        if apart and bx >= 0 and by >= 0 and bx - startX >= 24 then
+          U.still(game, DIR .. "/2445_" .. name .. "_midthrow.png")
+          print(string.format("[driver] %s midthrow ball (%d,%d) healthbox (%d,%d %dx%d)",
+            name, bx, by, hbx, hby, hbw, hbh))
+          clear = true
+          break
+        end
+      end
+    end
+    pass("2445 throw " .. name .. " clear of healthbox", clear)
     local midCols = drawnCols()
     local opened = false
     for _ = 1, 200 do

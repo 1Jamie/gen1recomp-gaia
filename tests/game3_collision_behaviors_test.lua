@@ -206,6 +206,124 @@ do
   eo.cellX, eo.cellY, eo.moving = 1, 2, false
   Objects.updateElevation(eo)
   check(eo.currentElevation == 3, "an object reads its own mapDef elevation")
+
+  print("[test] 2c. forced movement, waterfall, objects, trainer sight and ledges honor elevation")
+  local FM = require("src.core.game3.forced_movement")
+  local function forced(x, y, facing, surfing, elev, beh)
+    Player.reset(x, y, facing)
+    Player.surfing = surfing
+    Player.currentElevation = elev
+    local moved = FM.tryDoMetatileBehaviorForcedMovement(fakeGame, beh)
+    local tx, ty = Player.targetX, Player.targetY
+    Player.moving, Player.surfing, Player.dismounting = false, false, false
+    FM.forced = false
+    return moved, tx, ty
+  end
+  local moved, tx, ty = forced(1, 0, "down", false, 3, MB.SPIN_DOWN)
+  check(not moved and tx == 1 and ty == 0, "SpinDown from elev 3 into elev 4 is refused")
+  moved, tx, ty = forced(1, 2, "right", false, 3, MB.SPIN_RIGHT)
+  check(moved and tx == 2 and ty == 2, "SpinRight along elev 3 still moves")
+  moved, tx, ty = forced(1, 3, "right", true, 1, MB.EASTWARD_CURRENT)
+  check(not moved and tx == 1 and ty == 3, "an east current does not push a surfer onto elev 4 land")
+  moved, tx, ty = forced(4, 3, "left", true, 1, MB.WESTWARD_CURRENT)
+  check(moved and tx == 3 and ty == 3, "a west current still lands a surfer on elev 3 land")
+  moved, tx, ty = forced(0, 3, "right", true, 1, MB.EASTWARD_CURRENT)
+  check(moved and tx == 1 and ty == 3, "an east current still carries a surfer along elev 1 water")
+
+  local Field = require("src.core.game3.field")
+  local FieldMoves = require("src.core.game3.field_moves")
+  local realCanEnter, realWf, realWfFlag = Collision.canEnter, FieldMoves.isWaterfallBehavior, Field._waterfall
+  local seen
+  Collision.canEnter = function(_, _, _, opts) seen = opts return true end
+  FieldMoves.isWaterfallBehavior = function() return true end
+  Field._waterfall = nil
+  Player.reset(0, 2, "down")
+  Player.surfing = true
+  Player.currentElevation = 1
+  Field.forcedMovementPending()
+  Collision.canEnter, FieldMoves.isWaterfallBehavior, Field._waterfall = realCanEnter, realWf, realWfFlag
+  Player.surfing = false
+  check(seen and seen.elevation == 1, "the waterfall push passes the surfer's elevation")
+
+  Objects._mapId = "FAKE_ELEVATION"
+  Objects._byId, Objects._order = {}, {}
+  local function npc(lid, x, y, elev)
+    local o = { localId = lid, cellX = x, cellY = y, targetX = x, targetY = y, moving = false,
+      visible = true, hidden = false, passable = false, currentElevation = elev }
+    Objects._byId[lid] = o
+    Objects._order[#Objects._order + 1] = lid
+    return o
+  end
+  local block = npc(1, 3, 2, 4)
+  check(Objects.blocks(3, 2, nil, 3) == false, "an elev 4 object does not block an elev 3 mover")
+  check(Objects.blocks(3, 2, nil, 4) == true, "an elev 4 object blocks an elev 4 mover")
+  check(Objects.blocks(3, 2, nil, 0) == true, "elev 0 movers collide with everything")
+  check(Objects.blocks(3, 2) == true, "no elevation keeps the old callers unchanged")
+  block.currentElevation = 0
+  check(Objects.blocks(3, 2, nil, 3) == true, "an elev 0 object collides with everything")
+  Player.reset(2, 2, "right")
+  Player.currentElevation = 4
+  check(Objects.playerBlocks(2, 2, 3) == false, "an elev 3 object walks through an elev 4 player")
+  check(Objects.playerBlocks(2, 2, 4) == true, "an elev 4 object bumps an elev 4 player")
+  check(Objects.playerBlocks(2, 2) == true, "playerBlocks with no elevation is unchanged")
+  block.currentElevation = 4
+  check(try(2, 2, 3, 2, 3) == true, "the player walks past an object on another elevation")
+  local ok2, why2 = try(2, 2, 3, 2, nil)
+  check(ok2 == false and why2 == "entity", "canEnter without elevation still stops at the object")
+  Objects._byId, Objects._order = {}, {}
+  npc(2, 1, 2, 3)
+  ok2, why2 = try(1, 3, 1, 2, 1, true)
+  check(ok2 == false and why2 == "entity", "a surfer cannot dismount onto an elev 3 object")
+  Objects._byId[2].currentElevation = 4
+  check(try(1, 3, 1, 2, 1, true) == true, "a surfer dismounts past an elev 4 object like GetObjectEventIdByPosition(x, y, 3)")
+
+  local TrainerSight = require("src.core.game3.trainer_sight")
+  Objects._byId, Objects._order = {}, {}
+  local trainer = { localId = 9, cellX = 1, cellY = 0, facing = "down", sight = 4,
+    currentElevation = 3, visible = true, hidden = false, moving = false }
+  Player.reset(1, 2, "up")
+  Player.currentElevation = 3
+  local spotted = TrainerSight.checkLineOfSight(trainer, Player, fakeGame)
+  check(spotted == false, "a trainer does not see across an elev 4 cell")
+  trainer.cellX, trainer.cellY, trainer.facing = 0, 2, "right"
+  Player.reset(3, 2, "left")
+  Player.currentElevation = 3
+  local dist
+  spotted, dist = TrainerSight.checkLineOfSight(trainer, Player, fakeGame)
+  check(spotted == true and dist == 3, "a trainer sees along its own elevation")
+  npc(3, 1, 2, 4)
+  check(TrainerSight.checkLineOfSight(trainer, Player, fakeGame) == true,
+    "an object on another elevation does not block sight")
+  Objects._byId[3].currentElevation = 3
+  check(TrainerSight.checkLineOfSight(trainer, Player, fakeGame) == false,
+    "an object on the same elevation blocks sight")
+  Objects._byId, Objects._order = {}, {}
+  Player.currentElevation = 4
+  check(TrainerSight.checkLineOfSight(trainer, Player, fakeGame) == false,
+    "an elev 3 trainer does not see an elev 4 player")
+  trainer.cellX, trainer.cellY, trainer.facing = 4, 0, "down"
+  Player.reset(4, 1, "up")
+  Player.currentElevation, Player.elevation = 0, 4
+  spotted, dist = TrainerSight.checkLineOfSight(trainer, Player, fakeGame)
+  check(spotted == true and dist == 1, "a player on an elev 0 stair is seen from elev 3")
+  trainer.cellX, trainer.cellY, trainer.facing = 1, 2, "down"
+  Player.reset(1, 3, "up")
+  Player.surfing, Player.currentElevation = true, 1
+  check(TrainerSight.checkLineOfSight(trainer, Player, fakeGame) == false,
+    "a land trainer does not see a surfer on elev 1 water")
+  Player.surfing = false
+
+  COLL[1 * W + 2] = 0xA3
+  npc(4, 1, 2, 3)
+  local lx, ly = Collision.ledgeLanding(fakeGame, 1, 0, "down")
+  check(lx == 1 and ly == 2, "a ledge jump lands on an occupied cell like ShouldJumpLedge")
+  COLL[2 * W + 3] = 0x07
+  COLL[1 * W + 3] = 0xA3
+  lx, ly = Collision.ledgeLanding(fakeGame, 2, 0, "down")
+  check(lx == 2 and ly == 2, "a ledge jump does not test the landing tile")
+  check(Collision.ledgeLanding(fakeGame, 2, 1, "down") == nil, "a wall is not a ledge")
+  COLL[1 * W + 2], COLL[1 * W + 3], COLL[2 * W + 3] = 0x00, 0x00, 0x00
+  Objects.clear()
   Collision.clear()
 end
 
