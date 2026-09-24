@@ -233,6 +233,7 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/gba/pokemon/battle/terrain_bg_cave.rgba",
     "data/generated/gba/pokemon/battle/ball_open/manifest.lua",
     "data/generated/gba/pokemon/battle/ball_open/particles.rgba",
+    "data/generated/gba/pokemon/battle/ball_open/balls.rgba",
     "data/generated/gba/pokemon/battle_transition/manifest.lua",
     "data/generated/gba/pokemon/battle_transition/big_pokeball.rgba",
     "data/generated/gba/pokemon/battle_transition/sliding_pokeball.rgba",

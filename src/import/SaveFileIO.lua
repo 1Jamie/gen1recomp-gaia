@@ -17,6 +17,7 @@
 local SaveConvert = require("src.save_convert.SaveConvert")
 local SaveData = require("src.core.SaveData")
 local GameVersion = require("src.core.GameVersion")
+local SaveSerializer = require("src.core.SaveSerializer")
 
 local SaveFileIO = {}
 
@@ -105,6 +106,55 @@ local function readSource(source)
   return nil, "could not read the save file: " .. tostring(openErr)
 end
 
+local LUA_SLOT_LIMITS = {
+  maxBytes = 16 * 1024 * 1024,
+  maxNodes = 262144,
+  maxTableEntries = 8192,
+  rootName = "save",
+}
+
+local function isLuaSlotExport(bytes)
+  return bytes:find("^%s*return[%s{]") ~= nil
+end
+
+local function gameName(version)
+  local info = GameVersion.VERSIONS[version]
+  return info and (info.displayName or info.label) or tostring(version)
+end
+
+local function importLuaSlot(bytes, version)
+  local save, parseErr = SaveSerializer.decode(bytes, LUA_SLOT_LIMITS)
+  if type(save) ~= "table" then
+    return false, "That .lua file is not a readable save (" .. tostring(parseErr) .. ")."
+  end
+  local saveVersion = save.version == nil and "red" or save.version
+  if type(saveVersion) ~= "string" or not GameVersion.VERSIONS[saveVersion] then
+    return false, "That save is for a game this launcher does not know."
+  end
+  local generation = save.generation == nil and 1 or save.generation
+  local engineOk = save.engine == nil or save.engine == GameVersion.engine(version)
+  if saveVersion ~= version or generation ~= GameVersion.generation(version)
+      or not engineOk then
+    return false, ("That save is for %s, not %s."):format(gameName(saveVersion), gameName(version))
+  end
+  if type(save.party) ~= "table" then
+    return false, "That .lua file is not a save exported from this launcher."
+  end
+  local slotId = SaveData.createSlot(version)
+  if not slotId then return false, "this game has no save slots to import into" end
+  local ok, writeErr = SaveData.writeSlot(version, slotId, save)
+  if not ok then
+    SaveData.deleteSlot(version, slotId)
+    return false, "could not write the imported save: " .. tostring(writeErr)
+  end
+  if not SaveData.readSlotSource(version, slotId) then
+    SaveData.deleteSlot(version, slotId)
+    return false, "the imported save did not read back; nothing was imported"
+  end
+  SaveData.setActiveSlot(version, slotId)
+  return true, slotId
+end
+
 -- importToSlot(source, version, force) -> ok, slotIdOrErr | (false, nil, info)
 -- source: an absolute path, a LOVE DroppedFile, or raw bytes.  On success
 -- registers a new slot for the version, writes the imported save into it, makes
@@ -126,12 +176,13 @@ function SaveFileIO.importToSlot(source, version, force)
   -- pokered's checksum -- which is why a perfectly good Crystal save reported
   -- as corrupt (#1832).  mainChecksumValid now takes the game and asks that
   -- generation's rule.
+  if isLuaSlotExport(bytes) then return importLuaSlot(bytes, version) end
   local supported, unsupportedWhy = SaveConvert.importSupported(version)
   if not supported then return false, unsupportedWhy end
   if #bytes ~= SAVE_SIZE then
-    local check = SaveConvert.mainChecksumValid(bytes, version)
+    local check, checkWhy = SaveConvert.mainChecksumValid(bytes, version)
     if check == nil then
-      return false, ("A save file must be %d bytes (32 KB); this one is %d.")
+      return false, checkWhy or ("A save file must be %d bytes (32 KB); this one is %d.")
         :format(SAVE_SIZE, #bytes)
     end
     if check == false then

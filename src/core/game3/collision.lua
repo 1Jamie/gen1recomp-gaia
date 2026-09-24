@@ -721,11 +721,31 @@ function Collision.isGrass(cx, cy)
 end
 
 -- pokefirered/src/event_object_movement.c:8346 IsElevationMismatchAt
-function Collision.elevationAt(cx, cy)
-  local layout = Collision._mapDef and Collision._mapDef.midLayout
-  if not (layout and layout.elevAt) then return nil end
+function Collision.elevationOn(mapDef, cx, cy)
+  local layout = mapDef and mapDef.midLayout
+  if not (layout and layout.elevAt) or cx == nil or cy == nil then return nil end
   if cx < 0 or cy < 0 or cx >= layout.width or cy >= layout.height then return nil end
   return layout:elevAt(cx, cy)
+end
+
+function Collision.elevationAt(cx, cy)
+  return Collision.elevationOn(Collision._mapDef, cx, cy)
+end
+
+-- pokefirered/src/event_object_movement.c:8346
+function Collision.elevationMismatchOn(mapDef, elevation, cx, cy)
+  if elevation == nil or elevation == 0 then return false end
+  local m = Collision.elevationOn(mapDef, cx, cy)
+  if m == nil or m == 0 or m == 15 then return false end
+  return m ~= elevation
+end
+
+-- pokefirered/src/event_object_movement.c:8400
+function Collision.nextElevation(mapDef, current, curX, curY, prevX, prevY)
+  local cur = Collision.elevationOn(mapDef, curX, curY)
+  local prev = Collision.elevationOn(mapDef, prevX, prevY)
+  if cur == nil or cur == 15 or prev == 15 then return current, nil end
+  return cur, (cur ~= 0) and cur or nil
 end
 
 -- pokefirered/src/field_player_avatar.c:597 CanStopSurfing
@@ -787,7 +807,7 @@ local function overrideBlocks(tx, ty)
 end
 
 --- Can the avatar enter cell (tx, ty) on foot?
--- Returns ok, reason ("bounds"|"tile"|"entity"|"water"|nil)
+-- Returns ok, reason ("bounds"|"tile"|"elevation"|"entity"|"water"|nil)
 function Collision.canEnter(game, tx, ty, opts)
   opts = opts or {}
   local surfing = opts.surfing
@@ -803,14 +823,20 @@ function Collision.canEnter(game, tx, ty, opts)
     if Collision.directionallyImpassable(opts.fromX, opts.fromY, tx, ty, opts.dir) then
       return false, "tile"
     end
+    -- pokefirered/src/event_object_movement.c:4839
+    local mismatch = Collision.elevationMismatchOn(Collision._mapDef, opts.elevation, tx, ty)
+    if mismatch and not surfing then return false, "elevation" end
     if entityBlocks(game, tx, ty) then return false, "entity" end
     local isW = Collision.isWater(tx, ty)
     if surfing then
       if isW then
+        if mismatch then return false, "elevation" end
         return true, nil
       else
         -- Dismount onto land: verify land tile is walkable
         if not Collision.isWalkable(tx, ty) then return false, "tile" end
+        -- pokefirered/src/field_player_avatar.c:597
+        if mismatch and Collision.elevationAt(tx, ty) ~= 3 then return false, "elevation" end
         return true, nil
       end
     else

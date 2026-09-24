@@ -463,6 +463,22 @@ function SummaryMenu.showsPokerusIcon(mon)
   return not Pokemon.hasPokerus(mon) and Pokemon.hasHadPokerus(mon)
 end
 
+-- pokefirered/src/pokemon_summary_screen.c:4108
+function SummaryMenu.ballIdOf(mon)
+  local BallOpen = require("src.core.game3.battle.ball_open")
+  if not mon or Pokemon.isEgg(mon) then return BallOpen.ballIdForItem(0) end
+  return BallOpen.ballIdForItem(mon.pokeball)
+end
+
+local function draw_ball_icon(mon)
+  if not (love and love.graphics) then return end
+  local Ui = require("src.core.game3.battle.ui")
+  local img, quad = Ui.ballQuad(SummaryMenu.ballIdOf(mon), 0)
+  if not img then return end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(img, quad, 106 - 8, 88 - 8)
+end
+
 local function draw_header(mon)
   local c = coords()
   local species = Pokemon.speciesOf(mon)
@@ -498,6 +514,10 @@ local function draw_header(mon)
   if ailment > 0 then
     local ax, ay = 16, isMovesPage and 44 or 38
     SummaryChrome.drawStatusIcon(ax, ay, ailment)
+  end
+
+  if not isMovesPage then
+    draw_ball_icon(mon)
   end
 
   -- pokefirered/src/pokemon_summary_screen.c:4716
@@ -729,7 +749,7 @@ local function draw_page_egg(mon)
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.draw(front.image, cx - iw / 2, cy - ih / 2)
   end
-
+  draw_ball_icon(mon)
 
   local memo = coords().memo or { x = 8, y = 115, w = 224 }
   local memoLines = SummaryData.formatTrainerMemo(mon, SummaryMenu._playerState,

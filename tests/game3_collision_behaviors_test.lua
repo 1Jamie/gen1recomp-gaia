@@ -134,6 +134,81 @@ check(Collision.isSurfable(MB.SHALLOW_WATER) == false,
   "MB_SHALLOW_WATER is not in sBehaviorSurfable")
 check(Collision.isSurfable(0x11) == true, "MB_FAST_WATER is still surfable")
 
+print("[test] 2b. land elevation mismatch on a fake layout")
+do
+  local W, H = 5, 4
+  local ELEV = {
+    3, 3, 3, 3, 3,
+    4, 4, 4, 4, 0,
+    3, 3, 3, 3, 3,
+    1, 1, 4, 3, 1,
+  }
+  local COLL = {}
+  for i = 1, W * H do COLL[i] = 0x00 end
+  COLL[3 * W + 1], COLL[3 * W + 2], COLL[3 * W + 5] = 0x29, 0x29, 0x29
+  local layout = { width = W, height = H }
+  function layout:collArray() return COLL end
+  function layout:collAt(x, y) return COLL[y * W + x + 1] end
+  function layout:elevAt(x, y) return ELEV[y * W + x + 1] end
+  function layout:midAt() return 0 end
+  local fakeDef = { midLayout = layout, warps = {} }
+  local fakeGame = { data = { maps = {} } }
+  Collision.bindMap(fakeGame, "FAKE_ELEVATION", fakeDef)
+
+  local function try(fx, fy, tx, ty, elev, surfing)
+    return Collision.canEnter(fakeGame, tx, ty,
+      { fromX = fx, fromY = fy, elevation = elev, surfing = surfing or false })
+  end
+  local ok, why = try(1, 0, 1, 1, 3)
+  check(ok == false and why == "elevation",
+    "elev 3 -> elev 4 on two collision-0 cells is refused (" .. tostring(why) .. ")")
+  ok, why = try(1, 1, 1, 0, 4)
+  check(ok == false and why == "elevation",
+    "elev 4 -> elev 3 back off the plateau is refused (" .. tostring(why) .. ")")
+  check(try(1, 1, 2, 1, 4) == true, "walking along the plateau at elev 4 is allowed")
+  check(try(3, 1, 4, 1, 4) == true, "the plateau steps onto the elev 0 stair")
+  check(try(4, 1, 4, 0, 0) == true, "from the stair (current elev 0) up to elev 3")
+  check(try(4, 1, 4, 2, 0) == true, "from the stair (current elev 0) down to elev 3")
+  check(try(1, 0, 1, 1, nil) == true, "no elevation passed keeps the old callers unchanged")
+  check(try(1, 0, 1, 1, 0) == true, "current elevation 0 never mismatches")
+  check(try(1, 3, 1, 2, 1, true) == true, "surfing elev 1 onto elev 3 land dismounts")
+  ok, why = try(1, 3, 2, 3, 1, true)
+  check(ok == false and why == "elevation",
+    "surfing elev 1 onto elev 4 land is refused (" .. tostring(why) .. ")")
+  check(try(0, 3, 1, 3, 1, true) == true, "surfing along elev 1 water")
+
+  check(Collision.elevationMismatchOn(fakeDef, 3, 1, 1) == true, "elevationMismatchOn 3 vs 4")
+  check(Collision.elevationMismatchOn(fakeDef, 3, 4, 1) == false, "elevationMismatchOn map elev 0")
+
+  local Player = require("src.core.game3.player")
+  Player.reset(1, 1, "down")
+  check(Player.currentElevation == 0, "a spawn starts at currentElevation 0 like the cart")
+  Player.updateElevation(1, 1)
+  check(Player.currentElevation == 4 and Player.elevation == 4,
+    "the next update derives elev 4 from the plateau cell")
+  Player.cellX, Player.cellY = 3, 1
+  Player.updateElevation(4, 1, 3, 1)
+  check(Player.currentElevation == 0 and Player.elevation == 4,
+    "stepping onto the stair drops currentElevation to 0 and keeps previousElevation 4")
+  Player.cellX, Player.cellY = 4, 1
+  Player.updateElevation(4, 2, 4, 1)
+  check(Player.currentElevation == 3 and Player.elevation == 3,
+    "stepping off the stair picks up elev 3")
+  Player.reset(4, 1, "down")
+  Player.updateElevation(4, 1)
+  check(Player.currentElevation == 0, "a warp or load onto the stair leaves the player free (elev 0)")
+
+  local Objects = require("src.core.game3.objects")
+  local eo = { cellX = 1, cellY = 1, targetX = 1, targetY = 1, moving = false, currentElevation = 0 }
+  Objects.updateElevation(eo)
+  check(eo.currentElevation == 4, "an object on the plateau derives currentElevation 4")
+  eo.mapDef = fakeDef
+  eo.cellX, eo.cellY, eo.moving = 1, 2, false
+  Objects.updateElevation(eo)
+  check(eo.currentElevation == 3, "an object reads its own mapDef elevation")
+  Collision.clear()
+end
+
 print("[test] 3. the imported cache")
 local Cache = require("tests.game3_cache")
 local cacheRoot = Cache.mount("scripts/events.lua", { native = true })
@@ -291,5 +366,73 @@ for _, row in ipairs(MAP_PREDS) do
       string.format("%s (%d,%d) behavior 0x%02X answers %s", mapId, x, y, beh or 0, name))
   end
 end
+
+print("[test] 7. raised platforms are fenced by elevation")
+local ELEV_EDGES = {
+  { "FR_SAFARI_ZONE_EAST", 37, 16, 37, 17 },
+  { "FR_SAFARI_ZONE_WEST", 19, 11, 19, 12 },
+  { "FR_SAFARI_ZONE_NORTH", 40, 14, 40, 15 },
+}
+for _, row in ipairs(ELEV_EDGES) do
+  local mapId, fx, fy, tx, ty = row[1], row[2], row[3], row[4], row[5]
+  if bind(mapId) then
+    local fe, te = Collision.elevationAt(fx, fy), Collision.elevationAt(tx, ty)
+    check(fe == 3 and te == 4 and Collision.isWalkable(tx, ty),
+      string.format("%s (%d,%d) elev %s and (%d,%d) elev %s are both open ground",
+        mapId, fx, fy, tostring(fe), tx, ty, tostring(te)))
+    local ok, why = Collision.canEnter(game, tx, ty, { fromX = fx, fromY = fy, elevation = fe })
+    check(ok == false and why == "elevation",
+      string.format("%s up onto the plateau is refused (%s)", mapId, tostring(why)))
+    ok, why = Collision.canEnter(game, fx, fy, { fromX = tx, fromY = ty, elevation = te })
+    check(ok == false and why == "elevation",
+      string.format("%s down off the plateau is refused (%s)", mapId, tostring(why)))
+  end
+end
+if bind("FR_SAFARI_ZONE_EAST") then
+  check(Collision.elevationAt(40, 19) == 0, "Safari East (40,19) is an elevation 0 stair")
+  check(Collision.canEnter(game, 40, 19, { fromX = 40, fromY = 18, elevation = 4 }) == true,
+    "the plateau steps down onto the stair")
+  check(Collision.canEnter(game, 40, 20, { fromX = 40, fromY = 19, elevation = 0 }) == true,
+    "the stair steps down onto the sand")
+end
+
+local sweepMaps, sweepEdges, sweepWrong = 0, 0, 0
+local ids = {}
+for mapId in pairs(game.data.maps) do ids[#ids + 1] = mapId end
+table.sort(ids)
+for _, mapId in ipairs(ids) do
+  local def = game.data.maps[mapId]
+  if def.midLayout and def.midLayout.elevAt then
+    Collision.bindMap(game, mapId, def)
+    local found = false
+    for y = 0, Collision._heightCells - 1 do
+      for x = 0, Collision._widthCells - 1 do
+        local a = Collision.elevationAt(x, y)
+        for _, d in ipairs({ { 1, 0 }, { 0, 1 } }) do
+          local nx, ny = x + d[1], y + d[2]
+          local b = Collision.elevationAt(nx, ny)
+          if a and b and a ~= b and a ~= 0 and b ~= 0 and a ~= 15 and b ~= 15
+              and a ~= 1 and b ~= 1
+              and Collision.isWalkable(x, y) and Collision.isWalkable(nx, ny)
+              and not Collision.isWater(x, y) and not Collision.isWater(nx, ny) then
+            found = true
+            sweepEdges = sweepEdges + 1
+            if Collision.canEnter(game, nx, ny, { fromX = x, fromY = y, elevation = a }) ~= false
+                or Collision.canEnter(game, x, y, { fromX = nx, fromY = ny, elevation = b }) ~= false then
+              sweepWrong = sweepWrong + 1
+              if sweepWrong <= 5 then
+                print(string.format("[info] open elevation edge %s (%d,%d)<->(%d,%d)", mapId, x, y, nx, ny))
+              end
+            end
+          end
+        end
+      end
+    end
+    if found then sweepMaps = sweepMaps + 1 end
+  end
+end
+check(sweepEdges > 200 and sweepMaps >= 15,
+  string.format("the sweep finds the FRLG elevation edges (%d edges on %d maps)", sweepEdges, sweepMaps))
+check(sweepWrong == 0, "every land elevation edge refuses both directions, open=" .. sweepWrong)
 
 finish()

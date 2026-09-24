@@ -43,7 +43,7 @@ Versions.ROM_SIZE = 16777216
 -- v115: LeafGreen profiles, edition-specific title assets and Deoxys stats.
 -- v121: chrome/fonts/japanese_{normal,small}_* and japanese_widths.lua, the
 --       cart's Japanese fonts, for text a Japanese translation mod prints.
-Versions.CACHE_VERSION = 122
+Versions.CACHE_VERSION = 123
 Versions.NATIVE_VERSION = 6
 Versions.OW_VERSION = 3
 Versions.ANIM_VERSION = 1
@@ -1480,6 +1480,9 @@ Versions.BALL_OPEN = {
   particle_palettes = 0x40BFA8,   -- pokefirered/src/battle_anim_special.c:133
   fade_colors = 0x40C1C4,         -- pokefirered/src/battle_anim_special.c:345
   sine_table = 0x25E074,          -- pokefirered/src/trig.c:4
+  sprite_sheets = 0x26056C,       -- pokefirered/src/pokeball.c:59
+  sprite_palettes = 0x2605CC,     -- pokefirered/src/pokeball.c:75
+  open_ball_gfx = 0xD022E8,       -- pokefirered/src/data/graphics/interface_pokeballs.h:37
 }
 
 -- Battle field→battle transitions (FireRed USA 1.0; uncompressed INCBINs in

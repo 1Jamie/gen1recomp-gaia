@@ -55,6 +55,8 @@ function Field.start(mod, game, session)
   Field.clearMetatiles()
   local PcAnim = package.loaded["src.core.game3.pc_anim"]
   if PcAnim then PcAnim.reset() end
+  local SeagallopUi = package.loaded["src.ui.game3.seagallop"]
+  if SeagallopUi and SeagallopUi.stop then SeagallopUi.stop() end
   if session then
     Player.syncFromSession(session)
   else

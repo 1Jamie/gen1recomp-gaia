@@ -26,6 +26,38 @@ local Gen2Save = require("src.save_convert.Gen2Save")
 local SaveConvert = {}
 
 SaveConvert.SAVE_SIZE = GenSave.SAVE_SIZE
+
+local function isGen3(gameVersion)
+  if gameVersion == nil then return false end
+  local GameVersion = require("src.core.GameVersion")
+  return GameVersion.VERSIONS[gameVersion] ~= nil
+    and GameVersion.generation(gameVersion) == 3
+end
+
+SaveConvert.GEN3_FLASH_MISMATCH = "That is a FireRed/LeafGreen (Game Boy Advance) save, "
+  .. "not a save for this game."
+
+-- include/save.h:15
+local GEN3_SECTOR_SIGNATURE = 0x08012025
+local GEN3_SECTOR_SIZE = 0x1000
+local GEN3_SLOT_SECTORS = 14
+
+function SaveConvert.looksLikeGen3Flash(bytes)
+  if type(bytes) ~= "string" or #bytes < GEN3_SECTOR_SIZE * GEN3_SLOT_SECTORS then
+    return false
+  end
+  for sector = 0, 2 * GEN3_SLOT_SECTORS - 1 do
+    -- include/save.h:69
+    local off = sector * GEN3_SECTOR_SIZE + 0xFF8
+    if off + 4 > #bytes then break end
+    local b1, b2, b3, b4 = bytes:byte(off + 1, off + 4)
+    if b1 + b2 * 0x100 + b3 * 0x10000 + b4 * 0x1000000 == GEN3_SECTOR_SIGNATURE then
+      return true
+    end
+  end
+  return false
+end
+
 -- Is this a real save for THIS GAME? Dispatches on the generation, because
 -- the two do not share a rule: Gen 1 stores a complement checksum of its main
 -- data block, Gen 2 stores two check values plus a 16-bit sum. Run one over
@@ -34,6 +66,8 @@ SaveConvert.SAVE_SIZE = GenSave.SAVE_SIZE
 -- gameVersion is optional and defaults to Gen 1's rule, which is what every
 -- caller meant before Gen 2 had a codec.
 function SaveConvert.mainChecksumValid(bytes, gameVersion)
+  if isGen3(gameVersion) then return nil end
+  if SaveConvert.looksLikeGen3Flash(bytes) then return nil, SaveConvert.GEN3_FLASH_MISMATCH end
   local L = gameVersion and Gen2Save.layoutFor(gameVersion)
   if L then return Gen2Save.checksumValid(bytes, L) end
   return GenSave.mainChecksumValid(bytes)
@@ -276,10 +310,14 @@ function SaveConvert.isGen2Cart(gameVersion)
   return Gen2Save.layoutFor(gameVersion) ~= nil
 end
 
+SaveConvert.GEN3_IMPORT_REFUSAL = "FireRed/LeafGreen cartridge saves can't be imported yet. "
+  .. "Only a .lua save exported from this launcher can be imported."
+
 function SaveConvert.importSupported(gameVersion)
   -- Gen 2 imports through Gen2Save now. Kept as a predicate rather than
   -- deleted: SaveFileIO asks it before it measures the bytes, and export
   -- still answers no.
+  if isGen3(gameVersion) then return false, SaveConvert.GEN3_IMPORT_REFUSAL end
   return true
 end
 

@@ -1453,6 +1453,8 @@ return {
   [0x25F862] = 0x25F842, -- daycare.o:sEggHatchTiles + 0
   [0x260062] = 0x260042, -- daycare.o:sEggShardTiles + 0
   [0x260556] = 0x260536, -- battle_interface.o:sText_HealthboxNickname + 0
+  [0x26056C] = 0x26054C, -- :gBallSpriteSheets + 0
+  [0x2605CC] = 0x2605AC, -- :gBallSpritePalettes + 0
   [0x260834] = 0x260814, -- trade.o:sTradeMovesBoxTilemap + 0
   [0x260A32] = 0x260A12, -- trade.o:sTradePartyBoxTilemap + 0
   [0x260C30] = 0x260C10, -- trade.o:sTradeStripesBG2Tilemap + 0
@@ -4605,6 +4607,7 @@ return {
   [0xD0170C] = 0xD0170C, -- :gSmokescreenImpactPalette + 0
   [0xD01724] = 0xD01724, -- :gBallGfx_Poke + 0
   [0xD017E0] = 0xD017E0, -- :gBallPal_Poke + 0
+  [0xD022E8] = 0xD022E8, -- :gOpenPokeballGfx + 0
   [0xD11B84] = 0xD11B84, -- :gBattleInterface_Healthbox_Pal + 0
   [0xD11BA4] = 0xD11BA4, -- :gBattleInterface_Healthbar_Pal + 0
   [0xD11BC4] = 0xD11BC4, -- :gBattleInterface_Gfx + 0
