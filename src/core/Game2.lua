@@ -1311,12 +1311,12 @@ function Game2:update(dt)
   -- pokegold engine/menus/intro_menu.asm:848 IntroSequence: boot cinema runs on the same clock as the overworld
   local speed = self:logicSpeed()
   if self.phase == "boot" then
-    FixedStep.maxAccum = FixedStep.catchupLimit(speed)
+    FixedStep.maxAccum = FixedStep.catchupLimit(speed, dt)
     FixedStep:update(dt, speed)
     return
   end
   if not self.world or not self.world.map then return end
-  FixedStep.maxAccum = FixedStep.catchupLimit(speed)
+  FixedStep.maxAccum = FixedStep.catchupLimit(speed, dt)
   FixedStep:update(dt, speed)
 end
 

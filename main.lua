@@ -16,6 +16,7 @@ end
 local editorMode = os.getenv("POKEPORT_EDITOR") == "1" or POKEPORT_EDITOR_MODE == true
 
 local SwitchDiagnostics = require("src.debug.SwitchDiagnostics")
+local PadHints = require("src.core.PadHints")
 local LaunchOptions = require("src.core.LaunchOptions")
 local NxDisplay = require("src.core.NxDisplay")
 local PlatformHooks = require("src.core.PlatformHooks")
@@ -991,6 +992,7 @@ end
 
 function love.gamepadpressed(joystick, button)
   SwitchDiagnostics.onJoystickEvent("gamepadpressed", joystick, button)
+  if PadHints.windowMinimized() then return end
   if editorMode then
     if EditorApp and EditorApp.gamepadpressed then
       return EditorApp.gamepadpressed(joystick, button)
@@ -1032,6 +1034,7 @@ end
 
 function love.gamepadaxis(joystick, axis, value)
   SwitchDiagnostics.onJoystickEvent("gamepadaxis", joystick, axis, { value = value })
+  if PadHints.windowMinimized() then value = 0 end
   if editorMode then
     if EditorApp and EditorApp.gamepadaxis then
       return EditorApp.gamepadaxis(joystick, axis, value)
@@ -1052,6 +1055,7 @@ end
 
 function love.joystickpressed(joystick, button)
   SwitchDiagnostics.onJoystickEvent("joystickpressed", joystick, button)
+  if PadHints.windowMinimized() then return end
   if editorMode then
     if EditorApp and EditorApp.joystickpressed then
       return EditorApp.joystickpressed(joystick, button)
@@ -1092,6 +1096,7 @@ end
 
 function love.joystickaxis(joystick, axis, value)
   SwitchDiagnostics.onJoystickEvent("joystickaxis", joystick, axis, { value = value })
+  if PadHints.windowMinimized() then value = 0 end
   if editorMode then
     if EditorApp and EditorApp.joystickaxis then
       return EditorApp.joystickaxis(joystick, axis, value)
@@ -1112,6 +1117,7 @@ end
 
 function love.joystickhat(joystick, hat, direction)
   SwitchDiagnostics.onJoystickEvent("joystickhat", joystick, hat, { direction = direction })
+  if PadHints.windowMinimized() then direction = "c" end
   if editorMode then
     if EditorApp and EditorApp.joystickhat then
       return EditorApp.joystickhat(joystick, hat, direction)
@@ -1150,6 +1156,7 @@ end
 -- direction's key-up can be delivered to the OS instead of the game while
 -- unfocused, so reset input on either transition rather than trust it.
 function love.focus(f)
+  SwitchDiagnostics.onFocus(f)
   if editorMode or TouchEditor then return end
   if Studio then
     if Studio.focus then Studio.focus(f) end

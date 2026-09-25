@@ -404,7 +404,7 @@ function Game:update(dt)
   -- Give the accumulator room for one full frame at the current speed,
   -- or the anti-spiral clamp quietly caps every level above ~15X.
   local speed = self:logicSpeed()
-  FixedStep.maxAccum = FixedStep.catchupLimit(speed)
+  FixedStep.maxAccum = FixedStep.catchupLimit(speed, dt)
   FixedStep:update(dt, speed)
   -- Audio runs off real time at a fixed 60Hz regardless of game speed or
   -- display refresh, so fades and chip synthesis keep their intended tempo

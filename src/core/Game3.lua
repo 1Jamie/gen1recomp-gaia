@@ -633,7 +633,7 @@ end
 
 function Game3:update(dt)
   local speed = self:logicSpeed()
-  FixedStep.maxAccum = FixedStep.catchupLimit(speed)
+  FixedStep.maxAccum = FixedStep.catchupLimit(speed, dt)
   FixedStep:update(dt, speed)
   self._audioAccum = (self._audioAccum or 0) + dt
   local STEP = 1 / 60

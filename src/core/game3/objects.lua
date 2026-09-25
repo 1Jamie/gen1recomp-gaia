@@ -420,6 +420,48 @@ local function resolveContextualMapObjects(mapId)
   end
 end
 
+-- src/event_object_movement.c:1312
+local function spawnFromTemplate(def, mapId)
+  local eo = newEventObject(def)
+  if eo.localId > 0 then
+    applyPerm(eo, mapId)
+    local tmt = Objects._templateMt[eo.localId]
+    if tmt then
+      Objects.setTrainerMovementType(eo, tmt)
+      -- src/event_object_movement.c:1569
+      eo.invisible = tmt == MOVEMENT_TYPE_INVISIBLE
+      local face = ({ [7] = "up", [8] = "down", [9] = "left", [10] = "right" })[tmt]
+      if face then eo.facing = face end
+    end
+  end
+  return eo
+end
+
+-- src/event_object_movement.c:1651
+local function respawnFromTemplate(lid)
+  local tpl
+  for _, def in ipairs(Objects._defs or {}) do
+    if tonumber(def.localId or def.index) == lid then tpl = def end
+  end
+  if not tpl then return nil end
+  local eo = spawnFromTemplate(tpl, Objects._mapId)
+  eo.hidden, eo.visible = false, true
+  if eo.def then eo.def.hidden = false end
+  local present = Objects._byId[lid] ~= nil
+  if not present then
+    for _, id in ipairs(Objects._order) do
+      if id == lid then present = true break end
+    end
+  end
+  Objects._byId[lid] = eo
+  Objects._tracks[lid] = nil
+  if not present then Objects._order[#Objects._order + 1] = lid end
+  if ModRuntime.wants("world.npc_spawned") then
+    ModRuntime.emit("world.npc_spawned", { mapId = Objects._mapId, npcId = lid, runtime = eo })
+  end
+  return eo
+end
+
 --- Spawn EventObjects from mapDef.objects (extract / content).
 function Objects.loadMap(game, mapId, mapDef)
   local sameMap = Objects._mapId == mapId
@@ -456,17 +498,8 @@ function Objects.loadMap(game, mapId, mapDef)
   resolveContextualMapObjects(mapId)
   local announce = ModRuntime.wants("world.npc_spawned")
   for _, def in ipairs(Objects._defs) do
-    local eo = newEventObject(def)
+    local eo = spawnFromTemplate(def, mapId)
     if eo.localId > 0 then
-      applyPerm(eo, mapId)
-      local tmt = Objects._templateMt[eo.localId]
-      if tmt then
-        Objects.setTrainerMovementType(eo, tmt)
-        -- src/event_object_movement.c:1569
-        eo.invisible = tmt == MOVEMENT_TYPE_INVISIBLE
-        local face = ({ [7] = "up", [8] = "down", [9] = "left", [10] = "right" })[tmt]
-        if face then eo.facing = face end
-      end
       Objects._byId[eo.localId] = eo
       Objects._order[#Objects._order + 1] = eo.localId
       if announce then
@@ -662,7 +695,7 @@ local function beginStep(eo, tx, ty)
   eo.animClock = 0
 end
 
-local function finishStep(eo, game)
+local function finishStep(eo, game, ctx)
   eo.cellX = eo.targetX
   eo.cellY = eo.targetY
   eo.px = eo.cellX * CELL
@@ -673,11 +706,13 @@ local function finishStep(eo, game)
   if eo.def then
     eo.def.x, eo.def.y = eo.cellX, eo.cellY
   end
+  if ctx then return end
   local Coll = Collision()
   local curElev = Coll and Coll.elevationAt and Coll.elevationAt(eo.cellX, eo.cellY)
   if curElev and curElev ~= 0 and curElev ~= 15 then
     eo.elevation = curElev
   end
+  -- src/trainer_see.c:94
   if eo.sight and eo.sight > 0 and not eo.scriptBusy and not eo.frozen then
     local okTs, TrainerSight = pcall(require, "src.core.game3.trainer_sight")
     if okTs and TrainerSight and TrainerSight.check then
@@ -716,7 +751,7 @@ local function stepOffset(frames, progress, cells)
   return math.floor(cells * CELL * math.min(progress, frames) / frames)
 end
 
-local function tickMotion(eo, game)
+local function tickMotion(eo, game, ctx)
   Objects.updateElevation(eo)
   if not eo.moving then return false end
   eo.progress = eo.progress + 1
@@ -728,7 +763,7 @@ local function tickMotion(eo, game)
   eo.px = eo.cellX * CELL + (dx > 0 and off or dx < 0 and -off or 0)
   eo.py = eo.cellY * CELL + (dy > 0 and off or dy < 0 and -off or 0)
   if eo.progress >= frames then
-    finishStep(eo, game)
+    finishStep(eo, game, ctx)
     return true
   end
   return false
@@ -1339,7 +1374,7 @@ function Objects.tickPool(pool, game, ctx)
         eo.bowFrames = eo.bowFrames - 1
         if eo.bowFrames <= 0 then eo.bowFrames = nil end
       end
-      tickMotion(eo, game)
+      tickMotion(eo, game, ctx or pool)
       idleTick(eo, game, ctx)
     end
   end
@@ -1394,30 +1429,8 @@ end
 function Objects.addObject(localId)
   localId = tonumber(localId) or 0
   local eo = Objects._byId[localId]
-  if eo then
-    if eo.hidden then
-      -- src/event_object_movement.c:1569
-      eo.invisible = Objects.templateMovementType(localId) == MOVEMENT_TYPE_INVISIBLE
-    end
-    applyPerm(eo, Objects._mapId)
-    eo.hidden = false
-    eo.visible = true
-    if eo.def then eo.def.hidden = false end
-    return true
-  end
-  -- Respawn from template defs.
-  for _, def in ipairs(Objects._defs or {}) do
-    if tonumber(def.localId or def.index) == localId then
-      eo = newEventObject(def)
-      applyPerm(eo, Objects._mapId)
-      eo.hidden = false
-      eo.visible = true
-      Objects._byId[localId] = eo
-      Objects._order[#Objects._order + 1] = localId
-      return true
-    end
-  end
-  return false
+  if eo and not eo.hidden then return true end
+  return respawnFromTemplate(localId) ~= nil
 end
 
 --- Re-evaluate hide flags after sidecar load / setflag mid-map.
@@ -1449,7 +1462,6 @@ end
 Objects.inCameraView = inCameraView
 
 --- pret FlagClear/FlagSet on an object template hide flag.
--- clearflag after removeobject must bring the NPC back at perm coords.
 -- src/scrcmd.c:558
 function Objects.syncFlagVisibility(flagId, hidden, force)
   flagId = tonumber(flagId) or 0
@@ -1465,15 +1477,9 @@ function Objects.syncFlagVisibility(flagId, hidden, force)
             eo.visible = false
             if eo.def then eo.def.hidden = true end
           end
-        else
-          if eo.hidden then
-            -- src/event_object_movement.c:1569
-            eo.invisible = Objects.templateMovementType(lid) == MOVEMENT_TYPE_INVISIBLE
-          end
-          applyPerm(eo, Objects._mapId)
-          eo.hidden = false
-          eo.visible = true
-          if eo.def then eo.def.hidden = false end
+        elseif eo.hidden then
+          -- src/event_object_movement.c:1792
+          respawnFromTemplate(lid)
         end
       end
     end
