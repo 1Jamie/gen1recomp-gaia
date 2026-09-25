@@ -1924,6 +1924,8 @@ local function partnerSig(list)
 end
 
 -- pokefirered/src/union_room.c:2781
+Union.GONE_GRACE_SECONDS = 1.5
+
 function Union.syncPlaza()
   local plaza = link().clientCall("plaza")
   if type(plaza) ~= "table" then return false end
@@ -1958,9 +1960,19 @@ function Union.syncPlaza()
     end
   end
   local changed, fresh = false, false
+  local now = Union.clock()
   for slot = 1, Union.MAX_LEADERS do
     local p = Union.players[slot]
-    if p and not p.gone and not leaders[p.id] then p.gone = true end
+    if p and leaders[p.id] then
+      p.missingSince = nil
+    elseif p and not p.gone then
+      if present[p.id] then
+        p.gone = true
+      else
+        p.missingSince = p.missingSince or now
+        if now - p.missingSince >= Union.GONE_GRACE_SECONDS then p.gone = true end
+      end
+    end
   end
   for _, m in ipairs(members) do
     if leaders[m.id] then

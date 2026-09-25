@@ -206,10 +206,24 @@ eq(Union.leaderObj(1).state, 1, "the leader is shown")
 eq(Union.avatarData().leader_coords[1][1], 4, "leader slot 1 sits at sUnionRoomPlayerCoords[0]")
 
 print("[test] 3. refreshes are throttled like the cart, departures fly out")
+local realClock = Union.clock
+local fakeNow = 1000
+Union.clock = function() return fakeNow end
+local blueRow = table.remove(Client._plaza.members, 2)
+run(1)
+check(Union.players[2] and not Union.players[2].gone, "a member missing for a moment is not gone yet")
+table.insert(Client._plaza.members, 2, blueRow)
+run(1)
+fakeNow = fakeNow + Union.GONE_GRACE_SECONDS + 1
+run(1)
+check(Union.players[2] and not Union.players[2].gone, "and a blip that comes back never flies out")
 table.remove(Client._plaza.members, 2)
 run(1)
+fakeNow = fakeNow + Union.GONE_GRACE_SECONDS
+run(1)
+Union.clock = realClock
 eq(Union.playerCount(), 2, "not refreshed on the next frame")
-check(Union.players[2] and Union.players[2].gone, "BLUE is marked gone")
+check(Union.players[2] and Union.players[2].gone, "BLUE is marked gone once the grace runs out")
 local frames = 0
 while Union.playerCount() == 2 and frames < Union.REFRESH_FRAMES + 5 do
   run(1)
