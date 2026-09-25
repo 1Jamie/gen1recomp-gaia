@@ -25,6 +25,23 @@ local App = require("App")
 
 local fs = love.filesystem
 
+local ffi = require("ffi")
+local setVar
+if ffi.os == "Windows" then
+  ffi.cdef([[ int _putenv(const char *envstring); ]])
+  setVar = function(name, value) ffi.C._putenv(name .. "=" .. value) end
+else
+  ffi.cdef([[
+  int setenv(const char *name, const char *value, int overwrite);
+  int unsetenv(const char *name);
+  ]])
+  setVar = function(name, value)
+    if value == "" then ffi.C.unsetenv(name) else ffi.C.setenv(name, value, 1) end
+  end
+end
+local originalDataDir = os.getenv("POKEPORT_DATA_DIR")
+setVar("POKEPORT_DATA_DIR", "tests/fixture_data")
+
 do
   local opts = SaveData.loadOptions()
   opts.battleLayout, opts.battleFit, opts.battleHud, opts.battleBg = "wide", "fixed", "extended", "world"
@@ -97,6 +114,8 @@ do
     eq(back and back.options and back.options.frameType, 3, "a gen3 slot keeps its in-save options block")
   end
 end
+
+setVar("POKEPORT_DATA_DIR", originalDataDir or "")
 
 print(string.format("save editor options 2388: %d passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end
