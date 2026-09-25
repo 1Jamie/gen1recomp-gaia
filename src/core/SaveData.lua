@@ -2011,6 +2011,7 @@ function SaveData.buildMeta(mods, previous, sessionStart)
     cartHash = type(previous) == "table" and previous.cartHash or nil,
     sealBroken = (type(previous) == "table" and previous.sealBroken == true) or nil,
     mods = list,
+    modCount = #list,
   }
 end
 
