@@ -67,6 +67,7 @@ function FixedStep:init(callback)
   self.suppressCatchup = false
   self.dtHistory, self.dtSum = nil, 0
   self.phasedFor = nil
+  self.frameBreak = false
 end
 
 FixedStep.maxAccum = MAX_ACCUM
@@ -102,11 +103,13 @@ function FixedStep:update(dt, speed)
   -- called (the hitch itself already ran inside the current step); absorb
   -- that one frame as a single step instead of the normal accumulator so
   -- the burst it would otherwise release doesn't play out as a slide.
+  self.frameBreak = false
   if self.suppressCatchup then
     self.suppressCatchup = false
     self.dtHistory, self.dtSum = nil, 0
     self.accum = self.STEP * RESEED_PHASE
     self.callback(self.STEP)
+    self.frameBreak = false
     return
   end
   -- Snap/smooth against the wall-clock frame dt first.  Game speed is a
@@ -155,11 +158,20 @@ function FixedStep:update(dt, speed)
   while self.accum >= self.STEP - STEP_EPS do
     self.accum = self.accum - self.STEP
     self.callback(self.STEP)
+    if self.frameBreak then
+      self.frameBreak = false
+      self.accum = self.accum % self.STEP
+      break
+    end
     if deadline and self.accum >= self.STEP - STEP_EPS and clock() >= deadline then
       self.accum = self.accum % self.STEP
       break
     end
   end
+end
+
+function FixedStep:endFrame()
+  self.frameBreak = true
 end
 
 -- Drop any pending catch-up steps and arm the one-frame clamp above.  A

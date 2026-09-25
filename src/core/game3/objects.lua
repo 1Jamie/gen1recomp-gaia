@@ -570,35 +570,45 @@ end
 
 local VIRT_DIR_FACE = { [1] = "down", [2] = "up", [3] = "left", [4] = "right" }
 
+local drawList = {}
+local vrecs = {}
+
 function Objects.forDraw()
-  local list = {}
+  local list = drawList
+  local n = 0
   for _, lid in ipairs(Objects._order) do
     local eo = Objects._byId[lid]
     -- src/event_object_movement.c:8014
     if eo and eo.visible and not eo.hidden and not eo.invisible
         and not offMap(Objects._bounds, eo) then
-      list[#list + 1] = eo
+      n = n + 1
+      list[n] = eo
     end
   end
   -- src/event_object_movement.c:1719
-  if VirtualObjects.count() > 0 then
-    for _, vo in ipairs(VirtualObjects.list()) do
+  for i = 1, VirtualObjects.slots() do
+    local vo = VirtualObjects.nth(i)
+    if vo then
+      local vrec = vrecs[vo.id]
+      if not vrec then
+        vrec = { virtualId = vo.id, visible = true, hidden = false }
+        vrecs[vo.id] = vrec
+      end
       local gid = tonumber(vo.graphicsId) or 0
-      local vrec = {
-        virtualId = vo.id,
-        cellX = tonumber(vo.x) or 0,
-        cellY = tonumber(vo.y) or 0,
-        elevation = tonumber(vo.elevation) or 3,
-        facing = VIRT_DIR_FACE[tonumber(vo.direction)] or "down",
-        sprite = GfxIds.spriteFor(gid),
-        graphicsId = gid,
-        raiseY = tonumber(vo.y2) or 0,
-        visible = true,
-        hidden = false,
-      }
-      if not offMap(Objects._bounds, vrec) then list[#list + 1] = vrec end
+      vrec.cellX = tonumber(vo.x) or 0
+      vrec.cellY = tonumber(vo.y) or 0
+      vrec.elevation = tonumber(vo.elevation) or 3
+      vrec.facing = VIRT_DIR_FACE[tonumber(vo.direction)] or "down"
+      vrec.sprite = GfxIds.spriteFor(gid)
+      vrec.graphicsId = gid
+      vrec.raiseY = tonumber(vo.y2) or 0
+      if not offMap(Objects._bounds, vrec) then
+        n = n + 1
+        list[n] = vrec
+      end
     end
   end
+  for i = #list, n + 1, -1 do list[i] = nil end
   return list
 end
 
@@ -642,10 +652,9 @@ function Objects.blocks(tx, ty, exceptLocalId, elevation)
     end
   end
   -- pokefirered/src/union_room_player_avatar.c:475
-  if VirtualObjects.count() > 0 then
-    for _, vo in ipairs(VirtualObjects.list()) do
-      if vo.solid == true and tonumber(vo.x) == tx and tonumber(vo.y) == ty then return true end
-    end
+  for i = 1, VirtualObjects.slots() do
+    local vo = VirtualObjects.nth(i)
+    if vo and vo.solid == true and tonumber(vo.x) == tx and tonumber(vo.y) == ty then return true end
   end
   return false
 end
