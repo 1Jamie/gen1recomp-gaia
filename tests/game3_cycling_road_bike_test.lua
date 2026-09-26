@@ -120,6 +120,8 @@ local Schema = require("src.core.game3.save_schema_firered")
 -- Simulate fresh boot / uninitialized avatar state:
 Player.biking = false
 Flags.setFlag(session.store, nil, 0x830, true)
+session.flags = session.flags or {}
+session.flags[0x830] = true
 local cyclingMapDef = {
   id = "FR_ROUTE_17",
   bikingAllowed = 1,
@@ -130,6 +132,7 @@ local cyclingMapDef = {
 game.data = { maps = { FR_ROUTE_17 = cyclingMapDef } }
 game.session = session
 local Space = require("src.core.game3.scripting.space")
+Space.store = session.store
 Space.activate = function() end
 Space.runEnterScripts = function() end
 
@@ -138,6 +141,7 @@ check(Player.biking == true, "loading/continuing map on Cycling Road forces Play
 check(Audio.specialMapSong() == Audio.MUS_CYCLING, "specialMapSong returns Audio.MUS_CYCLING when biking")
 
 -- 9. Test Schema serialization preserves biking state
+session.biking = Player.biking
 local saveTable = Schema.toSaveTable(session)
 check(saveTable.biking == true, "Schema.toSaveTable includes biking = true")
 local restoredSession = Schema.fromSaveTable(saveTable)

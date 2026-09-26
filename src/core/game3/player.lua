@@ -518,16 +518,24 @@ function Player.isOnCyclingRoad(session, x, y)
   local Flags = package.loaded["src.core.game3.scripting.flags"]
     or package.loaded["src.core.game3.flags"]
     or require("src.core.game3.scripting.flags")
-  local Space = package.loaded["src.core.game3.space"]
-  local store = (session and session.store) or (Space and Space.store) or (session and type(session) == "table" and session)
-  if not store then
+  if Flags and Flags.getFlag then
+    if session and (session.store or session.flags) then
+      local st = session.store or session
+      if Flags.getFlag(st, nil, 0x830) == true or (session.flags and (session.flags[0x830] == true or session.flags["2096"] == true)) then
+        return true
+      end
+    end
+    local Space = package.loaded["src.core.game3.scripting.space"] or package.loaded["src.core.game3.space"]
+    if Space and Space.store and Flags.getFlag(Space.store, nil, 0x830) == true then
+      return true
+    end
     local Runtime = package.loaded["src.core.game3.runtime"]
     local s = Runtime and Runtime.getSession and Runtime.getSession()
-    store = (s and s.store) or s
-  end
-  if Flags and Flags.getFlag and store then
-    if Flags.getFlag(store, nil, 0x830) == true then -- FLAG_SYS_ON_CYCLING_ROAD
-      return true
+    if s and (s.store or s.flags) then
+      local st = s.store or s
+      if Flags.getFlag(st, nil, 0x830) == true or (s.flags and (s.flags[0x830] == true or s.flags["2096"] == true)) then
+        return true
+      end
     end
   end
   return false
