@@ -53,13 +53,59 @@ check(logLate:find("n=2", 1, true) ~= nil, "flush includes events after 1s")
 -- Lua error log: redacted, no ROM bytes.
 local romErr = string.char(0xEA, 0x9B, 0xCA, 0xE6)
 local hint = SwitchDiagnostics.logLuaError("probe failure")
-check(type(hint) == "string" and hint:find("lua-error.log", 1, true) ~= nil,
-  "error handler hint mentions lua-error.log")
+eq(hint, "Error log: /tmp/pokeport-stub-save/lua-error.log",
+  "error handler gives the absolute error log path")
 SwitchDiagnostics.logLuaError(romErr)
 local errLog = love.filesystem.read("lua-error.log") or ""
 check(errLog:find("probe failure", 1, true) ~= nil, "lua-error.log records message")
+check(errLog:find("Likely source: gen1recomp", 1, true) ~= nil,
+  "unattributed errors identify gen1recomp")
 check(errLog:find("<redacted>", 1, true) ~= nil, "lua-error.log strips ROM bytes")
 check(not errLog:find(romErr, 1, true), "lua-error.log omits raw ROM bytes")
+
+love.filesystem.write("mods/sample_mod/manifest.json",
+  '{"id":"sample_mod","name":"Sample Mod"}')
+local modHint, modSource, modReport = SwitchDiagnostics.logLuaError(
+  "mods/sample_mod/scripts/main.lua:12: crash",
+  "stack traceback:\n\tmods/sample_mod/scripts/main.lua:12: in function 'draw'")
+eq(modSource, 'Likely source: mod "Sample Mod" (sample_mod)',
+  "mod file errors name the owning mod")
+eq(modHint, "Error log: /tmp/pokeport-stub-save/lua-error.log",
+  "mod errors show the same absolute log path")
+eq(modReport.owner.kind, "mod", "crash screen receives mod attribution")
+eq(modReport.owner.name, "Sample Mod", "crash screen receives the display name")
+check(modReport.saved, "crash screen knows the log was saved")
+check(modReport.details:find("mods/sample_mod/scripts/main.lua:12: crash", 1, true)
+    and modReport.details:find("stack traceback:", 1, true),
+  "crash screen receives the current message and traceback for scrolling")
+errLog = love.filesystem.read("lua-error.log") or ""
+check(errLog:find("mods/sample_mod/scripts/main.lua:12", 1, true) ~= nil,
+  "saved log includes the traceback")
+eq(SwitchDiagnostics.errorSource("plain failure",
+  "stack traceback:\n\tsrc/mods/Sandbox.lua:225: in function 'require'"
+    .. "\n\tmods/sample_mod/scripts/main.lua:12: in function 'draw'"),
+  'Likely source: mod "Sample Mod" (sample_mod)',
+  "traceback identifies a mod after engine dispatch frames")
+eq(SwitchDiagnostics.errorSource("src/mods/Loader.lua:12: crash", ""),
+  "Likely source: gen1recomp", "engine mod loader is not a user mod")
+eq(SwitchDiagnostics.errorSource(
+  "/game/mods/sample_mod/src/mods/helper.lua:12: crash", ""),
+  'Likely source: mod "Sample Mod" (sample_mod)',
+  "a mod's own src/mods directory stays attributed to the mod")
+eq(SwitchDiagnostics.errorSource("src/ui/gen2/WideBattle.lua:37: crash", ""),
+  "Likely source: gen1recomp", "engine crash is attributed to gen1recomp")
+love.filesystem.remove("mods/sample_mod/manifest.json")
+
+local originalWrite = love.filesystem.write
+love.filesystem.write = function(name, contents)
+  if name == "lua-error.log" then return false end
+  return originalWrite(name, contents)
+end
+local failedHint, _, failedReport = SwitchDiagnostics.logLuaError("write failed")
+love.filesystem.write = originalWrite
+check(failedHint:find("Could not save error log", 1, true) ~= nil,
+  "failed writes are reported honestly")
+check(not failedReport.saved, "crash screen knows when the log was not saved")
 
 -- Stack-trace style messages (newlines) must remain readable — not wholesale
 -- "<redacted>" (fused Play triage regression).

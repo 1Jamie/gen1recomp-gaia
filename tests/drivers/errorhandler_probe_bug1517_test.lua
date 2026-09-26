@@ -9,14 +9,14 @@
 --   love.errorhandler type: nil / love.errhand type: function
 --
 -- Nothing here can be a unit test: the deliverable is whether a human sees
--- LOVE's blue error screen or an app that vanishes.
+-- the crash screen or an app that vanishes.
 --
 --   POKEPORT_TOUCH=0 \
 --     POKEPORT_DRIVER=tests/drivers/errorhandler_probe_bug1517_test.lua love .
 --
 -- Pre-fix: the window closes on the first drawn frame after the probe arms,
--- exit 1, no output.  Post-fix: the blue screen reads "bug1517: error-handler
--- probe" plus the lua-error.log hint, and stays up until it is dismissed.
+-- exit 1, no output.  Post-fix: the crash screen identifies gen1recomp and
+-- shows the lua-error.log path until it is dismissed.
 return function(game)
   local U = dofile("tests/drivers/util.lua")
 
@@ -41,6 +41,6 @@ return function(game)
   end
 
   U.log("[1517] armed; the next drawn frame raises from love.draw")
-  U.log("[1517] you should now see LOVE's blue error screen, not a closed app")
+  U.log("[1517] you should now see the crash screen, not a closed app")
   while true do coroutine.yield() end
 end

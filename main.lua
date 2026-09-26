@@ -8,30 +8,7 @@
 --     opens the editor on that slot's file, and restores the launcher when
 --     the editor's Close button is pressed (openEditor / closeEditor below)
 
-if POKEPORT_DISPLAY_COMPANION then
-  return require("src.render.DesktopCompanion").install(
-    POKEPORT_DISPLAY_COMPANION)
-end
-
-local editorMode = os.getenv("POKEPORT_EDITOR") == "1" or POKEPORT_EDITOR_MODE == true
-
 local SwitchDiagnostics = require("src.debug.SwitchDiagnostics")
-local PadHints = require("src.core.PadHints")
-local LaunchOptions = require("src.core.LaunchOptions")
-local NxDisplay = require("src.core.NxDisplay")
-local PlatformHooks = require("src.core.PlatformHooks")
-local HostDisplay = require("src.core.HostDisplay")
-local GameViewport = require("src.render.GameViewport")
-
-local function applySavedOrientation()
-  local ok, savedOptions = pcall(function()
-    return require("src.core.SaveData").loadOptions()
-  end)
-  if not ok or type(savedOptions) ~= "table" then savedOptions = {} end
-  pcall(function()
-    require("src.core.Orientation").applyOptions(savedOptions)
-  end)
-end
 
 -- Global emergency quit: holding Start + Select for 5 seconds forcefully terminates LOVE.
 local emergencyQuitTimer = 0
@@ -92,44 +69,137 @@ local function checkEmergencyQuit(dt)
   end
 end
 
--- Lua errors: persist a redacted trace in the save dir and surface a hint.
+-- Install before the rest of the engine loads so startup failures also get
+-- the crash report when the game's regular renderer is unavailable.
 do
   local defaultErrorHandler = love.errorhandler or love.errhand
   function love.errorhandler(msg)
-    local ok, hint = pcall(SwitchDiagnostics.logLuaError, msg)
-    if ok and hint and type(msg) == "string" then
-      msg = msg .. "\n\n" .. hint
+    local traceback = debug.traceback()
+    local ok, hint, source, report = pcall(SwitchDiagnostics.logLuaError, msg, traceback)
+    local nativeMsg = tostring(msg)
+    if ok then
+      if source then nativeMsg = source .. "\n\n" .. nativeMsg end
+      if hint then nativeMsg = nativeMsg .. "\n\n" .. hint end
     end
 
-    if love.window and love.window.isOpen and love.window.isOpen() and love.graphics and love.graphics.isActive() then
-      -- Ensure no Canvas is left bound (errors during Display.present).
-      pcall(function() love.graphics.setCanvas() end)
-      pcall(function() love.graphics.origin() end)
-      local fullMsg = tostring(msg) .. "\n\n" .. tostring(debug.traceback()) .. "\n\n[Hold START + SELECT for 5s to Force Quit]"
-      return function()
-        love.event.pump()
-        for e, a in love.event.poll() do
-          if e == "quit" or (e == "keypressed" and a == "escape") then
-            return 1
-          elseif e == "gamepadpressed" and (a == "start" or a == "back") then
-            return 1
+    local okScreen, CrashScreen = pcall(require, "src.debug.CrashScreen")
+    if okScreen and report then
+      local summaryOk, summary = pcall(CrashScreen.fallbackText, report)
+      if summaryOk then nativeMsg = summary end
+      if love.window and love.graphics and love.event then
+        local function ready()
+          local openOk, open = pcall(love.window.isOpen)
+          local activeOk, active = pcall(love.graphics.isActive)
+          return openOk and open and activeOk and active
+        end
+        local variant
+        if ready() then
+          variant = "red"
+        elseif love.window.setMode then
+          -- Match LÖVE's native fallback: open a usable window after a
+          -- startup failure, using the same plain-language layout.
+          local modeOk, opened = pcall(love.window.setMode, 800, 600)
+          if modeOk and opened and ready() then variant = "blue" end
+        end
+        if variant then
+          local prepared, screen = pcall(CrashScreen.new, report, variant)
+          if prepared and screen then
+            local fallbackLoop
+            return function()
+              if fallbackLoop then return fallbackLoop() end
+              local drawn, result = pcall(function()
+                love.event.pump()
+                for e, a, b, c, d, touchMouse in love.event.poll() do
+                  if e == "quit" or (e == "keypressed" and a == "escape") then
+                    return 1
+                  elseif e == "gamepadpressed" and (b == "start" or b == "back") then
+                    return 1
+                  elseif e == "mousepressed" and c == 1 and not d
+                      and CrashScreen.hitClose(screen, a, b) then
+                    return 1
+                  elseif e == "touchpressed" and CrashScreen.hitClose(screen, b, c) then
+                    return 1
+                  elseif e == "mousepressed" and c == 1 and not d then
+                    CrashScreen.pointerPressed(screen, "mouse", a, b)
+                  elseif e == "mousereleased" and c == 1 and not d then
+                    CrashScreen.pointerReleased(screen, "mouse")
+                  elseif e == "mousemoved" and not touchMouse then
+                    CrashScreen.pointerMoved(screen, "mouse", a, b)
+                  elseif e == "touchpressed" then
+                    CrashScreen.pointerPressed(screen, a, b, c)
+                  elseif e == "touchmoved" then
+                    CrashScreen.pointerMoved(screen, a, b, c)
+                  elseif e == "touchreleased" then
+                    CrashScreen.pointerReleased(screen, a)
+                  elseif e == "wheelmoved" then
+                    CrashScreen.scroll(screen, -b * 3 * (screen.lineHeight or 16))
+                  elseif e == "keypressed" and (a == "up" or a == "down") then
+                    CrashScreen.scroll(screen,
+                      (a == "down" and 1 or -1) * (screen.lineHeight or 16))
+                  elseif e == "keypressed" and (a == "pageup" or a == "pagedown") then
+                    CrashScreen.scroll(screen, (a == "pagedown" and 1 or -1)
+                      * ((screen.detailArea and screen.detailArea.h) or 64))
+                  elseif e == "keypressed" and (a == "home" or a == "end") then
+                    CrashScreen.scrollTo(screen, a == "end")
+                  elseif e == "gamepadpressed" and (b == "dpup" or b == "dpdown") then
+                    CrashScreen.scroll(screen,
+                      (b == "dpdown" and 1 or -1) * 3 * (screen.lineHeight or 16))
+                  elseif e == "keypressed" and a == "c" and screen.canCopy
+                      and love.keyboard.isDown("lctrl", "rctrl") then
+                    local copyOk, copied = pcall(love.system.setClipboardText,
+                      report.logPath)
+                    if copyOk and copied ~= false then screen.copied = true end
+                  end
+                end
+                checkEmergencyQuit(0.016)
+                CrashScreen.draw(screen)
+                love.graphics.present()
+                if love.timer then love.timer.sleep(0.016) end
+              end)
+              if drawn then return result end
+              if defaultErrorHandler then
+                local fallbackOk, loop = pcall(defaultErrorHandler, nativeMsg)
+                if fallbackOk and type(loop) == "function" then
+                  fallbackLoop = loop
+                  return fallbackLoop()
+                end
+              end
+              return 1
+            end
           end
         end
-        checkEmergencyQuit(0.016)
-        love.graphics.origin()
-        love.graphics.clear(0.10, 0.10, 0.12)
-        love.graphics.setColor(1, 0.4, 0.4, 1)
-        love.graphics.printf(fullMsg, 20, 20, love.graphics.getWidth() - 40)
-        love.graphics.present()
-        love.timer.sleep(0.016)
       end
     end
 
     if defaultErrorHandler then
-      return defaultErrorHandler(msg)
+      return defaultErrorHandler(nativeMsg)
     end
   end
   love.errhand = love.errorhandler
+end
+
+if POKEPORT_DISPLAY_COMPANION then
+  return require("src.render.DesktopCompanion").install(
+    POKEPORT_DISPLAY_COMPANION)
+end
+
+local editorMode = os.getenv("POKEPORT_EDITOR") == "1" or POKEPORT_EDITOR_MODE == true
+
+local PadHints = require("src.core.PadHints")
+local LaunchOptions = require("src.core.LaunchOptions")
+local NxDisplay = require("src.core.NxDisplay")
+local PlatformHooks = require("src.core.PlatformHooks")
+local HostDisplay = require("src.core.HostDisplay")
+local GameViewport = require("src.render.GameViewport")
+
+local function applySavedOrientation()
+  local ok, savedOptions = pcall(function()
+    return require("src.core.SaveData").loadOptions()
+  end)
+  if not ok or type(savedOptions) ~= "table" then savedOptions = {} end
+  pcall(function()
+    require("src.core.Orientation").applyOptions(savedOptions)
+  end)
 end
 
 local Game, EditorApp, Importer, TouchEditor, Studio, Prelaunch
