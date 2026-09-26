@@ -59,6 +59,38 @@ local function screenAnchor(px, py, camX, camY)
   return (px - camX) - PLAYER_SCREEN_X, (py - camY) - PLAYER_SCREEN_Y
 end
 
+local _M = {}
+local function getMod(key, path)
+  local m = _M[key]
+  if not m then
+    m = package.loaded[path]
+    if not m then
+      local ok, loaded = pcall(require, path)
+      if ok then m = loaded end
+    end
+    _M[key] = m
+  end
+  return m
+end
+
+local function modObjects() return getMod("Objects", "src.core.game3.objects") end
+local function modOwSprites() return getMod("OwSprites", "src.core.game3.ow_sprites") end
+local function modNativeTileset() return getMod("NativeTileset", "src.core.game3.tileset_native") end
+local function modFieldEffects() return getMod("FieldEffects", "src.core.game3.field_effects") end
+local function modSpriteRenderer() return getMod("SpriteRenderer", "src.render.SpriteRenderer") end
+local function modPalettes() return getMod("Palettes", "src.world.gen2.Palettes") end
+local function modFlags() return getMod("Flags", "src.core.game3.scripting.flags") end
+local function modDoors() return getMod("Doors", "src.core.game3.doors") end
+local function modHeal() return getMod("Heal", "src.core.game3.pokecenter_heal") end
+local function modSSAnne() return getMod("SSAnne", "src.core.game3.ss_anne_cutscene") end
+local function modFieldWeather() return getMod("FieldWeather", "src.core.game3.field_weather") end
+local function modAssets() return getMod("Assets", "src.render.Assets") end
+local function modPlayer() return getMod("Player", "src.core.game3.player") end
+local function modGbcPalette() return getMod("GbcPalette", "src.render.GbcPalette") end
+local function modSeagallop() return getMod("SeagallopUi", "src.ui.game3.seagallop") end
+local function modShopMenu() return getMod("ShopMenu", "src.ui.game3.shop_menu") end
+local function modFollower() return getMod("Follower", "src.world.game3.Follower") end
+
 local function log(msg)
   print("[game3/field] " .. tostring(msg))
 end
@@ -90,8 +122,8 @@ local function loadAtlas(tileset)
     return FieldView._atlas
   end
   local img
-  local ok, Assets = pcall(require, "src.render.Assets")
-  if ok and Assets and Assets.image then
+  local Assets = modAssets()
+  if Assets and Assets.image then
     local aok, aimg = pcall(Assets.image, path)
     if aok then img = aimg end
   end
@@ -145,8 +177,8 @@ end
 
 --- Resolve Sevii special BG palette set (8 slots × 4 RGB).
 local function resolveBgSet(game, mapDef, daytime)
-  local ok, Palettes = pcall(require, "src.world.gen2.Palettes")
-  if not ok or not Palettes then return nil end
+  local Palettes = modPalettes()
+  if not Palettes then return nil end
   local data = game and game.data
   local pals = data and (data.gen2Palettes or data.palettes)
   if not pals then return nil end
@@ -173,9 +205,9 @@ end
 
 local function playerPixels(game)
   -- Game3 avatar is source of truth while Runtime is active.
-  local okP, G3Player = pcall(require, "src.core.game3.player")
+  local G3Player = modPlayer()
   local Runtime = package.loaded["src.core.game3.runtime"]
-  if okP and G3Player and Runtime and Runtime.isActive and Runtime.isActive() then
+  if G3Player and Runtime and Runtime.isActive and Runtime.isActive() then
     local xOff = G3Player.spriteXOffset or 0
     local yOff = G3Player.spriteYOffset or 0
     if yOff == 0 and G3Player.jumpSpriteY then
@@ -241,16 +273,8 @@ local function playerSpriteName(game)
   return "SPRITE_CHRIS"
 end
 
-local PalettesMod, PalettesMissing
 local function palettes()
-  if PalettesMod then return PalettesMod end
-  local loaded = package.loaded["src.world.gen2.Palettes"]
-  if loaded then PalettesMod = loaded; return loaded end
-  if PalettesMissing then return nil end
-  local ok, m = pcall(require, "src.world.gen2.Palettes")
-  if ok and m then PalettesMod = m; return m end
-  PalettesMissing = true
-  return nil
+  return modPalettes()
 end
 
 local function daytimeFor(game, mapDef)
@@ -277,13 +301,13 @@ local function getSpriteRenderer(game, spriteName, seed, objDef, daytime)
     return nil
   end
 
-  local ok, SpriteRenderer = pcall(require, "src.render.SpriteRenderer")
-  if not ok or not SpriteRenderer then return nil end
+  local SpriteRenderer = modSpriteRenderer()
+  if not SpriteRenderer then return nil end
   local sr = SpriteRenderer.new(def, seed or spriteName)
 
-  local okP, Palettes = pcall(require, "src.world.gen2.Palettes")
+  local Palettes = modPalettes()
   local pals = data and (data.gen2Palettes or data.palettes)
-  if okP and Palettes and pals and sr.setObjPalette then
+  if Palettes and pals and sr.setObjPalette then
     local colors = Palettes.spritePalette(pals, daytime or "DAY", def, objDef)
     if colors then
       local id = (Palettes.objectPaletteId and Palettes.objectPaletteId(objDef))
@@ -473,12 +497,16 @@ local owOpts = {}
 
 local function drawSingleActor(game, mapDef, a, camX, camY)
   local daytime = daytimeFor(game, mapDef)
-  local okOw, OwSprites = pcall(require, "src.core.game3.ow_sprites")
-  local useOw = okOw and OwSprites and OwSprites.ready and OwSprites.ready()
+  local OwSprites = modOwSprites()
+  local useOw = OwSprites and OwSprites.ready and OwSprites.ready()
   love.graphics.setColor(1, 1, 1, 1)
   local billboarded = pushBillboard(a.x, a.y, camX, camY)
   local drew = false
-  if a.renderer then
+  if a.draw then
+    a:draw(camX, camY)
+    drew = true
+  end
+  if not drew and a.renderer then
     a.renderer:draw(a.x, a.y, camX, camY, a.facing, a.walkPhase or 0, false)
     drew = true
   end
@@ -518,12 +546,12 @@ local npcActors = setmetatable({}, { __mode = "k" })
 local playerActor = {}
 
 local function collectGame3Actors(game, mapDef, camX, camY, px, py, facing, walkPhase, stepFlip, playerYOff, playerXOff)
-  local okO, Objects = pcall(require, "src.core.game3.objects")
-  local okOw, OwSprites = pcall(require, "src.core.game3.ow_sprites")
-  local useOw = okOw and OwSprites and OwSprites.ready and OwSprites.ready()
+  local Objects = modObjects()
+  local OwSprites = modOwSprites()
+  local useOw = OwSprites and OwSprites.ready and OwSprites.ready()
   local actors = frameActors
   for i = #actors, 1, -1 do actors[i] = nil end
-  local hasObjects = okO and Objects and Objects.hasMap and Objects.hasMap()
+  local hasObjects = Objects and Objects.hasMap and Objects.hasMap()
 
   if hasObjects then
     for _, eo in ipairs(Objects.forDraw()) do
@@ -640,8 +668,15 @@ local function collectGame3Actors(game, mapDef, camX, camY, px, py, facing, walk
     actors[#actors + 1] = a
   end
 
-  local follower = require("src.world.game3.Follower").actor()
+  local Follower = modFollower()
+  local follower = Follower and Follower.actor and Follower.actor()
   if follower then actors[#actors + 1] = follower end
+
+  local FieldEffects = modFieldEffects()
+  if FieldEffects and FieldEffects.collectActors then
+    FieldEffects.collectActors(actors)
+  end
+
   return applyDrawOrder(actors, frameUnder, frameOver)
 end
 
@@ -706,8 +741,8 @@ local function draw_pal_list()
 end
 
 local function drawTilesColored(atlas, bySlot, bgSet)
-  local ok, GbcPalette = pcall(require, "src.render.GbcPalette")
-  local usePal = ok and GbcPalette and GbcPalette.available and GbcPalette.available()
+  local GbcPalette = modGbcPalette()
+  local usePal = GbcPalette and GbcPalette.available and GbcPalette.available()
     and bgSet and GbcPalette.with
 
   love.graphics.setColor(1, 1, 1, 1)
@@ -769,8 +804,8 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
   local pair = mapDef.pair or (layout and layout.pair)
   if not layout or not pair then return false end
 
-  local okN, NativeTileset = pcall(require, "src.core.game3.tileset_native")
-  if not (okN and NativeTileset and NativeTileset.ready(pair)) then
+  local NativeTileset = modNativeTileset()
+  if not (NativeTileset and NativeTileset.ready and NativeTileset.ready(pair)) then
     if not FieldView._loggedNativeFallback then
       log("native unavailable for " .. tostring(pair) .. " — Gen2 atlas fallback")
       FieldView._loggedNativeFallback = true
@@ -811,7 +846,24 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
     for r = 0, rows - 1 do
       FieldView._nativeOverByRow[r] = {}
     end
-    local cellsByPair = {}
+
+    local cellsByPair = FieldView._nativeCellsByPair
+    if not cellsByPair then
+      cellsByPair = {}
+      FieldView._nativeCellsByPair = cellsByPair
+    else
+      for k, list in pairs(cellsByPair) do
+        for i = #list, 1, -1 do list[i] = nil end
+      end
+    end
+
+    local cellPool = FieldView._nativeCellPool
+    if not cellPool then
+      cellPool = {}
+      FieldView._nativeCellPool = cellPool
+    end
+    local poolIdx = 0
+
     local voidHas, voidPrimary = nil, nil
     if voidMode ~= "map" and voidMode ~= "black" then
       voidHas = function(m) return NativeTileset.hasMid(pair, m) end
@@ -842,7 +894,16 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
             list = {}
             cellsByPair[srcPair] = list
           end
-          list[#list + 1] = { mid = mid, x = col * CELL, y = row * CELL }
+          poolIdx = poolIdx + 1
+          local c = cellPool[poolIdx]
+          if not c then
+            c = {}
+            cellPool[poolIdx] = c
+          end
+          c.mid = mid
+          c.x = col * CELL
+          c.y = row * CELL
+          list[#list + 1] = c
         end
       end
     end
@@ -870,7 +931,11 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
         end
       end
     end
-    require("src.core.game3.tileset_anim").setVisiblePairs(cellsByPair)
+    local TilesetAnim = package.loaded["src.core.game3.tileset_anim"]
+      or require("src.core.game3.tileset_anim")
+    if TilesetAnim and TilesetAnim.setVisiblePairs then
+      TilesetAnim.setVisiblePairs(cellsByPair)
+    end
     FieldView._nativeBx = cx0
     FieldView._nativeBy = cy0
     FieldView._nativePair = pair
@@ -946,8 +1011,8 @@ end
 
 -- pokefirered/src/field_screen_effect.c:194
 function FieldView.animateFlashLevel(fromLevel, toLevel)
-  local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
-  if okFx and FieldEffects and FieldEffects.animateFlashLevel then
+  local FieldEffects = modFieldEffects()
+  if FieldEffects and FieldEffects.animateFlashLevel then
     return FieldEffects.animateFlashLevel(fromLevel, toLevel)
   end
   FieldView.setFlashLevel(toLevel)
@@ -970,8 +1035,8 @@ end
 local function flashActive()
   local Space = package.loaded["src.core.game3.scripting.space"]
   if Space and Space.store then
-    local okF, Flags = pcall(require, "src.core.game3.scripting.flags")
-    if okF and Flags and Flags.getFlag
+    local Flags = modFlags()
+    if Flags and Flags.getFlag
         and Flags.getFlag(Space.store, nil, FLAG_SYS_FLASH_ACTIVE) then
       return true
     end
@@ -1096,8 +1161,8 @@ function FieldView.draw(game, canvasW, canvasH, opts)
   canvasH = canvasH or Display.H
   opts = opts or {}
 
-  local okSea, SeagallopUi = pcall(require, "src.ui.game3.seagallop")
-  if okSea and SeagallopUi and SeagallopUi.isActive and SeagallopUi.isActive() then
+  local SeagallopUi = modSeagallop()
+  if SeagallopUi and SeagallopUi.isActive and SeagallopUi.isActive() then
     love.graphics.setColor(0, 0, 0, 1)
     love.graphics.rectangle("fill", 0, 0, canvasW, canvasH)
     love.graphics.setColor(1, 1, 1, 1)
@@ -1142,8 +1207,8 @@ function FieldView.draw(game, canvasW, canvasH, opts)
   local screenOy = math.floor((canvasH - Display.H) / 2)
 
   -- pret BuyMenuDrawMapBg (shop.c:731-734): Frame player & counter in left gap (X: 0..80, Y: 0..160)
-  local okShop, ShopMenu = pcall(require, "src.ui.game3.shop_menu")
-  if okShop and ShopMenu and ShopMenu.isShopCamera and ShopMenu.isShopCamera() then
+  local ShopMenu = modShopMenu()
+  if ShopMenu and ShopMenu.isShopCamera and ShopMenu.isShopCamera() then
     local fx, fy = px, py
     if facing == "up" or facing == "north" then fy = fy - CELL
     elseif facing == "down" or facing == "south" then fy = fy + CELL
@@ -1194,16 +1259,16 @@ function FieldView.draw(game, canvasW, canvasH, opts)
 
     -- Tall grass under body (pret lower OAM priority).
     do
-      local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
-      if okFx and FieldEffects and FieldEffects.drawBehind then
+      local FieldEffects = modFieldEffects()
+      if FieldEffects and FieldEffects.drawBehind then
         FieldEffects.drawBehind(camX, camY)
       end
     end
 
     -- Door opening/closing animation overlays (under actors).
     do
-      local okDoors, Doors = pcall(require, "src.core.game3.doors")
-      if okDoors and Doors and Doors.draw then
+      local Doors = modDoors()
+      if Doors and Doors.draw then
         Doors.draw(camX, camY, canvasW, canvasH)
       end
     end
@@ -1211,8 +1276,8 @@ function FieldView.draw(game, canvasW, canvasH, opts)
 
   -- pokefirered/src/field_effect.c:910
   if not opts.actorsOnly then
-    local okHeal, Heal = pcall(require, "src.core.game3.pokecenter_heal")
-    if okHeal and Heal and Heal.drawBalls then
+    local Heal = modHeal()
+    if Heal and Heal.drawBalls then
       local sx, sy = screenAnchor(px, py, camX, camY)
       love.graphics.push()
       love.graphics.translate(sx, sy)
@@ -1227,8 +1292,8 @@ function FieldView.draw(game, canvasW, canvasH, opts)
   -- the actors, for exactly that reason -- a Renderer.screenVeil would cover
   -- the fragments too and the shatter would be invisible.
   if not opts.actorsOnly then
-    local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
-    if okFx and FieldEffects and FieldEffects.bgFlashAlpha then
+    local FieldEffects = modFieldEffects()
+    if FieldEffects and FieldEffects.bgFlashAlpha then
       local a = FieldEffects.bgFlashAlpha()
       if a and a > 0 then
         love.graphics.setColor(1, 1, 1, a)
@@ -1240,8 +1305,8 @@ function FieldView.draw(game, canvasW, canvasH, opts)
 
   -- S.S. Anne wake (pret oam.priority = 2, subpriority = 0xFF: under boat hull).
   if not opts.actorsOnly then
-    local okSS, SSAnne = pcall(require, "src.core.game3.ss_anne_cutscene")
-    if okSS and SSAnne and SSAnne.drawWake then
+    local SSAnne = modSSAnne()
+    if SSAnne and SSAnne.drawWake then
       SSAnne.drawWake(camX, camY)
     end
   end
@@ -1275,16 +1340,16 @@ function FieldView.draw(game, canvasW, canvasH, opts)
 
   -- Tall grass over feet (pret subpriority above avatar).
   if not opts.actorsOnly then
-    local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
-    if okFx and FieldEffects and FieldEffects.drawFront then
+    local FieldEffects = modFieldEffects()
+    if FieldEffects and FieldEffects.drawFront then
       FieldEffects.drawFront(camX, camY, py)
     end
   end
 
   -- pokefirered/src/field_effect.c:1024
   if not opts.actorsOnly then
-    local okHeal, Heal = pcall(require, "src.core.game3.pokecenter_heal")
-    if okHeal and Heal and Heal.drawMonitor then
+    local Heal = modHeal()
+    if Heal and Heal.drawMonitor then
       local sx, sy = screenAnchor(px, py, camX, camY)
       love.graphics.push()
       love.graphics.translate(sx, sy)
@@ -1295,19 +1360,19 @@ function FieldView.draw(game, canvasW, canvasH, opts)
 
   -- Pokemon Center heal machine (screen-space OAM, pret FLDEFF_POKECENTER_HEAL).
   if not opts.actorsOnly then
-    local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
-    if okFx and FieldEffects and FieldEffects.drawOverlay then
+    local FieldEffects = modFieldEffects()
+    if FieldEffects and FieldEffects.drawOverlay then
       love.graphics.push()
       love.graphics.translate(screenOx, screenOy)
       FieldEffects.drawOverlay(camX, camY)
       love.graphics.pop()
     end
-    local okSS, SSAnne = pcall(require, "src.core.game3.ss_anne_cutscene")
-    if okSS and SSAnne and SSAnne.drawSmoke then
+    local SSAnne = modSSAnne()
+    if SSAnne and SSAnne.drawSmoke then
       SSAnne.drawSmoke(camX, camY)
     end
-    local okW, FieldWeather = pcall(require, "src.core.game3.field_weather")
-    if okW and FieldWeather and FieldWeather.draw then
+    local FieldWeather = modFieldWeather()
+    if FieldWeather and FieldWeather.draw then
       FieldWeather.draw(camX, camY, canvasW, canvasH)
     end
   end
@@ -1339,16 +1404,16 @@ function FieldView.invalidate()
   FieldView._loggedNativeFallback = false
   FieldView._flashSpans = nil
   FieldView._flashSpanR = nil
-  local okN, NativeTileset = pcall(require, "src.core.game3.tileset_native")
-  if okN and NativeTileset and NativeTileset.invalidate then
+  local NativeTileset = modNativeTileset()
+  if NativeTileset and NativeTileset.invalidate then
     NativeTileset.invalidate()
   end
-  local okO, OwSprites = pcall(require, "src.core.game3.ow_sprites")
-  if okO and OwSprites and OwSprites.invalidate then
+  local OwSprites = modOwSprites()
+  if OwSprites and OwSprites.invalidate then
     OwSprites.invalidate()
   end
-  local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
-  if okFx and FieldEffects and FieldEffects.invalidate then
+  local FieldEffects = modFieldEffects()
+  if FieldEffects and FieldEffects.invalidate then
     FieldEffects.invalidate()
   end
 end

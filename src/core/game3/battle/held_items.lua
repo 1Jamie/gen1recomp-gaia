@@ -249,7 +249,7 @@ function HeldItems.normal(ad, b, moveTurn)
   if he == 0 then return false end
   local hp, maxHp = ad:hp(b), ad:maxHp(b)
   if he == H.RESTORE_HP then
-    if hp <= math.floor(maxHp / 2) and not moveTurn then
+    if hp <= math.floor(maxHp / 2) then
       local amt = param
       if hp + param > maxHp then amt = maxHp - hp end
       heal_berry(ad, b, item, amt)
@@ -257,7 +257,7 @@ function HeldItems.normal(ad, b, moveTurn)
       return true
     end
   elseif he == H.RESTORE_PP then
-    if not moveTurn then return leppa(ad, b, item, param) end
+    return leppa(ad, b, item, param)
   elseif he == H.RESTORE_STATS then
     return white_herb(ad, b, item)
   elseif he == H.LEFTOVERS then
@@ -270,7 +270,7 @@ function HeldItems.normal(ad, b, moveTurn)
       return true
     end
   elseif he >= H.CONFUSE_SPICY and he <= H.CONFUSE_SOUR then
-    if hp <= math.floor(maxHp / 2) and not moveTurn then
+    if hp <= math.floor(maxHp / 2) then
       local flavor = he - H.CONFUSE_SPICY
       local amt = math.floor(maxHp / math.max(1, param))
       if amt == 0 then amt = 1 end
@@ -293,12 +293,12 @@ function HeldItems.normal(ad, b, moveTurn)
     end
   elseif he >= H.ATTACK_UP and he <= H.SP_DEFENSE_UP then
     local stat = STAT_ORDER[he - H.ATTACK_UP + 1]
-    if hp <= math.floor(maxHp / math.max(1, param)) and not moveTurn and (b.stages[stat] or 0) < 6 then
+    if hp <= math.floor(maxHp / math.max(1, param)) and (b.stages[stat] or 0) < 6 then
       stat_up(ad, b, item, stat, 1)
       return true
     end
   elseif he == H.CRITICAL_UP then
-    if hp <= math.floor(maxHp / math.max(1, param)) and not moveTurn and not (b.focusEnergy or b.expFocusEnergy) then
+    if hp <= math.floor(maxHp / math.max(1, param)) and not (b.focusEnergy or b.expFocusEnergy) then
       b.focusEnergy = true
       b.expFocusEnergy = true
       item_anim(ad, b)
@@ -307,7 +307,7 @@ function HeldItems.normal(ad, b, moveTurn)
       return true
     end
   elseif he == H.RANDOM_STAT_UP then
-    if not moveTurn and hp <= math.floor(maxHp / math.max(1, param)) then
+    if hp <= math.floor(maxHp / math.max(1, param)) then
       local any = false
       for _, s in ipairs(STAT_ORDER) do
         if (b.stages[s] or 0) < 6 then any = true end

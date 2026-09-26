@@ -307,21 +307,28 @@ function Map.load(mod, game, mapId, opts)
   Map.ensureMidLayout(game, mapId, def)
   Map._def = def
   Map._currentDef = def
+  local Player = require("src.core.game3.player")
+  local curSession = (Runtime and Runtime.getSession and Runtime.getSession())
+    or (game and game.session) or session
+  local onCyclingRoad = Player.isOnCyclingRoad and Player.isOnCyclingRoad(curSession, x, y)
+  local wasBiking = Player.biking or (curSession and curSession.biking == true)
+    or (save and save.biking == true)
+
   -- pokefirered/src/overworld.c:878 GetAdjustedInitialTransitionFlags
   local keepBike = false
-  do
-    local Player = require("src.core.game3.player")
-    if Player.biking then
-      local allowed = def and def.bikingAllowed
-      if allowed ~= nil then
-        -- pokefirered/src/overworld.c:948 Overworld_IsBikingAllowed
-        keepBike = (tonumber(allowed) or 0) ~= 0
-      else
-        local pair = def and (def.pair or (def.midLayout and def.midLayout.pair))
-        keepBike = type(pair) == "string" and pair:find("outdoor", 1, true) ~= nil
-      end
-      Player.biking = keepBike
+  if wasBiking or onCyclingRoad then
+    local allowed = def and def.bikingAllowed
+    if allowed ~= nil then
+      -- pokefirered/src/overworld.c:948 Overworld_IsBikingAllowed
+      keepBike = (tonumber(allowed) or 0) ~= 0
+    else
+      local pair = def and (def.pair or (def.midLayout and def.midLayout.pair))
+      keepBike = type(pair) == "string" and pair:find("outdoor", 1, true) ~= nil
     end
+    if onCyclingRoad and not (Player.surfing or Player.surfHopping) then
+      keepBike = true
+    end
+    Player.biking = keepBike
   end
   if opts.depth1Connections ~= false then
     Map.loadNeighborsDepth1(game, def)
@@ -348,6 +355,7 @@ function Map.load(mod, game, mapId, opts)
     session.x = x
     session.y = y
     session.facing = facing
+    session.biking = keepBike
   end
 
   -- Keep save.position current for ferry exit / host save without setMap.
@@ -358,6 +366,7 @@ function Map.load(mod, game, mapId, opts)
     save.position.x = x
     save.position.y = y
     save.position.facing = facing
+    save.biking = keepBike
   end
 
   local Player = require("src.core.game3.player")
@@ -373,6 +382,9 @@ function Map.load(mod, game, mapId, opts)
     Player.reset(x, y, facing)
   end
   -- pokefirered/src/overworld.c:2145 SetPlayerAvatarTransitionFlags
+  if onCyclingRoad and not (Player.surfing or Player.surfHopping) then
+    keepBike = true
+  end
   Player.biking = keepBike
   Player.syncSavePosition(game)
 

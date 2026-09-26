@@ -227,7 +227,6 @@ function Handlers.registerAll()
   Residuals.register("held_items", function(ctx)
     local HeldItems = require("src.core.game3.battle.held_items")
     HeldItems.normal(ctx.adapter, ctx.target, false)
-    HeldItems.normal(ctx.adapter, ctx.target, true)
   end)
 
   -- pokefirered/src/battle_util.c:1208

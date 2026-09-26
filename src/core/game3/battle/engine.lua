@@ -1365,10 +1365,20 @@ end
 -- pokefirered/src/battle_util.c:1208
 function Engine.afterAction(st, ad)
   if not st or st.over then return end
-  local first = State.battler(st, State.battlerOrder(st)[1]) or st.player
   for _ = 1, 4 do
-    local did = Abilities.runIntimidate(ad) or Abilities.runTrace(ad)
-      or HeldItems.normal(ad, first, true) or Abilities.forecast(ad)
+    local did = false
+    did = did or Abilities.runIntimidate(ad)
+    did = did or Abilities.runTrace(ad)
+    for _, id in ipairs(State.battlerOrder(st)) do
+      local b = State.battler(st, id)
+      if b and not ad:isFainted(b) then
+        if HeldItems.normal(ad, b, true) then
+          did = true
+          break
+        end
+      end
+    end
+    did = did or Abilities.forecast(ad)
     if not did then break end
   end
 end

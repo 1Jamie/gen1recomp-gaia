@@ -510,6 +510,29 @@ local function isCyclingRoadPullDown(beh)
     and beh <= MB_CYCLING_ROAD_PULL_DOWN_GRASS
 end
 
+function Player.isOnCyclingRoad(session, x, y)
+  local cx = x or Player.cellX
+  local cy = y or Player.cellY
+  local beh = Collision.behavior and Collision.behavior(cx, cy)
+  if isCyclingRoadPullDown(beh) then return true end
+  local Flags = package.loaded["src.core.game3.scripting.flags"]
+    or package.loaded["src.core.game3.flags"]
+    or require("src.core.game3.scripting.flags")
+  local Space = package.loaded["src.core.game3.space"]
+  local store = (session and session.store) or (Space and Space.store) or (session and type(session) == "table" and session)
+  if not store then
+    local Runtime = package.loaded["src.core.game3.runtime"]
+    local s = Runtime and Runtime.getSession and Runtime.getSession()
+    store = (s and s.store) or s
+  end
+  if Flags and Flags.getFlag and store then
+    if Flags.getFlag(store, nil, 0x830) == true then -- FLAG_SYS_ON_CYCLING_ROAD
+      return true
+    end
+  end
+  return false
+end
+
 -- pokefirered/src/bike.c:215 GetBikeCollision
 local function bikeCanMove(game, dir)
   local d = DELTA[dir]
@@ -673,6 +696,7 @@ local function finishStep(game)
   Player.syncSavePosition(game)
 
   -- Surf landing / dismount state transitions
+  local wasSurfing = Player.surfing or Player.dismounting
   if Player.surfHopping then
     Player.surfHopping = false
     Player.surfing = true
@@ -690,6 +714,16 @@ local function finishStep(game)
   session = session and session.getSession and session.getSession()
   if session then
     session.x, session.y, session.facing = Player.cellX, Player.cellY, Player.facing
+  end
+
+  if wasSurfing and not Player.surfing and not Player.surfHopping then
+    if Player.isOnCyclingRoad(session, Player.cellX, Player.cellY) then
+      Player.biking = true
+      pcall(function()
+        local Audio = require("src.core.game3.audio")
+        Audio.bikeMusic(true, true)
+      end)
+    end
   end
 
   if ModRuntime.wants("world.stepped") then

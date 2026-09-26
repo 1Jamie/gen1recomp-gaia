@@ -461,6 +461,9 @@ function Audio.specialMapSong(sectionId)
       and Audio.canOverrideMapMusic(Audio.MUS_SURF, sectionId) then
     return Audio.MUS_SURF
   end
+  if P and P.biking and Audio.canOverrideMapMusic(Audio.MUS_CYCLING, sectionId) then
+    return Audio.MUS_CYCLING
+  end
   return Audio._mapSong
 end
 

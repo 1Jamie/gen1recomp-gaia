@@ -36,6 +36,14 @@ local function wont_have_effect()
   return (RomText.box("gText_WontHaveEffect"))
 end
 
+local function cant_dismount_bike_text()
+  if RomText.has and RomText.has("gText_CantDismountBike") then
+    local ok, res = pcall(RomText.box, "gText_CantDismountBike")
+    if ok and res then return res end
+  end
+  return "You can't dismount your BIKE here."
+end
+
 -- pokefirered/src/data/pokemon/item_effects.h:80
 local HERB_HEAL = { [30] = 50, [31] = 200 }
 local ITEM_REVIVAL_HERB = 33
@@ -422,13 +430,18 @@ end
 
 -- pokefirered/src/item_use.c:253 FieldUseFunc_Bike
 function ItemUse.useBike(session)
+  local Player = require("src.core.game3.player")
+  -- pokefirered/src/item_use.c:261
+  if Player.biking and Player.isOnCyclingRoad and Player.isOnCyclingRoad(session) then
+    return false, "bike", cant_dismount_bike_text()
+  end
+
   -- pokefirered/src/overworld.c:948 Overworld_IsBikingAllowed
   local biking = map_header_flag(session, "bikingAllowed")
   if biking == nil then biking = is_outdoor(session) end
   if not biking then
     return false, "bike", not_the_time(session)
   end
-  local Player = require("src.core.game3.player")
   -- pokefirered/src/item_use.c:276 ItemUseOnFieldCB_Bicycle
   if not Player.biking then
     pcall(function()
