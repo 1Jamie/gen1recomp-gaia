@@ -96,6 +96,20 @@ function TilesetAnim.setVisiblePairs(visible)
   for pair in pairs(visible) do TilesetAnim._visible[pair] = true end
 end
 
+local function get_frame_piece(bank, frame, mi, frameRgba)
+  if not (love and love.image and love.image.newImageData) then return nil end
+  bank.pieces = bank.pieces or {}
+  local pKey = frame * 1000 + mi
+  local piece = bank.pieces[pKey]
+  if piece then return piece end
+  local ok, imgData = pcall(love.image.newImageData, 16, 16, "rgba8", frameRgba)
+  if ok and imgData then
+    bank.pieces[pKey] = imgData
+    return imgData
+  end
+  return nil
+end
+
 function TilesetAnim._applyKind(entry, kind, frame)
   local bank = entry.banks[kind]
   if not bank or bank.frames < 1 then return end
@@ -114,13 +128,11 @@ function TilesetAnim._applyKind(entry, kind, frame)
       local ax = (slot % cols) * 16
       local ay = math.floor(slot / cols) * 16
       local frameRgba = bank.rgba:sub(srcOff + 1, srcOff + MID_RGBA)
+      local piece = get_frame_piece(bank, frame, mi, frameRgba)
       local pasted = false
-      if love and love.image and love.image.newImageData then
-        local ok, piece = pcall(love.image.newImageData, 16, 16, "rgba8", frameRgba)
-        if ok and piece and ts.imageData.paste then
-          ts.imageData:paste(piece, ax, ay)
-          pasted = true
-        end
+      if piece and ts.imageData.paste then
+        ts.imageData:paste(piece, ax, ay)
+        pasted = true
       end
       if not pasted then
         local i = 1

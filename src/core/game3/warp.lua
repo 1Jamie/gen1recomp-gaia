@@ -1113,7 +1113,7 @@ function Warp.request(mod, game, mapId, x, y, facing, opts)
       Player.setVisible(true)
     end
     Doors.reset()
-    Fade.begin(fromMode, 1, function()
+    warpExitArrival(game, mapId, x, y, fromMode, function()
       Warp._busy = false
       releaseField(Field)
     end)

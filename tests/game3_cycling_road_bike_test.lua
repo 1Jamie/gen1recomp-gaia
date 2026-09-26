@@ -1,0 +1,152 @@
+#!/usr/bin/env luajit
+-- ROM-free unit tests for Game 3 (FireRed / LeafGreen) Cycling Road forced biking & dismount restrictions.
+
+package.path = "./?.lua;./?/init.lua;" .. package.path
+
+local failed, passed = 0, 0
+local function check(cond, msg)
+  if cond then
+    passed = passed + 1
+    print("[ok] " .. msg)
+  else
+    failed = failed + 1
+    print("[FAIL] " .. msg)
+  end
+end
+
+local Player = require("src.core.game3.player")
+local Flags = require("src.core.game3.scripting.flags")
+local ItemUse = require("src.core.game3.item_use")
+local Collision = require("src.core.game3.collision")
+local RomText = require("src.core.game3.rom_text")
+
+local session = {
+  flags = {},
+  vars = {},
+  store = { flags = {}, vars = {} }
+}
+
+-- 1. Test Player.isOnCyclingRoad
+Player.cellX, Player.cellY = 0, 0
+Flags.setFlag(session.store, nil, 0x830, false)
+check(not Player.isOnCyclingRoad(session, 0, 0), "isOnCyclingRoad is false by default on neutral tile")
+
+Flags.setFlag(session.store, nil, 0x830, true)
+check(Player.isOnCyclingRoad(session, 0, 0), "isOnCyclingRoad is true when FLAG_SYS_ON_CYCLING_ROAD is set")
+
+-- 2. Test Player.isOnCyclingRoad via metatile behaviors
+Flags.setFlag(session.store, nil, 0x830, false)
+Collision.behavior = function(x, y)
+  if x == 10 and y == 10 then return 0xD0 end -- MB_CYCLING_ROAD_PULL_DOWN
+  if x == 10 and y == 11 then return 0xD1 end -- MB_CYCLING_ROAD_PULL_DOWN_GRASS
+  return 0x00
+end
+
+check(Player.isOnCyclingRoad(session, 10, 10), "isOnCyclingRoad is true for MB_CYCLING_ROAD_PULL_DOWN")
+check(Player.isOnCyclingRoad(session, 10, 11), "isOnCyclingRoad is true for MB_CYCLING_ROAD_PULL_DOWN_GRASS")
+check(not Player.isOnCyclingRoad(session, 5, 5), "isOnCyclingRoad is false for normal tile without flag")
+
+-- 3. Test Surf dismount onto Cycling Road forces biking
+Flags.setFlag(session.store, nil, 0x830, true)
+Player.surfing = true
+Player.dismounting = true
+Player.biking = false
+Player.targetX, Player.targetY = 10, 10
+Player.cellX, Player.cellY = 10, 10
+Player.moving = true
+Player.surfHopping = false
+
+-- Step onto cycling road land and complete step
+local game = { session = session, save = { position = {} } }
+local Runtime = require("src.core.game3.runtime")
+Runtime.session = session
+
+-- Let's run Player.tick to complete the dismount step
+Player.progress = 1
+for _ = 1, 32 do
+  if not Player.moving then break end
+  Player.tick(game)
+end
+
+check(Player.biking == true, "dismounting surf onto cycling road forces Player.biking = true")
+check(Player.surfing == false, "Player.surfing is false after dismount")
+
+-- 4. Test Surf dismount onto non-cycling-road land keeps player on foot
+Flags.setFlag(session.store, nil, 0x830, false)
+Collision.behavior = function() return 0x00 end
+Player.surfing = true
+Player.dismounting = true
+Player.biking = false
+Player.targetX, Player.targetY = 0, 0
+Player.cellX, Player.cellY = 0, 0
+Player.moving = true
+Player.progress = 1
+
+for _ = 1, 32 do
+  if not Player.moving then break end
+  Player.tick(game)
+end
+
+check(Player.biking == false, "dismounting surf on normal land leaves Player.biking = false")
+check(Player.surfing == false, "Player.surfing is false after normal dismount")
+
+-- 5. Test ItemUse.useBike on Cycling Road (cannot dismount)
+session.map = "FR_PALLET_TOWN"
+Flags.setFlag(session.store, nil, 0x830, true)
+Player.biking = true
+local ok, kind, text = ItemUse.useBike(session)
+check(ok == false, "useBike returns false when trying to dismount on Cycling Road")
+check(Player.biking == true, "Player.biking remains true after attempted dismount")
+check(text ~= nil, "refusal text returned when trying to dismount on Cycling Road")
+
+-- 6. Test ItemUse.useBike when on foot on Cycling Road (can mount)
+Player.biking = false
+local ok2, kind2, text2 = ItemUse.useBike(session)
+check(ok2 == true, "useBike allows mounting when on foot on Cycling Road")
+check(Player.biking == true, "Player.biking becomes true after mounting")
+
+-- 7. Test ItemUse.useBike on normal outdoor land (can dismount and mount freely)
+Flags.setFlag(session.store, nil, 0x830, false)
+Player.biking = true
+local ok3, kind3, text3 = ItemUse.useBike(session)
+check(ok3 == true, "useBike allows dismounting on normal land")
+check(Player.biking == false, "Player.biking is now false")
+
+-- 8. Test save & load / Map.load on Cycling Road forces Player.biking = true
+local Map = require("src.core.game3.map")
+local Audio = require("src.core.game3.audio")
+local Schema = require("src.core.game3.save_schema_firered")
+
+-- Simulate fresh boot / uninitialized avatar state:
+Player.biking = false
+Flags.setFlag(session.store, nil, 0x830, true)
+session.flags = session.flags or {}
+session.flags[0x830] = true
+local cyclingMapDef = {
+  id = "FR_ROUTE_17",
+  bikingAllowed = 1,
+  music = 282,
+  regionMapSectionId = 44,
+  pair = "outdoor",
+}
+game.data = { maps = { FR_ROUTE_17 = cyclingMapDef } }
+game.session = session
+local Space = require("src.core.game3.scripting.space")
+Space.store = session.store
+Space.activate = function() end
+Space.runEnterScripts = function() end
+
+Map.load(nil, game, "FR_ROUTE_17", { x = 10, y = 10, facing = "down" })
+check(Player.biking == true, "loading/continuing map on Cycling Road forces Player.biking = true")
+check(Audio.specialMapSong() == Audio.MUS_CYCLING, "specialMapSong returns Audio.MUS_CYCLING when biking")
+
+-- 9. Test Schema serialization preserves biking state
+session.biking = Player.biking
+local saveTable = Schema.toSaveTable(session)
+check(saveTable.biking == true, "Schema.toSaveTable includes biking = true")
+local restoredSession = Schema.fromSaveTable(saveTable)
+check(restoredSession.biking == true, "Schema.fromSaveTable restores biking = true")
+
+print(string.format("=== RESULTS: %d passed, %d failed ===", passed, failed))
+if failed > 0 then os.exit(1) end
+

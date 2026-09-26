@@ -155,9 +155,10 @@ do
   eot(st2, ad2)
   check(ad2:hp(st2.player) == 51 and st2.player.item == 142, "Sitrus waits until HP <= 1/2")
 
-  local st3, ad3 = battle({ item = 139, hp = 10, maxHp = 100 }, { moves = { 33 } })
+  local st3, ad3 = battle({ item = 139, hp = 60, maxHp = 100 }, { moves = { 33 } })
   use(st3, ad3, st3.enemy, 33)
-  check(st3.player.item == 139, "HP berries do not trigger mid-turn (moveTurn)")
+  check(st3.player.item == 0 and st3.playerParty[1].item == nil, "HP berries trigger and are consumed mid-turn when HP drops")
+  check(ad3:hp(st3.player) > (60 - 35), "Oran Berry healed after taking damage")
 end
 
 print("=== CHERI / LUM / PERSIM at move end ===")

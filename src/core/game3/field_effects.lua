@@ -45,6 +45,28 @@ local FLY_BIRD_W, FLY_BIRD_H, FLY_BIRD_FRAMES = 64, 64, 5
 -- Forward-declared so field-effect starters defined above the body can call it.
 local play_se
 
+local _M = {}
+local function getMod(key, path)
+  local m = _M[key]
+  if not m then
+    m = package.loaded[path]
+    if not m then
+      local ok, loaded = pcall(require, path)
+      if ok then m = loaded end
+    end
+    _M[key] = m
+  end
+  return m
+end
+
+local function modFieldView() return getMod("FieldView", "src.core.game3.field_view") end
+local function modHeal() return getMod("Heal", "src.core.game3.pokecenter_heal") end
+local function modShowMon() return getMod("ShowMon", "src.core.game3.field_move_show_mon") end
+local function modItemfinder() return getMod("Itemfinder", "src.core.game3.itemfinder") end
+local function modAudio() return getMod("Audio", "src.core.game3.audio") end
+local function modOwSprites() return getMod("OwSprites", "src.core.game3.ow_sprites") end
+local function modRenderer() return getMod("Renderer", "src.render.Renderer") end
+
 local function log(msg)
   if FieldEffects._logged then return end
   FieldEffects._logged = true
@@ -112,14 +134,15 @@ function FieldEffects.install(cache)
   FieldEffects._ground = nil
   FieldEffects._surfClock = 0
   FieldEffects._logged = false
-  local okV, FieldView = pcall(require, "src.core.game3.field_view")
-  if okV and FieldView and FieldView.setCameraPanning then
+  local FieldView = modFieldView()
+  if FieldView and FieldView.setCameraPanning then
     FieldView.setCameraPanning(0, 0)
     FieldView.setFlashRadius(nil)
   end
-  local ok, Heal = pcall(require, "src.core.game3.pokecenter_heal")
-  if ok and Heal and Heal.install then Heal.install(cache) end
-  require("src.core.game3.field_move_show_mon").invalidate()
+  local Heal = modHeal()
+  if Heal and Heal.install then Heal.install(cache) end
+  local ShowMon = modShowMon()
+  if ShowMon and ShowMon.invalidate then ShowMon.invalidate() end
 end
 
 function FieldEffects.invalidate()
@@ -127,14 +150,15 @@ function FieldEffects.invalidate()
   FieldEffects._fx = nil
   FieldEffects._anims = {}
   FieldEffects._ground = nil
-  local okV, FieldView = pcall(require, "src.core.game3.field_view")
-  if okV and FieldView and FieldView.setCameraPanning then
+  local FieldView = modFieldView()
+  if FieldView and FieldView.setCameraPanning then
     FieldView.setCameraPanning(0, 0)
     FieldView.setFlashRadius(nil)
   end
-  local ok, Heal = pcall(require, "src.core.game3.pokecenter_heal")
-  if ok and Heal and Heal.invalidate then Heal.invalidate() end
-  require("src.core.game3.field_move_show_mon").invalidate()
+  local Heal = modHeal()
+  if Heal and Heal.invalidate then Heal.invalidate() end
+  local ShowMon = modShowMon()
+  if ShowMon and ShowMon.invalidate then ShowMon.invalidate() end
 end
 
 -- ---------------------------------------------------------------- Tall Grass
@@ -246,15 +270,9 @@ function FieldEffects.startRockSmash(targetObj, cx, cy, onDone)
   table.insert(FieldEffects._anims, anim)
 end
 
-local function fieldView()
-  local ok, FieldView = pcall(require, "src.core.game3.field_view")
-  if ok and type(FieldView) == "table" then return FieldView end
-  return nil
-end
-
 --- pokefirered/src/field_screen_effect.c:194
 function FieldEffects.animateFlashLevel(fromLevel, toLevel)
-  local FieldView = fieldView()
+  local FieldView = modFieldView()
   if not FieldView then return nil end
   local from = FieldView.radiusForLevel(fromLevel)
   local to = FieldView.radiusForLevel(toLevel)
@@ -287,7 +305,7 @@ function FieldEffects.startFlash(onDone)
   }
   table.insert(FieldEffects._anims, anim)
   -- pokefirered/data/scripts/flash.inc:2
-  local FieldView = fieldView()
+  local FieldView = modFieldView()
   local levelAnim
   if FieldView and FieldView.getFlashLevel and FieldView.getFlashLevel() ~= 0 then
     levelAnim = FieldEffects.animateFlashLevel(FieldView.getFlashLevel(), 0)
@@ -863,8 +881,8 @@ function FieldEffects.startDestroyDeoxysRock(localId, graphicsId)
   -- shards start at the rock's own top-left corner (4px higher) and fly apart.
   -- eo.px/py is the cell's foot point, so undo the offset OwSprites.draw adds.
   local originX, originY = x - 8, y - 20
-  local okO, OwSprites = pcall(require, "src.core.game3.ow_sprites")
-  if okO and OwSprites and OwSprites.getDraw then
+  local OwSprites = modOwSprites()
+  if OwSprites and OwSprites.getDraw then
     local spr = OwSprites.getDraw(graphicsId)
     if spr and spr.width and spr.height then
       originX = x + (16 - spr.width) / 2
@@ -941,8 +959,8 @@ function FieldEffects.startEmote(targetObj, emoteType, onDone)
   table.insert(FieldEffects._anims, anim)
   if emoteType == "exclamation" or emoteType == 0 or emoteType == 0x62 or
      emoteType == "double_exclamation" or emoteType == 1 or emoteType == 0x65 then
-    local okA, Audio = pcall(require, "src.core.game3.audio")
-    if okA and Audio and Audio.playSe then
+    local Audio = modAudio()
+    if Audio and Audio.playSe then
       Audio.playSe(21) -- SE_PIN
     end
   end
@@ -998,8 +1016,8 @@ local function anim_frame(seq, t, loop)
 end
 
 function play_se(id)
-  local okA, Audio = pcall(require, "src.core.game3.audio")
-  if okA and Audio and Audio.playSe then Audio.playSe(id) end
+  local Audio = modAudio()
+  if Audio and Audio.playSe then Audio.playSe(id) end
 end
 
 -- ------------------------------------------------- setfieldeffectargument plumbing
@@ -1321,7 +1339,7 @@ function FieldEffects.step()
       end
     elseif anim.kind == "flash_level" then
       -- pokefirered/src/field_screen_effect.c:119
-      local FieldView = fieldView()
+      local FieldView = modFieldView()
       if not FieldView then
         finished = true
       elseif anim.state == 2 then
@@ -1345,7 +1363,7 @@ function FieldEffects.step()
         end
       end
     elseif anim.kind == "camera_shake" then
-      local FieldView = fieldView()
+      local FieldView = modFieldView()
       if not FieldView then
         finished = true
       elseif anim.amp == 0 then
@@ -1428,7 +1446,7 @@ function FieldEffects.step()
       end
     elseif anim.kind == "deoxys_rock_destroy" then
       -- pokefirered/src/field_effect.c:3860 DestroyDeoxysRockEffect_*
-      local FieldView = fieldView()
+      local FieldView = modFieldView()
       if anim.state == "shake" then
         -- Task_DeoxysRockCameraShake (data[7]==0): full amplitude, sign flips
         -- when data[0] passes 1, i.e. every other frame.
@@ -1496,9 +1514,10 @@ function FieldEffects.step()
 
   resolve_waiters()
 
-  local ok, Heal = pcall(require, "src.core.game3.pokecenter_heal")
-  if ok and Heal and Heal.step then Heal.step() end
-  require("src.core.game3.field_move_show_mon").step()
+  local Heal = modHeal()
+  if Heal and Heal.step then Heal.step() end
+  local ShowMon = modShowMon()
+  if ShowMon and ShowMon.step then ShowMon.step() end
 end
 
 -- ---------------------------------------------------------------- Drawing
@@ -1586,38 +1605,193 @@ function FieldEffects.drawBehind(camX, camY)
   end
 end
 
---- Draw in front of player (feet cover, cut grass particles, rock smash rubble, bird, ripples)
-function FieldEffects.drawFront(camX, camY, playerPy)
-  camX, camY = camX or 0, camY or 0
+--- Collect ground/feet field effects as sorted actors (OAM Y-ordering with players/NPCs).
+function FieldEffects.collectActors(actors)
+  if not actors then return end
 
-  -- 1) Tall grass feet cover
+  -- 1) Tall grass feet cover (player active effect)
   local fx = FieldEffects._fx
-  if fx then
-    local sheet = load_sheet("tall_grass", 16, 16, 5)
-    if sheet and sheet.quadsFront then
-      local drawCover = true
-      if playerPy ~= nil then
-        local feetY = playerPy + CELL
-        local grassTop = fx.cy * CELL
-        local grassBot = grassTop + CELL
-        if feetY < grassTop + FEET_H or feetY > grassBot + 2 then
-          drawCover = false
-        end
+  local sheetGrass = load_sheet("tall_grass", 16, 16, 5)
+  if fx and sheetGrass and sheetGrass.quadsFront then
+    local P = package.loaded["src.core.game3.player"]
+    local playerPy = P and P.py
+    local drawCover = true
+    if playerPy ~= nil then
+      local feetY = playerPy + CELL
+      local grassTop = fx.cy * CELL
+      local grassBot = grassTop + CELL
+      if feetY < grassTop + FEET_H or feetY > grassBot + 2 then
+        drawCover = false
       end
-      if drawCover then
-        local frameIdx = RUSTLE[fx.step + 1] or 0
-        local q = sheet.quadsFront[frameIdx]
-        if q then
-          local sx = fx.cx * CELL - camX
-          local sy = fx.cy * CELL - camY + (16 - FEET_H)
-          love.graphics.setColor(1, 1, 1, 1)
-          love.graphics.draw(sheet.image, q, sx, sy)
+    end
+    if drawCover then
+      local frameIdx = RUSTLE[fx.step + 1] or 0
+      local q = sheetGrass.quadsFront[frameIdx]
+      if q then
+        local gx = fx.cx * CELL
+        local gy = fx.cy * CELL + (16 - FEET_H)
+        actors[#actors + 1] = {
+          kind = "field_effect_grass",
+          elevation = P and P.elevation or 3,
+          sortY = fx.cy * CELL + 0.5,
+          x = gx,
+          y = gy,
+          i = 90000,
+          draw = function(_, camX, camY)
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.draw(sheetGrass.image, q, gx - camX, gy - camY)
+          end,
+        }
+      end
+    end
+  end
+
+  -- 2) Grass feet cover for NPCs standing on grass
+  local Objects = package.loaded["src.core.game3.objects"]
+  local Collision = package.loaded["src.core.game3.collision"]
+  if Objects and Objects.forDraw and Collision and Collision.isGrass and sheetGrass and sheetGrass.quadsFront then
+    local qStatic = sheetGrass.quadsFront[4]
+    if qStatic then
+      for _, eo in ipairs(Objects.forDraw()) do
+        local cx = eo.cellX
+        local cy = eo.cellY
+        local isPlayerFx = fx and fx.cx == cx and fx.cy == cy
+        if not isPlayerFx and cx and cy and Collision.isGrass(cx, cy) then
+          local npcPy = eo.py or (cy * CELL)
+          local feetY = npcPy + CELL
+          local grassTop = cy * CELL
+          local grassBot = grassTop + CELL
+          if feetY >= grassTop + FEET_H and feetY <= grassBot + 2 then
+            local gx = cx * CELL
+            local gy = cy * CELL + (16 - FEET_H)
+            actors[#actors + 1] = {
+              kind = "field_effect_npc_grass",
+              elevation = eo.elevation or (eo.def and eo.def.elevation) or 3,
+              sortY = npcPy + 0.5,
+              x = gx,
+              y = gy,
+              i = 90000 + (tonumber(eo.localId) or 0),
+              draw = function(_, camX, camY)
+                love.graphics.setColor(1, 1, 1, 1)
+                love.graphics.draw(sheetGrass.image, qStatic, gx - camX, gy - camY)
+              end,
+            }
+          end
         end
       end
     end
   end
 
-  -- 2) Transient particle animations
+  -- 3) Ground / actor attached transient animations
+  local P = package.loaded["src.core.game3.player"]
+  for idx, anim in ipairs(FieldEffects._anims) do
+    if anim.kind == "splash" or anim.kind == "feet_water" then
+      local sheet = load_sheet("splash", 16, 8, 2)
+      local q = sheet and P and sheet.quads[anim.frame or 0]
+      if q and P then
+        local px = P.px
+        local py = P.py + FEET_H
+        actors[#actors + 1] = {
+          kind = "field_effect_splash",
+          elevation = P.elevation or 3,
+          sortY = P.py + 0.5,
+          x = px,
+          y = py,
+          i = 91000 + idx,
+          draw = function(_, camX, camY)
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.draw(sheet.image, q, px - camX, py - camY)
+          end,
+        }
+      end
+    elseif anim.kind == "dust" then
+      local sheet = load_sheet("ground_impact_dust", 16, 8, 3)
+      local q = sheet and sheet.quads[anim.frame or 0]
+      if q then
+        local dx = anim.cx * CELL
+        local dy = anim.cy * CELL + 8
+        actors[#actors + 1] = {
+          kind = "field_effect_dust",
+          elevation = 3,
+          sortY = anim.cy * CELL + 0.5,
+          x = dx,
+          y = dy,
+          i = 91000 + idx,
+          draw = function(_, camX, camY)
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.draw(sheet.image, q, dx - camX, dy - camY)
+          end,
+        }
+      end
+    elseif anim.kind == "hot_springs" then
+      local sheet = load_sheet("hot_springs_water", 16, 16, 1)
+      local q = sheet and P and sheet.quads[0]
+      if q and P then
+        local px = P.px
+        local py = P.py
+        actors[#actors + 1] = {
+          kind = "field_effect_hot_springs",
+          elevation = P.elevation or 3,
+          sortY = P.py + 0.5,
+          x = px,
+          y = py,
+          i = 91000 + idx,
+          draw = function(_, camX, camY)
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.draw(sheet.image, q, px - camX, py - camY)
+          end,
+        }
+      end
+    elseif anim.kind == "cut_tree" then
+      local sheet = load_sheet("cut_tree", 32, 32, 4)
+      local f = math.min(3, math.floor((anim.timer or 0) / 6))
+      local q = sheet and sheet.quads[f]
+      if q then
+        local tx = anim.cx * CELL - 8
+        local ty = anim.cy * CELL - 16
+        actors[#actors + 1] = {
+          kind = "field_effect_cut_tree",
+          elevation = 3,
+          sortY = anim.cy * CELL,
+          x = tx,
+          y = ty,
+          i = 91000 + idx,
+          draw = function(_, camX, camY)
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.draw(sheet.image, q, tx - camX, ty - camY)
+          end,
+        }
+      end
+    elseif anim.kind == "emote" or anim.kind == "exclamation" then
+      local sheet = load_sheet("emoticons", 16, 16, 15)
+      if sheet and sheet.quads[anim.frame] then
+        local t = anim.targetObj
+        local ox = t and (t.px or (t.cellX and t.cellX * CELL) or (t.x and t.x * CELL)) or 0
+        local oy = t and (t.py or (t.cellY and t.cellY * CELL) or (t.y and t.y * CELL)) or 0
+        local sx = ox
+        local sy = oy - 16
+        actors[#actors + 1] = {
+          kind = "field_effect_emote",
+          elevation = t and t.elevation or 3,
+          sortY = oy + 0.5,
+          x = sx,
+          y = sy,
+          i = 91000 + idx,
+          draw = function(_, camX, camY)
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.draw(sheet.image, sheet.quads[anim.frame], sx - camX, sy - camY)
+          end,
+        }
+      end
+    end
+  end
+end
+
+--- Draw in front of all actors (floating/airborne particles, rock smash rubble, bird)
+function FieldEffects.drawFront(camX, camY, playerPy)
+  camX, camY = camX or 0, camY or 0
+
+  -- Transient airborne particle animations
   for _, anim in ipairs(FieldEffects._anims) do
     if anim.kind == "cut_grass_scatter" then
       local sheet = load_sheet("cut_grass", 8, 8, 1)
@@ -1661,43 +1835,6 @@ function FieldEffects.drawFront(camX, camY, playerPy)
       end
     elseif (anim.kind == "fly_out" or anim.kind == "fly_in") and anim.bird then
       draw_bird(anim.bird, camX, camY)
-    elseif anim.kind == "emote" or anim.kind == "exclamation" then
-      local sheet = load_sheet("emoticons", 16, 16, 15)
-      if sheet and sheet.quads[anim.frame] then
-        local t = anim.targetObj
-        local ox = t and (t.px or (t.cellX and t.cellX * CELL) or (t.x and t.x * CELL)) or 0
-        local oy = t and (t.py or (t.cellY and t.cellY * CELL) or (t.y and t.y * CELL)) or 0
-        local sx = ox - camX
-        local sy = oy - 16 - camY
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(sheet.image, sheet.quads[anim.frame], sx, sy)
-      end
-    elseif anim.kind == "splash" or anim.kind == "feet_water" then
-      -- pokefirered/src/field_effect_helpers.c:598 FldEff_Splash
-      local sheet = load_sheet("splash", 16, 8, 2)
-      local P = package.loaded["src.core.game3.player"]
-      local q = sheet and P and sheet.quads[anim.frame or 0]
-      if q then
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(sheet.image, q, P.px - camX, P.py + FEET_H - camY)
-      end
-    elseif anim.kind == "dust" then
-      -- pokefirered/src/field_effect_helpers.c:1117
-      local sheet = load_sheet("ground_impact_dust", 16, 8, 3)
-      local q = sheet and sheet.quads[anim.frame or 0]
-      if q then
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(sheet.image, q, anim.cx * CELL - camX, anim.cy * CELL + 8 - camY)
-      end
-    elseif anim.kind == "hot_springs" then
-      -- pokefirered/src/field_effect_helpers.c:777 UpdateHotSpringsWaterFieldEffect
-      local sheet = load_sheet("hot_springs_water", 16, 16, 1)
-      local P = package.loaded["src.core.game3.player"]
-      local q = sheet and P and sheet.quads[0]
-      if q then
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(sheet.image, q, P.px - camX, P.py - camY)
-      end
     end
   end
 end
@@ -1711,8 +1848,8 @@ function FieldEffects.drawOverlay(camX, camY)
   -- 1) Flash screen illumination
   for _, anim in ipairs(FieldEffects._anims) do
     if anim.kind == "flash" and anim.alpha > 0 then
-      local okR, Renderer = pcall(require, "src.render.Renderer")
-      if okR and Renderer and Renderer.canvas then
+      local Renderer = modRenderer()
+      if Renderer and Renderer.canvas then
         Renderer.screenVeil = { 1, 1, 1, anim.alpha }
       else
         love.graphics.setColor(1, 1, 1, anim.alpha)
@@ -1736,10 +1873,12 @@ function FieldEffects.drawOverlay(camX, camY)
     end
   end
 
-  local ok, Heal = pcall(require, "src.core.game3.pokecenter_heal")
-  if ok and Heal and Heal.draw then Heal.draw(camX, camY) end
-  require("src.core.game3.itemfinder").draw()
-  require("src.core.game3.field_move_show_mon").draw()
+  local Heal = modHeal()
+  if Heal and Heal.draw then Heal.draw(camX, camY) end
+  local Itemfinder = modItemfinder()
+  if Itemfinder and Itemfinder.draw then Itemfinder.draw() end
+  local ShowMon = modShowMon()
+  if ShowMon and ShowMon.draw then ShowMon.draw() end
 end
 
 --- pret dofieldeffect / waitfieldeffect for FLDEFF_POKECENTER_HEAL (25).
@@ -1759,8 +1898,8 @@ function FieldEffects.doFieldEffect(id)
     local localId = FieldEffects.fieldEffectArgument(0, 1)
     return FieldEffects.startDestroyDeoxysRock(localId) ~= nil
   end
-  local ok, Heal = pcall(require, "src.core.game3.pokecenter_heal")
-  if ok and Heal and id == Heal.FLDEFF then
+  local Heal = modHeal()
+  if Heal and id == Heal.FLDEFF then
     return Heal.start()
   end
   return false
@@ -1777,8 +1916,8 @@ function FieldEffects.waitFieldEffect(id, done)
     FieldEffects._waiters[#FieldEffects._waiters + 1] = { id = id, done = done }
     return
   end
-  local ok, Heal = pcall(require, "src.core.game3.pokecenter_heal")
-  if ok and Heal and id == Heal.FLDEFF then
+  local Heal = modHeal()
+  if Heal and id == Heal.FLDEFF then
     Heal.wait(done)
     return
   end
@@ -1794,8 +1933,8 @@ function FieldEffects.isFieldEffectActive(id)
     end
     return false
   end
-  local ok, Heal = pcall(require, "src.core.game3.pokecenter_heal")
-  if ok and Heal and id == Heal.FLDEFF then
+  local Heal = modHeal()
+  if Heal and id == Heal.FLDEFF then
     return Heal.isActive()
   end
   return false
