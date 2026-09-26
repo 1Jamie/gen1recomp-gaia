@@ -305,7 +305,7 @@ function FieldEffects.startFlash(onDone)
   }
   table.insert(FieldEffects._anims, anim)
   -- pokefirered/data/scripts/flash.inc:2
-  local FieldView = fieldView()
+  local FieldView = modFieldView()
   local levelAnim
   if FieldView and FieldView.getFlashLevel and FieldView.getFlashLevel() ~= 0 then
     levelAnim = FieldEffects.animateFlashLevel(FieldView.getFlashLevel(), 0)
@@ -1339,7 +1339,7 @@ function FieldEffects.step()
       end
     elseif anim.kind == "flash_level" then
       -- pokefirered/src/field_screen_effect.c:119
-      local FieldView = fieldView()
+      local FieldView = modFieldView()
       if not FieldView then
         finished = true
       elseif anim.state == 2 then
@@ -1363,7 +1363,7 @@ function FieldEffects.step()
         end
       end
     elseif anim.kind == "camera_shake" then
-      local FieldView = fieldView()
+      local FieldView = modFieldView()
       if not FieldView then
         finished = true
       elseif anim.amp == 0 then
@@ -1446,7 +1446,7 @@ function FieldEffects.step()
       end
     elseif anim.kind == "deoxys_rock_destroy" then
       -- pokefirered/src/field_effect.c:3860 DestroyDeoxysRockEffect_*
-      local FieldView = fieldView()
+      local FieldView = modFieldView()
       if anim.state == "shake" then
         -- Task_DeoxysRockCameraShake (data[7]==0): full amplitude, sign flips
         -- when data[0] passes 1, i.e. every other frame.

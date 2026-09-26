@@ -307,29 +307,6 @@ function Map.load(mod, game, mapId, opts)
   Map.ensureMidLayout(game, mapId, def)
   Map._def = def
   Map._currentDef = def
-  local Player = require("src.core.game3.player")
-  local curSession = (Runtime and Runtime.getSession and Runtime.getSession())
-    or (game and game.session) or session
-  local onCyclingRoad = Player.isOnCyclingRoad and Player.isOnCyclingRoad(curSession, x, y)
-  local wasBiking = Player.biking or (curSession and curSession.biking == true)
-    or (save and save.biking == true)
-
-  -- pokefirered/src/overworld.c:878 GetAdjustedInitialTransitionFlags
-  local keepBike = false
-  if wasBiking or onCyclingRoad then
-    local allowed = def and def.bikingAllowed
-    if allowed ~= nil then
-      -- pokefirered/src/overworld.c:948 Overworld_IsBikingAllowed
-      keepBike = (tonumber(allowed) or 0) ~= 0
-    else
-      local pair = def and (def.pair or (def.midLayout and def.midLayout.pair))
-      keepBike = type(pair) == "string" and pair:find("outdoor", 1, true) ~= nil
-    end
-    if onCyclingRoad and not (Player.surfing or Player.surfHopping) then
-      keepBike = true
-    end
-    Player.biking = keepBike
-  end
   if opts.depth1Connections ~= false then
     Map.loadNeighborsDepth1(game, def)
   else
@@ -350,6 +327,29 @@ function Map.load(mod, game, mapId, opts)
   end
 
   local session = Runtime.getSession and Runtime.getSession()
+  local save = game and game.save
+  local Player = require("src.core.game3.player")
+  local onCyclingRoad = Player.isOnCyclingRoad and Player.isOnCyclingRoad(session, x, y)
+  local wasBiking = Player.biking or (session and session.biking == true)
+    or (save and save.biking == true)
+
+  -- pokefirered/src/overworld.c:878 GetAdjustedInitialTransitionFlags
+  local keepBike = false
+  if wasBiking or onCyclingRoad then
+    local allowed = def and def.bikingAllowed
+    if allowed ~= nil then
+      -- pokefirered/src/overworld.c:948 Overworld_IsBikingAllowed
+      keepBike = (tonumber(allowed) or 0) ~= 0
+    else
+      local pair = def and (def.pair or (def.midLayout and def.midLayout.pair))
+      keepBike = type(pair) == "string" and pair:find("outdoor", 1, true) ~= nil
+    end
+    if onCyclingRoad and not (Player.surfing or Player.surfHopping) then
+      keepBike = true
+    end
+    Player.biking = keepBike
+  end
+
   if session then
     session.map = mapId
     session.x = x
@@ -359,7 +359,6 @@ function Map.load(mod, game, mapId, opts)
   end
 
   -- Keep save.position current for ferry exit / host save without setMap.
-  local save = game and game.save
   if save then
     save.position = save.position or {}
     save.position.map = mapId
@@ -369,7 +368,6 @@ function Map.load(mod, game, mapId, opts)
     save.biking = keepBike
   end
 
-  local Player = require("src.core.game3.player")
   if opts.seamless then
     -- Connection remap (pret LoadMapFromCameraTransition): keep mid-step motion.
     -- Caller parks one cell before landing and sets target toward landing.
