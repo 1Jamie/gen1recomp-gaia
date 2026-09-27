@@ -92,6 +92,7 @@ tools/reimport.local
 
 # Local options / preferences
 /options.lua*
+/mod_option_schemas.json
 
 # User-owned ROMs imported for individual mods. Manifests declare the
 # destinations, but source checkouts and packaged mods never ship the files.

@@ -24,6 +24,8 @@ end
 -- and answer getDirectoryItems("mods") with just the selected aliases
 local function aliasFs(inner, alias)
   local fs = { root = inner.root }
+  local overlay = {}
+  local loadstr = loadstring or load
 
   local function map(path)
     if path == nil then return path end
@@ -37,12 +39,21 @@ local function aliasFs(inner, alias)
     return path
   end
 
-  function fs.read(path) return inner.read(map(path)) end
-  function fs.write(path, body) return inner.write(map(path), body) end
-  function fs.load(path) return inner.load(map(path)) end
+  function fs.read(path)
+    local key = map(path)
+    if overlay[key] ~= nil then return overlay[key] end
+    return inner.read(key)
+  end
+  function fs.write(path, body) overlay[map(path)] = body return true end
+  function fs.load(path)
+    local key = map(path)
+    if overlay[key] ~= nil then return loadstr(overlay[key], "@" .. key) end
+    return inner.load(key)
+  end
 
   function fs.getInfo(path)
     if path == "mods" then return { type = "directory" } end
+    if overlay[map(path)] ~= nil then return { type = "file" } end
     return inner.getInfo(map(path))
   end
 
