@@ -26,6 +26,11 @@ local MODULES = {
   oldMan = "src.core.game3.rse.old_man",
   dewfordTrend = "src.core.game3.rse.dewford_trend",
   lilycoveLady = "src.core.game3.rse.lilycove_lady",
+  daycareMail = "src.core.game3.rse.daycare_mail_mix",
+  tower = "src.core.game3.rse.frontier.tower",
+  gift = "src.core.game3.rse.record_mixing_gift",
+  apprentice = "src.core.game3.rse.frontier.apprentice",
+  rankingHall = "src.core.game3.rse.frontier.ranking_hall",
 }
 
 local function system(name)
@@ -74,27 +79,35 @@ function RecordMix.fromWire(v)
 end
 
 -- pokeemerald/src/record_mixing.c:220 PrepareExchangePacket
-function RecordMix.packet(session)
+function RecordMix.packet(session, multiplayerId)
   session = sessionOf(session)
+  local sess = type(session) == "table" and session or {}
+  local MixUtil = require("src.core.game3.rse.record_mix_util")
   local out = {
-    version = type(session) == "table" and session.version or Family.activeVersion(),
-    trainerId = tonumber(type(session) == "table" and (session.trainerId or session.id)) or 0,
-    name = type(session) == "table" and (session.name or session.playerName) or nil,
+    version = sess.version or Family.activeVersion(),
+    trainerId = tonumber(sess.trainerId or sess.id) or 0,
+    linkTrainerId = MixUtil.sessionLinkTrainerId(sess),
+    language = MixUtil.GAME_LANGUAGE,
+    name = sess.name or sess.playerName,
   }
-  local tvData = call(system("tv"), "mixExport", session)
+  out.secretBases = call(system("secretBase"), "mixExport", session)
+  local Tv = system("tv")
+  pcall(function() Tv.deactivateAllNormalShows(session) end)
+  local tvData = call(Tv, "mixExport", session)
   if type(tvData) == "table" then
     out.tvShows, out.pokeNews = tvData.tvShows, tvData.pokeNews
   end
-  out.secretBases = call(system("secretBase"), "mixExport", session)
   out.oldMan = call(system("oldMan"), "mixExport", session)
-  out.dewfordTrends = call(system("dewfordTrend"), "mixExport", session)
   local lady = system("lilycoveLady")
-  out.lilycoveLady = lady and deep(call(lady, "state", session)) or nil
+  out.lilycoveLady = call(lady, "mixExport", session)
+  if out.lilycoveLady == nil then out.lilycoveLady = deep(call(lady, "state", session)) end
+  out.dewfordTrends = call(system("dewfordTrend"), "mixExport", session)
+  out.daycareMail = call(system("daycareMail"), "mixExport", session)
+  out.battleTowerRecord = call(system("tower"), "mixExport", session)
+  out.giftItem = call(system("gift"), "mixExport", session, tonumber(multiplayerId) or 0) or 0
+  out.apprentices = call(system("apprentice"), "mixExport", session)
+  out.hallRecords = call(system("rankingHall"), "mixExport", session)
   return deep(out)
-end
-
-local function tvModule()
-  return system("tv")
 end
 
 -- pokeemerald/src/record_mixing.c:253 ReceiveExchangePacket
@@ -104,12 +117,12 @@ function RecordMix.receive(session, packets, myIndex, logger)
   for i, p in ipairs(packets or {}) do players[i] = type(p) == "table" and deep(p) or {} end
   myIndex = tonumber(myIndex) or 1
   local applied = {}
-  local sb = system("secretBase")
+  local randSum = call(system("daycareMail"), "randSum", players[1] and players[1].tvShows) or 0
   local bases = {}
   for i, p in ipairs(players) do bases[i] = p.secretBases or {} end
-  local _, okS = call(sb, "mixImport", session, bases)
+  local _, okS = call(system("secretBase"), "mixImport", session, bases, myIndex)
   applied.secretBases = okS
-  local Tv = tvModule()
+  local Tv = system("tv")
   local tvPlayers = {}
   for i, p in ipairs(players) do
     tvPlayers[i] = { tvShows = p.tvShows or {}, pokeNews = p.pokeNews or {}, trainerId = p.trainerId }
@@ -118,14 +131,20 @@ function RecordMix.receive(session, packets, myIndex, logger)
   applied.tvShows = okTv
   local _, okNews = call(Tv, "receivePokeNews", session, tvPlayers, myIndex)
   applied.pokeNews = okNews
-  local oldMan = system("oldMan")
-  local _, okOld = call(oldMan, "mixImport", players, session, myIndex)
+  local _, okOld = call(system("oldMan"), "mixImport", players, session, myIndex)
   applied.oldMan = okOld
   if not okOld then rse().missing("oldMan", "ReceiveOldManData", logger) end
   local trends = {}
   for i, p in ipairs(players) do trends[i] = p.dewfordTrends or {} end
   local _, okDew = call(system("dewfordTrend"), "mixImport", trends, session)
   applied.dewfordTrends = okDew
+  local _, okMail = call(system("daycareMail"), "mixImport", players, session, myIndex, randSum)
+  applied.daycareMail = okMail
+  local _, okTower = call(system("tower"), "mixImport", players, session, myIndex)
+  applied.battleTower = okTower
+  local gift, okGift = call(system("gift"), "mixImport", players, session, myIndex)
+  applied.giftItem = okGift
+  applied.gift = gift
   local lady = system("lilycoveLady")
   local _, okLady = call(lady, "mixImport", players, session, myIndex)
   if not okLady then
@@ -134,7 +153,10 @@ function RecordMix.receive(session, packets, myIndex, logger)
     rse().missing("lilycoveLady", "ReceiveLilycoveLadyData", logger)
   end
   applied.lilycoveLady = okLady
-  rse().missing("recordMixing", "ReceiveDaycareMailData/ReceiveBattleTowerData/ReceiveGiftItem/ReceiveApprenticeData/ReceiveRankingHallRecords", logger)
+  local _, okApp = call(system("apprentice"), "mixImport", players, session, myIndex)
+  applied.apprentices = okApp
+  local _, okHall = call(system("rankingHall"), "mixImport", players, session, myIndex)
+  applied.hallRecords = okHall
   RecordMix.last = { players = #players, myIndex = myIndex, applied = applied }
   return applied
 end
@@ -178,7 +200,7 @@ function RecordMix.playerSpotTriggered(ctx, adapters)
   local spot = L.getVar(ctx, LB.VAR_0x8005)
   -- pokeemerald/src/record_mixing.c:321
   varSet(ctx, session, "VAR_TEMP_MIXED_RECORDS", 1)
-  local mine = RecordMix.packet(session)
+  local mine = RecordMix.packet(session, spot)
   mine.spot = spot
   lk:send({ type = RecordMix.MSG.PACKET, spot = spot, packet = RecordMix.toWire(mine) })
   RecordMix.state = "mixing"
@@ -217,7 +239,13 @@ function RecordMix.playerSpotTriggered(ctx, adapters)
       packets[i] = row.packet
       if row.mine then myIndex = i end
     end
-    RecordMix.receive(session, packets, myIndex, adapters and adapters.log)
+    local applied = RecordMix.receive(session, packets, myIndex, adapters and adapters.log)
+    local gift = applied and applied.gift
+    if type(gift) == "table" and (tonumber(gift.item) or 0) ~= 0 then
+      -- pokeemerald/src/record_mixing.c:976
+      if adapters and adapters.setStringVar then adapters.setStringVar(1, tostring(gift.from or "")) end
+      if ctx.stringVars then ctx.stringVars[1] = tostring(gift.from or "") end
+    end
     -- pokeemerald/src/record_mixing.c:333
     flagSet(session, "FLAG_SYS_MIX_RECORD")
     message("gText_RecordMixingComplete")

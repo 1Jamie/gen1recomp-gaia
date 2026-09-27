@@ -1181,12 +1181,247 @@ function SB.setUpFieldMove(ctx)
   return { ok = true, action = "secret_power", secretPowerScript = label }
 end
 
-function SB.mixExport(sess)
-  return {}
+local function copyBase(b)
+  local out = {}
+  for k, v in pairs(b) do
+    if type(v) == "table" then
+      local t = {}
+      for k2, v2 in pairs(v) do
+        if type(v2) == "table" then
+          local u = {}
+          for k3, v3 in pairs(v2) do u[k3] = v3 end
+          t[k2] = u
+        else
+          t[k2] = v2
+        end
+      end
+      out[k] = t
+    else
+      out[k] = v
+    end
+  end
+  return out
 end
 
-function SB.mixImport(sess, records)
+-- pokeemerald/src/record_mixing.c:222
+function SB.mixExport(sess)
+  sess = session(sess)
+  pcall(SB.setPlayerParty, sess)
+  local out = {}
+  for i, b in ipairs(SB.bases(sess)) do out[i] = copyBase(b) end
+  return out
+end
+
+local function on(v)
+  return v == true or v == 1
+end
+
+local function nameChars(s)
+  return tostring(s or ""):sub(1, SB.PLAYER_NAME_LENGTH)
+end
+
+local function sameTrainerId(a, b)
+  for i = 1, SB.TRAINER_ID_LENGTH do
+    if (tonumber(a.trainerId[i]) or 0) ~= (tonumber(b.trainerId[i]) or 0) then return false end
+  end
+  return true
+end
+
+-- pokeemerald/src/secret_base.c:1383
+local function belongToSamePlayer(a, b)
+  return (a.gender or 0) == (b.gender or 0) and sameTrainerId(a, b) and nameChars(a.trainerName) == nameChars(b.trainerName)
+end
+
+-- pokeemerald/src/secret_base.c:1519
+local function belongsToPlayer(b, sess)
+  if (b.secretBaseId or 0) == 0 then return false end
+  if b.gender ~= playerGender(sess) then return false end
+  if not sameTrainerId(b, { trainerId = trainerIdBytes(sess) }) then return false end
+  return nameChars(b.trainerName) == nameChars(sess.name or sess.playerName)
+end
+
+-- pokeemerald/src/secret_base.c:1395
+local function indexFromId(saved, id)
+  for i = 0, SB.COUNT - 1 do
+    if saved[i + 1].secretBaseId == id then return i end
+  end
+  return -1
+end
+
+-- pokeemerald/src/secret_base.c:1336
+local function saveBase(saved, idx, b)
+  saved[idx + 1] = normalize(copyBase(b))
+  saved[idx + 1].registryStatus = SB.NEW
+end
+
+-- pokeemerald/src/secret_base.c:1432
+local function trySaveFriendsBase(saved, b)
+  if (b.secretBaseId or 0) == 0 then return 0 end
+  local index = indexFromId(saved, b.secretBaseId)
+  if index == 0 then return 0 end
+  if index ~= -1 then
+    if on(saved[index + 1].toRegister) then return 0 end
+    if saved[index + 1].registryStatus ~= SB.NEW or on(b.toRegister) then
+      saveBase(saved, index, b)
+      return index
+    end
+    return 0
+  end
+  for i = 1, SB.COUNT - 1 do
+    if saved[i + 1].secretBaseId == 0 then
+      saveBase(saved, i, b)
+      return i
+    end
+  end
+  for i = 1, SB.COUNT - 1 do
+    if saved[i + 1].registryStatus == SB.UNREGISTERED and not on(saved[i + 1].toRegister) then
+      saveBase(saved, i, b)
+      return i
+    end
+  end
+  return 0
+end
+
+-- pokeemerald/src/secret_base.c:1486
+local function sortByRegistryStatus(saved)
+  for i = 1, SB.COUNT - 2 do
+    for j = i + 1, SB.COUNT - 1 do
+      local a, b = saved[i + 1], saved[j + 1]
+      if (a.registryStatus == SB.UNREGISTERED and b.registryStatus == SB.REGISTERED)
+        or (a.registryStatus == SB.NEW and b.registryStatus ~= SB.NEW) then
+        saved[i + 1], saved[j + 1] = b, a
+      end
+    end
+  end
+end
+
+-- pokeemerald/src/secret_base.c:1509
+local function trySaveFriendsBases(saved, mixer, status)
+  for i = 1, SB.COUNT - 1 do
+    if mixer[i + 1].registryStatus == status then trySaveFriendsBase(saved, mixer[i + 1]) end
+  end
+end
+
+-- pokeemerald/src/secret_base.c:1549
+local function deleteFirstOldBaseFromPlayer(mixers, sess)
+  local done = { false, false, false }
+  for i = 1, SB.COUNT do
+    for m = 1, 3 do
+      if not done[m] and belongsToPlayer(mixers[m][i], sess) then
+        clearBase(mixers[m][i])
+        done[m] = true
+      end
+    end
+    if done[1] and done[2] and done[3] then break end
+  end
+end
+
+-- pokeemerald/src/secret_base.c:1595
+local function clearDuplicateOwned(b, list, idx)
+  for i = 1, SB.COUNT do
+    local other = list[i]
+    if other.secretBaseId ~= 0 and belongToSamePlayer(b, other) then
+      if idx == 0 then
+        clearBase(other)
+        return false
+      end
+      if (b.numSecretBasesReceived or 0) > (other.numSecretBasesReceived or 0) then
+        clearBase(other)
+        return false
+      end
+      other.toRegister = b.toRegister
+      clearBase(b)
+      return true
+    end
+  end
   return false
+end
+
+-- pokeemerald/src/secret_base.c:1627
+local function clearDuplicateOwnedBases(saved, a, b, c)
+  for i = 1, SB.COUNT - 1 do
+    local mine = saved[i + 1]
+    if mine.secretBaseId ~= 0 then
+      if mine.registryStatus == SB.REGISTERED then mine.toRegister = 1 end
+      if not clearDuplicateOwned(mine, a, i) then
+        if not clearDuplicateOwned(mine, b, i) then clearDuplicateOwned(mine, c, i) end
+      end
+    end
+  end
+  for i = 0, SB.COUNT - 1 do
+    if a[i + 1].secretBaseId ~= 0 then
+      a[i + 1].battledOwnerToday = 0
+      if not clearDuplicateOwned(a[i + 1], b, i) then clearDuplicateOwned(a[i + 1], c, i) end
+    end
+  end
+  for i = 0, SB.COUNT - 1 do
+    if b[i + 1].secretBaseId ~= 0 then
+      b[i + 1].battledOwnerToday = 0
+      clearDuplicateOwned(b[i + 1], c, i)
+    end
+    if c[i + 1].secretBaseId ~= 0 then c[i + 1].battledOwnerToday = 0 end
+  end
+end
+
+-- pokeemerald/src/secret_base.c:1696
+local function saveRecordMixBases(saved, mixers, sess)
+  deleteFirstOldBaseFromPlayer(mixers, sess)
+  clearDuplicateOwnedBases(saved, mixers[1], mixers[2], mixers[3])
+  -- pokeemerald/src/secret_base.c:1684
+  for i = 1, SB.COUNT do
+    for m = 1, 3 do
+      local b = mixers[m][i]
+      if on(b.toRegister) then
+        trySaveFriendsBase(saved, b)
+        clearBase(b)
+      end
+    end
+  end
+  for m = 1, 3 do trySaveFriendsBase(saved, mixers[m][1]) end
+  for m = 1, 3 do trySaveFriendsBases(saved, mixers[m], SB.REGISTERED) end
+  for m = 1, 3 do trySaveFriendsBases(saved, mixers[m], SB.UNREGISTERED) end
+end
+
+local function mixerList(list)
+  local out = {}
+  for i = 1, SB.COUNT do
+    local b = type(list) == "table" and list[i] or nil
+    out[i] = normalize(type(b) == "table" and copyBase(b) or nil)
+    out[i].secretBaseId = tonumber(out[i].secretBaseId) or 0
+    out[i].registryStatus = tonumber(out[i].registryStatus) or 0
+  end
+  return out
+end
+
+-- pokeemerald/src/secret_base.c:1731
+function SB.mixImport(sess, records, myIndex)
+  sess = session(sess)
+  local okF, received = pcall(flag, "FLAG_RECEIVED_SECRET_POWER", sess)
+  if not (okF and received) then return true end
+  records = records or {}
+  local count = #records
+  local slots = {}
+  for i = 0, 3 do slots[i] = i < count and records[i + 1] or nil end
+  local linkIdx = (tonumber(myIndex) or 1) - 1
+  local mixers = {}
+  for k = 1, 3 do mixers[k] = mixerList(slots[(linkIdx + k) % 4]) end
+  local saved = SB.bases(sess)
+  saveRecordMixBases(saved, mixers, sess)
+  for i = 1, SB.COUNT - 1 do
+    if on(saved[i + 1].toRegister) then
+      saved[i + 1].registryStatus = SB.REGISTERED
+      saved[i + 1].toRegister = 0
+    end
+  end
+  sortByRegistryStatus(saved)
+  for i = 1, SB.COUNT - 1 do
+    if saved[i + 1].registryStatus == SB.NEW then saved[i + 1].registryStatus = SB.UNREGISTERED end
+  end
+  local mine = saved[1]
+  if mine.secretBaseId ~= 0 and (mine.numSecretBasesReceived or 0) ~= 0xFFFF then
+    mine.numSecretBasesReceived = (mine.numSecretBasesReceived or 0) + 1
+  end
+  return true
 end
 
 function SB.reset()

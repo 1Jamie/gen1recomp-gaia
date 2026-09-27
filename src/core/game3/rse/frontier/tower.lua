@@ -643,6 +643,96 @@ function Tower.doTowerBattle(ctx, adapters, sess)
   })
 end
 
+-- pokeemerald/include/constants/global.h:97
+local PLAYER_NAME_LENGTH = 7
+
+local function nameChar(s, i)
+  return tostring(s or ""):sub(i + 1, i + 1)
+end
+
+local function idByte(rec, i)
+  return tonumber(type(rec.trainerId) == "table" and rec.trainerId[i + 1]) or 0
+end
+
+-- pokeemerald/src/battle_tower.c:1311
+function Tower.putNewRecord(sess, newRecord)
+  local f = Util.frontier(sess)
+  local records = f.towerRecords
+  local count = Util.BATTLE_TOWER_RECORD_COUNT
+  for i = 1, count do
+    if type(records[i]) ~= "table" then records[i] = {} end
+  end
+  local function streak(i) return tonumber(records[i + 1].winStreak) or 0 end
+  local i = 0
+  while i < count do
+    local rec, k, j = records[i + 1], 0, 0
+    while j < 4 and idByte(rec, j) == idByte(newRecord, j) do j = j + 1 end
+    if j == 4 then
+      while k < PLAYER_NAME_LENGTH do
+        if nameChar(rec.name, j) ~= nameChar(newRecord.name, j) then break end
+        if nameChar(newRecord.name, j) == "" then
+          k = PLAYER_NAME_LENGTH
+          break
+        end
+        k = k + 1
+      end
+    end
+    if k == PLAYER_NAME_LENGTH then break end
+    i = i + 1
+  end
+  if i < count then
+    records[i + 1] = Util.deepCopy(newRecord)
+    return i
+  end
+  for s = 0, count - 1 do
+    if streak(s) == 0 then
+      records[s + 1] = Util.deepCopy(newRecord)
+      return s
+    end
+  end
+  local slotValues, slotIds = { streak(0) }, { 0 }
+  for s = 1, count - 1 do
+    local j = 1
+    while j <= #slotValues do
+      if streak(s) < slotValues[j] then
+        slotValues, slotIds = { streak(s) }, { s }
+        j = 1
+        break
+      elseif streak(s) > slotValues[j] then
+        break
+      end
+      j = j + 1
+    end
+    if j == #slotValues + 1 then
+      slotValues[#slotValues + 1] = streak(s)
+      slotIds[#slotIds + 1] = s
+    end
+  end
+  local pick = slotIds[(D.rng().Random() % #slotIds) + 1]
+  records[pick + 1] = Util.deepCopy(newRecord)
+  return pick
+end
+
+-- pokeemerald/src/record_mixing.c:1396
+function Tower.mixExport(sess)
+  local rec = Util.deepCopy(Util.frontier(sess).towerPlayer or {})
+  return rec
+end
+
+-- pokeemerald/src/record_mixing.c:650
+function Tower.mixImport(players, sess, myIndex)
+  sess = sess or Rse.session()
+  local MixUtil = require("src.core.game3.rse.record_mix_util")
+  local partner = MixUtil.partner(players or {}, tonumber(myIndex) or 1)
+  local rec = type(partner) == "table" and partner.battleTowerRecord or nil
+  if type(rec) ~= "table" then return false end
+  rec = Util.deepCopy(rec)
+  local me = players[tonumber(myIndex) or 1]
+  if type(me) == "table" then me.battleTowerRecord = rec end
+  Tower.putNewRecord(sess, rec)
+  return true
+end
+
 Rse.register("tower", Tower)
 
 return Tower

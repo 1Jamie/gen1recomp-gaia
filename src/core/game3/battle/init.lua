@@ -133,7 +133,10 @@ local function seq_push(text, wait, id)
     -- pokefirered/src/battle_controller_pokedude.c:209 HandlePokedudeVoiceoverEtc
     Pokedude.event(st, "printstring", st.pdActor, id)
   end
-  Ui.pushTimed(tostring(text or ""), tonumber(wait) or (AnimSeq.isMoveUsedId(id) and 0 or 64))
+  text = tostring(text or "")
+  -- pokeemerald/src/battle_message.c:3005
+  if text:sub(-2) == "\\p" and not (st and (st.link or st.pokedude or (st.kinds and st.kinds.recordedLink))) then return Ui.push(text) end
+  Ui.pushTimed(text, tonumber(wait) or (AnimSeq.isMoveUsedId(id) and 0 or 64))
 end
 
 local function push_msgs(list)
@@ -1653,21 +1656,39 @@ local function handle_player_faint(opts)
   })
 end
 
+local function wild_victory_song(st, awards)
+  if not st or not st.wild or st.pokedude or st.link or st._wildVictorySong then return end
+  if not (awards and #awards > 0) then return end
+  local lead = State.battler and State.battler(st, 0) or st.player
+  if not (lead and lead.mon and (tonumber(lead.mon.hp) or 0) > 0) then return end
+  st._wildVictorySong = true
+  stop_low_hp_song()
+  local Audio = require("src.core.game3.audio")
+  local bp = BattleProfile.of(st)
+  if bp.music then
+    -- pokeemerald/src/battle_script_commands.c:3363
+    Audio.playSong(BattleProfile.victorySong(bp, Battle.songInfo(st)))
+  else
+    -- pokefirered/src/battle_script_commands.c:3219
+    local id = Audio.role("victoryWild")
+    if id then Audio.playSong(id) end
+  end
+end
+
 local function begin_trainer_win(st)
   Battle._pendingEnd = "win"
   local Audio = require("src.core.game3.audio")
-  local role, fallback
-  if st and st.wild then
-    role, fallback = "victoryWild", 311
-  else
-    role, fallback = Trainers.getVictoryMusicRole(st and st.trainerId)
-  end
   local bp = BattleProfile.of(st)
-  if bp.music then
-    -- pokeemerald/src/battle_main.c:4983
-    Audio.playSong(BattleProfile.victorySong(bp, Battle.songInfo(st)))
-  -- pokefirered/src/battle_script_commands.c:3216
-  elseif not st.pokedude then Audio.playSong(Audio.role(role) or fallback) end
+  -- pokeemerald/src/battle_main.c:5011
+  if st and not st.wild then
+    if bp.music then
+      -- pokeemerald/src/battle_main.c:4983
+      Audio.playSong(BattleProfile.victorySong(bp, Battle.songInfo(st)))
+    elseif not st.pokedude then
+      local role, fallback = Trainers.getVictoryMusicRole(st.trainerId)
+      Audio.playSong(Audio.role(role) or fallback)
+    end
+  end
 
   local pname = st.playerName
   local twoTrainers = st.trainerB ~= nil
@@ -1872,6 +1893,7 @@ local function handle_enemy_faint(opts)
     end
   end
 
+  wild_victory_song(st, awards)
   local hooks = choice_hooks()
   if st.pokedude then
     for _, entry in ipairs(awards) do
@@ -3104,6 +3126,7 @@ function D.faintStep()
           and Experience.awardFoe(st, foe, { trainer = not st.wild }) or {}
         -- pokefirered/src/battle_util.c:1181
         State.opponentSwitchInResetSentPokes(st, foe)
+        wild_victory_song(st, awards)
         if D.presentAwards(awards) then return end
       end
     end

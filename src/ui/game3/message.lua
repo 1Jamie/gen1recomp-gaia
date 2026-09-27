@@ -41,6 +41,21 @@ TextIR.setContextProvider(function(kind, dialect, ctx)
     local s = liveSession()
     return s and s.gender or nil
   end
+  if kind == "playerName" then
+    local s = liveSession()
+    local name = s and (s.name or s.playerName)
+    return (type(name) == "string" and name ~= "") and name or nil
+  end
+  if kind == "rivalName" or kind == "stringVars" then
+    local Sp = package.loaded["src.core.game3.scripting.space"]
+    local vm = Sp and Sp.vm
+    if not vm then return nil end
+    if kind == "stringVars" then return vm.ctx and vm.ctx.stringVars end
+    local a = vm.adapters
+    local r = a and a.rivalName
+    if type(r) == "function" then r = r() end
+    return r or (vm.ctx and vm.ctx.rivalName)
+  end
   if kind ~= "placeholders" or not dialect.placeholders then return nil end
   local GameVersion = require("src.core.GameVersion")
   local s = liveSession()

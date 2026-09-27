@@ -339,6 +339,42 @@ function Lady.contestLadyTvData(sess)
   }
 end
 
+function Lady.mixExport(sess)
+  local MixUtil = require("src.core.game3.rse.record_mix_util")
+  return MixUtil.deep(Lady.state(sess))
+end
+
+-- pokeemerald/src/lilycove_lady.c:577
+local function quizClearQuestionForRecordMix(prev, sess)
+  local l = Lady.state(sess)
+  local count = #data().quizQuestions
+  local prevId = tonumber(prev.quiz and prev.quiz.prevQuestionId) or count
+  if prevId < count and l.id == Lady.QUIZ then
+    local q = l.quiz
+    for _ = 1, 4 do
+      if prevId ~= q.questionId then break end
+      q.questionId = Town.random() % count
+    end
+    if prevId == q.questionId then q.questionId = (q.questionId + 1) % count end
+    q.prevQuestionId = prevId
+  end
+end
+
+-- pokeemerald/src/record_mixing.c:682
+function Lady.mixImport(players, sess, myIndex)
+  sess = Town.session(sess)
+  local MixUtil = require("src.core.game3.rse.record_mix_util")
+  local partner = MixUtil.partner(players or {}, tonumber(myIndex) or 1)
+  local src = type(partner) == "table" and partner.lilycoveLady or nil
+  if type(src) ~= "table" or src.id == nil then return false end
+  local mine = Lady.state(sess)
+  local prev = mine.id == Lady.QUIZ and MixUtil.deep(mine) or nil
+  sess.lilycoveLady = MixUtil.deep(src)
+  Lady.resetForRecordMix(sess)
+  if prev then quizClearQuestionForRecordMix(prev, sess) end
+  return true
+end
+
 local SaveSections = require("src.core.game3.save_sections")
 -- pokeemerald/src/new_game.c:199
 SaveSections.register("lilycoveLady", SaveSections.fields({ "lilycoveLady" }, function(sess) Lady.init(sess) end))

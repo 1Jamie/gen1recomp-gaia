@@ -531,6 +531,26 @@ section({ name = "trainerHill", fields = {}, template = { "trainerHill", "traine
 section({ name = "apprentice", fields = {}, template = { "playerApprentice", "apprentices" } })
 section({ name = "lilycoveLady", fields = {}, template = { "lilycoveLady" } })
 section({ name = "oldMan", fields = {}, template = { "oldMan" } })
+
+-- pokeemerald/include/global.h:746
+section({
+  name = "recordMixingGift",
+  fields = { "recordMixingGift" },
+  read = function(x)
+    local b = x.L.RSE.sb1.recordMixingGift
+    return { recordMixingGift = { checksum = u32(x.sb1, b), unk0 = u8(x.sb1, b + 4), quantity = u8(x.sb1, b + 5),
+      itemId = u16(x.sb1, b + 6) } }
+  end,
+  write = function(x, v)
+    local b = x.L.RSE.sb1.recordMixingGift
+    local g = type(v.recordMixingGift) == "table" and v.recordMixingGift or {}
+    x.w1:fill(b, 16, 0)
+    x.w1:w32(b, num(g.checksum) % U32)
+    x.w1:w8(b + 4, num(g.unk0) % 256)
+    x.w1:w8(b + 5, num(g.quantity) % 256)
+    x.w1:w16(b + 6, num(g.itemId) % 65536)
+  end,
+})
 section({ name = "lottery", fields = {}, vars = true })
 
 local function context(codec, blocks, w1, w2)

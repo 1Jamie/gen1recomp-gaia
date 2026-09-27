@@ -315,10 +315,28 @@ local function gendered_ph(name, ctx)
   return by.male
 end
 
+-- pokeemerald/src/string_util.c:428
+local function live(field, ctx)
+  local v = ctx and ctx[field]
+  if v ~= nil then return v end
+  local provider = TextIR._provider
+  if not provider then return nil end
+  return provider(field, TextIR.dialect(ctx and ctx.dialect), ctx)
+end
+
+local function player_name(ctx)
+  return live("playerName", ctx) or "PLAYER"
+end
+
+local function string_var(n, ctx)
+  local sv = live("stringVars", ctx)
+  return (type(sv) == "table" and sv[n]) or ""
+end
+
 local function rival_name(ctx)
   local v = gendered_ph("RIVAL", ctx)
   if v ~= nil then return v end
-  return (ctx and ctx.rivalName) or "RIVAL"
+  return live("rivalName", ctx) or "RIVAL"
 end
 
 local function expand_seg(seg, ctx)
@@ -329,12 +347,11 @@ local function expand_seg(seg, ctx)
     local dyn = ctx and ctx.dynamic
     return (dyn and dyn[seg.n]) or ""
   elseif t == "player" then
-    return (ctx and ctx.playerName) or "PLAYER"
+    return player_name(ctx)
   elseif t == "rival" then
     return rival_name(ctx)
   elseif t == "strvar" then
-    local sv = ctx and ctx.stringVars
-    return (sv and sv[seg.n]) or ""
+    return string_var(seg.n, ctx)
   elseif t == "tag" then
     return seg.tag
   elseif t == "bph" then
@@ -350,19 +367,16 @@ local function expand_seg(seg, ctx)
     local code = tonumber(seg.code)
     local name = seg.name
     if code == 0x01 or name == "PLAYER" then
-      return (ctx and ctx.playerName) or "PLAYER"
+      return player_name(ctx)
     end
     if code == 0x06 or name == "RIVAL" then
       return rival_name(ctx)
     end
     if code and code >= 0x02 and code <= 0x04 then
-      local sv = ctx and ctx.stringVars
-      return (sv and sv[code - 1]) or ""
+      return string_var(code - 1, ctx)
     end
     if name == "STR_VAR_1" or name == "STR_VAR_2" or name == "STR_VAR_3" then
-      local n = tonumber(name:sub(-1)) or 1
-      local sv = ctx and ctx.stringVars
-      return (sv and sv[n]) or ""
+      return string_var(tonumber(name:sub(-1)) or 1, ctx)
     end
     if name and (name == "FONT_MALE" or name == "FONT_FEMALE" or name == "FONT_NORMAL"
         or name:find("^COLOR") or name:find("^SHADOW") or name:find("^HIGHLIGHT") or name:find("^BG")) then

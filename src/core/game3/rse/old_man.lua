@@ -361,6 +361,31 @@ function OldMan.mixExport(sess)
   return deep(OldMan.state(sess))
 end
 
+-- pokeemerald/src/mauville_old_man.c:858
+local function sanitizeReceived(m, language)
+  if m.id ~= OldMan.STORYTELLER or language ~= 1 then return end
+  for i = 1, OldMan.NUM_STORYTELLER_TALES do
+    if (tonumber(m.gameStatIDs and m.gameStatIDs[i]) or 0) ~= 0 then
+      m.language = m.language or {}
+      m.language[i] = Town.GAME_LANGUAGE
+    end
+  end
+end
+
+-- pokeemerald/src/record_mixing.c:629
+function OldMan.mixImport(players, sess, myIndex)
+  sess = Town.session(sess)
+  local MixUtil = require("src.core.game3.rse.record_mix_util")
+  local partner = MixUtil.partner(players or {}, tonumber(myIndex) or 1)
+  local m = type(partner) == "table" and partner.oldMan or nil
+  if type(m) ~= "table" or m.id == nil then return false end
+  m = MixUtil.deep(m)
+  sanitizeReceived(m, tonumber(partner.language) or Town.GAME_LANGUAGE)
+  sess.oldMan = m
+  OldMan.resetFlag(sess)
+  return true
+end
+
 local SaveSections = require("src.core.game3.save_sections")
 -- pokeemerald/src/new_game.c:191
 SaveSections.register("oldMan", SaveSections.fields({ "oldMan" }, function(sess) OldMan.set(sess) end))

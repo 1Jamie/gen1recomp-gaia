@@ -655,6 +655,84 @@ local function easyChatType()
 end
 easyChatType()
 
+local function mixUtil()
+  return require("src.core.game3.rse.record_mix_util")
+end
+
+-- pokeemerald/src/record_mixing.c:1062
+function Apprentice.mixExport(sess)
+  sess = sess or Rse.session()
+  local MixUtil = mixUtil()
+  local src = Apprentice.saved(sess)
+  local saveId = tonumber(Apprentice.player(sess).saveId) or 0
+  local dst = { Apprentice.copy(src[1]), Apprentice.newSaved() }
+  dst[2].playerName = ""
+  local mine = MixUtil.sessionLinkTrainerId(sess)
+  local slots = Apprentice.COUNT - 1
+  local oldId, numOld, mixId, numMix = 0, 0, 0, 0
+  for i = 0, 1 do
+    local id = (i + saveId) % slots + 1
+    if (src[id + 1].playerName or "") ~= "" then
+      local tid = MixUtil.getTrainerId(src[id + 1].playerId)
+      if tid ~= mine then numMix, mixId = numMix + 1, id end
+      if tid == mine then numOld, oldId = numOld + 1, id end
+    end
+  end
+  if numMix == 0 and numOld ~= 0 then numMix, mixId = numOld, oldId end
+  if numMix == 1 then
+    dst[2] = Apprentice.copy(src[mixId + 1])
+  elseif numMix == 2 then
+    if rng().Random2() > 0x3333 then
+      dst[2] = Apprentice.copy(src[saveId + 1 + 1])
+    else
+      dst[2] = Apprentice.copy(src[((saveId + 1) % slots + 1) + 1])
+    end
+  end
+  return dst
+end
+
+-- pokeemerald/src/record_mixing.c:1155
+local function alreadySaved(a, saved)
+  local MixUtil = mixUtil()
+  for i = 1, Apprentice.COUNT do
+    if MixUtil.getTrainerId(a.playerId) == MixUtil.getTrainerId(saved[i].playerId)
+      and (tonumber(a.number) or 0) == (tonumber(saved[i].number) or 0) then
+      return true
+    end
+  end
+  return false
+end
+
+-- pokeemerald/src/record_mixing.c:1169
+function Apprentice.mixImport(players, sess, myIndex)
+  sess = sess or Rse.session()
+  local partner = mixUtil().partner(players or {}, tonumber(myIndex) or 1)
+  local mix = type(partner) == "table" and partner.apprentices or nil
+  if type(mix) ~= "table" then return false end
+  local saved = Apprentice.saved(sess)
+  local p = Apprentice.player(sess)
+  local slots = Apprentice.COUNT - 1
+  local num, which = 0, 0
+  for i = 0, 1 do
+    local a = mix[i + 1]
+    if type(a) == "table" and (a.playerName or "") ~= "" and not alreadySaved(a, saved) then
+      num, which = num + 1, i
+    end
+  end
+  local saveId = tonumber(p.saveId) or 0
+  if num == 1 then
+    saved[saveId + 1 + 1] = Apprentice.copy(mix[which + 1])
+    p.saveId = (saveId + 1) % slots
+  elseif num == 2 then
+    for i = 0, 1 do
+      local idx = (bit.bxor(i, 1) + saveId) % slots + 1
+      saved[idx + 1] = Apprentice.copy(mix[i + 1])
+    end
+    p.saveId = (saveId + 2) % slots
+  end
+  return true
+end
+
 Rse.register("apprentice", Apprentice)
 
 return Apprentice

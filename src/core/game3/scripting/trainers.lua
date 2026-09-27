@@ -222,6 +222,28 @@ function Trainers.foeFromId(trainerId)
   }
 end
 
+local DIALOG_TEXT_KEYS = {
+  intro = "introTextKey", defeat = "defeatTextKey",
+  victory = "victoryTextKey", notEnough = "notEnoughTextKey",
+}
+
+local function live_dialogs(t)
+  local d = t.dialogs or {}
+  local Sp = package.loaded["src.core.game3.scripting.space"]
+  local vm = Sp and Sp.vm
+  if not (vm and vm.getText) then return d end
+  local out
+  for field, keyName in pairs(DIALOG_TEXT_KEYS) do
+    local key = t[keyName]
+    local ir = key and vm:getText(key)
+    if type(ir) == "table" then
+      out = out or setmetatable({}, { __index = d })
+      out[field] = ir
+    end
+  end
+  return out or d
+end
+
 --- ROM-derived trainer presentation info (class / name / pic / partySize / dialogs).
 -- opts.rivalName replaces the placeholder "TERRY" of the rival and champion
 -- classes when provided.
@@ -247,7 +269,7 @@ function Trainers.info(trainerId, opts)
     ai = t.ai,
     items = t.items,
     party = t.party,
-    dialogs = t.dialogs,
+    dialogs = live_dialogs(t),
   }
 
   -- pokefirered/src/battle_message.c:2078 names these classes by the player's
@@ -263,7 +285,7 @@ end
 --- Get dialog texts table: { intro, defeat, victory, notEnough }
 function Trainers.dialogs(trainerId)
   local t = Trainers.get(trainerId)
-  return t and t.dialogs or {}
+  return t and live_dialogs(t) or {}
 end
 
 --- FRLG intro string pieces for a trainer battle.

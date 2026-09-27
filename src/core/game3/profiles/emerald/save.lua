@@ -34,5 +34,6 @@ return {
     { name = "frontier", module = "src.core.game3.rse.frontier.util" },
     { name = "trainerHill", module = "src.core.game3.rse.trainer_hill" },
     { name = "apprentice", module = "src.core.game3.rse.frontier.apprentice" },
+    { name = "recordMixingGift", module = "src.core.game3.rse.record_mixing_gift" },
   },
 }

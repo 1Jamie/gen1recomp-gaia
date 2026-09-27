@@ -919,7 +919,18 @@ BEATS[#BEATS + 1] = { id = "champion", run = function(game)
   local track = labelWatch(labels)
   local rivalShot, birchShot = false, false
   local ratingText
-  local settle = { limit = 120000, onBattleFrame = battleShot(game, "26_wallace_battle"),
+  local wallaceShot, kudos = battleShot(game, "26_wallace_battle"), nil
+  local function onBattleFrame(st, phase)
+    wallaceShot(st, phase)
+    local M = require("src.ui.game3.message")
+    if not kudos and M.isOpen() and messageText():find("Kudos to you", 1, true) then
+      if M.isTyping() then M.skipReveal() end
+      kudos = messageText()
+      d.note("wallace defeat: " .. kudos)
+      d.shot(game, "26b_wallace_kudos")
+    end
+  end
+  local settle = { limit = 120000, onBattleFrame = onBattleFrame,
     watch = function()
       mug()
       track()
@@ -950,6 +961,9 @@ BEATS[#BEATS + 1] = { id = "champion", run = function(game)
   d.check(d.ran("EverGrandeCity_ChampionsRoom_EventScript_EnterRoom"), "the player walks up to Wallace on entry")
   d.check(seen.key == "champion", "Wallace's mugshot battle transition (" .. tostring(seen.key) .. ")")
   d.check(lastBattleWon(tid("TRAINER_WALLACE")), "Champion Wallace battle won through the battle UI")
+  local pname = S.session().name or ""
+  d.check(kudos ~= nil and pname ~= "" and kudos:find("Kudos to you, " .. pname .. "!", 1, true) ~= nil,
+    "Wallace's defeat line names the player (" .. tostring(kudos) .. ")")
   d.check(labels.EverGrandeCity_ChampionsRoom_EventScript_MayAdvice and rivalShot, "May runs in after the battle")
   local dexCaught = 0
   for _ in pairs(S.session().dex.caught or {}) do dexCaught = dexCaught + 1 end
