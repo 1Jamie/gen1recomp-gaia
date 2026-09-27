@@ -123,6 +123,8 @@ Events.HANDLERS = {
     if okP and Player and not Player.surfing then
       Player.biking = true
       Player.surfHopping = false
+      local game = package.loaded["src.core.game3.runtime"] and package.loaded["src.core.game3.runtime"]._game
+      Player.syncSavePosition(game)
     end
     require("src.core.game3.audio").bikeMusic(true, true)
     return false
@@ -134,6 +136,8 @@ Events.HANDLERS = {
       Player.surfing = true
       Player.biking = false
       Player.surfHopping = false
+      local game = package.loaded["src.core.game3.runtime"] and package.loaded["src.core.game3.runtime"]._game
+      Player.syncSavePosition(game)
     end
     return false
   end,

@@ -193,9 +193,35 @@ function Runtime.start(mod, game, session, opts)
   if opts.alreadyOnMap then
     -- Stay on current host map; only ensure Space VM + depth-1 neighbors.
     local Map = require("src.core.game3.map")
+    local Player = require("src.core.game3.player")
     local def = game and game.data and game.data.maps and game.data.maps[session.map]
     Map.current = session.map
     Map.loadNeighborsDepth1(game, def)
+
+    -- Enforce overworld biking permissions when adopting / resuming an existing map.
+    -- pokefirered/src/overworld.c:878 GetAdjustedInitialTransitionFlags
+    local onCyclingRoad = Player.isOnCyclingRoad and Player.isOnCyclingRoad(session, Player.cellX, Player.cellY)
+    local wasBiking = (Player.biking == true) or (session and session.biking == true) or (game and game.save and game.save.biking == true)
+    local keepBike = false
+    if wasBiking or onCyclingRoad then
+      local allowed = def and def.bikingAllowed
+      if allowed ~= nil then
+        keepBike = (tonumber(allowed) or 0) ~= 0
+      else
+        local pair = def and (def.pair or (def.midLayout and def.midLayout.pair))
+        keepBike = type(pair) == "string" and pair:find("outdoor", 1, true) ~= nil
+      end
+      if onCyclingRoad and not (Player.surfing or Player.surfHopping) then
+        keepBike = true
+      end
+    end
+    Player.biking = keepBike
+    if session then session.biking = keepBike end
+    if game and game.save then
+      game.save.biking = keepBike
+      if game.save.position then game.save.position.biking = keepBike end
+    end
+    Player.syncSavePosition(game)
     -- Space.onMapEnter already ran (or will run) from afterMap — don't double.
     log("adopted existing game3 map (no re-warp)")
   else

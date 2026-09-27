@@ -88,13 +88,13 @@ end
 -- is why nil covers PLAYER_SURF without a test of its own.
 function Bike.tryBike(ctx)
   ctx = ctx or {}
-  if not Bike.canUseHere(ctx.environment, ctx.collision) then return nil end
   local state = ctx.state or FieldMoves.PLAYER_NORMAL
-  if state == FieldMoves.PLAYER_NORMAL then return "mount" end
-  if state == FieldMoves.PLAYER_BIKE then
+  if FieldMoves.isBiking(state) or state == Bike.PLAYER_BIKE_ID or state == 1 then
     if ctx.alwaysOnBike then return "cant_get_off" end
     return "dismount"
   end
+  if not Bike.canUseHere(ctx.environment, ctx.collision) then return nil end
+  if state == FieldMoves.PLAYER_NORMAL or state == Bike.PLAYER_NORMAL_ID or state == 0 then return "mount" end
   return nil
 end
 

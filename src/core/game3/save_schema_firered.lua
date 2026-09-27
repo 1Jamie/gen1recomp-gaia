@@ -332,8 +332,9 @@ function Schema.toSaveTable(session)
     x = session.x,
     y = session.y,
     facing = session.facing,
-    biking = (session.biking == true)
-      or (package.loaded["src.core.game3.player"] and package.loaded["src.core.game3.player"].biking == true)
+    biking = (package.loaded["src.core.game3.player"] and package.loaded["src.core.game3.player"].biking ~= nil)
+      and (package.loaded["src.core.game3.player"].biking == true)
+      or (session and session.biking == true)
       or false,
     healMap = session.healMap,
     healX = session.healX,
