@@ -162,7 +162,7 @@ jobs:
           name: shaderfx-bridge-linux-arm64
           path: dist/native/linux-arm64
       - name: Restore compiled arm64 dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .bazinga/cache/linux-arm64
           key: linux-arm64-deps-${{ hashFiles('scripts/linux-arm64/**', 'scripts/build_linux_arm64.sh') }}
@@ -211,7 +211,7 @@ jobs:
           name: shaderfx-bridge-linux-x64
           path: dist/native/linux-x64
       - name: Restore the Flatpak runtime
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.local/share/flatpak
           key: flatpak-runtime-${{ runner.arch }}-${{ hashFiles('flatpak/*.yml', 'scripts/build_flatpak.sh') }}
@@ -333,7 +333,7 @@ jobs:
       # Hash the build script too so changes to build flags invalidate the binary.
       - name: Restore finished TLS library
         id: tls-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: dist/native/win-x64/gen1tls.dll
           key: native-tls-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.tls-env.outputs.image }}-dotnet8-${{ hashFiles('native/tls_dial/**', 'scripts/ci/build_gen1tls.ps1', '**/Directory.Build.*', '**/Directory.Packages.props', '**/NuGet.Config', '**/nuget.config', '**/global.json') }}
@@ -353,7 +353,7 @@ jobs:
           if ($dll.Length -eq 0) { throw 'gen1tls.dll is empty' }
       - name: Cache finished TLS library
         if: steps.tls-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: dist/native/win-x64/gen1tls.dll
           key: ${{ steps.tls-cache.outputs.cache-primary-key }}
@@ -407,7 +407,7 @@ jobs:
       # inputs, build instructions, and the native environment affect reuse.
       - name: Restore finished bridge
         id: bridge-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: dist/native/${{ matrix.plat }}
           key: shaderfx-binary-v2-${{ matrix.plat }}-${{ runner.arch }}-${{ matrix.glibc_triple }}-${{ steps.bridge-env.outputs.hash }}-${{ hashFiles('tools/shaderfx-bridge/**', '.cargo/**', 'rust-toolchain*', 'scripts/ci/shaderfx_bridge.sh') }}
@@ -436,7 +436,7 @@ jobs:
         run: bash scripts/ci/shaderfx_bridge.sh verify
       - name: Cache finished bridge
         if: steps.bridge-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: dist/native/${{ matrix.plat }}
           key: ${{ steps.bridge-cache.outputs.cache-primary-key }}
@@ -692,7 +692,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Restore pinned love-nx binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .bazinga/love-nx/11.5-nx1
           key: love-nx-11.5-nx1-${{ hashFiles('scripts/switch/love-nx-11.5-nx1.sha256') }}
