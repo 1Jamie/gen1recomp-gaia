@@ -147,6 +147,81 @@ check(saveTable.biking == true, "Schema.toSaveTable includes biking = true")
 local restoredSession = Schema.fromSaveTable(saveTable)
 check(restoredSession.biking == true, "Schema.fromSaveTable restores biking = true")
 
+-- 10. Test dismounting on normal land and moving between outdoor maps keeps player on foot
+Flags.setFlag(session.store, nil, 0x830, false)
+session.flags[0x830] = false
+Player.biking = true
+ItemUse.useBike(session)
+check(Player.biking == false, "dismounted bike on normal land")
+
+local palletDef = {
+  id = "FR_PALLET_TOWN",
+  bikingAllowed = 1,
+  pair = "outdoor",
+}
+local route1Def = {
+  id = "FR_ROUTE_1",
+  bikingAllowed = 1,
+  pair = "outdoor",
+}
+game.data.maps.FR_PALLET_TOWN = palletDef
+game.data.maps.FR_ROUTE_1 = route1Def
+Map.load(nil, game, "FR_ROUTE_1", { x = 10, y = 35, facing = "up" })
+check(Player.biking == false, "moving from Pallet Town to Route 1 while on foot leaves Player on foot")
+Map.load(nil, game, "FR_PALLET_TOWN", { x = 10, y = 0, facing = "down" })
+check(Player.biking == false, "moving back to Pallet Town leaves Player on foot")
+
+-- 11. Test saving while on foot preserves biking = false
+local onFootSave = Schema.toSaveTable(session)
+check(onFootSave.biking == false, "Schema.toSaveTable records biking = false when on foot")
+local restoredFoot = Schema.fromSaveTable(onFootSave)
+check(restoredFoot.biking == false, "Schema.fromSaveTable restores biking = false when on foot")
+
+-- 12. Test entering indoor map (e.g. Silph Co) while biking forces dismount to foot
+local silphDef = {
+  id = "FR_SILPH_CO_1F",
+  bikingAllowed = 0,
+  pair = "indoor",
+}
+local saffronDef = {
+  id = "FR_SAFFRON_CITY",
+  bikingAllowed = 1,
+  pair = "outdoor",
+}
+game.data.maps.FR_SILPH_CO_1F = silphDef
+game.data.maps.FR_SAFFRON_CITY = saffronDef
+
+session = Runtime.getSession() or session
+Player.biking = true
+session.biking = true
+Map.load(nil, game, "FR_SILPH_CO_1F", { x = 18, y = 21, facing = "up" })
+check(Player.biking == false, "entering Silph Co 1F forces Player.biking = false")
+check(session.biking == false, "session.biking is false in Silph Co")
+
+-- Exiting Silph Co back to Saffron City keeps player on foot (not re-mounted)
+Map.load(nil, game, "FR_SAFFRON_CITY", { x = 18, y = 22, facing = "down" })
+check(Player.biking == false, "exiting Silph Co to Saffron City keeps Player on foot")
+
+-- 13. Test loading directly into Silph Co via alreadyOnMap forces dismount to foot
+Player.biking = true
+session.biking = true
+session.map = "FR_SILPH_CO_1F"
+game.save = { biking = true, position = { map = "FR_SILPH_CO_1F", biking = true } }
+Runtime.start(nil, game, session, { alreadyOnMap = true })
+check(Player.biking == false, "loading directly into Silph Co with alreadyOnMap clears Player.biking")
+check(session.biking == false, "session.biking cleared to false on Silph Co load")
+
+-- 14. Test Gen 2 Bike.tryBike allows dismounting when in indoor environment
+local Gen2Bike = require("src.world.gen2.Bike")
+local dismountAction = Gen2Bike.tryBike({
+  state = 1, -- PLAYER_BIKE
+  environment = "INDOOR",
+  collision = 0,
+  alwaysOnBike = false,
+})
+check(dismountAction == "dismount", "Gen 2 Bike.tryBike allows dismount in INDOOR environment")
+
 print(string.format("=== RESULTS: %d passed, %d failed ===", passed, failed))
 if failed > 0 then os.exit(1) end
+
 

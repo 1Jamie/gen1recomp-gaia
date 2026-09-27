@@ -170,6 +170,9 @@ function Player.syncFromSession(session)
   if session.elevation ~= nil then
     Player.elevation = tonumber(session.elevation) or 3
   end
+  if session.biking ~= nil then
+    Player.biking = (session.biking == true)
+  end
 end
 
 function Player.syncFromHost(game)
@@ -180,6 +183,10 @@ function Player.syncFromHost(game)
   if p.elevation ~= nil then
     Player.elevation = tonumber(p.elevation) or 3
   end
+  local save = game and game.save
+  if save and save.biking ~= nil then
+    Player.biking = (save.biking == true)
+  end
 end
 
 --- Write avatar coords into save.position (ferry / host save). No host entity mirror.
@@ -189,10 +196,15 @@ function Player.syncSavePosition(game)
   save.position.x = Player.cellX
   save.position.y = Player.cellY
   save.position.facing = Player.facing
+  save.position.biking = (Player.biking == true)
+  save.biking = (Player.biking == true)
   local session = package.loaded["src.core.game3.runtime"]
   session = session and session.getSession and session.getSession()
-  if session and session.map then
-    save.position.map = session.map
+  if session then
+    session.biking = (Player.biking == true)
+    if session.map then
+      save.position.map = session.map
+    end
   end
 end
 

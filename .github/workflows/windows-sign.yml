@@ -104,7 +104,7 @@ jobs:
           retention-days: 7
 
       - name: Sign with SignPath
-        uses: signpath/github-action-submit-signing-request@v2
+        uses: signpath/github-action-submit-signing-request@v3
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: a50673ca-cc8a-496c-a8bb-7313d9cadb8e

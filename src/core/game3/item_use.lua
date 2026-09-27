@@ -431,28 +431,49 @@ end
 -- pokefirered/src/item_use.c:253 FieldUseFunc_Bike
 function ItemUse.useBike(session)
   local Player = require("src.core.game3.player")
-  -- pokefirered/src/item_use.c:261
-  if Player.biking and Player.isOnCyclingRoad and Player.isOnCyclingRoad(session) then
-    return false, "bike", cant_dismount_bike_text()
-  end
-
-  -- pokefirered/src/overworld.c:948 Overworld_IsBikingAllowed
-  local biking = map_header_flag(session, "bikingAllowed")
-  if biking == nil then biking = is_outdoor(session) end
-  if not biking then
-    return false, "bike", not_the_time(session)
-  end
-  -- pokefirered/src/item_use.c:276 ItemUseOnFieldCB_Bicycle
-  if not Player.biking then
+  if Player.biking then
+    -- pokefirered/src/item_use.c:261: If already on bike, cannot dismount on cycling road
+    if Player.isOnCyclingRoad and Player.isOnCyclingRoad(session) then
+      return false, "bike", cant_dismount_bike_text()
+    end
+    -- Dismounting is always allowed elsewhere (even if indoors)
+    Player.biking = false
+    if session then session.biking = false end
+    local Runtime = package.loaded["src.core.game3.runtime"]
+    local curSession = Runtime and Runtime.getSession and Runtime.getSession()
+    if curSession then curSession.biking = false end
+    local game = Runtime and Runtime.getGame and Runtime.getGame()
+    if game and game.save then
+      game.save.biking = false
+      if game.save.position then game.save.position.biking = false end
+    end
+    require("src.core.game3.audio").bikeMusic(false)
+    return true, "bike", nil
+  else
+    -- pokefirered/src/overworld.c:948 Overworld_IsBikingAllowed: Mounting only allowed where biking is permitted
+    local biking = map_header_flag(session, "bikingAllowed")
+    if biking == nil then biking = is_outdoor(session) end
+    if not biking then
+      return false, "bike", not_the_time(session)
+    end
     pcall(function()
       local Audio = require("src.core.game3.audio")
       local SE = require("src.core.game3.se_ids")
       if Audio and Audio.playSe then Audio.playSe(SE.SE_BIKE_BELL) end
     end)
+    Player.biking = true
+    if session then session.biking = true end
+    local Runtime = package.loaded["src.core.game3.runtime"]
+    local curSession = Runtime and Runtime.getSession and Runtime.getSession()
+    if curSession then curSession.biking = true end
+    local game = Runtime and Runtime.getGame and Runtime.getGame()
+    if game and game.save then
+      game.save.biking = true
+      if game.save.position then game.save.position.biking = true end
+    end
+    require("src.core.game3.audio").bikeMusic(true)
+    return true, "bike", nil
   end
-  Player.biking = not Player.biking
-  require("src.core.game3.audio").bikeMusic(Player.biking)
-  return true, "bike", nil
 end
 
 --- Check TM pre-flight compatibility and known moves matching retail FRLG.

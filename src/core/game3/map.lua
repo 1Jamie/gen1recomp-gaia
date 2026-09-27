@@ -326,12 +326,14 @@ function Map.load(mod, game, mapId, opts)
     end
   end
 
-  local session = Runtime.getSession and Runtime.getSession()
+  local session = (Runtime.getSession and Runtime.getSession()) or (game and game.session)
   local save = game and game.save
   local Player = require("src.core.game3.player")
   local onCyclingRoad = Player.isOnCyclingRoad and Player.isOnCyclingRoad(session, x, y)
-  local wasBiking = Player.biking or (session and session.biking == true)
-    or (save and save.biking == true)
+  local wasBiking = (Player.biking == true)
+  if opts.initialLoad and not wasBiking then
+    wasBiking = (session and session.biking == true) or (save and save.biking == true) or false
+  end
 
   -- pokefirered/src/overworld.c:878 GetAdjustedInitialTransitionFlags
   local keepBike = false
@@ -347,7 +349,6 @@ function Map.load(mod, game, mapId, opts)
     if onCyclingRoad and not (Player.surfing or Player.surfHopping) then
       keepBike = true
     end
-    Player.biking = keepBike
   end
 
   if session then
@@ -365,6 +366,7 @@ function Map.load(mod, game, mapId, opts)
     save.position.x = x
     save.position.y = y
     save.position.facing = facing
+    save.position.biking = keepBike
     save.biking = keepBike
   end
 
@@ -380,9 +382,6 @@ function Map.load(mod, game, mapId, opts)
     Player.reset(x, y, facing)
   end
   -- pokefirered/src/overworld.c:2145 SetPlayerAvatarTransitionFlags
-  if onCyclingRoad and not (Player.surfing or Player.surfHopping) then
-    keepBike = true
-  end
   Player.biking = keepBike
   Player.syncSavePosition(game)
 
