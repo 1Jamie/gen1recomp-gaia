@@ -42,6 +42,16 @@ local HINTS_GEN3 = {
   vars     = "16-bit script and story progression variables (save.vars, 0x4000-0x40FF).",
 }
 
+-- pokeemerald/include/constants/flags.h:1572
+local HINTS_RSE = {
+  story    = HINTS_GEN3.story,
+  trainers = "Trainer defeat flags (0x500 + trainerId, up to 0x85F): checked means that trainer stays beaten.",
+  items    = "Item balls (FLAG_ITEM_...) and hidden items (FLAG_HIDDEN_ITEM_..., from 0x1F4): checked means item taken.",
+  toggles  = HINTS_GEN3.toggles,
+  system   = "System flags (0x860-0x91F), Gym Badges (0x867-0x86E), National Dex, and daily flags (0x920-0x95F).",
+  vars     = HINTS_GEN3.vars,
+}
+
 local function sortedKeys(t)
   local keys = {}
   for k in pairs(t) do keys[#keys + 1] = k end
@@ -212,7 +222,7 @@ function M.draw(S, Kit, x, y, w, h)
   local hints = HINTS_GEN1
   if gen == 3 then
     pills = SUB_TABS_GEN3
-    hints = HINTS_GEN3
+    hints = require("Gen3Flags").rseGame() and HINTS_RSE or HINTS_GEN3
   elseif gen == 2 then
     pills = { SUB_TABS_GEN1[1] }
     if S.eventsTab ~= "flags" then S.eventsTab = "flags" end

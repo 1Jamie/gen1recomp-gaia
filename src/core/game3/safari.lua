@@ -15,8 +15,6 @@ Safari.STEPS = 600
 Safari.EXIT_MAP = "FR_FUCHSIA_CITY_SAFARI_ZONE_ENTRANCE"
 Safari.EXIT_X = 4
 Safari.EXIT_Y = 1
--- pokefirered/include/constants/songs.h:70
-local SE_DING_DONG = 66
 
 local function runtime()
   return package.loaded["src.core.game3.runtime"]
@@ -49,13 +47,28 @@ local function script_ctx()
   return (Space and Space.vm and Space.vm.ctx) or nil
 end
 
+local function rse_cfg(session)
+  local ok, BattleProfile = pcall(require, "src.core.game3.battle.profile")
+  if not ok then return nil end
+  local okP, p = pcall(BattleProfile.get, session)
+  return okP and p and p.safari or nil
+end
+Safari.rseConfig = rse_cfg
+
+local function flag_id(session)
+  local cfg = rse_cfg(session)
+  if cfg then return require("src.core.game3.rse.init").flagId(cfg.flag, session) end
+  return Safari.FLAG_SYS_SAFARI_MODE
+end
+
 local function set_flag(session, on)
   local Flags = require("src.core.game3.scripting.flags")
   local st = store()
-  if st then Flags.setFlag(st, script_ctx(), Safari.FLAG_SYS_SAFARI_MODE, on) end
+  local id = flag_id(session)
+  if st then Flags.setFlag(st, script_ctx(), id, on) end
   if session then
     session.flags = session.flags or {}
-    session.flags[Safari.FLAG_SYS_SAFARI_MODE] = on or nil
+    session.flags[id] = on or nil
   end
 end
 
@@ -77,8 +90,9 @@ end
 local function flag_set(session)
   local Flags = require("src.core.game3.scripting.flags")
   local st = store()
-  if st and Flags.getFlag(st, script_ctx(), Safari.FLAG_SYS_SAFARI_MODE) then return true end
-  if session and session.flags and session.flags[Safari.FLAG_SYS_SAFARI_MODE] then return true end
+  local id = flag_id(session)
+  if st and Flags.getFlag(st, script_ctx(), id) then return true end
+  if session and session.flags and session.flags[id] then return true end
   return false
 end
 
@@ -113,6 +127,16 @@ function Safari.enter(session)
   if not session then return false end
   set_flag(session, true)
   local state = Safari.state(session)
+  local cfg = rse_cfg(session)
+  if cfg then
+    -- pokeemerald/src/safari_zone.c:55
+    state.balls = cfg.balls
+    state.steps = cfg.steps
+    state.caughtMons = 0
+    state.pkblkUses = 0
+    state.feeders = {}
+    return true
+  end
   state.balls = Safari.BALLS
   state.steps = Safari.STEPS
   return true
@@ -121,13 +145,57 @@ end
 -- pokefirered/src/safari_zone.c:34 ExitSafariMode
 function Safari.exit(session)
   session = session_of(session)
-  set_flag(session, false)
   local state = Safari.state(session)
+  if state and rse_cfg(session) then
+    -- pokeemerald/src/safari_zone.c:68
+    require("src.core.game3.rse.init").call("tv", "tryPutSafariFanClubOnAir", "TryPutSafariFanClubOnAir", nil,
+      tonumber(state.caughtMons) or 0, tonumber(state.pkblkUses) or 0)
+  end
+  set_flag(session, false)
   if state then
     state.balls = 0
     state.steps = 0
+    -- pokeemerald/src/safari_zone.c:70
+    if rse_cfg(session) then state.feeders = {} end
   end
   return true
+end
+
+local function run_script(label)
+  local Space = package.loaded["src.core.game3.scripting.space"]
+  if not (Space and Space.startScript and Space.scriptKey) then return false end
+  local key = Space.scriptKey(label)
+  if not key then error("safari: no script " .. tostring(label)) end
+  return Space.startScript(key)
+end
+
+-- pokeemerald/src/safari_zone.c:97
+function Safari.endBattleRse(session, st)
+  session = session_of(session)
+  local cfg = rse_cfg(session)
+  local state = Safari.state(session)
+  if not (cfg and state) then return false end
+  local sf = st and st.safariState or {}
+  state.pkblkUses = (tonumber(state.pkblkUses) or 0) + (tonumber(sf.pokeblockThrows) or 0)
+  if st and st.result == "catch" then state.caughtMons = (tonumber(state.caughtMons) or 0) + 1 end
+  if (tonumber(state.balls) or 0) ~= 0 then return false end
+  if st and st.endReason == "no_safari_balls" then
+    -- pokeemerald/src/safari_zone.c:108
+    local Space = package.loaded["src.core.game3.scripting.space"]
+    if Space and Space.runImmediately then Space.runImmediately(cfg.outOfBallsMidBattle) end
+    local dest = session.warpDestination
+    if dest and dest.map then
+      local Runtime = runtime()
+      require("src.core.game3.warp").request(Runtime and Runtime._mod, game_of(nil), dest.map, dest.x, dest.y,
+        "down", { fade = false, se = false })
+    end
+    return true
+  end
+  if st and st.result == "catch" then
+    -- pokeemerald/src/safari_zone.c:115
+    return run_script(cfg.outOfBalls)
+  end
+  return false
 end
 
 function Safari.balls(session)
@@ -194,7 +262,8 @@ local function presenter()
 end
 
 local function announce(text, session, game, onDone)
-  se(SE_DING_DONG)
+  -- pokefirered/include/constants/songs.h:70
+  se(require("src.core.game3.se_ids").SE_DING_DONG)
   local Field = package.loaded["src.core.game3.field"]
   if Field then Field.locked = true end
   local P = presenter()
@@ -219,6 +288,9 @@ end
 
 -- pokefirered/data/scripts/safari_zone.inc:31 SafariZone_EventScript_OutOfBalls
 function Safari.outOfBalls(session, game)
+  local cfg = rse_cfg(session_of(session))
+  -- pokeemerald/src/safari_zone.c:115
+  if cfg then return run_script(cfg.outOfBalls) end
   return announce(
     RomText.ascii("SafariZone_Text_OutOfBalls"),
     session, game, function() Safari.exitToEntrance(session, game) end)
@@ -230,6 +302,17 @@ function Safari.takeStep(session, game)
   if not Safari.isActive(session) then return false end
   local state = Safari.state(session)
   if not state then return false end
+  local cfg = rse_cfg(session)
+  if cfg then
+    -- pokeemerald/src/safari_zone.c:75
+    for _, f in pairs(state.feeders or {}) do
+      if (tonumber(f.stepCounter) or 0) > 0 then f.stepCounter = f.stepCounter - 1 end
+    end
+    state.steps = math.max(0, (tonumber(state.steps) or 0) - 1)
+    if state.steps ~= 0 then return false end
+    run_script(cfg.timesUp)
+    return true
+  end
   local steps = (tonumber(state.steps) or 0) - 1
   if steps < 0 then steps = 0 end
   state.steps = steps
@@ -243,6 +326,9 @@ function Safari.retirePrompt(session, game)
   session = session_of(session)
   game = game_of(game)
   if not Safari.isActive(session) then return false end
+  local cfg = rse_cfg(session)
+  -- pokeemerald/src/safari_zone.c:92
+  if cfg then return run_script(cfg.retire) end
   local Field = package.loaded["src.core.game3.field"]
   -- pokefirered/data/text/safari_zone.inc:3 SafariZone_Text_WouldYouLikeToExit
   local ask = RomText.ascii("SafariZone_Text_WouldYouLikeToExit")

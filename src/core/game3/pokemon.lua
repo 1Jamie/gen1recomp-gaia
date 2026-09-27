@@ -649,10 +649,99 @@ function Pokemon.checkPartyHasHadPokerus(party, selection)
   return retVal
 end
 
--- pokefirered/src/pokemon.c:5612, :5676, :5682 (all stubbed in FRLG)
-function Pokemon.randomlyGivePartyPokerus(_) end
-function Pokemon.updatePartyPokerusTime(_) end
-function Pokemon.partySpreadPokerus(_) end
+local function pokerus_live(session)
+  local Profile = require("src.core.game3.profile")
+  return require(Profile.forSession(session).saveRules).POKERUS == true
+end
+
+local function has_species(mon)
+  return type(mon) == "table" and (tonumber(mon.species or mon.speciesId) or 0) ~= 0
+end
+
+-- pokeemerald/src/pokemon.c:6078
+function Pokemon.randomlyGivePartyPokerus(party, session)
+  if type(party) ~= "table" or not pokerus_live(session) then return end
+  local bit = require("bit")
+  local Rng = require("src.core.game3.rng")
+  local rnd = Rng.Random()
+  if rnd ~= 0x4000 and rnd ~= 0x8000 and rnd ~= 0xC000 then return end
+  local any = false
+  for i = 1, 6 do
+    if has_species(party[i]) and not Pokemon.isEgg(party[i]) then any = true end
+  end
+  if not any then return end
+  local idx
+  repeat
+    idx = Rng.Random() % 6
+  until has_species(party[idx + 1]) and not Pokemon.isEgg(party[idx + 1])
+  if Pokemon.checkPartyHasHadPokerus(party, bit.lshift(1, idx)) ~= 0 then return end
+  local r
+  repeat
+    r = Rng.Random() % 256
+  until bit.band(r, 7) ~= 0
+  if bit.band(r, 0xF0) ~= 0 then r = bit.band(r, 7) end
+  r = bit.band(bit.bor(r, bit.lshift(r, 4)), 0xFF)
+  r = bit.band(r, 0xF3)
+  party[idx + 1].pokerus = (r + 1) % 256
+end
+
+-- pokeemerald/src/pokemon.c:6170
+function Pokemon.updatePartyPokerusTime(days, session)
+  if not pokerus_live(session) then return end
+  local bit = require("bit")
+  days = tonumber(days) or 0
+  local party = type(session) == "table" and session.party or {}
+  for i = 1, 6 do
+    local mon = party[i]
+    if has_species(mon) then
+      local p = tonumber(mon.pokerus) or 0
+      if bit.band(p, 0xF) ~= 0 then
+        if bit.band(p, 0xF) < days or days > 4 then
+          p = bit.band(p, 0xF0)
+        else
+          p = p - days
+        end
+        if p == 0 then p = 0x10 end
+        mon.pokerus = p
+      end
+    end
+  end
+end
+
+-- pokeemerald/src/pokemon.c:6194
+function Pokemon.partySpreadPokerus(party, session)
+  if type(party) ~= "table" or not pokerus_live(session) then return end
+  local bit = require("bit")
+  local Rng = require("src.core.game3.rng")
+  if Rng.Random() % 3 ~= 0 then return end
+  local i = 0
+  while i < 6 do
+    local mon = party[i + 1]
+    if has_species(mon) then
+      local cur = tonumber(mon.pokerus) or 0
+      if cur ~= 0 and bit.band(cur, 0xF) ~= 0 then
+        local prev = party[i]
+        if i ~= 0 and type(prev) == "table" and bit.band(tonumber(prev.pokerus) or 0, 0xF0) == 0 then
+          prev.pokerus = cur
+        end
+        local nxt = party[i + 2]
+        if i ~= 5 and type(nxt) == "table" and bit.band(tonumber(nxt.pokerus) or 0, 0xF0) == 0 then
+          nxt.pokerus = cur
+          i = i + 1
+        end
+      end
+    end
+    i = i + 1
+  end
+end
+
+function Pokemon.regional(species, version)
+  return require("src.core.game3.dex").regionalNumber(species, version)
+end
+
+function Pokemon.regionalCount(version)
+  return require("src.core.game3.dex").regionalMax(version)
+end
 
 -- pokefirered/src/pokemon.c:5512 MonGainEVs
 function Pokemon.gainEVs(mon, defeatedSpecies)

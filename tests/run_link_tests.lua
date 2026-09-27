@@ -933,6 +933,7 @@ for _, suite in ipairs({
   { "tests/link3_arena_state_test.lua", "gen 3 arena state suite" },
   { "tests/link3_desync_fuzz.lua", "gen 3 lockstep desync fuzz" },
   { "tests/link3_multi_test.lua", "gen 3 multi battle lockstep suite" },
+  { "tests/emerald_link_xver_test.lua", "gen 3 cross-version host-rules battles" },
 }) do
   check(standalone(suite[1]), suite[2])
 end

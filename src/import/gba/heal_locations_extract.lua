@@ -3,6 +3,8 @@
 local Versions = require("src.import.gba.versions")
 local MapCatalog = require("src.import.gba.map_catalog")
 local MapSectionsExtract = require("src.import.gba.map_sections_extract")
+local GameVersion = require("src.core.GameVersion")
+local Constants = require("src.core.game3.constants")
 
 local HealLocationsExtract = {}
 
@@ -12,6 +14,11 @@ HealLocationsExtract.FORMAT_VERSION = 1
 HealLocationsExtract.FILES = {
   "heal_locations.lua",
   "fly_destinations.lua",
+}
+
+HealLocationsExtract.REQUIRED = {
+  "region_map/heal_locations.lua",
+  "region_map/fly_destinations.lua",
 }
 
 HealLocationsExtract.HEAL_STRIDE = 8
@@ -123,6 +130,127 @@ function HealLocationsExtract.build(rom, opts)
   return { heal = heal, fly = fly }
 end
 
+local function constantName(kind, id, prefix)
+  local C = Constants.of(GameVersion.get())
+  if not C[kind] then return nil end
+  return C:name(kind, id, prefix)
+end
+
+local function s8(v)
+  if v >= 128 then return v - 256 end
+  return v
+end
+
+-- pokeemerald/src/data/heal_locations.h:6, pokeemerald/src/region_map.c:1981
+function HealLocationsExtract.buildHealRow(rom, opts)
+  opts = opts or {}
+  if not (rom and rom.get) then return nil, "missing ROM handle" end
+  MapCatalog.rebuildIndex()
+  local healBase = opts.healBase or Versions.S_HEAL_LOCATIONS
+  local healCount = opts.healCount or Versions.NUM_HEAL_LOCATIONS
+  local secBase = opts.mapHealBase or Versions.MAP_HEAL_LOCATIONS
+  local secCount = opts.mapHealCount or Versions.MAP_HEAL_LOCATION_COUNT
+
+  local heal = {}
+  for i = 0, healCount - 1 do
+    local o = healBase + i * HealLocationsExtract.HEAL_STRIDE
+    local g, n = s8(rom:get(o)), s8(rom:get(o + 1))
+    local map = MapCatalog.mapIdFor(g, n)
+    if not map then
+      return nil, ("sHealLocations[%d] map %d:%d is not a known map"):format(i, g, n)
+    end
+    heal[i + 1] = {
+      id = i + 1,
+      name = constantName("heal_locations", i + 1, "HEAL_LOCATION_"),
+      map = map,
+      x = rom:u16(o + 2),
+      y = rom:u16(o + 4),
+    }
+  end
+
+  local fly, warps = {}, {}
+  for sec = 0, secCount - 1 do
+    local o = secBase + sec * HealLocationsExtract.FLY_STRIDE
+    local healId = rom:get(o + 2)
+    local townMap = MapCatalog.mapIdFor(rom:get(o), rom:get(o + 1))
+    if not townMap then
+      return nil, ("sMapHealLocations[%d] map %d:%d is not a known map")
+        :format(sec, rom:get(o), rom:get(o + 1))
+    end
+    local id = constantName("region_map_sections", sec, "MAPSEC_")
+    if healId ~= 0 then
+      local row = heal[healId]
+      if not row then
+        return nil, ("sMapHealLocations[%d] names heal location %d"):format(sec, healId)
+      end
+      fly[#fly + 1] = {
+        mapsec = sec, id = id, map = row.map, x = row.x, y = row.y,
+        healLocation = healId, townMap = townMap,
+      }
+    else
+      warps[#warps + 1] = { mapsec = sec, id = id, map = townMap }
+    end
+  end
+  if #fly == 0 then return nil, "no mapsec names a heal location" end
+
+  return { model = "heal_row", heal = heal, fly = fly, mapWarps = warps }
+end
+
+local function formatHealRow(plan)
+  local lines = {
+    "-- Generated heal locations (sHealLocations). Sourced from pret/pokeemerald",
+    "-- src/data/heal_locations.h.",
+    "local heal = {",
+  }
+  for _, row in ipairs(plan.heal) do
+    local name = row.name and (", name = %q"):format(row.name) or ""
+    lines[#lines + 1] = ("  [%d] = { map = %q, x = %d, y = %d%s },")
+      :format(row.id, row.map, row.x, row.y, name)
+  end
+  lines[#lines + 1] = "}"
+  lines[#lines + 1] = ""
+  lines[#lines + 1] = "return {"
+  lines[#lines + 1] = ("  version = %d,"):format(HealLocationsExtract.FORMAT_VERSION)
+  lines[#lines + 1] = ("  model = %q,"):format(plan.model)
+  lines[#lines + 1] = "  whiteout = heal,"
+  lines[#lines + 1] = "  heal_locations = heal,"
+  lines[#lines + 1] = "}"
+  lines[#lines + 1] = ""
+  return table.concat(lines, "\n")
+end
+
+local function secKey(row)
+  if row.id then return row.id end
+  return ("[%d]"):format(row.mapsec)
+end
+
+local function formatFlyHealRow(plan)
+  local lines = {
+    "-- Generated Fly destinations (sMapHealLocations resolved through",
+    "-- sHealLocations). Sourced from pret/pokeemerald src/region_map.c.",
+    "return {",
+    ("  version = %d,"):format(HealLocationsExtract.FORMAT_VERSION),
+    ("  model = %q,"):format(plan.model),
+    "  fly_destinations = {",
+  }
+  for _, row in ipairs(plan.fly) do
+    lines[#lines + 1] = ("    %s = { mapsec = %d, map = %q, x = %d, y = %d, healLocation = %d, townMap = %q },")
+      :format(secKey(row), row.mapsec, row.map, row.x, row.y, row.healLocation, row.townMap)
+  end
+  lines[#lines + 1] = "  },"
+  lines[#lines + 1] = "  map_warps = {"
+  for _, row in ipairs(plan.mapWarps) do
+    lines[#lines + 1] = ("    %s = { mapsec = %d, map = %q },"):format(secKey(row), row.mapsec, row.map)
+  end
+  lines[#lines + 1] = "  },"
+  lines[#lines + 1] = "}"
+  lines[#lines + 1] = ""
+  return table.concat(lines, "\n")
+end
+
+HealLocationsExtract.formatHealRow = formatHealRow
+HealLocationsExtract.formatFlyHealRow = formatFlyHealRow
+
 local function formatHealLocations(plan)
   local lines = {
     "-- Generated whiteout respawn points (sWhiteoutRespawnHealCenterMapIdxs,",
@@ -193,11 +321,25 @@ function HealLocationsExtract.run(rom, cache, opts)
     return true, { skipped = true }
   end
 
-  local plan, err = HealLocationsExtract.build(rom, opts)
-  if not plan then return false, err end
+  local healRow = Versions.MAP_HEAL_LOCATIONS ~= nil
+  local plan, err
+  if healRow then
+    plan, err = HealLocationsExtract.buildHealRow(rom, opts)
+  else
+    plan, err = HealLocationsExtract.build(rom, opts)
+  end
+  if not plan then
+    if opts.strict then error("heal_locations: " .. tostring(err)) end
+    return false, err
+  end
 
-  cache:write(root .. "/heal_locations.lua", formatHealLocations(plan))
-  cache:write(root .. "/fly_destinations.lua", formatFlyDestinations(plan))
+  if healRow then
+    cache:write(root .. "/heal_locations.lua", formatHealRow(plan))
+    cache:write(root .. "/fly_destinations.lua", formatFlyHealRow(plan))
+  else
+    cache:write(root .. "/heal_locations.lua", formatHealLocations(plan))
+    cache:write(root .. "/fly_destinations.lua", formatFlyDestinations(plan))
+  end
 
   print(("[heal_locations] %d respawn points + %d Fly destinations -> %s")
     :format(#plan.heal, #plan.fly, root))

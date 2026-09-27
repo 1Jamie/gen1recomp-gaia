@@ -266,4 +266,37 @@ function SE.resolve(id)
   if n then return n end
   return SE[s] or SE[s:upper()]
 end
+
+local FR = {}
+for k, v in pairs(SE) do
+  if type(v) == "number" then FR[k] = v end
+end
+local byGame = { firered = FR }
+
+function SE.forVersion(id)
+  local Constants = require("src.core.game3.constants")
+  local game = Constants.gameKey(id)
+  local t = byGame[game]
+  if not t then
+    t = {}
+    for k, v in pairs(Constants.of(game).songs.byName) do
+      if k:find("^SE_") then t[k] = v end
+    end
+    byGame[game] = t
+  end
+  return t
+end
+
+SE.current = "firered"
+
+function SE.select(id)
+  local t = SE.forVersion(id)
+  for k, v in pairs(SE) do
+    if type(v) == "number" and t[k] == nil then SE[k] = nil end
+  end
+  for k, v in pairs(t) do SE[k] = v end
+  SE.current = require("src.core.game3.constants").gameKey(id)
+  return SE
+end
+
 return SE

@@ -548,11 +548,11 @@ local function writeGen3Species(out, inputs)
   end
 end
 
-local function surfaceGen3(data, mods)
+local function surfaceGen3(data, mods, withoutMoves)
   local inputs = gen3InputsFor(data)
   local out = { "[gen3]\n" }
   writeGen3Species(out, inputs)
-  writeRecords(out, inputs.moves, "moves", GEN3_MOVE_FIELDS)
+  if not withoutMoves then writeRecords(out, inputs.moves, "moves", GEN3_MOVE_FIELDS) end
   out[#out + 1] = "[type_chart]"
   writeValue(out, inputs.typeChart)
   out[#out + 1] = "[natures]"
@@ -572,6 +572,47 @@ local function surfaceGen3(data, mods)
 end
 
 Fingerprint.surfaceGen3 = surfaceGen3
+Fingerprint.GEN3_MOVE_FIELDS = GEN3_MOVE_FIELDS
+
+local coreMemo = setmetatable({}, { __mode = "k" })
+
+function Fingerprint.coreGen3(data, mods)
+  if type(data) ~= "table" then return nil end
+  local key = modKey(mods)
+  local hit = coreMemo[data]
+  if hit and hit.key == key then return hit.value end
+  local value = digest(surfaceGen3(data, mods, true))
+  coreMemo[data] = { key = key, value = value }
+  return value
+end
+
+function Fingerprint.movesGen3Of(moves)
+  local out = {}
+  writeRecords(out, moves or {}, "moves", GEN3_MOVE_FIELDS)
+  return digest(table.concat(out))
+end
+
+function Fingerprint.movesGen3(data)
+  if type(data) ~= "table" then return nil end
+  return Fingerprint.movesGen3Of(gen3InputsFor(data).moves)
+end
+
+local function rulesRowGen3(version)
+  local Profile = require("src.core.game3.profile")
+  local BattleProfile = require("src.core.game3.battle.profile")
+  local row = Profile.of(version)
+  local p = BattleProfile.forRow(row)
+  local out = { "[rules]" }
+  writeValue(out, row.family or p.family)
+  writeValue(out, p.rules)
+  return table.concat(out)
+end
+
+Fingerprint.rulesRowGen3 = rulesRowGen3
+
+function Fingerprint.rulesGen3(version)
+  return digest(rulesRowGen3(version))
+end
 
 -- `generation` is optional everywhere: absent means "ask the data"
 -- (Fingerprint.generationOf), which is what every caller but a test does.
@@ -655,6 +696,7 @@ function Fingerprint.forget(data)
   cache[data] = nil
   recordCache[data] = nil
   gen3Memo[data] = nil
+  coreMemo[data] = nil
 end
 
 return Fingerprint

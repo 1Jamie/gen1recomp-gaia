@@ -9,6 +9,8 @@
 
 local Pokemon = require("src.core.game3.pokemon")
 local RomText = require("src.core.game3.rom_text")
+local Sem = require("src.core.game3.field_semantics")
+local FieldModules = require("src.core.game3.field_modules")
 
 local StepEvents = {}
 
@@ -134,7 +136,8 @@ function StepEvents.onStepTaken(session, game)
 
   -- 1. Happiness Counter (VAR_HAPPINESS_STEP_COUNTER % 128)
   -- pokefirered/src/field_control_avatar.c:687 UpdateHappinessStepCounter
-  local hapSteps = (tonumber(session.vars[0x4021] or session.happinessSteps) or 0) + 1
+  local hapVar = Sem.var(session, "happinessSteps")
+  local hapSteps = (tonumber(session.vars[hapVar] or session.happinessSteps) or 0) + 1
   if hapSteps >= 128 then
     hapSteps = 0
     -- pokefirered/src/field_control_avatar.c:699
@@ -143,22 +146,46 @@ function StepEvents.onStepTaken(session, game)
       Pokemon.adjustFriendship(mon, Pokemon.FRIENDSHIP_EVENT_WALKING, ctx)
     end
   end
-  session.vars[0x4021] = hapSteps
+  session.vars[hapVar] = hapSteps
   session.happinessSteps = hapSteps
+
+  local isRse = require("src.core.game3.profile").family(session) == "rse"
+  local mcOn = isRse and require("src.core.game3.capabilities").gate(session, "match_call")
+  if mcOn then
+    -- pokeemerald/src/field_control_avatar.c:543
+    require("src.core.game3.rse.match_call").incrementRematchStepCounter(session)
+  end
 
   -- pokefirered/src/field_control_avatar.c:217
   local MysteryGift = require("src.core.game3.mystery_gift")
   MysteryGift.incrementNewsStepCounter(session)
 
   -- pokefirered/src/field_specials.c:2068
-  local massage = tonumber(session.vars[0x4025]) or 0
-  if massage < 500 then session.vars[0x4025] = massage + 1 end
+  local massageVar = Sem.var(session, "massageSteps")
+  if massageVar then
+    local massage = tonumber(session.vars[massageVar]) or 0
+    if massage < 500 then session.vars[massageVar] = massage + 1 end
+  end
 
   -- pokefirered/src/field_specials.c:2433 IncrementBirthIslandRockStepCount
-  require("src.core.game3.deoxys").incrementStepCount(session)
+  if FieldModules.enabled("deoxys", session) then
+    require("src.core.game3.deoxys").incrementStepCount(session)
+  end
+
+  if isRse then
+    local R = require("src.core.game3.rse.init")
+    -- pokeemerald/src/field_control_avatar.c:158
+    R.call("eventIslands", "incrementStepCount", nil, nil, session)
+    -- pokeemerald/src/field_control_avatar.c:517
+    local P = require("src.core.game3.player")
+    R.call("pyramid", "onStep", nil, nil, session, P.cellX, P.cellY)
+  end
 
   -- pokefirered/src/field_control_avatar.c:219 IncrementRenewableHiddenItemStepCounter
-  local okRen, Renewable = pcall(require, "src.core.game3.renewable_hidden_items")
+  local okRen, Renewable = false, nil
+  if FieldModules.enabled("renewableHiddenItems", session) then
+    okRen, Renewable = pcall(require, "src.core.game3.renewable_hidden_items")
+  end
   if okRen and Renewable and Renewable.onStep then
     Renewable.onStep(session, session.mapGroup, session.mapNum, session.map)
   end
@@ -167,7 +194,7 @@ function StepEvents.onStepTaken(session, game)
   local forced = forced_step()
   local poisonFainted = false
   local vsChargeDone = false
-  if not forced then
+  if not forced and FieldModules.enabled("vsSeeker", session) then
     local VsSeeker = require("src.core.game3.vs_seeker")
     if VsSeeker.onStep(session) then
       vsChargeDone = true
@@ -180,7 +207,8 @@ function StepEvents.onStepTaken(session, game)
   end
 
   -- 3. Overworld Poison Counter (every 4 steps, pret field_poison.c)
-  local psnSteps = (tonumber(session.vars[0x4040] or session.poisonSteps) or 0) + 1
+  local psnVar = Sem.var(session, "poisonSteps")
+  local psnSteps = (tonumber(session.vars[psnVar] or session.poisonSteps) or 0) + 1
   if psnSteps >= 4 then
     psnSteps = 0
     local anyPoisonDamage = false
@@ -213,7 +241,7 @@ function StepEvents.onStepTaken(session, game)
     if anyPoisonDamage then
       -- Trigger 4-frame reddish screen flash and poison SE
       StepEvents._poisonFlashTimer = 4 / 60
-      se(72) -- SE_FIELD_POISON (72)
+      se(require("src.core.game3.se_ids").SE_FIELD_POISON)
 
       -- pokefirered/src/field_control_avatar.c:727 FLDPSN_FNT
       poisonFainted = #faintedMons > 0
@@ -225,7 +253,9 @@ function StepEvents.onStepTaken(session, game)
           run = function(onDone)
             local Hud = require("src.ui.game3.hud")
             -- pokefirered/src/field_poison.c:64
-            Hud.openMessage(game, RomText.box("gText_PkmnFainted3", { stringVars = { fainted.name } }),
+            local P = require("src.core.game3.profile").forSession(session)
+            Hud.openMessage(game, RomText.box((P.field and P.field.poisonFaintText) or "gText_PkmnFainted3",
+              { stringVars = { fainted.name } }),
               { done = onDone })
           end,
         })
@@ -234,7 +264,7 @@ function StepEvents.onStepTaken(session, game)
       if poisonFainted then push_event(field_white_out_event(session, game)) end
     end
   end
-  session.vars[0x4040] = psnSteps
+  session.vars[psnVar] = psnSteps
   session.poisonSteps = psnSteps
 
   -- pokefirered/src/field_control_avatar.c:670 ShouldEggHatch
@@ -253,8 +283,9 @@ function StepEvents.onStepTaken(session, game)
           local EggHatch = require("src.ui.game3.egg_hatch")
           local Audio = require("src.core.game3.audio")
           local Hud = require("src.ui.game3.hud")
+          local P = require("src.core.game3.profile").forSession(session)
           -- pokefirered/data/scripts/day_care.inc:112 DayCare_Text_Huh
-          Hud.openMessage(game, RomText.box("DayCare_Text_Huh"), {
+          Hud.openMessage(game, RomText.box((P.field and P.field.eggHatchText) or "DayCare_Text_Huh"), {
             done = function()
               -- pokefirered/data/scripts/day_care.inc:113 special EggHatch
               EggHatch.start(hatching, {
@@ -276,6 +307,20 @@ function StepEvents.onStepTaken(session, game)
       StepEvents.onRepelStep(session, game)
       return
     end
+    if isRse and require("src.core.game3.braille_field").shouldDoRegicePuzzle(session) then
+      -- pokeemerald/src/field_control_avatar.c:570
+      local Space = require("src.core.game3.scripting.space")
+      local key = Space.scriptKey("IslandCave_EventScript_OpenRegiEntrance")
+      if key and Space.startScript(key) then
+        StepEvents.onRepelStep(session, game)
+        return
+      end
+    end
+    if mcOn and require("src.core.game3.rse.match_call").tryStepCountScripts(session, game) then
+      -- pokeemerald/src/field_control_avatar.c:575
+      StepEvents.onRepelStep(session, game)
+      return
+    end
   end
 
   -- pokefirered/src/safari_zone.c:60 CB2_EndSafariBattle
@@ -290,16 +335,36 @@ function StepEvents.onStepTaken(session, game)
     return
   end
 
+  if isRse and require("src.core.game3.special_scene_rse").countSSTidalStep(1) then
+    -- pokeemerald/src/field_control_avatar.c:600
+    local Space = require("src.core.game3.scripting.space")
+    local key = Space.scriptKey("SSTidalCorridor_EventScript_ReachedStepCount")
+    if key and Space.startScript(key) then
+      StepEvents.onRepelStep(session, game)
+      return
+    end
+  end
+  if mcOn and require("src.core.game3.rse.match_call").tryStartMatchCall(session, game) then
+    -- pokeemerald/src/field_control_avatar.c:605
+    StepEvents.onRepelStep(session, game)
+    return
+  end
+
   StepEvents.onRepelStep(session, game)
 end
 
 function StepEvents.onRepelStep(session, game)
   -- 5. Repel Step Counter (VAR_REPEL_STEP_COUNT)
-  local repelSteps = tonumber(session.repelSteps or session.vars[0x4020]) or 0
+  local Pike = package.loaded["src.core.game3.rse.frontier.pike"]
+  local Py = package.loaded["src.core.game3.rse.frontier.pyramid"]
+  -- pokeemerald/src/wild_encounter.c:854
+  if (Pike and Pike.inBattlePike(session)) or (Py and Py.inPyramid(session)) then return end
+  local repelVar = Sem.var(session, "repelSteps")
+  local repelSteps = tonumber(session.repelSteps or session.vars[repelVar]) or 0
   if repelSteps > 0 then
     repelSteps = repelSteps - 1
     session.repelSteps = repelSteps
-    session.vars[0x4020] = repelSteps
+    session.vars[repelVar] = repelSteps
 
     if repelSteps == 0 then
       push_event({

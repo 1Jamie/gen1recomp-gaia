@@ -274,14 +274,9 @@ end
 -- pokefirered/src/trade.c:778 InitTradeMenu
 function LT.sendParty()
   local s = session()
-  local Party = require("src.core.game3.party")
-  local version = (Party.metGame and Party.metGame()) or 0
-  local flags = 0
-  local okD, PokedexData = pcall(require, "src.core.game3.pokedex_data")
-  if okD and PokedexData and PokedexData.isNationalUnlocked then
-    local okU, unlocked = pcall(PokedexData.isNationalUnlocked, s, s and s.dex)
-    if okU and unlocked then flags = 1 end
-  end
+  local lp = require("src.core.game3.link.family").localLinkPlayer(s)
+  local version = lp.gameVersion
+  local flags = lp.progressFlags
   local ok = send({
     type = LT.MSG.PARTY,
     party = LT.packParty(s),
@@ -299,12 +294,12 @@ function LT.peerInfo()
   return LT.peer
 end
 
--- pokefirered/src/trade.c:2745 CanTradeSelectedMon
+-- pokeemerald/src/trade.c:2389 CanTradeSelectedMon
 function LT.canTradeSelectedMon(slot)
   local s = session()
-  local Trade = trade()
   local partner = LT.peer and { version = LT.peer.version, progressFlags = LT.peer.progressFlags }
-  return Trade.canTradeSelectedMon(partyOf(s), (tonumber(slot) or 1) - 1, {
+  local Family = require("src.core.game3.link.family")
+  return Family.canTradeSelectedMon(Family.activeVersion(), partyOf(s), (tonumber(slot) or 1) - 1, {
     session = s,
     partner = partner,
   })

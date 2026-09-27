@@ -127,6 +127,8 @@ GameVersion.VERSIONS = {
     saveSuffix = "_firered",
     generation = 3,
     engine = "game3",
+    layout = "frlg",
+    gameCode = 4,
     cartShape = "gba",
     cartShell = "#e64110",
     cartLabel = "assets/labels/firered.png",
@@ -141,15 +143,30 @@ GameVersion.VERSIONS = {
     },
     manifest = "tools/rom_manifest_leafgreen.json",
     cachePrefix = "leafgreen/", saveSuffix = "_leafgreen",
-    generation = 3, engine = "game3", cartShape = "gba", cartShell = "#26a24e",
+    generation = 3, engine = "game3", layout = "frlg", gameCode = 5,
+    cartShape = "gba", cartShell = "#26a24e",
     cartLabel = "assets/labels/leafgreen.png",
+  },
+  -- pokeemerald/include/constants/global.h:10
+  emerald = {
+    id = "emerald", label = "Emerald", displayName = "Pokemon Emerald",
+    launcherName = "Emerald", beta = true,
+    sha1 = "f3ae088181bf583e55daf962a92bb46f4f1d07b7",
+    revisions = {
+      { sha1 = "f3ae088181bf583e55daf962a92bb46f4f1d07b7", label = "1.0" },
+    },
+    manifest = "tools/rom_manifest_emerald.json",
+    cachePrefix = "emerald/", saveSuffix = "_emerald",
+    generation = 3, engine = "game3", layout = "rse", gameCode = 3,
+    cartShape = "gba", cartShell = "#1f9e6e",
+    cartLabel = "assets/labels/emerald.png",
   },
 }
 
 local NO_FIXES = {}
 
 -- Launcher column order.  Append only (src/mods/ModProfile.lua encodes by index).
-GameVersion.ORDER = { "red", "blue", "yellow", "gold", "silver", "crystal", "firered", "leafgreen" }
+GameVersion.ORDER = { "red", "blue", "yellow", "gold", "silver", "crystal", "firered", "leafgreen", "emerald" }
 
 GameVersion.current = "red"
 
@@ -187,6 +204,16 @@ end
 -- "gen1" | "gs" | "crystal" | "game3": lineage within a generation.
 function GameVersion.engine(id)
   return GameVersion.info(id).engine or "gen1"
+end
+
+function GameVersion.layout(id)
+  local info = GameVersion.info(id)
+  return info and info.layout or nil
+end
+
+function GameVersion.gameCode(id)
+  local info = GameVersion.info(id)
+  return info and info.gameCode or nil
 end
 
 -- Launcher shell; defaults to GB.

@@ -155,7 +155,7 @@ function Pokedex.maxSpecies()
   if Pokedex.mode == "national" or Pokedex.currentOrder == "numerical_national" then
     return Dex.NATIONAL_MAX or 386
   end
-  return Dex.KANTO_MAX or 151
+  return Dex.regionalMax()
 end
 
 -- pokefirered/src/pokedex_screen.c:3113

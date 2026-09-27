@@ -1,3 +1,4 @@
+local Std = require("src.core.game3.scripting.stdscripts")
 local RomText = require("src.core.game3.rom_text")
 local MysteryGift = require("src.core.game3.mystery_gift")
 
@@ -79,9 +80,7 @@ end
 Gift.textBox = textBox
 
 -- pokefirered/include/constants/songs.h:264
-local MUS_LEVEL_UP = 257
-local MUS_OBTAIN_ITEM = 258
-local MUS_OBTAIN_KEY_ITEM = 318
+local Song = require("src.core.game3.song_ids")
 
 function Gift.obtainedLine(session, code)
   if code ~= MysteryGift.DELIVER_GIVEN then return nil end
@@ -93,15 +92,15 @@ function Gift.obtainedLine(session, code)
     local Pokemon = require("src.core.game3.pokemon")
     local ok, name = pcall(Pokemon.name, tonumber(gift.species))
     -- pokefirered/data/maps/CeladonCity_Condominiums_RoofRoom/scripts.inc:21
-    return Strings("%s obtained %s!", player, ok and name or ""), MUS_LEVEL_UP
+    return Strings("%s obtained %s!", player, ok and name or ""), Song.MUS_LEVEL_UP
   elseif gift.kind == "egg" then
     -- pokefirered/data/mystery_event_msg.s:55
-    return Strings("%s received an EGG!", player), MUS_OBTAIN_ITEM
+    return Strings("%s received an EGG!", player), Song.MUS_OBTAIN_ITEM
   elseif gift.kind == "item" then
     local Items = require("src.core.game3.items_data")
     local id = tonumber(gift.item)
     local key = Items.pocketOf(id) == "KEY_ITEMS"
-    return Strings("%s obtained the %s!", player, Items.displayName(id)), key and MUS_OBTAIN_KEY_ITEM or MUS_OBTAIN_ITEM
+    return Strings("%s obtained the %s!", player, Items.displayName(id)), key and Song.MUS_OBTAIN_KEY_ITEM or Song.MUS_OBTAIN_ITEM
   end
   return nil
 end
@@ -141,22 +140,23 @@ function Gift.runWonderCardScript(ctx, adapters)
   return yield, true
 end
 
-Gift.HANDLERS = {
+Gift.BY_NAME = {
   -- pokefirered/src/mystery_gift.c:180 ValidateSavedWonderCard
-  [SPECIAL_ValidateSavedWonderCard] = function()
+  ValidateSavedWonderCard = function()
     return false, MysteryGift.validateSavedCard(sessionOf()) and 1 or 0
   end,
   -- pokefirered/src/field_specials.c:1955 GetMysteryGiftCardStat
-  [SPECIAL_GetMysteryGiftCardStat] = function(ctx)
+  GetMysteryGiftCardStat = function(ctx)
     return false, MysteryGift.getCardStatForScript(sessionOf(), varGet(ctx, VAR_RESULT))
   end,
   -- pokefirered/src/wonder_news.c:68 WonderNews_GetRewardInfo
-  [SPECIAL_WonderNews_GetRewardInfo] = function(ctx)
+  WonderNews_GetRewardInfo = function(ctx)
     local rewardType, item = MysteryGift.getNewsRewardInfo(sessionOf())
     if item then varSet(ctx, VAR_RESULT, item) end
     return false, rewardType
   end,
 }
+Std.legacyHandlers(Gift)
 
 Gift.SPECIAL_IDS = {
   ValidateSavedWonderCard = SPECIAL_ValidateSavedWonderCard,

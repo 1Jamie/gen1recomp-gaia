@@ -10,8 +10,9 @@ local BallOpen = require("src.core.game3.battle.ball_open")
 local BattleText = require("src.core.game3.battle.battle_text")
 local Adapter = require("src.core.game3.battle.adapter")
 
-local MUS_CAUGHT_INTRO = 319
-local MUS_CAUGHT = 322
+local function caught_song(key)
+  return Audio.resolveSong(require("src.core.game3.battle.profile").get(nil).sounds[key])
+end
 
 local CatchSeq = {}
 
@@ -89,9 +90,15 @@ local BALL_ESCAPE = {
 }
 
 -- pokefirered/data/battle_scripts_2.s:77
+local function wally(st)
+  return st ~= nil and st.kinds ~= nil and st.kinds.tutorial == "wally"
+end
+
 local function gotcha_id(st)
   if st and (st.oldManTutorial or st.pokedude) then return "STRINGID_GOTCHAPKMNCAUGHT2" end
-  return "STRINGID_GOTCHAPKMNCAUGHT"
+  -- pokeemerald/data/battle_scripts_2.s:90
+  if wally(st) then return "STRINGID_GOTCHAPKMNCAUGHTWALLY" end
+  return require("src.core.game3.battle.profile").of(st).strings.caught
 end
 
 --- Begin a catch animation sequence.
@@ -124,6 +131,9 @@ function CatchSeq.begin(st, itemId, caught, shakes, opts)
   local throwMsg
   if st.oldManTutorial then
     throwMsg = catch_text("STRINGID_OLDMANUSEDITEM")
+  elseif wally(st) then
+    -- pokeemerald/data/battle_scripts_2.s:56
+    throwMsg = catch_text("STRINGID_WALLYUSEDITEM")
   elseif st.pokedude then
     throwMsg = catch_text("STRINGID_POKEDUDEUSED")
   else
@@ -142,7 +152,7 @@ function CatchSeq.begin(st, itemId, caught, shakes, opts)
     elseif caught then
       local res = nil
       -- pokefirered/data/battle_scripts_2.s:99 BattleScript_OldMan_Pokedude_CaughtMessage
-      if not (st and (st.oldManTutorial or st.pokedude)) then
+      if not (st and (st.oldManTutorial or st.pokedude or wally(st))) then
         res = Catching.storeCaught(session, st and st.enemy, itemId)
       end
       CatchSeq._catchResult = res
@@ -641,7 +651,7 @@ function CB.doClick(b)
   elseif d[4] == 95 then
     pcall(function()
       Audio.stopAll()
-      Audio.playSe(MUS_CAUGHT_INTRO)
+      Audio.playSe(caught_song("caughtIntro"))
     end)
   elseif d[4] == 315 then
     b.mon.visible = false
@@ -784,7 +794,7 @@ local function run_step(step)
   if kind == "capture_success" then
     local res = nil
     -- pokefirered/data/battle_scripts_2.s:99 BattleScript_OldMan_Pokedude_CaughtMessage
-    if not (CatchSeq._st and (CatchSeq._st.oldManTutorial or CatchSeq._st.pokedude)) then
+    if not (CatchSeq._st and (CatchSeq._st.oldManTutorial or CatchSeq._st.pokedude or wally(CatchSeq._st))) then
       res = Catching.storeCaught(CatchSeq._session, CatchSeq._st and CatchSeq._st.enemy, d.ballId,
         { deferPc = true })
     end
@@ -794,7 +804,7 @@ local function run_step(step)
       CatchSeq._pushMsg(catch_text(gotcha_id(CatchSeq._st)))
     end
     pcall(function()
-      Audio.waitSe(MUS_CAUGHT_INTRO, function() Audio.playSong(MUS_CAUGHT) end)
+      Audio.waitSe(caught_song("caughtIntro"), function() Audio.playSong(caught_song("caught")) end)
     end)
     if CatchSeq._pushMsg then
       if res and res.firstTimeCaught then

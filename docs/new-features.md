@@ -46,3 +46,4 @@ Features intentionally added beyond the original Pokémon Red, Blue, and Yellow 
 * **Widescreen battle layout** on Gold, Silver and Crystal: BATTLE LAYOUT -> WIDE spreads the HUDs and bottom windows across a 304-wide screen
 * **Extended battle HUD** on Gold, Silver and Crystal: BATTLE HUD -> EXTENDED docks the WIDE layout's foe panel to the top of the window and the text area and player panel to the bottom
 * **Importers**, a launcher tab that reads a dump of another game you own and exports its sprites, tiles and sound as versioned asset packs mods can require
+* **Event tickets** on Emerald: OPTION -> EXTRAS -> EVENT TICKETS lets the Lilycove Mystery Gift man hand out the Eon, Aurora and Mystic tickets and the Old Sea Map

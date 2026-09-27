@@ -62,6 +62,11 @@ end
 local function update_top_menu(input)
   local top = Stack.top()
   if top and top.mod then
+    local skin = require("src.ui.game3.screens").skin(top.id)
+    if skin and skin.handleInput then
+      skin.handleInput(input, top.mod)
+      return true
+    end
     if top.mod.handleInput then
       top.mod.handleInput(input)
       return true
@@ -177,6 +182,12 @@ function Hud.sampleFieldInput(game)
   local input = game and game.input
   if not (input and input.wasPressed) then
     Hud._fieldInput = nil
+    return
+  end
+  -- pokeemerald/src/field_control_avatar.c:97
+  local okB, B = pcall(function() return require("src.core.game3.bike").rse() end)
+  if okB and B and B.playerSpeed and B.playerSpeed() == B.SPEED.FASTEST then
+    Hud._fieldInput = { start = false }
     return
   end
   Hud._fieldInput = {
@@ -344,10 +355,13 @@ function Hud.openStartMenu(game, session)
     local Flags = package.loaded["src.core.game3.scripting.flags"]
       or require("src.core.game3.scripting.flags")
     local store = Space and Space.store
-    if store and Flags.IDS and Flags.IDS.OPENED_START_MENU then
-      local scene = Flags.getVar(store, nil, 0x4070)
+    local ids = require("src.ui.game3.screens").flags(session)
+    local flag = ids.IDS.OPENED_START_MENU
+    local var = ids.VAR_IDS.MAP_SCENE_PALLET_TOWN_SIGN_LADY
+    if store and flag and var then
+      local scene = Flags.getVar(store, nil, var)
       if scene >= 1 then
-        Flags.setFlag(store, nil, Flags.IDS.OPENED_START_MENU, true)
+        Flags.setFlag(store, nil, flag, true)
         if Space.persistSession then
           local okP, errP = pcall(Space.persistSession)
           if not okP then s9log("persistSession", errP) end
@@ -356,7 +370,7 @@ function Hud.openStartMenu(game, session)
     end
   end
   log("Start Menu on game3 display (FRLG 240x160)")
-  StartMenu.show({ session = session, game = game })
+  require("src.ui.game3.screens").get("start_menu", session).show({ session = session, game = game })
 end
 
 function Hud.openMessage(game, text, opts)
@@ -372,8 +386,8 @@ function Hud.openMessageStay(game, text, opts)
 end
 
 function Hud.openPc(game, session)
-  pcall(function() require("src.core.game3.audio").playSe(4) end) -- data/scripts/pc.inc:9
-  PcMenu.show({ session = session or (require("src.core.game3.runtime").getSession()) })
+  pcall(function() require("src.core.game3.audio").playSe(require("src.core.game3.se_ids").resolve("SE_PC_ON")) end) -- data/scripts/pc.inc:9
+  require("src.ui.game3.screens").get("pc", session).show({ session = session or (require("src.core.game3.runtime").getSession()) })
 end
 
 function Hud.ensure(_game, _mode)

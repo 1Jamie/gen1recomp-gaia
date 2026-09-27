@@ -31,9 +31,6 @@ local FRAMES_NORMAL = 16
 local FRAMES_FAST_1 = 8
 local FRAMES_FAST_2 = 6
 
--- pokefirered/src/field_player_avatar.c:379
-local SE_M_RAZOR_WIND2 = 153
-
 local DELTA = {
   up = { 0, -1 },
   down = { 0, 1 },
@@ -47,6 +44,18 @@ M._mapId = nil
 
 local function player()
   return package.loaded["src.core.game3.player"] or require("src.core.game3.player")
+end
+
+local function isRse()
+  local Profile = package.loaded["src.core.game3.profile"] or require("src.core.game3.profile")
+  local ok, family = pcall(Profile.family)
+  return ok and family == "rse"
+end
+M.isRse = isRse
+
+local function rseBike()
+  local Bike = package.loaded["src.core.game3.bike"] or require("src.core.game3.bike")
+  return Bike.rse()
 end
 
 local function se(id)
@@ -137,7 +146,8 @@ end
 -- pokefirered/src/field_player_avatar.c:355 ForcedMovement_SpinRight
 local function spin(dir)
   return function(game)
-    se(SE_M_RAZOR_WIND2)
+    -- pokefirered/src/field_player_avatar.c:379
+    se(require("src.core.game3.se_ids").SE_M_RAZOR_WIND2)
     local P = player()
     P.spinning = true
     local moved = doForcedMovement(game, dir, FRAMES_FAST_1)
@@ -171,6 +181,19 @@ local function matJump() return false end
 -- pokefirered/src/field_player_avatar.c:439 ForcedMovement_MatSpin
 local function matSpin() return false end
 
+-- pokeemerald/src/field_player_avatar.c:567 ForcedMovement_MuddySlope
+local function muddySlope(game)
+  local P = player()
+  local Bike = rseBike()
+  local speed = Bike and Bike.playerSpeed() or 0
+  local fastest = Bike and Bike.SPEED.FASTEST or 4
+  if (P.moveDir or P.facing) ~= "up" or speed < fastest then
+    if Bike then Bike.updateCounterSpeed(0) end
+    return doForcedMovement(game, "down", FRAMES_FAST_1, { keepFacing = true })
+  end
+  return false
+end
+
 -- pokefirered/src/field_player_avatar.c:226 sForcedMovementFuncs
 M.TABLE = {
   { name = "Slip", check = behaviorPred(nil, MB_TRICK_HOUSE_PUZZLE_8_FLOOR), apply = slip },
@@ -201,9 +224,54 @@ M.TABLE = {
   { name = "MatSpin", check = never, apply = matSpin },
 }
 
+-- pokeemerald/src/field_player_avatar.c:144 sForcedMovementTestFuncs
+M.TABLE_RSE = {
+  { name = "Slip", check = behaviorPred("isTrickHouseSlipperyFloor", MB_TRICK_HOUSE_PUZZLE_8_FLOOR), apply = slip },
+  { name = "Slip", check = behaviorPred("isIce", MB_ICE), apply = slip },
+  { name = "WalkSouth", check = behaviorPred("isWalkSouth", MB_WALK_SOUTH), apply = walk("down") },
+  { name = "WalkNorth", check = behaviorPred("isWalkNorth", MB_WALK_NORTH), apply = walk("up") },
+  { name = "WalkWest", check = behaviorPred("isWalkWest", MB_WALK_WEST), apply = walk("left") },
+  { name = "WalkEast", check = behaviorPred("isWalkEast", MB_WALK_EAST), apply = walk("right") },
+  { name = "PushedSouthByCurrent",
+    check = behaviorPred("isSouthwardCurrent", MB_SOUTHWARD_CURRENT), apply = current("down") },
+  { name = "PushedNorthByCurrent",
+    check = behaviorPred("isNorthwardCurrent", MB_NORTHWARD_CURRENT), apply = current("up") },
+  { name = "PushedWestByCurrent",
+    check = behaviorPred("isWestwardCurrent", MB_WESTWARD_CURRENT), apply = current("left") },
+  { name = "PushedEastByCurrent",
+    check = behaviorPred("isEastwardCurrent", MB_EASTWARD_CURRENT), apply = current("right") },
+  { name = "SlideSouth", check = behaviorPred("isSlideSouth", MB_SLIDE_SOUTH), apply = slide("down") },
+  { name = "SlideNorth", check = behaviorPred("isSlideNorth", MB_SLIDE_NORTH), apply = slide("up") },
+  { name = "SlideWest", check = behaviorPred("isSlideWest", MB_SLIDE_WEST), apply = slide("left") },
+  { name = "SlideEast", check = behaviorPred("isSlideEast", MB_SLIDE_EAST), apply = slide("right") },
+  { name = "PushedSouthByCurrent",
+    check = behaviorPred("isWaterfall", MB_WATERFALL), apply = waterfallCurrent },
+  { name = "MatJump", check = behaviorPred("isSecretBaseJumpMat"), apply = matJump },
+  { name = "MatSpin", check = behaviorPred("isSecretBaseSpinMat"), apply = matSpin },
+  { name = "MuddySlope", check = behaviorPred("isMuddySlope"), apply = muddySlope },
+}
+
+function M.activeTable()
+  if isRse() then return M.TABLE_RSE end
+  return M.TABLE
+end
+
+-- pokeemerald/src/metatile_behavior.c:338 MetatileBehavior_IsForcedMovementTile
+local function isForcedMovementTileRse(beh)
+  return (beh >= MB_WALK_EAST and beh <= MB_TRICK_HOUSE_PUZZLE_8_FLOOR)
+    or (beh >= MB_EASTWARD_CURRENT and beh <= MB_SOUTHWARD_CURRENT)
+    or Collision.isMuddySlope(beh)
+    or Collision.isCrackedFloor(beh)
+    or beh == MB_WATERFALL
+    or beh == MB_ICE
+    or Collision.isSecretBaseJumpMat(beh)
+    or Collision.isSecretBaseSpinMat(beh)
+end
+
 -- pokefirered/src/metatile_behavior.c:266 MetatileBehavior_IsForcedMovementTile
 function M.isForcedMovementTile(beh)
   if beh == nil then return false end
+  if isRse() then return isForcedMovementTileRse(beh) end
   return (beh >= MB_WALK_EAST and beh <= MB_TRICK_HOUSE_PUZZLE_8_FLOOR)
     or (beh >= MB_EASTWARD_CURRENT and beh <= MB_SOUTHWARD_CURRENT)
     or beh == MB_WATERFALL
@@ -212,16 +280,18 @@ function M.isForcedMovementTile(beh)
 end
 
 function M.lookup(beh)
-  for i = 1, #M.TABLE do
-    if M.TABLE[i].check(beh) then return i, M.TABLE[i] end
+  local T = M.activeTable()
+  for i = 1, #T do
+    if T[i].check(beh) then return i, T[i] end
   end
   return nil
 end
 
 -- pokefirered/src/field_player_avatar.c:252 TryDoMetatileBehaviorForcedMovement
 function M.tryDoMetatileBehaviorForcedMovement(game, beh)
-  for i = 1, #M.TABLE do
-    local row = M.TABLE[i]
+  local T = M.activeTable()
+  for i = 1, #T do
+    local row = T[i]
     if row.check(beh) then
       M.lastSpinTile = beh
       return row.apply(game) and true or false, i
@@ -233,9 +303,10 @@ end
 -- pokefirered/src/field_player_avatar.c:931 PlayerApplyTileForcedMovement
 function M.applyTileForcedMovement(game, beh)
   local moved = false
-  for i = 1, #M.TABLE do
-    if M.TABLE[i].check(beh) then
-      moved = M.TABLE[i].apply(game) and true or moved
+  local T = M.activeTable()
+  for i = 1, #T do
+    if T[i].check(beh) then
+      moved = T[i].apply(game) and true or moved
     end
   end
   return moved
@@ -265,6 +336,11 @@ M._stepData = {}
 
 -- pokefirered/src/field_tasks.c:66 Task_RunPerStepCallback
 function M.runStepCallback(game)
+  local rse = isRse()
+  if rse then
+    -- pokeemerald/src/field_tasks.c:189 Task_MuddySlope
+    require("src.core.game3.step_callbacks_rse").muddySlopeTask(game)
+  end
   local okCtx, Ctx = pcall(require, "src.core.game3.scripting.ctx")
   if not (okCtx and Ctx and Ctx.stepCallback) then return false end
   local Map = package.loaded["src.core.game3.map"]
@@ -276,6 +352,10 @@ function M.runStepCallback(game)
     M._stepData = {}
   end
   local fn = M.stepCallbacks[name]
+  if not fn and rse then
+    require("src.core.game3.step_callbacks_rse")
+    fn = M.stepCallbacks[name]
+  end
   if not fn then return false end
   local ok, res = pcall(fn, game, M._stepData)
   return (ok and res) and true or false

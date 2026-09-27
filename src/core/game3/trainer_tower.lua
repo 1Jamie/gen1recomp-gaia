@@ -48,7 +48,7 @@ Tower.PRIZE_ITEMS = {
 -- pokefirered/include/constants/event_objects.h:24
 Tower.GFX_YOUNGSTER = 18
 -- pokefirered/include/constants/songs.h:293
-Tower.MUS_ENCOUNTER_BOY = 285
+require("src.core.game3.song_fields")(Tower)
 
 -- pokefirered/include/constants/layouts.h:286
 Tower.LAYOUT_LOBBY = 297

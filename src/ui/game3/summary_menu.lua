@@ -475,7 +475,7 @@ function SummaryMenu.handleInput(input)
         local moveId = chosenMove and chosenMove.id
         -- pokefirered/src/pokemon_summary_screen.c:3772
         if moveId and Pokemon.isHmMove(moveId) and not SummaryMenu._forgetMove then
-          pcall(function() require("src.core.game3.audio").playSe(26) end)
+          pcall(function() require("src.core.game3.audio").playSe("SE_FAILURE") end)
           -- pokefirered/src/pokemon_summary_screen.c:3864
           SummaryMenu._hmNotice = true
         else
@@ -538,7 +538,8 @@ function SummaryMenu.handleInput(input)
         -- pokefirered/src/pokemon_summary_screen.c:3604
         local Battle = package.loaded["src.core.game3.battle"]
         local inBattle = Battle and Battle.isActive and Battle.isActive()
-        if not (SummaryMenu._enemyParty or inBattle or SummaryMenu._mode == "trade") then
+        -- pokeemerald/src/pokemon_summary_screen.c:1929
+        if not (SummaryMenu._enemyParty or inBattle or SummaryMenu._mode == "trade" or SummaryMenu._context == "factory") then
           SummaryMenu._swapSlot = SummaryMenu._moveCursor
           SummaryMenu._blink.frame, SummaryMenu._blink.hidden = 0, false
         end
@@ -631,8 +632,10 @@ end
 function SummaryMenu.dexNumber(species, session)
   local sp = tonumber(species) or 0
   local nat = (sp ~= 0 and Pokemon.national and Pokemon.national(sp)) or 0
-  if nat > (Dex.KANTO_MAX or 151) and not PokedexData.isNationalUnlocked(session) then
-    return nil
+  if nat ~= 0 and not PokedexData.isNationalUnlocked(session) then
+    -- pokeemerald/src/pokemon.c:5685
+    if not Dex.nationalInRegional(nat) then return nil end
+    return Dex.regionalNumber(sp) or nat
   end
   return nat
 end

@@ -120,16 +120,7 @@ local DUNGEON_LAYER_FLAGS = {
 }
 
 -- include/constants/songs.h:5,46,105,106,204,230,245,249,250,251
-local SE_USE_ITEM = 1
-local SE_ROTATING_GATE = 42
-local SE_DEX_SCROLL = 101
-local SE_DEX_PAGE = 102
-local SE_M_SWIFT = 199
-local SE_M_SPIT_UP = 225
-local SE_M_HYPER_BEAM2 = 240
-local SE_CARD_FLIPPING = 243
-local SE_CARD_OPEN = 244
-local SE_BAG_CURSOR = 245
+local SE = require("src.core.game3.se_ids")
 
 -- src/main.c:286-287
 local KEY_REPEAT_START, KEY_REPEAT_CONTINUE = 40, 5
@@ -693,11 +684,11 @@ local function handleRegionMapInput()
   if joyNew("a") then
     input = INPUT.A_BUTTON
     if RegionMap.cursorX == CANCEL_BUTTON_X and RegionMap.cursorY == CANCEL_BUTTON_Y then
-      se(SE_M_HYPER_BEAM2)
+      se(SE.SE_M_HYPER_BEAM2)
       input = INPUT.CANCEL
     end
     if RegionMap.cursorX == SWITCH_BUTTON_X and RegionMap.cursorY == SWITCH_BUTTON_Y and perm("switchButton") then
-      se(SE_M_HYPER_BEAM2)
+      se(SE.SE_M_HYPER_BEAM2)
       input = INPUT.SWITCH
     end
   elseif not joyNew("b") then
@@ -742,12 +733,12 @@ local function playSEForSelectedMapsec()
   end
   local t, d = selectedType("map"), selectedType("dungeon")
   if (t ~= SECTYPE.ROUTE and t ~= SECTYPE.NONE) or (d ~= SECTYPE.ROUTE and d ~= SECTYPE.NONE) then
-    se(SE_DEX_SCROLL)
+    se(SE.SE_DEX_SCROLL)
   end
   if RegionMap.cursorX == SWITCH_BUTTON_X and RegionMap.cursorY == SWITCH_BUTTON_Y and perm("switchButton") then
-    se(SE_M_SPIT_UP)
+    se(SE.SE_M_SPIT_UP)
   elseif RegionMap.cursorX == CANCEL_BUTTON_X and RegionMap.cursorY == CANCEL_BUTTON_Y then
-    se(SE_M_SPIT_UP)
+    se(SE.SE_M_SPIT_UP)
   end
 end
 
@@ -876,7 +867,7 @@ function Tasks.mapOpenAnim()
   elseif st == 5 then
     if not S.fade.active then
       a.openState = 6
-      se(SE_CARD_OPEN)
+      se(SE.SE_CARD_OPEN)
     end
   elseif st == 6 then
     if moveMapEdges(true) then a.openState = 7 end
@@ -904,8 +895,8 @@ function Tasks.mapOpenAnim()
     S.backdropBlue = true
     a.openState = 11
   elseif st == 11 then
-    require("src.core.game3.audio").stopSe(SE_CARD_OPEN)
-    se(SE_ROTATING_GATE)
+    require("src.core.game3.audio").stopSe(SE.SE_CARD_OPEN)
+    se(SE.SE_ROTATING_GATE)
     a.openState = 12
   elseif st == 12 then
     if a.blendY == 2 then
@@ -972,7 +963,7 @@ function Tasks.mapCloseAnim()
   elseif st == 6 then
     initScreenForMapCloseAnim()
     setGpuWindowDimsToMapEdges()
-    se(SE_CARD_FLIPPING)
+    se(SE.SE_CARD_FLIPPING)
     a.closeState = 7
   elseif st == 7 then
     if moveMapEdges(false) then a.closeState = 8 end
@@ -1044,17 +1035,17 @@ local function handleSwitchMapInput()
   local changed = false
   local h = highlightRect()
   if joyNew("up") and sw.currentSelection ~= 0 then
-    se(SE_BAG_CURSOR)
+    se(SE.SE_BAG_CURSOR)
     sw.currentSelection = sw.currentSelection - 1
     changed = true
   end
   if joyNew("down") and sw.currentSelection < sw.maxSelection then
-    se(SE_BAG_CURSOR)
+    se(SE.SE_BAG_CURSOR)
     sw.currentSelection = sw.currentSelection + 1
     changed = true
   end
   if joyNew("a") and sw.blendY == 6 then
-    se(SE_M_SWIFT)
+    se(SE.SE_M_SWIFT)
     sw.chosenRegion = sw.currentSelection
     return true
   end
@@ -1433,7 +1424,7 @@ function Tasks.flyMap()
       S.mainState = 6
     elseif input == INPUT.MOVE_END then
       if selectedType("map") == SECTYPE.VISITED then
-        se(SE_DEX_PAGE)
+        se(SE.SE_DEX_PAGE)
       else
         playSEForSelectedMapsec()
       end
@@ -1443,7 +1434,7 @@ function Tasks.flyMap()
       drawDungeonNameBox()
       local t = selectedType("map")
       if RegionMap.cursorX == CANCEL_BUTTON_X and RegionMap.cursorY == CANCEL_BUTTON_Y then
-        se(SE_M_SPIT_UP)
+        se(SE.SE_M_SPIT_UP)
         topBarRight("gText_RegionMap_AButtonCancel")
       elseif t == SECTYPE.VISITED or t == SECTYPE.UNKNOWN then
         topBarRight("gText_RegionMap_AButtonOK")
@@ -1456,7 +1447,7 @@ function Tasks.flyMap()
         if RegionMap.flyBlockedByMapType() then
           S.selectedDestination = false
         else
-          se(SE_USE_ITEM)
+          se(SE.SE_USE_ITEM)
           S.selectedDestination = true
         end
         S.mainState = 5

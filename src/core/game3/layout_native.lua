@@ -94,6 +94,52 @@ function LayoutNative:applyOverride(x, y, mid, coll, elev)
   end
 end
 
+local function markDirty()
+  local FieldView = package.loaded["src.core.game3.field_view"]
+  if FieldView then
+    FieldView._nativeDirty = true
+  end
+end
+
+-- pokeemerald/src/battle_pyramid.c:1523
+function LayoutNative:stamp(src, ox, oy)
+  if type(src) ~= "table" or type(src.cells) ~= "table" then return 0 end
+  ox, oy = tonumber(ox) or 0, tonumber(oy) or 0
+  local sw = src.trueWidth or src.width or 0
+  local sh = src.trueHeight or src.height or 0
+  local n = 0
+  for y = 0, sh - 1 do
+    for x = 0, sw - 1 do
+      local c = src.cells[y * src.width + x + 1]
+      if c then
+        self.overrides[(oy + y) * 1024 + ox + x] = {
+          mid = c.mid or 0, coll = c.coll ~= nil and c.coll or 0xff, elev = c.elev or 0,
+        }
+        n = n + 1
+      end
+    end
+  end
+  markDirty()
+  return n
+end
+
+-- pokeemerald/src/fieldmap.c:357
+function LayoutNative:setMetatiles(rows)
+  local n = 0
+  for _, r in ipairs(rows or {}) do
+    local x, y = tonumber(r.x) or 0, tonumber(r.y) or 0
+    local cur = self:cellAt(x, y)
+    self.overrides[y * 1024 + x] = {
+      mid = tonumber(r.mid) or cur.mid or 0,
+      coll = r.coll ~= nil and r.coll or cur.coll,
+      elev = r.elev ~= nil and r.elev or cur.elev or 0,
+    }
+    n = n + 1
+  end
+  if n > 0 then markDirty() end
+  return n
+end
+
 function LayoutNative:clearOverrides()
   self.overrides = {}
   local FieldView = package.loaded["src.core.game3.field_view"]

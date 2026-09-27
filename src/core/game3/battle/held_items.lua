@@ -391,7 +391,10 @@ function HeldItems.onSwitchIn(ad, b)
   if not b then return false end
   local he, _, item = HeldItems.of(b)
   if he == H.DOUBLE_PRIZE then
-    ad._st.moneyMultiplier = 2
+    -- pokeemerald/src/battle_util.c:3294
+    if b.side == "player" or not require("src.core.game3.battle.profile").rule(ad._st, "amuletCoinPlayerOnly") then
+      ad._st.moneyMultiplier = 2
+    end
   elseif he == H.RESTORE_STATS then
     return white_herb(ad, b, item)
   end

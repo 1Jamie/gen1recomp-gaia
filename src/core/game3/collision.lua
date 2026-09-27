@@ -3,7 +3,14 @@
 -- FRLG metatile attrs at extract). Does not call World:step / Player:tryMove.
 
 local Connections = require("src.core.game3.connections")
+local MB = require("src.core.game3.mb")
 local Collision = {}
+
+local function mbSet(names)
+  local out = {}
+  for _, name in ipairs(names) do out[MB.require(name)] = true end
+  return out
+end
 
 local DELTA = {
   up = { 0, -1 },
@@ -127,9 +134,15 @@ end
 -- accepts: MB_CAVE_DOOR 0x60, MB_LADDER 0x61, MB_FALL_WARP 0x66,
 -- MB_REGULAR_WARP 0x67, MB_LAVARIDGE_1F_WARP 0x68, MB_WARP_DOOR 0x69,
 -- escalators 0x6A-0x6B, MB_UNION_ROOM_WARP 0x71. Together: 0x60-0x6F plus 0x71.
+-- pokeemerald/src/field_control_avatar.c:751
+local RSE_WARP = mbSet({
+  "WATER_DOOR", "DEEP_SOUTH_WARP", "LAVARIDGE_GYM_B1F_WARP", "LAVARIDGE_GYM_1F_WARP",
+  "AQUA_HIDEOUT_WARP", "MT_PYRE_HOLE", "MOSSDEEP_GYM_WARP", "BRIDGE_OVER_OCEAN",
+  "WATER_SOUTH_ARROW_WARP", "SHOAL_CAVE_ENTRANCE", "STAIRS_OUTSIDE_ABANDONED_SHIP",
+})
 function Collision.isWarpMetatileBehavior(beh)
   if not beh then return false end
-  return (beh >= 0x60 and beh <= 0x6F) or beh == 0x71
+  return (beh >= 0x60 and beh <= 0x6F) or beh == 0x71 or RSE_WARP[beh] == true
 end
 
 -- Index warps and force door/warp cells walkable. Extract can leave outdoor
@@ -146,10 +159,11 @@ function Collision.installWarps(mapDef)
     local x, y = tonumber(w.x), tonumber(w.y)
     if x and y then
       local cur = nil
+      local beh
       if Collision._grid and Collision._widthCells > 0 then
         local i = y * Collision._widthCells + x + 1
         cur = Collision._grid[i]
-        local beh = Collision.behavior(x, y)
+        beh = Collision.behavior(x, y)
         local repair = beh == nil or Collision.isWarpMetatileBehavior(beh)
         -- pokefirered/src/field_control_avatar.c:860
         if beh ~= nil and repair and cur == 0x00 then
@@ -170,7 +184,8 @@ function Collision.installWarps(mapDef)
         end
       end
       -- In pret, a warp in map header is only active if the metatile behavior is a warp behavior
-      if isWarpBehavior(cur) then
+      -- pokeemerald/src/field_control_avatar.c:751
+      if isWarpBehavior(cur) or (beh ~= nil and RSE_WARP[beh] == true) then
         Collision._warps[y * 1024 + x] = w
       end
     end
@@ -407,6 +422,77 @@ end
 -- pokefirered/src/metatile_behavior.c:594
 function Collision.isWaterfall(beh) return beh == MB_WATERFALL end
 
+local MB_MUDDY_SLOPE = MB.require("MUDDY_SLOPE")
+local MB_BUMPY_SLOPE = MB.require("BUMPY_SLOPE")
+local MB_CRACKED_FLOOR = MB.require("CRACKED_FLOOR")
+local MB_CRACKED_FLOOR_HOLE = MB.require("CRACKED_FLOOR_HOLE")
+local MB_ISOLATED_VERTICAL_RAIL = MB.require("ISOLATED_VERTICAL_RAIL")
+local MB_ISOLATED_HORIZONTAL_RAIL = MB.require("ISOLATED_HORIZONTAL_RAIL")
+local MB_VERTICAL_RAIL = MB.require("VERTICAL_RAIL")
+local MB_HORIZONTAL_RAIL = MB.require("HORIZONTAL_RAIL")
+local MB_ASHGRASS = MB.require("ASHGRASS")
+local MB_FORTREE_BRIDGE = MB.require("FORTREE_BRIDGE")
+local MB_PACIFIDLOG_VERTICAL_LOG_TOP = MB.require("PACIFIDLOG_VERTICAL_LOG_TOP")
+local MB_PACIFIDLOG_VERTICAL_LOG_BOTTOM = MB.require("PACIFIDLOG_VERTICAL_LOG_BOTTOM")
+local MB_PACIFIDLOG_HORIZONTAL_LOG_LEFT = MB.require("PACIFIDLOG_HORIZONTAL_LOG_LEFT")
+local MB_PACIFIDLOG_HORIZONTAL_LOG_RIGHT = MB.require("PACIFIDLOG_HORIZONTAL_LOG_RIGHT")
+local MB_SECRET_BASE_JUMP_MAT = MB.require("SECRET_BASE_JUMP_MAT")
+local MB_SECRET_BASE_SPIN_MAT = MB.require("SECRET_BASE_SPIN_MAT")
+
+-- pokeemerald/src/metatile_behavior.c:1202
+function Collision.isMuddySlope(beh) return beh == MB_MUDDY_SLOPE end
+
+-- pokeemerald/src/metatile_behavior.c:1210
+function Collision.isBumpySlope(beh) return beh == MB_BUMPY_SLOPE end
+
+-- pokeemerald/src/metatile_behavior.c:1194
+function Collision.isCrackedFloor(beh) return beh == MB_CRACKED_FLOOR end
+
+-- pokeemerald/src/metatile_behavior.c:1186
+function Collision.isCrackedFloorHole(beh) return beh == MB_CRACKED_FLOOR_HOLE end
+
+-- pokeemerald/src/metatile_behavior.c:1218
+function Collision.isIsolatedVerticalRail(beh) return beh == MB_ISOLATED_VERTICAL_RAIL end
+
+-- pokeemerald/src/metatile_behavior.c:1226
+function Collision.isIsolatedHorizontalRail(beh) return beh == MB_ISOLATED_HORIZONTAL_RAIL end
+
+-- pokeemerald/src/metatile_behavior.c:1234
+function Collision.isVerticalRail(beh) return beh == MB_VERTICAL_RAIL end
+
+-- pokeemerald/src/metatile_behavior.c:1242
+function Collision.isHorizontalRail(beh) return beh == MB_HORIZONTAL_RAIL end
+
+-- pokeemerald/src/metatile_behavior.c:753
+function Collision.isAshGrass(beh) return beh == MB_ASHGRASS end
+
+-- pokeemerald/src/metatile_behavior.c:1003
+function Collision.isFortreeBridge(beh) return beh == MB_FORTREE_BRIDGE end
+
+-- pokeemerald/src/metatile_behavior.c:1011
+function Collision.isPacifidlogVerticalLogTop(beh) return beh == MB_PACIFIDLOG_VERTICAL_LOG_TOP end
+
+-- pokeemerald/src/metatile_behavior.c:1019
+function Collision.isPacifidlogVerticalLogBottom(beh) return beh == MB_PACIFIDLOG_VERTICAL_LOG_BOTTOM end
+
+-- pokeemerald/src/metatile_behavior.c:1027
+function Collision.isPacifidlogHorizontalLogLeft(beh) return beh == MB_PACIFIDLOG_HORIZONTAL_LOG_LEFT end
+
+-- pokeemerald/src/metatile_behavior.c:1035
+function Collision.isPacifidlogHorizontalLogRight(beh) return beh == MB_PACIFIDLOG_HORIZONTAL_LOG_RIGHT end
+
+-- pokeemerald/src/metatile_behavior.c:1043
+function Collision.isPacifidlogLog(beh)
+  return beh == MB_PACIFIDLOG_VERTICAL_LOG_TOP or beh == MB_PACIFIDLOG_VERTICAL_LOG_BOTTOM
+    or beh == MB_PACIFIDLOG_HORIZONTAL_LOG_LEFT or beh == MB_PACIFIDLOG_HORIZONTAL_LOG_RIGHT
+end
+
+-- pokeemerald/src/metatile_behavior.c:1102
+function Collision.isSecretBaseJumpMat(beh) return beh == MB_SECRET_BASE_JUMP_MAT end
+
+-- pokeemerald/src/metatile_behavior.c:1110
+function Collision.isSecretBaseSpinMat(beh) return beh == MB_SECRET_BASE_SPIN_MAT end
+
 -- pokefirered/include/constants/metatile_behaviors.h:72
 local MB_CAVE_DOOR = 0x60
 local MB_LADDER = 0x61
@@ -428,6 +514,17 @@ local MB_DOWN_LEFT_STAIR_WARP = 0x6F
 -- pokefirered/include/constants/metatile_behaviors.h:89
 local MB_UNION_ROOM_WARP = 0x71
 
+-- pokeemerald/src/metatile_behavior.c:264
+local RSE_NON_ANIM_DOOR = mbSet({ "WATER_DOOR", "DEEP_SOUTH_WARP" })
+local MB_DEEP_SOUTH_WARP = MB.require("DEEP_SOUTH_WARP")
+local MB_LAVARIDGE_GYM_1F_WARP = MB.require("LAVARIDGE_GYM_1F_WARP")
+local MB_LAVARIDGE_GYM_B1F_WARP = MB.require("LAVARIDGE_GYM_B1F_WARP")
+local MB_AQUA_HIDEOUT_WARP = MB.require("AQUA_HIDEOUT_WARP")
+local MB_MOSSDEEP_GYM_WARP = MB.require("MOSSDEEP_GYM_WARP")
+local MB_MT_PYRE_HOLE = MB.require("MT_PYRE_HOLE")
+local MB_BRIDGE_OVER_OCEAN = MB.require("BRIDGE_OVER_OCEAN")
+local MB_PETALBURG_GYM_DOOR = MB.require("PETALBURG_GYM_DOOR")
+
 -- pokefirered/src/metatile_behavior.c:110
 function Collision.isWarpDoor(beh) return beh == MB_WARP_DOOR end
 
@@ -435,19 +532,28 @@ function Collision.isWarpDoor(beh) return beh == MB_WARP_DOOR end
 function Collision.isLadder(beh) return beh == MB_LADDER end
 
 -- pokefirered/src/metatile_behavior.c:194
-function Collision.isNonAnimDoor(beh) return beh == MB_CAVE_DOOR end
+function Collision.isNonAnimDoor(beh) return beh == MB_CAVE_DOOR or RSE_NON_ANIM_DOOR[beh] == true end
 
--- pokefirered/src/metatile_behavior.c:202
-function Collision.isDeepSouthWarp() return false end
+-- pokeemerald/src/metatile_behavior.c:274
+function Collision.isDeepSouthWarp(beh) return beh == MB_DEEP_SOUTH_WARP end
 
 -- pokefirered/src/metatile_behavior.c:624
-function Collision.isLavaridge1FWarp(beh) return beh == MB_LAVARIDGE_1F_WARP end
+function Collision.isLavaridge1FWarp(beh) return beh == MB_LAVARIDGE_1F_WARP or beh == MB_LAVARIDGE_GYM_1F_WARP end
+
+-- pokeemerald/src/metatile_behavior.c:1120
+function Collision.isLavaridgeB1FWarp(beh) return beh == MB_LAVARIDGE_GYM_B1F_WARP end
+
+-- pokeemerald/src/metatile_behavior.c:1155
+function Collision.isMossdeepGymWarp(beh) return beh == MB_MOSSDEEP_GYM_WARP end
+
+-- pokeemerald/src/metatile_behavior.c:1180
+function Collision.isMtPyreHole(beh) return beh == MB_MT_PYRE_HOLE end
 
 -- pokefirered/src/metatile_behavior.c:632
-function Collision.isWarpPad(beh) return beh == MB_REGULAR_WARP end
+function Collision.isWarpPad(beh) return beh == MB_REGULAR_WARP or beh == MB_AQUA_HIDEOUT_WARP end
 
 -- pokefirered/src/metatile_behavior.c:640
-function Collision.isUnionRoomWarp(beh) return beh == MB_UNION_ROOM_WARP end
+function Collision.isUnionRoomWarp(beh) return beh == MB_UNION_ROOM_WARP or beh == MB_BRIDGE_OVER_OCEAN end
 
 -- pokefirered/src/metatile_behavior.c:658
 function Collision.isFallWarp(beh) return beh == MB_FALL_WARP end
@@ -463,6 +569,11 @@ local ARROW_WARP_DIR = {
   [MB_WEST_ARROW_WARP] = "left",
   [MB_NORTH_ARROW_WARP] = "up",
   [MB_SOUTH_ARROW_WARP] = "down",
+  -- pokeemerald/src/metatile_behavior.c:306
+  [MB.require("STAIRS_OUTSIDE_ABANDONED_SHIP")] = "up",
+  -- pokeemerald/src/metatile_behavior.c:315
+  [MB.require("WATER_SOUTH_ARROW_WARP")] = "down",
+  [MB.require("SHOAL_CAVE_ENTRANCE")] = "down",
 }
 
 -- pokefirered/src/metatile_behavior.c:253
@@ -480,6 +591,8 @@ function Collision.isStepWarpBehavior(beh)
     or Collision.isEscalator(beh) or Collision.isNonAnimDoor(beh)
     or Collision.isLavaridge1FWarp(beh) or Collision.isWarpPad(beh)
     or Collision.isFallWarp(beh) or Collision.isUnionRoomWarp(beh)
+    or Collision.isLavaridgeB1FWarp(beh) or Collision.isMossdeepGymWarp(beh)
+    or Collision.isMtPyreHole(beh)
 end
 
 -- pokefirered/src/metatile_behavior.c:174
@@ -522,6 +635,13 @@ local ARRIVAL_FACING = {
   [MB_DOWN_RIGHT_STAIR_WARP] = "left",
   [MB_UP_LEFT_STAIR_WARP] = "right",
   [MB_DOWN_LEFT_STAIR_WARP] = "right",
+  -- pokeemerald/src/overworld.c:933
+  [MB_DEEP_SOUTH_WARP] = "up",
+  [MB.require("WATER_DOOR")] = "down",
+  [MB_PETALBURG_GYM_DOOR] = "down",
+  [MB.require("WATER_SOUTH_ARROW_WARP")] = "up",
+  [MB.require("SHOAL_CAVE_ENTRANCE")] = "up",
+  [MB.require("STAIRS_OUTSIDE_ABANDONED_SHIP")] = "down",
 }
 
 function Collision.arrivalFacing(destBeh, storedDir)
@@ -701,6 +821,39 @@ function Collision.tryConnection(game, fromX, fromY, dir, run)
   return true
 end
 
+-- pokeemerald/src/fieldmap.c:603 CameraMove
+function Collision.scriptConnection(game, fromX, fromY, dir)
+  local d = DELTA[dir]
+  local mapDef = Collision._mapDef
+  if not d or not mapDef or type(mapDef.connections) ~= "table" then return nil end
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  game = game or (Runtime and Runtime._game)
+  local data = game and game.data and game.data.maps
+  if not data then return nil end
+  local Map = require("src.core.game3.map")
+  local conn, destDef = Connections.incoming(mapDef, DIR_CONN[dir], fromX, fromY, function(id)
+    local def = data[id]
+    if def and Map.ensureMidLayout then Map.ensureMidLayout(game, id, def) end
+    return def
+  end)
+  if not conn then return nil end
+  local lx, ly = Collision.connectionLanding(destDef, conn, dir, fromX, fromY)
+  if not lx then return nil end
+  local dx, dy = lx - (fromX + d[1]), ly - (fromY + d[2])
+  local Objects = require("src.core.game3.objects")
+  local carry = Objects.carryOut(dx, dy)
+  local Player = require("src.core.game3.player")
+  local facing = Player.facing
+  Map.load(Runtime and Runtime._mod, game, conn.map, {
+    x = lx, y = ly, facing = facing, seamless = true, depth1Connections = true, keepScript = true, carry = carry,
+  })
+  Player.cellX, Player.cellY = lx - d[1], ly - d[2]
+  Player.px, Player.py = Player.cellX * 16, Player.cellY * 16
+  Player.targetX, Player.targetY = Player.cellX, Player.cellY
+  Player.facing = facing
+  return lx, ly
+end
+
 function Collision.isWalkable(cx, cy)
   local P = permissions()
   local coll = Collision.cell(cx, cy)
@@ -772,6 +925,12 @@ end
 
 function Collision.isWater(cx, cy)
   return Collision.isWaterOn(Collision._mapDef, cx, cy, Collision.cell(cx, cy))
+end
+
+-- pokeemerald/src/rotating_gate.c:961
+function Collision.rotatingGateCollision(game, dir, x, y)
+  local RG = package.loaded["src.core.game3.rotating_gate"]
+  return RG ~= nil and RG.active() and RG.checkCollision(dir, x, y) == true
 end
 
 local function entityBlocks(game, tx, ty, elevation)

@@ -6,6 +6,94 @@ Dex.HOST_MAX = 251
 Dex.KANTO_MAX = 151
 Dex.NATIONAL_MAX = 386
 
+local function profile_of(version)
+  return require("src.core.game3.profile").of(version)
+end
+
+local function dex_block(version)
+  local row = profile_of(version)
+  local block = row.dex
+  if type(block) ~= "table" then
+    error("game3 profile '" .. tostring(row.id) .. "' has no dex block", 0)
+  end
+  return block, row
+end
+
+local function version_of(session)
+  if type(session) == "table" and type(session.version) == "string" then return session.version end
+  return require("src.core.game3.profile").sessionVersion(session)
+end
+
+function Dex.packReader(version, rel)
+  local GameVersion = require("src.core.GameVersion")
+  local root = require("src.core.game3.cache_paths").CACHE_ROOT
+  if version == nil or version == GameVersion.get() then
+    local okD, Dataset = pcall(require, "src.core.game3.dataset")
+    if okD and Dataset and Dataset.cache then
+      local src = Dataset.cache():read(root .. "/" .. rel)
+      if src then return src end
+    end
+  end
+  local okC, CacheFs = pcall(require, "src.import.CacheFs")
+  if not (okC and CacheFs and CacheFs.readAt) then return nil end
+  local info = GameVersion.info(version)
+  return CacheFs.readAt(((info and info.cachePrefix) or "") .. root .. "/" .. rel)
+end
+
+local packs = {}
+
+local function load_pack(version, rel)
+  local key = tostring(version) .. "|" .. rel
+  local t = packs[key]
+  if t ~= nil then return t or nil end
+  local src = Dex.packReader(version, rel)
+  if not src then error("dex pack " .. rel .. " is not in the " .. tostring(version) .. " cache", 0) end
+  t = assert(load(src, "@" .. rel, "t", {}))()
+  packs[key] = t
+  return t
+end
+
+function Dex.resetPacks()
+  packs = {}
+end
+
+function Dex.regionalMax(version)
+  local block = dex_block(version)
+  if block.regionalPrefix then return block.regionalPrefix end
+  return load_pack(profile_of(version).id, block.orderPack).count
+end
+
+-- pokeemerald/src/pokemon.c:5685
+function Dex.regionalNumber(species, version)
+  species = tonumber(species)
+  if not species then return nil end
+  local block, row = dex_block(version)
+  if block.regionalPrefix then
+    if species >= 1 and species <= block.regionalPrefix then return species end
+    return nil
+  end
+  local n = load_pack(row.id, block.regionalPack).toHoenn[species]
+  if n and n <= Dex.regionalMax(row.id) then return n end
+  return nil
+end
+
+function Dex.inRegional(species, version)
+  return Dex.regionalNumber(species, version) ~= nil
+end
+
+-- pokeemerald/src/pokemon.c:5659
+function Dex.nationalInRegional(nat, version)
+  nat = tonumber(nat)
+  if not nat then return false end
+  local block, row = dex_block(version)
+  if block.regionalPrefix then return nat >= 1 and nat <= block.regionalPrefix end
+  local pack = load_pack(row.id, block.orderPack)
+  for i = 1, pack.count do
+    if pack.order[i] == nat then return true end
+  end
+  return false
+end
+
 function Dex.new()
   return {
     seen = {},   -- [species] = true
@@ -164,7 +252,7 @@ end
 function Dex.registerEncounter(dex, species, session)
   if not dex or not species then return false end
   local sp = tonumber(species) or 1
-  if sp > (Dex.KANTO_MAX or 151) then
+  if dex_block(version_of(session)).registerGate and sp > (Dex.KANTO_MAX or 151) then
     local PokedexData = require("src.core.game3.pokedex_data")
     if not PokedexData.isNationalUnlocked(session, dex) then
       return true -- cannot register non-Kanto species before National Dex
@@ -179,7 +267,7 @@ end
 function Dex.registerCapture(dex, species, session, personality)
   if not dex or not species then return false end
   local sp = tonumber(species) or 1
-  if sp > (Dex.KANTO_MAX or 151) then
+  if dex_block(version_of(session)).registerGate and sp > (Dex.KANTO_MAX or 151) then
     local PokedexData = require("src.core.game3.pokedex_data")
     if not PokedexData.isNationalUnlocked(session, dex) then
       return true -- cannot register non-Kanto species before National Dex
@@ -253,18 +341,36 @@ end
 -- pokefirered/src/event_data.c:107
 function Dex.nationalEnabled(save)
   if type(save) ~= "table" then return false end
+  local block, row = dex_block(save.version)
+  local nat = block.national
+  local C = require("src.core.game3.constants").of(row.id)
   local dex = type(save.dex) == "table" and save.dex or {}
-  if dex.national == true or dex.nationalUnlocked == true or dex.isNationalUnlocked == true
-      or save.national_dex_unlocked == true then
-    return true
-  end
-  local flag = keyed(save.flags, 0x840)
-  if flag == true or (type(save.flags) == "table" and save.flags.FLAG_SYS_NATIONAL_DEX == true) then
-    return true
-  end
-  local var = keyed(save.vars, 0x404E)
-  if var == nil and type(save.vars) == "table" then var = save.vars.VAR_NATIONAL_DEX end
-  return tonumber(var) == 0x6258
+  local magic = dex.national == true or dex.nationalUnlocked == true or dex.isNationalUnlocked == true
+    or save.national_dex_unlocked == true
+    or (nat.magic ~= nil and tonumber(dex.nationalMagic) == nat.magic)
+  local flag = keyed(save.flags, C:require("flags", nat.flag))
+  local flagSet = flag == true or (type(save.flags) == "table" and save.flags[nat.flag] == true)
+  local var = keyed(save.vars, C:require("vars", nat.var))
+  if var == nil and type(save.vars) == "table" then var = save.vars[nat.var] end
+  local varSet = tonumber(var) == nat.value
+  if nat.requireAll then return magic and flagSet and varSet end
+  return magic or flagSet or varSet
+end
+
+-- pokeemerald/src/event_data.c:63
+function Dex.enableNational(session)
+  if type(session) ~= "table" then return end
+  local block, row = dex_block(session.version)
+  local nat = block.national
+  local C = require("src.core.game3.constants").of(row.id)
+  session.dex = session.dex or {}
+  session.dex.national = true
+  if nat.magic then session.dex.nationalMagic = nat.magic end
+  session.flags = session.flags or {}
+  session.vars = session.vars or {}
+  local Flags = require("src.core.game3.scripting.flags")
+  Flags.setVar(session, nil, C:require("vars", nat.var), nat.value)
+  Flags.setFlag(session, nil, C:require("flags", nat.flag), true)
 end
 
 -- pokefirered/src/main_menu.c:643
@@ -273,6 +379,7 @@ function Dex.summaryCount(save)
   local dex = type(save.dex) == "table" and save.dex
     or type(save.pokedex) == "table" and save.pokedex or {}
   local national = Dex.nationalEnabled(save)
+  local block = dex_block(save.version)
   local counted, n = {}, 0
   for _, key in ipairs({ "caught", "owned" }) do
     for sp, on in pairs(type(dex[key]) == "table" and dex[key] or {}) do
@@ -281,8 +388,10 @@ function Dex.summaryCount(save)
         local ok, res = pcall(resolve_species_id, sp)
         id = ok and tonumber(res) or nil
       end
+      local regional = national or (block.regionalPrefix and id and id <= Dex.KANTO_MAX)
+        or (not block.regionalPrefix and id and Dex.inRegional(id, save.version))
       if id and on and on ~= 0 and not counted[id]
-          and id >= 1 and (national or id <= Dex.KANTO_MAX) then
+          and id >= 1 and regional then
         counted[id] = true
         n = n + 1
       end
@@ -293,7 +402,9 @@ function Dex.summaryCount(save)
   local maxNat = national and Dex.NATIONAL_MAX or Dex.KANTO_MAX
   for _, nat in ipairs(ci and type(ci.dexOwned) == "table" and ci.dexOwned or {}) do
     nat = tonumber(nat)
-    if nat and nat >= 1 and nat <= maxNat and not (nat <= Dex.HOST_MAX and counted[nat]) then
+    local inDex = nat and (national or block.regionalPrefix) and nat <= maxNat
+      or (nat and not national and not block.regionalPrefix and Dex.nationalInRegional(nat, save.version))
+    if nat and nat >= 1 and inDex and not (nat <= Dex.HOST_MAX and counted[nat]) then
       if nat <= Dex.HOST_MAX then counted[nat] = true end
       n = n + 1
     end

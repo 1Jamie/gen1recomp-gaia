@@ -1088,16 +1088,23 @@ local function changeG3(S, pc, id, quantity)
   return Ops.mark(S, ("%s x%d%s"):format(tostring(id), quantity, pc and " in PC storage" or ""))
 end
 
+local function g3Max(S, id, pc)
+  return G3.slotMax(require("src.core.game3.items_data").pocketOf(G3.itemId(S.data, id)), pc)
+end
+
 local function maxG3(S, pc)
   local changes = {}
+  local top = 0
   for id, qty in pairs(pc and S.save.pcItems or S.save.inventory) do
-    if type(qty) == "number" and qty > 0 and qty < 999 and Ops.itemStacks(S, id) then
-      changes[#changes + 1] = { id = id, qty = 999 }
+    local cap = g3Max(S, id, pc)
+    if type(qty) == "number" and qty > 0 and qty < cap and Ops.itemStacks(S, id) then
+      changes[#changes + 1] = { id = id, qty = cap }
+      top = math.max(top, cap)
     end
   end
   if #changes == 0 then return Ops.say(S, "Every stack is already maxed") end
   if not G3.change(S.data, S.save, pc, changes) then return Ops.say(S, "Item changes refused") end
-  return Ops.mark(S, ("Maxed %d stacks to x999"):format(#changes))
+  return Ops.mark(S, ("Maxed %d stacks to x%d"):format(#changes, top))
 end
 
 function Ops.addToBag(S, id)
@@ -1164,7 +1171,7 @@ end
 function Ops.bagMax(S, id)
   if Gen.ofState(S) == 3 then
     if not id or not Ops.itemStacks(S, id) or G3.quantity(S.data, S.save, false, id) <= 0 then return Ops.say(S, "No stack to max") end
-    return changeG3(S, false, id, 999)
+    return changeG3(S, false, id, g3Max(S, id, false))
   end
   if not id then return Ops.say(S, "No bag row selected") end
   S.save.inventory = S.save.inventory or {}
@@ -1354,7 +1361,7 @@ end
 function Ops.pcMax(S, id)
   if Gen.ofState(S) == 3 then
     if not id or not Ops.itemStacks(S, id) or G3.quantity(S.data, S.save, true, id) <= 0 then return Ops.say(S, "No stack to max") end
-    return changeG3(S, true, id, 999)
+    return changeG3(S, true, id, g3Max(S, id, true))
   end
   if not id then return Ops.say(S, "No PC row selected") end
   local pc = Ops.pcItems(S)
@@ -1552,7 +1559,7 @@ function Ops.clearTrainers(S)
       S.save.vsSeeker.rematches = {}
     end
     if S.save.trainerRematches then S.save.trainerRematches = {} end
-    if S.save.vars then S.save.vars[0x40AA] = 0 end
+    if S.save.vars and not require("Gen3Flags").rseGame() then S.save.vars[0x40AA] = 0 end
     S.save.defeatedTrainers = {}
     return Ops.mark(S, ("Cleared %d defeated trainers"):format(count))
   end
@@ -1789,7 +1796,13 @@ function Ops.toggleNationalDex(S)
   dex.national = on
   if S.save.dex then S.save.dex.national = on end
   local okF, Flags = pcall(require, "src.core.game3.scripting.flags")
-  if okF and Flags then
+  local game = require("Gen3Flags").rseGame()
+  if okF and Flags and game then
+    local t = Flags.forVersion(game)
+    Flags.setFlag(S.save, nil, t.IDS.FLAG_SYS_NATIONAL_DEX, on)
+    -- pokeemerald/src/event_data.c:66
+    Flags.setVar(S.save, nil, t.VAR_IDS.VAR_NATIONAL_DEX, on and 0x302 or 0)
+  elseif okF and Flags then
     Flags.setFlag(S.save, nil, "FLAG_SYS_NATIONAL_DEX", on)
   else
     S.save.flags = S.save.flags or {}

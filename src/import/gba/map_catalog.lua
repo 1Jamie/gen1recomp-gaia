@@ -3,6 +3,7 @@
 
 local Versions = require("src.import.gba.versions")
 local Profile = require("src.core.game3.profile")
+local Family = require("src.import.gba.family")
 
 local MapCatalog = {}
 
@@ -10,12 +11,23 @@ local _byGroupNum = nil -- ["g:n"] = engineId
 local _byPret = nil -- pretName = engineId
 local _aliases = nil -- anyName = engineId
 local _slotByEngine = nil -- engineId = "g_n"
+local _key = nil
+local _states = {}
 
-local function pret_to_engine(pret)
-  if type(pret) ~= "string" or pret == "" then return nil end
-  -- Existing hand aliases first.
-  local hand = Versions.PRET_TO_FR and Versions.PRET_TO_FR[pret]
-  if hand then return hand end
+local ensure_index
+
+local function catalog_key()
+  local F = Family.active()
+  if F.aliases then return F.name end
+  return F.game
+end
+
+local function engine_prefix(F)
+  if F.aliases then return Profile.active().map.enginePrefix end
+  return Profile.of(F.game).map.enginePrefix
+end
+
+local function convert_pret(pret, prefix)
   -- Route1 → Route_1, Route22 → Route_22
   local s = pret:gsub("Route(%d+)", "Route_%1")
   -- PalletTown → FR_PALLET_TOWN; ViridianCity_PokemonCenter_1F → FR_VIRIDIAN_CITY_POKEMON_CENTER_1F
@@ -23,17 +35,69 @@ local function pret_to_engine(pret)
   s = s:gsub("(%l)(%u)", "%1_%2")
   s = s:gsub("-", "_"):upper()
   s = s:gsub("_+", "_")
-  return Profile.active().map.enginePrefix .. s
+  return prefix .. s
+end
+
+local function pret_to_engine(pret)
+  if type(pret) ~= "string" or pret == "" then return nil end
+  local F = Family.active()
+  if not F.aliases then
+    ensure_index()
+    return _byPret[pret] or convert_pret(pret, engine_prefix(F))
+  end
+  -- Existing hand aliases first.
+  local hand = Versions.PRET_TO_FR and Versions.PRET_TO_FR[pret]
+  if hand then return hand end
+  return convert_pret(pret, engine_prefix(F))
 end
 
 function MapCatalog.pretToEngine(pret)
   return pret_to_engine(pret)
 end
 
+function MapCatalog.ensureRegistry()
+  if Versions.TILESETS == nil then Versions.TILESETS = {} end
+  if Versions.TILESET_PAIRS == nil then Versions.TILESET_PAIRS = {} end
+  if Versions.PAIR_TILESET == nil then Versions.PAIR_TILESET = {} end
+  if Versions.MAPS == nil then Versions.MAPS = {} end
+  if Versions.MAP_HEADERS == nil then Versions.MAP_HEADERS = {} end
+  return Versions
+end
+
+local function rebuild_const_index(F)
+  local groups = F:groups()
+  local prefix = engine_prefix(F)
+  for gi, info in pairs(groups.groups or {}) do
+    local maps = info.maps or {}
+    for mi = 1, #maps do
+      local num = mi - 1
+      local key = string.format("%d:%d", gi, num)
+      local const = F:mapConstAt(gi, num)
+      local engine = const and (prefix .. const:gsub("^MAP_", "")) or convert_pret(maps[mi], prefix)
+      _byGroupNum[key] = engine
+      _byPret[maps[mi]] = engine
+      _aliases[engine] = engine
+      _aliases[maps[mi]] = engine
+      _aliases[key] = engine
+      if const then _aliases[const] = engine end
+      if _slotByEngine[engine] == nil then
+        _slotByEngine[engine] = string.format("%d_%d", gi, num)
+      end
+    end
+  end
+  return _byGroupNum
+end
+
 --- Build (group,num) → engineId and pret → engineId tables from pret groups + hand FR map.
 function MapCatalog.rebuildIndex()
-  local groups = require("src.import.gba.map_groups_firered")
+  local F = Family.active()
+  _key = catalog_key()
   _byGroupNum, _byPret, _aliases, _slotByEngine = {}, {}, {}, {}
+  _states[_key] = { _byGroupNum, _byPret, _aliases, _slotByEngine }
+  if not F.aliases then
+    return rebuild_const_index(F)
+  end
+  local groups = F:groups()
   local function bindSlot(engine, key)
     if engine and key and _slotByEngine[engine] == nil then
       _slotByEngine[engine] = (key:gsub(":", "_"))
@@ -68,8 +132,16 @@ function MapCatalog.rebuildIndex()
   return _byGroupNum
 end
 
-local function ensure_index()
-  if not _byGroupNum then MapCatalog.rebuildIndex() end
+ensure_index = function()
+  local key = catalog_key()
+  if _byGroupNum and _key == key then return end
+  local st = _states[key]
+  if st then
+    _key = key
+    _byGroupNum, _byPret, _aliases, _slotByEngine = st[1], st[2], st[3], st[4]
+    return
+  end
+  MapCatalog.rebuildIndex()
 end
 
 function MapCatalog.mapIdFor(group, num)
@@ -114,13 +186,15 @@ function MapCatalog.tilesetNameForPtr(rom, tilesetPtr)
       return name, ts
     end
   end
+  local F = Family.active()
+  MapCatalog.ensureRegistry()
   -- Auto-register unknown tileset under a stable id.
-  local id = string.format("rom_%08x", tilesetPtr)
+  local id = F:tilesetName(ts.structOff) or string.format("rom_%08x", tilesetPtr)
   if not Versions.TILESETS[id] then
     local palsOff = rom:ptrOffset(ts.palettesPtr)
     local tilesBytes = nil
-    if not ts.compressed and palsOff and tilesOff and palsOff > tilesOff then
-      tilesBytes = palsOff - tilesOff
+    if not ts.compressed then
+      tilesBytes = F:uncompressedTileBytes(rom, tilesOff, palsOff, ts.secondary)
     end
     Versions.TILESETS[id] = {
       compressed = ts.compressed,
@@ -142,6 +216,7 @@ function MapCatalog.pairForLayout(rom, layout)
   local priName = MapCatalog.tilesetNameForPtr(rom, layout.primaryTilesetPtr)
   local secName = MapCatalog.tilesetNameForPtr(rom, layout.secondaryTilesetPtr)
   if not priName or not secName then return nil end
+  MapCatalog.ensureRegistry()
   -- Prefer an existing named pair.
   for pairName, pair in pairs(Versions.TILESET_PAIRS or {}) do
     if pair.primary == priName and pair.secondary == secName then
@@ -153,7 +228,9 @@ function MapCatalog.pairForLayout(rom, layout)
     Versions.TILESET_PAIRS[pairName] = { primary = priName, secondary = secName }
   end
   if not Versions.PAIR_TILESET[pairName] then
-    Versions.PAIR_TILESET[pairName] = ("FR_%s"):format(pairName:upper():gsub("[^A-Z0-9]+", "_"))
+    local F = Family.active()
+    local prefix = F.aliases and "FR_" or engine_prefix(F)
+    Versions.PAIR_TILESET[pairName] = (prefix .. "%s"):format(pairName:upper():gsub("[^A-Z0-9]+", "_"))
   end
   return pairName
 end
@@ -174,6 +251,7 @@ function MapCatalog.registerEntry(rom, version, entry)
     or entry.id
   local pair = MapCatalog.pairForLayout(rom, entry.layout)
   if not pair then return nil end
+  MapCatalog.ensureRegistry()
   local kind, env = map_type_kind(entry.header.mapType)
   local layoutName = entry.pretName or engineId
   local mapOff = rom:ptrOffset(entry.layout.mapPtr)

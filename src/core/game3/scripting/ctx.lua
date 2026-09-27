@@ -1,5 +1,7 @@
 -- Game3 ScriptContext mirror.
 
+local GameVersion = require("src.core.GameVersion")
+
 local Ctx = {}
 
 Ctx.SPECIAL_LO = 0x8000
@@ -17,9 +19,44 @@ Ctx.VAR_TEXT_COLOR = 0x8012
 Ctx.VAR_PREV_TEXT_COLOR = 0x8013
 Ctx.TEXT_COLOR_DEFAULT = 255
 
+Ctx.SPECIAL_LAYOUTS = {
+  -- pokefirered/include/constants/vars.h:313
+  frlg = {
+    family = "frlg",
+    hi = 0x8014,
+    textColor = 0x8012,
+    prevTextColor = 0x8013,
+    monBoxId = 0x8010,
+    monBoxPos = 0x8011,
+  },
+  -- pokeemerald/include/constants/vars.h:280
+  rse = {
+    family = "rse",
+    hi = 0x8015,
+    contestRank = 0x8010,
+    contestCategory = 0x8011,
+    monBoxId = 0x8012,
+    monBoxPos = 0x8013,
+    trainerBattleOpponentA = 0x8015,
+  },
+}
+
+function Ctx.specialLayout(version)
+  local id = version or GameVersion.get()
+  local family = GameVersion.layout and GameVersion.layout(id) or nil
+  return Ctx.SPECIAL_LAYOUTS[family] or Ctx.SPECIAL_LAYOUTS.frlg
+end
+
 function Ctx.isSpecial(id)
   id = tonumber(id) or 0
-  return id >= Ctx.SPECIAL_LO and id <= Ctx.SPECIAL_HI
+  return id >= Ctx.SPECIAL_LO and id <= Ctx.specialLayout().hi
+end
+
+local function seedSpecials(layout)
+  if layout.textColor then
+    return { [layout.textColor] = Ctx.TEXT_COLOR_DEFAULT }
+  end
+  return {}
 end
 
 function Ctx.isTemp(id)
@@ -49,17 +86,35 @@ Ctx.STEP_CALLBACKS = {
   [Ctx.STEP_CB.ICE] = "ice",
 }
 
+-- pokeemerald/src/field_tasks.c:59
+Ctx.STEP_CALLBACKS_RSE = {
+  [Ctx.STEP_CB.ASH] = "ash",
+  [Ctx.STEP_CB.FORTREE_BRIDGE] = "fortreeBridge",
+  [Ctx.STEP_CB.PACIFIDLOG_BRIDGE] = "pacifidlogBridge",
+  [Ctx.STEP_CB.ICE] = "sootopolisIce",
+  [Ctx.STEP_CB.TRUCK] = "truck",
+  [Ctx.STEP_CB.SECRET_BASE] = "secretBase",
+  [Ctx.STEP_CB.CRACKED_FLOOR] = "crackedFloor",
+}
+
+function Ctx.stepCallbackNames(layout)
+  layout = layout or Ctx.specialLayout()
+  if layout.family == "rse" then return Ctx.STEP_CALLBACKS_RSE end
+  return Ctx.STEP_CALLBACKS
+end
+
 Ctx._stepCallback = nil
 
 -- pokefirered/src/field_tasks.c:96
 function Ctx.setStepCallback(id, mapId)
   id = tonumber(id) or Ctx.STEP_CB.DUMMY
-  if not Ctx.STEP_CALLBACKS[id] then id = Ctx.STEP_CB.DUMMY end
+  local names = Ctx.stepCallbackNames()
+  if not names[id] then id = Ctx.STEP_CB.DUMMY end
   if id == Ctx.STEP_CB.DUMMY then
     Ctx._stepCallback = nil
     return nil
   end
-  Ctx._stepCallback = { id = id, name = Ctx.STEP_CALLBACKS[id], mapId = mapId }
+  Ctx._stepCallback = { id = id, name = names[id], mapId = mapId }
   return Ctx._stepCallback.name
 end
 
@@ -77,14 +132,16 @@ end
 
 function Ctx.new(opts)
   opts = opts or {}
+  local layout = Ctx.specialLayout(opts.version)
   return {
+    specialLayout = layout,
     mode = "stopped",       -- stopped | bytecode | native
     status = "shutdown",    -- shutdown | running | waiting
     stack = {},
     comparisonResult = 0,
     data = { [0] = 0, [1] = 0, [2] = 0, [3] = 0 },
     stringVars = { [1] = "", [2] = "", [3] = "" },
-    specialVars = { [Ctx.VAR_TEXT_COLOR] = Ctx.TEXT_COLOR_DEFAULT },
+    specialVars = seedSpecials(layout),
     lockSnapshots = {},
     lockKind = nil,         -- "single" | "all" | nil
     activeMoves = {},
@@ -99,7 +156,8 @@ function Ctx.new(opts)
 end
 
 function Ctx.wipeSpecial(ctx)
-  ctx.specialVars = { [Ctx.VAR_TEXT_COLOR] = Ctx.TEXT_COLOR_DEFAULT } -- src/field_specials.c:1542
+  if ctx.persistentSpecials then return end
+  ctx.specialVars = seedSpecials(ctx.specialLayout or Ctx.specialLayout()) -- src/field_specials.c:1542
 end
 
 function Ctx.selectObject(ctx, localId)

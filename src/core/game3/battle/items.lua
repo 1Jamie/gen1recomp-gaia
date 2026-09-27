@@ -300,7 +300,7 @@ function BattleItems.use(st, adapter, bag, session, itemId, partySlot, battlerId
       local ename = require("src.core.game3.battle.state").displayName(foe)
       fill.opponentMon1 = foe
       -- pokefirered/data/battle_scripts_2.s:77
-      say_id("STRINGID_GOTCHAPKMNCAUGHT", fill)
+      say_id(require("src.core.game3.battle.profile").of(st).strings.caught, fill)
       if res and res.firstTimeCaught then
         say_id("STRINGID_PKMNDATAADDEDTODEX", fill)
       end

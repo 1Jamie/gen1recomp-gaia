@@ -182,7 +182,7 @@ local function finish(result)
 end
 
 local function se()
-  pcall(function() require("src.core.game3.audio").playSe(5) end)
+  pcall(function() require("src.core.game3.audio").playSe(require("src.core.game3.se_ids").SE_SELECT) end)
 end
 
 -- pokefirered/src/script_menu.c:818

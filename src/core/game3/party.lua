@@ -163,10 +163,8 @@ Party.VERSION_LEAF_GREEN = 5
 -- pokefirered/include/config.h:45 GAME_VERSION
 function Party.metGame()
   local ok, GameVersion = pcall(require, "src.core.GameVersion")
-  if ok and GameVersion and GameVersion.current == "leafgreen" then
-    return Party.VERSION_LEAF_GREEN
-  end
-  return Party.VERSION_FIRE_RED
+  local code = ok and GameVersion and GameVersion.gameCode and GameVersion.gameCode(GameVersion.current)
+  return tonumber(code) or Party.VERSION_FIRE_RED
 end
 
 -- pokefirered/src/pokemon.c:1822 gSaveBlock2Ptr->playerGender

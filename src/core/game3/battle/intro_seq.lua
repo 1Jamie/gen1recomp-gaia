@@ -10,6 +10,7 @@ local RomText = require("src.core.game3.rom_text")
 local BattleText = require("src.core.game3.battle.battle_text")
 local Adapter = require("src.core.game3.battle.adapter")
 local ShinySeq = require("src.core.game3.battle.shiny_seq")
+local MonAnimBattle = require("src.core.game3.battle.mon_anim_battle")
 
 local IntroSeq = {}
 
@@ -34,6 +35,7 @@ function IntroSeq.reset()
   IntroSeq._opts = nil
   IntroSeq._st = nil
   IntroSeq._cryQueue = nil
+  IntroSeq._waitingMonAnim = nil
 end
 
 function IntroSeq.busy()
@@ -196,7 +198,7 @@ local function build_wild(st, opts)
   local function add(kind, data)
     steps[#steps + 1] = { kind = kind, data = data or {} }
   end
-  local playerGender = (st.oldManTutorial and 5) or opts.playerGender or 0
+  local playerGender = (st.oldManTutorial and 5) or (st.backPicOverride) or opts.playerGender or 0
   add("fade", { mode = "FROM_BLACK", instant = true })
   -- pret: player back sprite slides in with the BG intro even in wild battles
   -- (BattleIntroDrawTrainersOrMonsSprites → EmitDrawTrainerPic for PLAYER_LEFT).
@@ -277,6 +279,14 @@ local function build_trainer(st, opts)
     { rivalName = opts.rivalName })
   local info = strings.info or {}
   local enemyBalls = enemy_party_balls(st.foeParty, info.partySize or (st.foeParty and #st.foeParty) or 1)
+  if st.trainerB and st.foeHalf then
+    -- pokeemerald/src/battle_interface.c:1597
+    local slots = {}
+    for i = 1, 3 do slots[i] = (i <= st.foeHalf) and st.foeParty[i] or false end
+    for i = 1, 3 do slots[3 + i] = st.foeParty[st.foeHalf + i] or false end
+    for i = 1, 6 do enemyBalls[7 - i] = slots[i] and ball_status(slots[i]) or "empty" end
+    strings.wants = IntroSeq.introText(st)
+  end
   local playerBalls = player_party_balls(st.playerParty or (st.player and { st.player.mon }))
 
   add("fade", { mode = "FROM_BLACK", instant = true })
@@ -394,7 +404,7 @@ function IntroSeq.begin(st, opts)
     end
   end
 
-  local playerGender = (st.oldManTutorial and 5) or opts.playerGender or 0
+  local playerGender = (st.oldManTutorial and 5) or (st.backPicOverride) or opts.playerGender or 0
   s.bgSlide = { enemyOx = -240, playerOx = 240 }
   s.trainer.player.visible = true
   s.trainer.player.gender = playerGender
@@ -414,14 +424,25 @@ function IntroSeq.begin(st, opts)
     s.trainer.enemy.x, s.trainer.enemy.pic2, s.trainer.enemy.x2 = nil, nil, nil
     s.trainer.player.x, s.trainer.player.gender2, s.trainer.player.x2 = nil, nil, nil
     local pics = IntroSeq.multiTrainerPics(st, playerGender)
+    if st.trainerB then
+      -- pokeemerald/src/battle_controller_opponent.c:1296
+      s.trainer.enemy.x = 200
+      s.trainer.enemy.pic2, s.trainer.enemy.x2 = st.trainerB.pic, 152
+    end
     if pics then
       s.trainer.enemy.picId, s.trainer.enemy.x = pics.enemyPic, pics.enemyX
       s.trainer.enemy.pic2, s.trainer.enemy.x2 = pics.enemyPic2, pics.enemyX2
       s.trainer.player.gender, s.trainer.player.x = pics.gender, pics.x
       s.trainer.player.gender2, s.trainer.player.x2 = pics.partnerGender, pics.partnerX
     end
+    if st.partner and st.partner.backPic then
+      -- pokeemerald/src/battle_controller_player_partner.c:1304
+      s.trainer.player.x = 32
+      s.trainer.player.gender2, s.trainer.player.x2 = st.partner.backPic, 90
+    end
     IntroSeq._steps = build_trainer(st, opts)
   end
+  IntroSeq._steps = MonAnimBattle.introSteps(IntroSeq._steps, st.wild)
   IntroSeq._i = 1
   return true
 end
@@ -434,6 +455,19 @@ local function run_step(step)
   local kind = step.kind
   local d = step.data or {}
   local s = stage()
+
+  if kind == "mon_anim" then
+    for _, key in ipairs(d.ids or {}) do
+      MonAnimBattle.start(key, d.kind, { st = IntroSeq._st, noCry = d.noCry })
+    end
+    advance()
+    return
+  end
+
+  if kind == "mon_anim_wait" then
+    IntroSeq._waitingMonAnim = d.ids
+    return
+  end
 
   if kind == "shiny_check" then
     local Battle = package.loaded["src.core.game3.battle"]
@@ -1058,6 +1092,12 @@ function IntroSeq.update()
     end
   end
 
+  if IntroSeq._waitingMonAnim then
+    if MonAnimBattle.busy(IntroSeq._waitingMonAnim) then return false end
+    IntroSeq._waitingMonAnim = nil
+    advance()
+  end
+
   -- Hold on intro dialog until the battle UI queue is drained (wants / sent out).
   if IntroSeq._waitingMsg then
     local Ui = require("src.core.game3.battle.ui")
@@ -1088,7 +1128,8 @@ function IntroSeq.update()
   while IntroSeq._steps and IntroSeq._i <= #IntroSeq._steps do
     run_step(IntroSeq._steps[IntroSeq._i])
     if IntroSeq._waiting or IntroSeq._waitingFade or IntroSeq._waitingCry
-        or IntroSeq._waitingMsg or IntroSeq._pendingSlideIn or IntroSeq._cryQueue then
+        or IntroSeq._waitingMsg or IntroSeq._pendingSlideIn or IntroSeq._cryQueue
+        or IntroSeq._waitingMonAnim then
       return false
     end
   end

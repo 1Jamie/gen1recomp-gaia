@@ -15,7 +15,8 @@ end
 
 function Gen.of(save, version)
   if type(save) == "table" then
-    if save.generation == 3 or save.engine == "game3" or save.version == "firered" then return 3 end
+    if save.generation == 3 or save.engine == "game3" or save.version == "firered"
+        or versionGeneration(save.version) == 3 then return 3 end
     if save.healMap ~= nil or (save.bag and save.bag.pockets ~= nil) or (save.dex and save.dex.national ~= nil) then return 3 end
     if save.generation == 2 then return 2 end
     local fromVersion = versionGeneration(save.version)
@@ -223,7 +224,13 @@ function Gen.bindGame3Data(data)
       local iDef = { id = k, name = v.name or k, pocket = v.pocket, itemId = v.frlg }
       data.items[k] = iDef
     end
-    for num = 1, 375 do
+    local lastItem = 375
+    local version = GameVersion.get()
+    if GameVersion.layout(version) == "rse" then
+      -- pokeemerald/include/constants/items.h:412
+      lastItem = require("src.core.game3.constants").of(version):require("items", "ITEMS_COUNT") - 1
+    end
+    for num = 1, lastItem do
       local okInf, info = pcall(ItemsData.info, num)
       if okInf and info and info.name and info.name ~= "none" and info.name ~= "" then
         local normName = info.name:upper():gsub("[^A-Z0-9_]", "_"):gsub("_+", "_")
@@ -514,10 +521,29 @@ local KANTO = {
   "SOUL", "MARSH", "VOLCANO", "EARTH",
 }
 
+local function rseVersion(save)
+  local v = versionOf(save)
+  if GameVersion.layout(v) == "rse" then return v end
+  return nil
+end
+
+local function g3Id(save, name, kind)
+  local v = rseVersion(save)
+  if not v or type(name) ~= "string" or tonumber(name) then return name end
+  local t = require("src.core.game3.scripting.flags").forVersion(v)
+  local ids = kind == "var" and t.VAR_IDS or t.IDS
+  return ids[name] or name
+end
+
 function Gen.badgeIds(save, cat)
   local g = Gen.of(save)
   if g == 3 then
     local ids = {}
+    local v = rseVersion(save)
+    if v then
+      for _, b in ipairs(require("src.core.game3.scripting.flags").forVersion(v).BADGES) do ids[#ids + 1] = b.name .. "BADGE" end
+      return ids
+    end
     for _, name in ipairs(KANTO) do ids[#ids + 1] = name .. "BADGE" end
     return ids
   elseif g == 2 then
@@ -600,7 +626,7 @@ function Gen.getFlag(save, name)
   if g == 3 then
     local okF, Flags = pcall(require, "src.core.game3.scripting.flags")
     if okF and Flags then
-      return Flags.getFlag(save, nil, name)
+      return Flags.getFlag(save, nil, g3Id(save, name, "flag"))
     end
     return save.flags and (save.flags[name] == true or save.flags[tostring(name)] == true)
   elseif g == 2 then
@@ -622,7 +648,7 @@ function Gen.setFlag(save, name, on)
   if g == 3 then
     local okF, Flags = pcall(require, "src.core.game3.scripting.flags")
     if okF and Flags then
-      Flags.setFlag(save, nil, name, on)
+      Flags.setFlag(save, nil, g3Id(save, name, "flag"), on)
       return
     end
     save.flags = save.flags or {}
@@ -652,7 +678,7 @@ function Gen.getVar(save, nameOrId)
   if g == 3 then
     local okF, Flags = pcall(require, "src.core.game3.scripting.flags")
     if okF and Flags then
-      return Flags.getVar(save, nil, nameOrId)
+      return Flags.getVar(save, nil, g3Id(save, nameOrId, "var"))
     end
     if save.vars then
       return save.vars[nameOrId] or save.vars[tonumber(nameOrId)] or save.vars[tostring(nameOrId)] or 0
@@ -668,7 +694,7 @@ function Gen.setVar(save, nameOrId, val)
   if g == 3 then
     local okF, Flags = pcall(require, "src.core.game3.scripting.flags")
     if okF and Flags then
-      Flags.setVar(save, nil, nameOrId, val)
+      Flags.setVar(save, nil, g3Id(save, nameOrId, "var"), val)
       return
     end
     save.vars = save.vars or {}

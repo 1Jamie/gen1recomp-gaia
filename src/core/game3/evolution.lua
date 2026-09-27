@@ -72,12 +72,21 @@ end
 
 --- pokefirered/src/party_menu.c:5320
 function Evolution.nationalAllows(target, session)
+  local Profile = require("src.core.game3.profile")
+  if not Profile.forSession(session).dex.evolutionGate then return true end
   target = tonumber(target) or 0
   if target <= Evolution.KANTO_SPECIES_END then return true end
   return is_national_unlocked(session) and true or false
 end
 
-local function normal_context(mon)
+-- pokeemerald/src/pokemon.c:5540
+local function local_hours(session)
+  local Rtc = require("src.core.game3.rtc")
+  if not Rtc.enabled(session) then return nil end
+  return tonumber(Rtc.calcLocalTime(session).hours)
+end
+
+local function normal_context(mon, session)
   return {
     level = tonumber(mon.level) or 1,
     friendship = Pokemon.friendshipOf(mon),
@@ -85,14 +94,27 @@ local function normal_context(mon)
     upper = math.floor((tonumber(mon.personality) or 0) / 65536) % 65536,
     atk = tonumber(mon.attack or mon.atk) or 0,
     def = tonumber(mon.defense or mon.def) or 0,
+    session = session,
   }
 end
+
+-- pokeemerald/src/pokemon.c:51
+local DAY_EVO_HOUR_BEGIN, DAY_EVO_HOUR_END = 12, 24
+local NIGHT_EVO_HOUR_BEGIN, NIGHT_EVO_HOUR_END = 0, 12
 
 -- pokefirered/src/pokemon.c:5053
 local function row_matches_normal(evo, c)
   local m, param = row_method(evo), row_param(evo)
   if m == Evolution.EVO_FRIENDSHIP then
     return c.friendship >= 220
+  elseif m == Evolution.EVO_FRIENDSHIP_DAY or m == Evolution.EVO_FRIENDSHIP_NIGHT then
+    -- pokeemerald/src/pokemon.c:5539
+    local hours = local_hours(c.session)
+    if hours == nil or c.friendship < 220 then return false end
+    if m == Evolution.EVO_FRIENDSHIP_DAY then
+      return hours >= DAY_EVO_HOUR_BEGIN and hours < DAY_EVO_HOUR_END
+    end
+    return hours >= NIGHT_EVO_HOUR_BEGIN and hours < NIGHT_EVO_HOUR_END
   elseif m == Evolution.EVO_LEVEL then
     return param <= c.level
   elseif m == Evolution.EVO_LEVEL_ATK_GT_DEF then
@@ -127,8 +149,8 @@ local function evo_view(evo)
   }
 end
 
-local function scan_normal(mon, species, hook)
-  local c = normal_context(mon)
+local function scan_normal(mon, species, hook, session)
+  local c = normal_context(mon, session or (hook and hook.session))
   local target, param = 0, 0
   for _, evo in ipairs(Pokemon.evolutions(species)) do
     local matched = row_matches_normal(evo, c)
@@ -179,7 +201,7 @@ local function scan_item(mon, species, evolutionItem)
 end
 
 -- pokefirered/src/pokemon.c:5025 GetEvolutionTargetSpecies
-function Evolution.targetSpecies(mon, mode, evolutionItem, hook)
+function Evolution.targetSpecies(mon, mode, evolutionItem, hook, session)
   if not mon then return 0, 0 end
   local species = Pokemon.speciesOf(mon) or tonumber(mon.species or mon.speciesId)
   if not species then return 0, 0 end
@@ -189,7 +211,7 @@ function Evolution.targetSpecies(mon, mode, evolutionItem, hook)
     return 0, 0
   end
   if mode == Evolution.EVO_MODE_NORMAL then
-    return scan_normal(mon, species, hook)
+    return scan_normal(mon, species, hook, session)
   elseif mode == Evolution.EVO_MODE_TRADE then
     return scan_trade(mon, species)
   end
@@ -204,7 +226,7 @@ function Evolution.levelTarget(mon, session)
     local R = package.loaded["src.core.game3.runtime"]
     hook = { game = R and R._game or nil, session = session }
   end
-  local target, param = Evolution.targetSpecies(mon, Evolution.EVO_MODE_NORMAL, nil, hook)
+  local target, param = Evolution.targetSpecies(mon, Evolution.EVO_MODE_NORMAL, nil, hook, session)
   if target == 0 then return nil end
   if not Evolution.nationalAllows(target, session) then return nil end
   return target, param

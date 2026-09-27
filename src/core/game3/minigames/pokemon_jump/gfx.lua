@@ -16,12 +16,7 @@ Gfx.FUNC = {
 }
 
 -- pokefirered/include/constants/songs.h:9
-Gfx.SE_SELECT = 5
--- pokefirered/include/constants/songs.h:32
-Gfx.SE_BIKE_HOP = 28
--- pokefirered/include/constants/songs.h:264
-Gfx.MUS_LEVEL_UP = 257
-Gfx.MUS_DUMMY = 0
+require("src.core.game3.song_fields")(Gfx)
 
 Gfx.MENU_NOTHING_CHOSEN = -2
 Gfx.MENU_B_PRESSED = -1

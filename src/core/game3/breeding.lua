@@ -69,6 +69,30 @@ local function rngMod()
   return require("src.core.game3.rng")
 end
 
+local function liveSession(session)
+  if session then return session end
+  local rt = package.loaded["src.core.game3.runtime"]
+  return rt and rt.getSession and rt.getSession() or nil
+end
+
+function Breeding.isRse(session)
+  local ok, row = pcall(function()
+    return require("src.core.game3.profile").forSession(liveSession(session))
+  end)
+  return ok and type(row) == "table" and row.family == "rse"
+end
+
+local function constantOf(session, kind, name)
+  local Constants = require("src.core.game3.constants")
+  return Constants.of(Constants.versionOf(liveSession(session))):require(kind, name)
+end
+Breeding.constantOf = constantOf
+
+function Breeding.pendingEggFlag(session)
+  if Breeding.isRse(session) then return constantOf(session, "flags", "FLAG_PENDING_DAYCARE_EGG") end
+  return FLAG_PENDING_DAYCARE_EGG
+end
+
 local function speciesOf(mon)
   return tonumber(mon and (mon.species or mon.speciesId)) or SPECIES_NONE
 end
@@ -190,14 +214,68 @@ function Breeding.triggerPendingEgg(session, dc)
   dc = dc or Daycare.stateOf(session)
   if not dc then return 0 end
   local Rng = rngMod()
-  dc.offspringPersonality = (Rng.Random() % 0xFFFE) + 1
+  if Breeding.isRse(session) then
+    dc.offspringPersonality = Breeding.rsePersonality(session, dc)
+  else
+    dc.offspringPersonality = (Rng.Random() % 0xFFFE) + 1
+  end
   dc.eggPending = true
   -- pokefirered/src/daycare.c:751 FlagSet(FLAG_PENDING_DAYCARE_EGG)
   local store = scriptStore(session)
   if store then
-    require("src.core.game3.scripting.flags").setFlag(store, nil, FLAG_PENDING_DAYCARE_EGG, true)
+    require("src.core.game3.scripting.flags").setFlag(store, nil, Breeding.pendingEggFlag(session), true)
   end
   return dc.offspringPersonality
+end
+
+-- pokeemerald/src/daycare.c:414 GetParentToInheritNature
+function Breeding.parentToInheritNature(session, dc)
+  local Daycare = daycareMod()
+  local Pokemon = pokemonMod()
+  local Rng = rngMod()
+  local parent
+  for i = 1, DAYCARE_MON_COUNT do
+    local mon = Daycare.mon(dc, i)
+    if mon and Pokemon.gender(speciesOf(mon), mon.personality) == "F" then parent = i end
+  end
+  local dittos = 0
+  for i = 1, DAYCARE_MON_COUNT do
+    if speciesOf(Daycare.mon(dc, i)) == SPECIES_DITTO then
+      dittos = dittos + 1
+      parent = i
+    end
+  end
+  if dittos == DAYCARE_MON_COUNT then
+    parent = (Rng.Random() >= math.floor(USHRT_MAX / 2)) and 1 or 2
+  end
+  if not parent then return nil end
+  -- pokeemerald/src/daycare.c:446
+  if heldItemOf(Daycare.mon(dc, parent)) ~= constantOf(session, "items", "ITEM_EVERSTONE")
+    or Rng.Random() >= math.floor(USHRT_MAX / 2) then
+    return nil
+  end
+  return parent
+end
+
+-- pokeemerald/src/daycare.c:455 _TriggerPendingDaycareEgg
+function Breeding.rsePersonality(session, dc)
+  local Daycare = daycareMod()
+  local Pokemon = pokemonMod()
+  local Rng = rngMod()
+  local rt = package.loaded["src.core.game3.runtime"]
+  Rng.SeedRng2(tonumber(rt and rt._vblankCounter) or 0)
+  local parent = Breeding.parentToInheritNature(session, dc)
+  if not parent then
+    return (Rng.Random2() * 0x10000 + (Rng.Random() % 0xFFFE) + 1) % 0x100000000
+  end
+  local want = Pokemon.natureId(tonumber(Daycare.mon(dc, parent).personality) or 0)
+  local personality, tries = 0, 0
+  repeat
+    personality = Rng.Random2() * 0x10000 + Rng.Random()
+    if want == Pokemon.natureId(personality) and personality ~= 0 then break end
+    tries = tries + 1
+  until tries > 2400
+  return personality
 end
 
 -- pokefirered/src/daycare.c:1148
@@ -269,10 +347,11 @@ function Breeding.alterEggSpeciesWithIncenseItem(species, dc)
 end
 
 -- pokefirered/src/daycare.c:791 InheritIVs
-function Breeding.inheritIVs(egg, dc)
+function Breeding.inheritIVs(egg, dc, session)
   local Daycare = daycareMod()
   if not (egg and dc) then return end
   local Rng = rngMod()
+  local rse = Breeding.isRse(session)
   local available = {}
   for i = 1, NUM_STATS do available[i] = i end
   local selected = {}
@@ -280,8 +359,13 @@ function Breeding.inheritIVs(egg, dc)
     -- pokefirered/src/daycare.c:809
     local pick = (Rng.Random() % (NUM_STATS - (i - 1))) + 1
     selected[i] = available[pick]
-    -- pokefirered/src/daycare.c:772 RemoveIVIndexFromList
-    table.remove(available, pick)
+    if rse then
+      -- pokeemerald/src/daycare.c:552
+      table.remove(available, i)
+    else
+      -- pokefirered/src/daycare.c:772 RemoveIVIndexFromList
+      table.remove(available, pick)
+    end
   end
   local whichParent = {}
   for i = 1, INHERITED_IV_COUNT do
@@ -407,9 +491,24 @@ end
 -- pokefirered/src/daycare.c:1114 SetInitialEggData
 function Breeding.setInitialEggData(session, species, dc)
   local Rng = rngMod()
+  if Breeding.isRse(session) then
+    -- pokeemerald/src/daycare.c:862
+    return buildEggMon(session, species, (tonumber(dc and dc.offspringPersonality) or 0) % 0x100000000)
+  end
   local personality = ((tonumber(dc and dc.offspringPersonality) or 0)
     + Rng.Random() * 0x10000) % 0x100000000
   return buildEggMon(session, species, personality)
+end
+
+-- pokeemerald/src/daycare.c:750 GiveVoltTackleIfLightBall
+function Breeding.giveVoltTackleIfLightBall(session, egg, dc)
+  local Daycare = daycareMod()
+  local ball = constantOf(session, "items", "ITEM_LIGHT_BALL")
+  if heldItemOf(Daycare.mon(dc, 1)) == ball or heldItemOf(Daycare.mon(dc, 2)) == ball then
+    Daycare.teachMove(egg, constantOf(session, "moves", "MOVE_VOLT_TACKLE"))
+    return true
+  end
+  return false
 end
 
 -- pokefirered/src/daycare.c:1087 CreateEgg
@@ -430,8 +529,12 @@ function Breeding.giveEggFromDaycare(session)
   species = Breeding.alterEggSpeciesWithIncenseItem(species, dc)
   local egg = Breeding.setInitialEggData(session, species, dc)
   if not egg then return nil end
-  Breeding.inheritIVs(egg, dc)
+  Breeding.inheritIVs(egg, dc, session)
   Breeding.buildEggMoveset(egg, Daycare.mon(dc, father), Daycare.mon(dc, mother))
+  if Breeding.isRse(session) and species == constantOf(session, "species", "SPECIES_PICHU") then
+    -- pokeemerald/src/daycare.c:817
+    Breeding.giveVoltTackleIfLightBall(session, egg, dc)
+  end
   egg.isEgg = true
   session.party = session.party or {}
   -- pokefirered/src/daycare.c:1081 gPlayerParty[PARTY_SIZE - 1] = egg

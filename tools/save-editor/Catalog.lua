@@ -147,6 +147,15 @@ end
 
 function Catalog.game3EventList(extraDirs)
   local okF, FlagsTable = pcall(require, "src.core.game3.scripting.flags_table")
+  local GameVersion = require("src.core.GameVersion")
+  local version = GameVersion.get()
+  if GameVersion.layout(version) == "rse" then
+    local byName = require("src.core.game3.constants").of(version).flags.byName
+    okF, FlagsTable = true, { FLAGS = {} }
+    for name, id in pairs(byName) do
+      if name:find("^FLAG_") then FlagsTable.FLAGS[name] = id end
+    end
+  end
   local names = {}
   local seen = {}
   if okF and FlagsTable and FlagsTable.FLAGS then

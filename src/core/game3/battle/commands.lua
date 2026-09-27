@@ -48,7 +48,8 @@ function Commands.playerAction(st, menuIndex, moveSlot, battlerId, targetId)
   menuIndex = menuIndex or 1
   if st and st.safari then
     -- pokefirered/src/battle_controller_safari.c:162
-    local act = ({ "ball", "bait", "rock", "run" })[menuIndex] or "ball"
+    local sf = require("src.core.game3.battle.profile").of(st).safari
+    local act = ((sf and sf.actions) or { "ball", "bait", "rock", "run" })[menuIndex] or "ball"
     if act == "run" then return { kind = "run", user = "player", safariRun = true } end
     return { kind = "safari", action = act, user = "player" }
   end
@@ -219,6 +220,10 @@ function Commands.switchError(st, slot, forced, battlerId)
       local name = st.linkNames and st.linkNames[owner] or ""
       return RomText.ascii("gText_CantSwitchWithAlly", { stringVars = { name } })
     end
+  end
+  if st.playerHalf and slot > st.playerHalf then
+    -- pokeemerald/src/party_menu.c:5807
+    return RomText.ascii("gText_CantSwitchWithAlly", { stringVars = { st.partner and st.partner.name or "" } })
   end
   if (tonumber(mon.hp) or 0) <= 0 then return RomText.ascii("gText_PkmnHasNoEnergy", vars) end
   if st.player and st.player.partyIndex == slot then return RomText.ascii("gText_PkmnAlreadyInBattle", vars) end

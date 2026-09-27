@@ -172,6 +172,8 @@ local sTextColorTable = {
 --- Lookup NPC text color enum from graphicsId (0=Male, 1=Female, 2=Mon, 3=Neutral).
 function FrlgFont.getNpcTextColor(graphicId)
   if not graphicId then return FrlgFont.NPC_TEXT_COLOR.NEUTRAL end
+  local spec = FrlgFont.sync and FrlgFont.sync()
+  if spec and spec.npcTextColors == false then return FrlgFont.NPC_TEXT_COLOR.NEUTRAL end
   graphicId = tonumber(graphicId)
   if not graphicId or graphicId < 0 then return FrlgFont.NPC_TEXT_COLOR.NEUTRAL end
   local idx = math.floor(graphicId / 2)
@@ -285,6 +287,151 @@ local function loadImage(candidates)
     end
   end
   return nil, nil
+end
+
+local function loadTable(path)
+  local okC, CacheFs = pcall(require, "src.import.CacheFs")
+  if not (okC and CacheFs and CacheFs.readActive) then return nil end
+  local src = CacheFs.readActive(path)
+  if type(src) ~= "string" then return nil end
+  local chunk = load(src, "@" .. path, "t", {})
+  if not chunk then return nil end
+  local ok, t = pcall(chunk)
+  return ok and type(t) == "table" and t or nil
+end
+
+FrlgFont._syncVersion = nil
+FrlgFont._spec = nil
+FrlgFont._faces = {}
+FrlgFont._stdpalSaved = nil
+
+local function applyPalette(spec)
+  local pal = spec and spec.palette and loadTable(spec.palette.file)
+  pal = pal and pal[spec.palette.key]
+  if type(pal) == "table" then
+    if not FrlgFont._stdpalSaved then
+      FrlgFont._stdpalSaved = {}
+      for i = 1, 15 do
+        local c = FrlgFont.STDPAL[i]
+        FrlgFont._stdpalSaved[i] = { c[1], c[2], c[3], c[4] }
+      end
+    end
+    for i = 1, 15 do
+      local rgb, c = pal[i], FrlgFont.STDPAL[i]
+      if type(rgb) == "table" then
+        c[1], c[2], c[3], c[4] = rgb[1] / 255, rgb[2] / 255, rgb[3] / 255, 1
+      end
+    end
+  elseif FrlgFont._stdpalSaved then
+    for i = 1, 15 do
+      local s, c = FrlgFont._stdpalSaved[i], FrlgFont.STDPAL[i]
+      c[1], c[2], c[3], c[4] = s[1], s[2], s[3], s[4]
+    end
+    FrlgFont._stdpalSaved = nil
+  end
+end
+
+local function resolveSpec()
+  local Profile = package.loaded["src.core.game3.profile"]
+  if not Profile then
+    local ok, P = pcall(require, "src.core.game3.profile")
+    if not ok then return nil, nil end
+    Profile = P
+  end
+  local ok, row = pcall(Profile.forSession)
+  local font = ok and type(row) == "table" and row.font or nil
+  if type(font) == "table" and type(font.faces) == "table" then return font, row.id end
+  return nil, nil
+end
+
+local function sync()
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  local session = Runtime and Runtime.session
+  local GV = package.loaded["src.core.GameVersion"]
+  local v = (type(session) == "table" and session.version) or (GV and GV.current) or ""
+  if v == FrlgFont._syncVersion then return FrlgFont._spec end
+  FrlgFont._syncVersion = v
+  local spec, id = resolveSpec()
+  local key = spec and id or "frlg"
+  if FrlgFont._specKey ~= key then
+    if FrlgFont._specKey ~= nil then FrlgFont.invalidate() end
+    FrlgFont._specKey = key
+    applyPalette(spec)
+  end
+  FrlgFont._spec = spec
+  return spec
+end
+
+FrlgFont.sync = sync
+
+local function metricsFor(spec, fontId)
+  if FrlgFont._metrics == nil then
+    FrlgFont._metrics = spec.metrics and loadTable(spec.metrics) or false
+  end
+  for _, m in pairs(FrlgFont._metrics or {}) do
+    if type(m) == "table" and m.name == fontId then return m end
+  end
+  return nil
+end
+
+local function faceName(opts)
+  return (opts and opts.font) or ((opts and opts.small) and "small") or "normal"
+end
+
+local function loadFace(spec, name)
+  local cached = FrlgFont._faces[name]
+  if cached ~= nil then return cached or nil end
+  if spec.palette and not FrlgFont._stdpalSaved then applyPalette(spec) end
+  local fs = spec.faces[name]
+  if type(fs) ~= "table" then
+    error("FrlgFont: the active profile has no font face '" .. tostring(name) .. "'", 0)
+  end
+  local dir = spec.dir or ""
+  local fg, fgp = loadImage({ { path = dir .. fs.sheet .. "_fg.rgba", w = 256, h = 512 } })
+  local sh = loadImage({ { path = dir .. fs.sheet .. "_shadow.rgba", w = 256, h = 512 } })
+  local widths = fs.widths and loadTable(dir .. fs.widths)
+  local m = metricsFor(spec, fs.fontId)
+  if not (fg and widths and m) then
+    log(fs.sheet .. " missing from the cache")
+    FrlgFont._faces[name] = false
+    return nil
+  end
+  local iw, ih = fg:getDimensions()
+  local quads = {}
+  for id = 0, 511 do
+    local gw = tonumber(widths[id] or widths[0]) or 16
+    if gw <= 0 or gw > 16 then gw = 16 end
+    -- pokeemerald/src/text.c:608
+    quads[id] = love.graphics.newQuad((id % 16) * 16, math.floor(id / 16) * 16, gw, 16, iw, ih)
+  end
+  local face = {
+    name = name, fg = fg, sh = sh, quads = quads, widths = widths,
+    height = m.maxLetterHeight, pitch = m.maxLetterHeight + (m.lineSpacing or 0),
+    letterSpacing = m.letterSpacing or 0,
+  }
+  FrlgFont._faces[name] = face
+  log(fs.sheet .. " ready " .. tostring(fgp))
+  return face
+end
+
+local function faceFor(opts)
+  local spec = sync()
+  if not spec then return nil end
+  return loadFace(spec, faceName(opts))
+end
+
+FrlgFont.face = faceFor
+
+local function faceAdvance(face, glyphId)
+  local w = face.widths[glyphId]
+  if w == nil then w = face.widths[0] or 0 end
+  return w
+end
+
+function FrlgFont.linePitch(opts)
+  local face = faceFor(opts)
+  if face then return face.pitch end
+  return (opts and opts.small) and FrlgFont.SMALL_LINE_PITCH or FrlgFont.LINE_PITCH
 end
 
 local function ensure()
@@ -600,6 +747,11 @@ FrlgFont.GLYPH_TAGS = {
   SUPER_ER = { 0x2C },
   SUPER_E = { 0x84 },
   SUPER_RE = { 0xA0 },
+  UNK_SPACER = { 0x77 },
+  UP_ARROW = { 0x79 },
+  DOWN_ARROW = { 0x7A },
+  LEFT_ARROW = { 0x7B },
+  RIGHT_ARROW = { 0x7C },
 }
 for id, sym in pairs(TextIR.EXTRA_SYMBOL) do
   local name = sym:match("^{(.+)}$")
@@ -733,15 +885,16 @@ function FrlgFont.scanTokens(text, initialColors)
           return "ctrl", "COLOR_HIGHLIGHT_SHADOW", curColors
         elseif cmd == 0x06 and i + 2 <= n then -- EXT_CTRL_CODE_FONT (3 bytes)
           local fontId = s:byte(i + 2)
-          if fontId == 0x04 then -- FONT_MALE
+          local fontName = TextIR.dialect().FONT_IDS[fontId]
+          if fontName == "FONT_MALE" then
             curColors.fg = FrlgFont.STDPAL[8]
             curColors.shadow = FrlgFont.STDPAL[3]
             curColors.bg = FrlgFont.STDPAL[0]
-          elseif fontId == 0x05 then -- FONT_FEMALE
+          elseif fontName == "FONT_FEMALE" then
             curColors.fg = FrlgFont.STDPAL[4]
             curColors.shadow = FrlgFont.STDPAL[3]
             curColors.bg = FrlgFont.STDPAL[0]
-          elseif fontId == 0x02 then -- FONT_NORMAL
+          elseif fontName == "FONT_NORMAL" then
             curColors.fg = FrlgFont.STDPAL[2]
             curColors.shadow = FrlgFont.STDPAL[3]
             curColors.bg = FrlgFont.STDPAL[0]
@@ -868,6 +1021,8 @@ function FrlgFont.advance(glyphId, opts)
     if opts.small then return 8 end
     return japanese_widths()[glyphId - FrlgFont.JAPANESE_BASE] or 10
   end
+  local face = faceFor(opts)
+  if face then return faceAdvance(face, glyphId) end
   if opts.small then
     ensure_small()
     local sw = FrlgFont._small and FrlgFont._small.widths
@@ -1013,11 +1168,16 @@ local ADVANCE_NORMAL = {}
 -- opts.small: use FONT_SMALL (party menu).
 function FrlgFont.draw(text, x, y, opts)
   opts = opts or {}
+  local face = faceFor(opts)
   local useSmall = false
-  if opts.small then
-    useSmall = ensure_small() and FrlgFont._small and FrlgFont._small._romBaked
+  if face then
+    useSmall = face.name == "small"
+  else
+    if opts.small then
+      useSmall = ensure_small() and FrlgFont._small and FrlgFont._small._romBaked
+    end
+    if not useSmall and not ensure() then return 0 end
   end
-  if not useSmall and not ensure() then return 0 end
 
   local baseColors = opts.colors
   if not baseColors then
@@ -1048,10 +1208,12 @@ function FrlgFont.draw(text, x, y, opts)
   local minW, jpn = 0, false
   local penX, penY = 0, 0
   local drawn = 0
-  local pitch = opts.linePitch
+  local pitch = opts.linePitch or (face and face.pitch)
     or (useSmall and FrlgFont.SMALL_LINE_PITCH or FrlgFont.LINE_PITCH)
   local fg, sh, quads
-  if useSmall then
+  if face then
+    fg, sh, quads = face.fg, face.sh, face.quads
+  elseif useSmall then
     fg, sh, quads = FrlgFont._small.fg, FrlgFont._small.sh, FrlgFont._small.quads
   else
     fg, sh, quads = FrlgFont._fg, FrlgFont._sh, FrlgFont._quads
@@ -1092,7 +1254,12 @@ function FrlgFont.draw(text, x, y, opts)
       jpn = val
     elseif ttype == "char" or ttype == "glyph" then
       local id = ttype == "glyph" and val or FrlgFont.glyphId(val)
-      local adv = FrlgFont.advance(id, useSmall and ADVANCE_SMALL or ADVANCE_NORMAL)
+      local adv
+      if face and id < FrlgFont.JAPANESE_BASE then
+        adv = faceAdvance(face, id)
+      else
+        adv = FrlgFont.advance(id, useSmall and ADVANCE_SMALL or ADVANCE_NORMAL)
+      end
       if penX + adv <= maxW or penX == 0 then
         local dx, dy = x + penX, y + penY
         local gfg, gsh, q = fg, sh, quads[id]
@@ -1130,15 +1297,21 @@ end
 function FrlgFont.drawGlyph(glyphId, x, y, opts)
   opts = opts or {}
   glyphId = tonumber(glyphId) or 0
-  local useSmall = opts.small and ensure_small() and FrlgFont._small and FrlgFont._small._romBaked
-  if useSmall then
-    -- ok
-  elseif not ensure() then
-    return 0
+  local face = faceFor(opts)
+  local useSmall
+  if face then
+    useSmall = face.name == "small"
+  else
+    useSmall = opts.small and ensure_small() and FrlgFont._small and FrlgFont._small._romBaked
+    if not useSmall and not ensure() then
+      return 0
+    end
   end
   local colors = opts.colors or (useSmall and FrlgFont.COLOR.PARTY) or FrlgFont.COLOR.NORMAL
   local fg, sh, quads
-  if useSmall then
+  if face then
+    fg, sh, quads = face.fg, face.sh, face.quads
+  elseif useSmall then
     fg, sh, quads = FrlgFont._small.fg, FrlgFont._small.sh, FrlgFont._small.quads
   else
     fg, sh, quads = FrlgFont._fg, FrlgFont._sh, FrlgFont._quads
@@ -1147,7 +1320,7 @@ function FrlgFont.drawGlyph(glyphId, x, y, opts)
   if not q then return 0 end
   if colors.bg and colors.bg[4] and colors.bg[4] > 0 then
     love.graphics.setColor(colors.bg)
-    love.graphics.rectangle("fill", x, y, FrlgFont.advance(glyphId, useSmall and ADVANCE_SMALL or ADVANCE_NORMAL), useSmall and FrlgFont.SMALL_LINE_PITCH or FrlgFont.LINE_PITCH)
+    love.graphics.rectangle("fill", x, y, face and faceAdvance(face, glyphId) or FrlgFont.advance(glyphId, useSmall and ADVANCE_SMALL or ADVANCE_NORMAL), face and face.pitch or (useSmall and FrlgFont.SMALL_LINE_PITCH or FrlgFont.LINE_PITCH))
   end
   if sh and colors.shadow and (not colors.shadow[4] or colors.shadow[4] > 0) then
     love.graphics.setColor(colors.shadow)
@@ -1160,6 +1333,7 @@ function FrlgFont.drawGlyph(glyphId, x, y, opts)
   end
   love.graphics.draw(fg, q, x, y)
   love.graphics.setColor(1, 1, 1, 1)
+  if face then return faceAdvance(face, glyphId) end
   return FrlgFont.advance(glyphId, useSmall and ADVANCE_SMALL or ADVANCE_NORMAL)
 end
 
@@ -1202,6 +1376,8 @@ function FrlgFont.countChars(text)
 end
 
 function FrlgFont.invalidate()
+  FrlgFont._faces = {}
+  FrlgFont._metrics = nil
   FrlgFont._fg = nil
   FrlgFont._sh = nil
   FrlgFont._quads = nil

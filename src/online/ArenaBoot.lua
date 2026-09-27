@@ -1,14 +1,14 @@
 local Protocol = require("src.link.Protocol")
+local GameVersion = require("src.core.GameVersion")
 
 local ArenaBoot = {}
 
-local VERSIONS = {
-  red = true, blue = true, yellow = true,
-  gold = true, silver = true, crystal = true,
-  firered = true, leafgreen = true,
-}
-
-local GEN3_VERSIONS = { firered = true, leafgreen = true }
+local VERSIONS = {}
+local GEN3_VERSIONS = {}
+for id in pairs(GameVersion.VERSIONS) do
+  VERSIONS[id] = true
+  if GameVersion.generation(id) == 3 then GEN3_VERSIONS[id] = true end
+end
 
 local ROLES = { host = true, guest = true, seat2 = true, seat3 = true,
                 spectator = true }

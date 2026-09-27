@@ -1,6 +1,7 @@
 return {
   id = "firered",
   label = "FireRed",
+  family = "frlg",
   generation = 3,
   engine = "game3",
 
@@ -22,6 +23,59 @@ return {
   saveRules = "src.core.game3.profiles.firered_rules",
 
   optionsBlock = "firered",
+
+  save = {
+    -- pokefirered/src/naming_screen.c:732
+    storage = {
+      sendVar = "VAR_PC_BOX_TO_SEND_MON",
+      boxFullFlag = "FLAG_SHOWN_BOX_WAS_FULL_MESSAGE",
+      pcOwnerFlag = "FLAG_SYS_NOT_SOMEONES_PC",
+    },
+    sections = {},
+  },
+
+  -- pokefirered/include/constants/global.h:50
+  bag = {
+    pockets = { "ITEMS", "KEY_ITEMS", "POKE_BALLS", "TM_CASE", "BERRY_POUCH" },
+    visible = { "ITEMS", "KEY_ITEMS", "POKE_BALLS" },
+    packPockets = {},
+    -- pokefirered/include/constants/global.h:36
+    capacity = { ITEMS = 42, KEY_ITEMS = 30, POKE_BALLS = 13, TM_CASE = 58, BERRY_POUCH = 43 },
+    -- pokefirered/src/item_menu.c:183
+    labels = {
+      ITEMS = "sPocketNames[0]",
+      KEY_ITEMS = "sPocketNames[1]",
+      POKE_BALLS = "sPocketNames[2]",
+      TM_CASE = "gText_TMCase",
+      BERRY_POUCH = "gText_BerryPouch",
+    },
+    -- pokefirered/src/item.c:233
+    containers = {
+      TM_CASE = { item = "ITEM_TM_CASE" },
+      BERRY_POUCH = { item = "ITEM_BERRY_POUCH", flag = "FLAG_SYS_GOT_BERRY_POUCH" },
+    },
+    slotMax = { default = 999 },
+    splitSlots = {},
+    -- pokefirered/src/item.c:495
+    sortHmsFirst = { TM_CASE = true },
+    sortById = {},
+    pcItems = 50,
+    pcSlotMax = 999,
+  },
+
+  dex = {
+    regionalPrefix = 151,
+    nationalMax = 386,
+    -- pokefirered/src/event_data.c:107
+    national = {
+      flag = "FLAG_SYS_NATIONAL_DEX",
+      var = "VAR_NATIONAL_DEX",
+      value = 0x6258,
+      requireAll = false,
+    },
+    registerGate = true,
+    evolutionGate = true,
+  },
 
   font = {
     module = "src.ui.game3.frlg_font",
@@ -99,6 +153,8 @@ return {
     berryPouch = true,
     sevii = true,
   },
+
+  discoverNatives = true,
 
   nativeModules = {
     "natives_corner",

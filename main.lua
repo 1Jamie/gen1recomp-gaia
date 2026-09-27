@@ -75,6 +75,11 @@ do
   local defaultErrorHandler = love.errorhandler or love.errhand
   function love.errorhandler(msg)
     local traceback = debug.traceback()
+    if os.getenv("POKEPORT_DRIVER") then
+      io.stdout:write("LUA ERROR: " .. tostring(msg) .. "\n" .. traceback .. "\n")
+      io.stdout:flush()
+      os.exit(3)
+    end
     local ok, hint, source, report = pcall(SwitchDiagnostics.logLuaError, msg, traceback)
     local nativeMsg = tostring(msg)
     if ok then
@@ -252,7 +257,8 @@ local mouseTouch = os.getenv("POKEPORT_TOUCH") == "1"
 -- Game.speedOverride / the GAME SPEED option instead.
 local function scriptedIterations()
   if not (autopilot or driverCo) then return 1 end
-  return math.max(1, math.floor(require("src.core.GameSpeed").clamp(speedOverride)))
+  local speed = Game and Game.driverSpeed or speedOverride
+  return math.max(1, math.floor(require("src.core.GameSpeed").clamp(speed)))
 end
 
 -- ------------------------------------------------------------ save editor
@@ -976,7 +982,9 @@ function love.update(dt)
     return
   end
   if driverCo then
-    for _ = 1, iterations do
+    local i = 0
+    while i < iterations do
+      i = i + 1
       local ok, err = coroutine.resume(driverCo, Game)
       if not ok then
         print("driver error: " .. tostring(err))
@@ -988,6 +996,7 @@ function love.update(dt)
         return
       end
       Game:update(1 / 60)
+      iterations = math.min(iterations, scriptedIterations())
     end
     return
   end

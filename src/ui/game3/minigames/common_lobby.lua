@@ -22,9 +22,7 @@ Lobby.MAX_SHOWED = 5
 Lobby.ROW_H = 16
 Lobby.POLL_FRAMES = 30
 -- pokefirered/include/constants/songs.h:11
-Lobby.SE_WALL_HIT = 7
--- pokefirered/include/constants/songs.h:9
-Lobby.SE_SELECT = 5
+require("src.core.game3.song_fields")(Lobby)
 
 -- pokefirered/include/constants/union_room.h:30
 Lobby.ACTIVITY_GROUP = { [9] = 4, [10] = 5, [11] = 6 }

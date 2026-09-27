@@ -1,0 +1,15 @@
+return {
+  "HealPlayerParty",
+  "ShowPokemonStorageSystemPC",
+  "PlayerPC",
+  "CreatePCMenu",
+  "GetBattleOutcome",
+  "ChoosePartyMon",
+  "IsMonOTIDNotPlayers",
+  "BufferMonNickname",
+  "ChangePokemonNickname",
+  "ChangeBoxPokemonNickname",
+  "FadeScreen",
+  "OpenNaming",
+  "PlayCry",
+}

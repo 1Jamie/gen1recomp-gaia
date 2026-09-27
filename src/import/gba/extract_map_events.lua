@@ -1,9 +1,16 @@
--- Parse FRLG MapHeader / MapEvents from ROM → game3 event tables.
+-- Parse GBA MapHeader / MapEvents from ROM → game3 event tables.
 -- Primary writer for scripts/events cache (Gen2 extractScriptsAndText pattern).
 
 local Versions = require("src.import.gba.versions")
 local Opcodes = require("src.core.game3.scripting.opcodes")
 local GfxIds = require("src.core.game3.scripting.gfx_ids")
+local Family = require("src.import.gba.family")
+local Constants = require("src.core.game3.constants")
+local MovementTypes = require("src.core.game3.movement_types")
+
+local function map_id_for(group, num)
+  return require("src.import.gba.map_catalog").mapIdFor(group, num)
+end
 
 local ExtractMapEvents = {}
 
@@ -18,10 +25,9 @@ local MAP_SCRIPT_ON_FRAME_TABLE = 2
 local MAP_SCRIPT_ON_TRANSITION = 3
 local MAP_SCRIPT_ON_WARP_INTO_MAP_TABLE = 4
 local MAP_SCRIPT_ON_RESUME = 5
-local MAP_SCRIPT_ON_DIVER_WARP_TABLE = 6
+local MAP_SCRIPT_ON_DIVE_WARP = 6
 local MAP_SCRIPT_ON_RETURN_TO_FIELD = 7
 
-local BG_EVENT_HIDDEN_ITEM = 7
 
 local function gba_off(rom, ptr)
   return rom:ptrOffset(ptr)
@@ -30,6 +36,11 @@ end
 local function parse_objects(rom, ptr, count)
   local off = gba_off(rom, ptr)
   if not off or count <= 0 then return {} end
+  local F = Family.active()
+  local berryTree = nil
+  if not F.cloneObjects then
+    berryTree = Constants.of(F.game):id("movement", "MOVEMENT_TYPE_BERRY_TREE_GROWTH")
+  end
   local objects = {}
   for i = 0, count - 1 do
     local base = off + i * OBJ_SIZE
@@ -37,7 +48,7 @@ local function parse_objects(rom, ptr, count)
     local graphics = rom:get(base + 1)
     -- include/constants/event_objects.h:194-195, fieldmap.h:110-130
     local kind = rom:get(base + 2)
-    local isClone = kind == 255
+    local isClone = kind == 255 and F.cloneObjects
     local x = rom:u16(base + 4)
     if x >= 0x8000 then x = x - 0x10000 end
     local y = rom:u16(base + 6)
@@ -55,7 +66,7 @@ local function parse_objects(rom, ptr, count)
         mapNum = rom:u16(base + 12),
         mapGroup = rom:u16(base + 14),
       }
-      cloneTarget.mapId = Versions.frMapFor(cloneTarget.mapGroup, cloneTarget.mapNum)
+      cloneTarget.mapId = map_id_for(cloneTarget.mapGroup, cloneTarget.mapNum)
     else
       elev = rom:get(base + 8)
       movementType = rom:get(base + 9)
@@ -67,6 +78,8 @@ local function parse_objects(rom, ptr, count)
     end
     local scriptPtr = rom:u32(base + 16)
     local flag = rom:u16(base + 20)
+    local rawMovementType = movementType
+    movementType = MovementTypes.canon(F.game, rawMovementType)
     local host = GfxIds.hostMovement(movementType, rangeX, rangeY)
     local scriptKey = nil
     if scriptPtr ~= 0 and gba_off(rom, scriptPtr) then
@@ -77,12 +90,13 @@ local function parse_objects(rom, ptr, count)
       index = localId,
       graphicsId = graphics,
       graphics = graphics,
-      sprite = GfxIds.spriteFor(graphics),
+      sprite = F.cloneObjects and GfxIds.spriteFor(graphics) or nil,
       kind = kind,
       x = x,
       y = y,
       elevation = elev,
       movementType = movementType,
+      movementTypeRaw = movementType ~= rawMovementType and rawMovementType or nil,
       rangeX = rangeX,
       rangeY = rangeY,
       movement = host.movement,
@@ -95,16 +109,17 @@ local function parse_objects(rom, ptr, count)
       scriptKey = scriptKey,
       flag = flag,
       cloneTarget = cloneTarget,
+      berryTreeId = (berryTree and rawMovementType == berryTree) and sight or nil,
     }
   end
   return objects
 end
 
-local FLAG_HIDDEN_ITEMS_START = 0x3E8
-
 local function parse_bg_events(rom, ptr, count)
   local off = gba_off(rom, ptr)
   if not off or count <= 0 then return {} end
+  local F = Family.active()
+  local hiddenStart = Constants.of(F.game):require("flags", "FLAG_HIDDEN_ITEMS_START")
   local bgs = {}
   for i = 0, count - 1 do
     local base = off + i * BG_SIZE
@@ -114,25 +129,28 @@ local function parse_bg_events(rom, ptr, count)
     if y >= 0x8000 then y = y - 0x10000 end
     local elev = rom:get(base + 4)
     local kind = rom:get(base + 5)
-    if kind == BG_EVENT_HIDDEN_ITEM then
-      local item = rom:u16(base + 8)
-      local info = rom:u16(base + 10)
-      local hiddenItemId = info % 256
-      local quantity = math.floor(info / 256) % 128
-      if quantity == 0 then quantity = 1 end
-      local underfoot = info >= 32768
-      local flag = FLAG_HIDDEN_ITEMS_START + hiddenItemId
+    if kind == F.hiddenItemBgKind then
+      local h = F:hiddenItem(rom, base)
       bgs[#bgs + 1] = {
         type = "hidden_item",
         x = x,
         y = y,
         elevation = elev,
         kind = kind,
-        item = item,
-        hiddenItemId = hiddenItemId,
-        quantity = quantity,
-        underfoot = underfoot,
-        flag = flag,
+        item = h.item,
+        hiddenItemId = h.hiddenItemId,
+        quantity = h.quantity,
+        underfoot = h.underfoot,
+        flag = hiddenStart + h.hiddenItemId,
+      }
+    elseif kind == F.secretBaseBgKind then
+      bgs[#bgs + 1] = {
+        type = "secret_base",
+        x = x,
+        y = y,
+        elevation = elev,
+        kind = kind,
+        secretBaseId = rom:u32(base + 8),
       }
     else
       local scriptPtr = rom:u32(base + 8)
@@ -209,7 +227,8 @@ local function parse_map_scripts(rom, scriptsPtr)
     local poff = gba_off(rom, ptr)
     if not poff then goto continue end
     if typ == MAP_SCRIPT_ON_TRANSITION or typ == MAP_SCRIPT_ON_LOAD
-        or typ == MAP_SCRIPT_ON_RESUME or typ == MAP_SCRIPT_ON_RETURN_TO_FIELD then
+        or typ == MAP_SCRIPT_ON_RESUME or typ == MAP_SCRIPT_ON_RETURN_TO_FIELD
+        or typ == MAP_SCRIPT_ON_DIVE_WARP then
       local key = Opcodes.key(ptr)
       seeds[#seeds + 1] = ptr
       if typ == MAP_SCRIPT_ON_TRANSITION then
@@ -221,10 +240,12 @@ local function parse_map_scripts(rom, scriptsPtr)
         mapScripts.onResume = key
       elseif typ == MAP_SCRIPT_ON_RETURN_TO_FIELD then
         mapScripts.onReturnToField = key
+      else
+        -- pokeemerald/src/script.c:348
+        mapScripts.onDiveWarp = key
       end
     elseif typ == MAP_SCRIPT_ON_FRAME_TABLE
-        or typ == MAP_SCRIPT_ON_WARP_INTO_MAP_TABLE
-        or typ == MAP_SCRIPT_ON_DIVER_WARP_TABLE then
+        or typ == MAP_SCRIPT_ON_WARP_INTO_MAP_TABLE then
       -- Table of { u16 var, u16 value, script* } terminated by var==0.
       local t = poff
       for _ = 1, 32 do
@@ -239,10 +260,8 @@ local function parse_map_scripts(rom, scriptsPtr)
           local row = { var = var, value = value, script = key }
           if typ == MAP_SCRIPT_ON_FRAME_TABLE then
             mapScripts.onFrame[#mapScripts.onFrame + 1] = row
-          elseif typ == MAP_SCRIPT_ON_WARP_INTO_MAP_TABLE then
-            mapScripts.onWarpIntoMap[#mapScripts.onWarpIntoMap + 1] = row
           else
-            mapScripts.onDiveWarp[#mapScripts.onDiveWarp + 1] = row
+            mapScripts.onWarpIntoMap[#mapScripts.onWarpIntoMap + 1] = row
           end
         end
       end
@@ -275,14 +294,6 @@ local function s16(rom, offset)
   return v
 end
 
--- pret CONNECTION_SOUTH/NORTH/WEST/EAST = 1..4
-local CONN_DIR = {
-  [1] = "south",
-  [2] = "north",
-  [3] = "west",
-  [4] = "east",
-}
-
 local function parse_warps(rom, ptr, count)
   local off = gba_off(rom, ptr)
   if not off or not count or count < 1 then return {} end
@@ -298,7 +309,7 @@ local function parse_warps(rom, ptr, count)
     out[#out + 1] = {
       x = x,
       y = y,
-      destMap = Versions.frMapFor(mapGroup, mapNum),
+      destMap = map_id_for(mapGroup, mapNum),
       destWarp = (tonumber(warpId) or 0) + 1,
       mapGroup = mapGroup,
       mapNum = mapNum,
@@ -342,6 +353,7 @@ function ExtractMapEvents.parseConnections(rom, connectionsPtr)
   local listOff = gba_off(rom, listPtr)
   if not listOff or count < 1 then return {} end
   local out = {}
+  local dirs = Family.active().connDirs
   for i = 0, count - 1 do
     local base = listOff + i * 12
     local direction = rom:get(base)
@@ -349,8 +361,8 @@ function ExtractMapEvents.parseConnections(rom, connectionsPtr)
     if offset >= 0x80000000 then offset = offset - 0x100000000 end
     local mapGroup = rom:get(base + 8)
     local mapNum = rom:get(base + 9)
-    local dirName = CONN_DIR[direction]
-    local destMap = Versions.frMapFor(mapGroup, mapNum)
+    local dirName = dirs[direction]
+    local destMap = map_id_for(mapGroup, mapNum)
     if dirName and destMap then
       out[#out + 1] = { dir = dirName, map = destMap, offset = offset }
     end

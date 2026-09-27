@@ -1,6 +1,7 @@
 local Handshake = require("src.link.Handshake")
 local Session = require("src.link.Session")
-local Versions = require("src.import.gba.versions")
+local VersionsGame = require("src.import.gba.versions_game")
+local Fingerprint = require("src.link.Fingerprint")
 
 local Game3Link = {}
 Game3Link.__index = Game3Link
@@ -42,6 +43,48 @@ local function handshakeView(game)
   return { data = game.data, save = game.save, mods = game.mods }
 end
 
+local function family()
+  return require("src.core.game3.link.family")
+end
+
+local function gameVersionOf(game, player)
+  local Family = family()
+  local v = type(player) == "table" and player.version or nil
+  if type(v) ~= "string" and type(game) == "table" then
+    v = game.version or (type(game.session) == "table" and game.session.version)
+      or (type(game.save) == "table" and game.save.version)
+  end
+  if Family.isGame3(v) then return v end
+  return Family.activeVersion()
+end
+
+local function localSession(game)
+  local rt = package.loaded["src.core.game3.runtime"]
+  local s = rt and rt.getSession and rt.getSession()
+  if type(s) == "table" then return s end
+  if type(game) == "table" then return game.session or game.save end
+  return nil
+end
+
+Game3Link.BATTLE_TYPES = {
+  [Game3Link.LINKTYPE.BATTLE] = true,
+  [Game3Link.LINKTYPE.SINGLE_BATTLE] = true,
+  [Game3Link.LINKTYPE.DOUBLE_BATTLE] = true,
+  [Game3Link.LINKTYPE.MULTI_BATTLE] = true,
+}
+
+Game3Link.TRADE_TYPES = {
+  [Game3Link.LINKTYPE.TRADE] = true,
+  [Game3Link.LINKTYPE.TRADE_CONNECTING] = true,
+  [Game3Link.LINKTYPE.TRADE_SETUP] = true,
+  [Game3Link.LINKTYPE.TRADE_DISCONNECTED] = true,
+}
+
+function Game3Link.rules(version)
+  local ok, value = pcall(Fingerprint.rulesGen3, version)
+  return ok and value or nil
+end
+
 local function helloFor(game, linkType, player)
   local hello = Handshake.hello(handshakeView(game), nil)
   hello.generation = Game3Link.GENERATION
@@ -54,13 +97,32 @@ local function helloFor(game, linkType, player)
     if player.gender ~= nil then gender = (player.gender == 1 or player.gender == "female") and 1 or 0 end
   end
   hello.name = name
+  local version = gameVersionOf(game, player)
+  local mod = VersionsGame.game(version)
+  local Family = family()
+  local lp = Family.localLinkPlayer(type(player) == "table" and player.session or localSession(game), version)
+  if type(player) == "table" and player.progressFlags ~= nil then
+    lp.progressFlags = tonumber(player.progressFlags) or 0
+  end
   hello.game3 = {
-    cacheVersion = Versions.CACHE_VERSION,
-    nativeVersion = Versions.NATIVE_VERSION,
+    cacheVersion = mod.CACHE_VERSION,
+    nativeVersion = mod.NATIVE_VERSION,
     linkType = tonumber(linkType),
     trainerId = trainerId,
     gender = gender,
+    version = version,
+    family = Family.of(version),
+    gameVersion = lp.version,
+    progressFlags = lp.progressFlags,
+    rules = Game3Link.rules(version),
   }
+  local data = type(game) == "table" and game.data or nil
+  if type(data) == "table" and Fingerprint.generationOf(data) == 3 then
+    local okC, core = pcall(Fingerprint.coreGen3, data, hello.mods)
+    local okM, moves = pcall(Fingerprint.movesGen3, data)
+    hello.game3.core = okC and core or nil
+    hello.game3.moves = okM and moves or nil
+  end
   return hello
 end
 
@@ -243,36 +305,124 @@ function Game3Link:leave()
   return false
 end
 
-local function decideOne(myHello, peer)
+local function stampsMatch(g3, id)
+  local ok, mod = pcall(VersionsGame.game, id)
+  return ok and type(mod) == "table" and tonumber(g3.cacheVersion) == mod.CACHE_VERSION
+    and tonumber(g3.nativeVersion) == mod.NATIVE_VERSION
+end
+
+local function helloVersion(g3, mine)
+  if type(g3) ~= "table" then return "firered" end
+  if type(g3.version) == "string" then return g3.version end
+  local own = type(mine) == "table" and mine.version
+  if type(own) == "string" and stampsMatch(g3, own) then return own end
+  local GameVersion = require("src.core.GameVersion")
+  for _, id in ipairs(GameVersion.ORDER) do
+    if VersionsGame.GAMES[id] and family().isGame3(id) and stampsMatch(g3, id) then return id end
+  end
+  return "firered"
+end
+
+local function helloFamily(g3, mine)
+  if type(g3) == "table" and type(g3.family) == "string" then return g3.family end
+  return family().of(helloVersion(g3, mine))
+end
+
+local function helloRules(g3, mine)
+  if type(g3) == "table" and g3.rules ~= nil then return g3.rules end
+  return Game3Link.rules(helloVersion(g3, mine))
+end
+
+function Game3Link.peerVersionOf(myHello, peer)
+  return helloVersion(peer and peer.game3, myHello and myHello.game3)
+end
+
+function Game3Link.crossFamily(myHello, peer)
+  local mine = myHello and myHello.game3
+  return helloFamily(mine) ~= helloFamily(peer and peer.game3, mine)
+end
+
+local function decideOne(myHello, peer, linkType)
   local g3 = peer and peer.game3
   if type(g3) ~= "table" then
     return "refused", "peer_is_not_firered"
   end
   local verdict, reason = Handshake.checkCompat(myHello, peer)
-  if verdict ~= "full" then
+  local cross, hostRules = false, false
+  local modified = (myHello and myHello.linkModified) or peer.linkModified
+  local battle = Game3Link.BATTLE_TYPES[tonumber(linkType) or -1]
+  local mine = myHello and myHello.game3
+  if verdict == "subset" and not modified and Game3Link.crossFamily(myHello, peer)
+      and Game3Link.TRADE_TYPES[tonumber(linkType) or -1] then
+    cross = true
+  elseif verdict == "subset" and not modified and battle and type(mine) == "table"
+      and mine.core ~= nil and mine.core == g3.core
+      and tostring(myHello.ruleset or Handshake.DEFAULT_RULESET) == tostring(peer.ruleset or Handshake.DEFAULT_RULESET) then
+    hostRules = true
+    cross = Game3Link.crossFamily(myHello, peer)
+  elseif verdict ~= "full" then
     return "refused", reason or verdict
   end
-  if tonumber(g3.cacheVersion) ~= Versions.CACHE_VERSION then
+  local peerVersion = helloVersion(g3, mine)
+  local ok, mod = pcall(VersionsGame.game, peerVersion)
+  if not (ok and type(mod) == "table" and family().isGame3(peerVersion)) then
+    return "refused", "unknown_game_version"
+  end
+  if tonumber(g3.cacheVersion) ~= mod.CACHE_VERSION then
     return "refused", "cache_version_mismatch"
   end
-  if tonumber(g3.nativeVersion) ~= Versions.NATIVE_VERSION then
+  if tonumber(g3.nativeVersion) ~= mod.NATIVE_VERSION then
     return "refused", "native_version_mismatch"
   end
-  return "full", nil
+  if battle and helloRules(mine) ~= helloRules(g3, mine) then
+    if modified then return "refused", "rules_mismatch" end
+    hostRules = true
+    cross = Game3Link.crossFamily(myHello, peer)
+  end
+  return "full", nil, cross, hostRules
 end
 
+Game3Link.decideOne = decideOne
+
 function Game3Link:decide()
+  local linkType = self.linkType
   if next(self.peerHellos) == nil then
-    return decideOne(self.myHello, self.peerHello)
+    local verdict, reason, cross, hostRules = decideOne(self.myHello, self.peerHello, linkType)
+    self.crossVersion = cross == true
+    self.hostRules = hostRules == true
+    return verdict, reason
   end
   local seats = {}
   for seat in pairs(self.peerHellos) do seats[#seats + 1] = seat end
   table.sort(seats)
+  local anyCross, anyHost = false, false
   for _, seat in ipairs(seats) do
-    local verdict, reason = decideOne(self.myHello, self.peerHellos[seat])
+    local verdict, reason, cross, hostRules = decideOne(self.myHello, self.peerHellos[seat], linkType)
     if verdict ~= "full" then return verdict, reason end
+    anyCross = anyCross or cross == true
+    anyHost = anyHost or hostRules == true
   end
+  self.crossVersion = anyCross
+  self.hostRules = anyHost
   return "full", nil
+end
+
+-- pokeemerald/src/battle_controllers.c:397
+function Game3Link:hostGame3()
+  local hello = self.seat == 0 and self.myHello or self.peerHellos[0] or self.peerHello
+  return hello and hello.game3 or nil
+end
+
+function Game3Link:peerGame()
+  local g3 = self.peerHello and self.peerHello.game3
+  if type(g3) ~= "table" then return nil end
+  local mine = self.myHello and self.myHello.game3
+  return {
+    version = helloVersion(g3, mine),
+    family = helloFamily(g3, mine),
+    gameVersion = tonumber(g3.gameVersion),
+    progressFlags = tonumber(g3.progressFlags) or 0,
+  }
 end
 
 function Game3Link:_helloSeat(hello)

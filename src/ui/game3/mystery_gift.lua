@@ -13,9 +13,7 @@ local T = 8
 local CACHE_DIR = "data/generated/gba/mystery_gift/"
 
 -- pokefirered/include/constants/songs.h:265
-local MUS_OBTAIN_ITEM = 258
-local SE_BOO = 22
-local SE_POKENAV_ON = 103
+local Song = require("src.core.game3.song_ids")
 
 -- pokefirered/src/mystery_gift_menu.c:968
 Ui.SUCCESS_FRAMES = 240
@@ -307,7 +305,7 @@ end
 local function clientResult(st, textKey, success)
   st.state = Ui.STATE.RESULT_MSG
   if success then
-    fanfare(MUS_OBTAIN_ITEM)
+    fanfare(Song.MUS_OBTAIN_ITEM)
     say(st, RomText.plain(textKey), function(s)
       beginSave(s)
     end, true, Ui.SUCCESS_FRAMES)
@@ -405,7 +403,7 @@ function openOffers(st, list)
   st.feed = list
   st.offers = st.isNews and list.news or list.cards
   if #(st.offers or {}) == 0 then
-    se(SE_BOO)
+    se(Song.SE_BOO)
     closeOffers(st)
     st.state = Ui.STATE.RESULT_MSG
     -- pokefirered/src/union_room.c:2560
@@ -413,7 +411,7 @@ function openOffers(st, list)
       toMainMenuOffline)
     return
   end
-  se(SE_POKENAV_ON)
+  se(Song.SE_POKENAV_ON)
   WirelessIcon.force("3bars")
   st.state = Ui.STATE.OFFER_LIST
   -- pokefirered/src/union_room.c:2521
@@ -478,7 +476,7 @@ local function tickMsg(st, pressed)
     return
   end
   if not pressed("a") and not pressed("b") then return end
-  se(5)
+  se(Song.SE_SELECT)
   st.msg = nil
   if m.after then m.after(st) end
 end
@@ -488,7 +486,7 @@ local function tickYesNo(st, pressed)
   if pressed("up") and y.cursor > 1 then y.cursor = 1 end
   if pressed("down") and y.cursor < 2 then y.cursor = 2 end
   if pressed("a") then
-    se(5)
+    se(Song.SE_SELECT)
     st.yesno = nil
     if y.cursor == 1 then
       if y.onYes then y.onYes(st) end
@@ -496,7 +494,7 @@ local function tickYesNo(st, pressed)
       y.onNo(st)
     end
   elseif pressed("b") then
-    se(5)
+    se(Song.SE_SELECT)
     st.yesno = nil
     if y.onNo then y.onNo(st) end
   end
@@ -514,18 +512,18 @@ local function tickList(st, pressed)
   local n = #(st.rows or {})
   if n < 1 then return nil end
   if pressed("up") and st.cursor > 1 then
-    se(5)
+    se(Song.SE_SELECT)
     st.cursor = st.cursor - 1
     clampScroll(st)
   elseif pressed("down") and st.cursor < n then
-    se(5)
+    se(Song.SE_SELECT)
     st.cursor = st.cursor + 1
     clampScroll(st)
   elseif pressed("a") then
-    se(5)
+    se(Song.SE_SELECT)
     return st.cursor
   elseif pressed("b") then
-    se(5)
+    se(Song.SE_SELECT)
     return -1
   end
   return nil
@@ -637,7 +635,7 @@ function Ui.update(st, pressed, dt)
   if st.state == S.NEWS_VIEW then
     tickNewsScroll(st, pressed)
     if pressed("a") or pressed("b") then
-      se(5)
+      se(Song.SE_SELECT)
       st.viewNews = nil
       st.state = S.OFFER_LIST
       st.prompt = Ui.listPrompt(st)
@@ -657,10 +655,10 @@ function Ui.update(st, pressed, dt)
 
   if st.state == S.GIFT_INPUT then
     if pressed("a") and st.viewOffer then
-      se(5)
+      se(Song.SE_SELECT)
       pickOffer(st, st.viewOffer)
     elseif pressed("a") or pressed("b") then
-      se(5)
+      se(Song.SE_SELECT)
       st.viewCard = nil
       st.viewOffer = nil
       st.state = S.OFFER_LIST

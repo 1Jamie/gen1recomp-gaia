@@ -6,7 +6,7 @@ local VAR_RESULT = 0x800D -- pokefirered/include/constants/vars.h:328
 local VAR_0x8004 = 0x8004 -- pokefirered/include/constants/vars.h:319
 
 local SCR_MENU_CANCEL = 0x7F -- pokefirered/include/constants/menu.h:4
-local SE_SELECT = 5 -- pokefirered/include/constants/songs.h:9
+local SE = require("src.core.game3.se_ids") -- pokefirered/include/constants/songs.h:9
 
 -- pokefirered/include/constants/menu.h:75
 local LISTMENU_BADGES = 0
@@ -214,18 +214,18 @@ function Menu.move(delta)
   if delta < 0 then
     if Menu.row > 1 then
       Menu.row = Menu.row - 1
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
     elseif Menu.scroll > 0 then
       Menu.scroll = Menu.scroll - 1
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
     end
   elseif delta > 0 then
     if Menu.row < Menu.maxShowed and Menu.selection() + 1 < Menu.count then
       Menu.row = Menu.row + 1
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
     elseif Menu.scroll + Menu.maxShowed < Menu.count then
       Menu.scroll = Menu.scroll + 1
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
     end
   end
 end
@@ -237,7 +237,7 @@ function Menu.confirm()
   local keepOpen = Menu.keepOpen and index ~= (Menu.count - 1)
   local cb = Menu._onPick
   local scroll, row = Menu.scroll, Menu.row
-  se(SE_SELECT)
+  se(SE.SE_SELECT)
   Menu.close()
   if keepOpen then
     Menu.scroll, Menu.row = scroll, row
@@ -248,7 +248,7 @@ end
 function Menu.cancel()
   if not Menu.open then return end
   local cb = Menu._onPick
-  se(SE_SELECT)
+  se(SE.SE_SELECT)
   Menu.close()
   if cb then cb(SCR_MENU_CANCEL, false) end
 end
@@ -358,9 +358,9 @@ function ListMenu.presentItems(ctx, key, labels, layout, onPick)
   return false
 end
 
-ListMenu.HANDLERS = {
+ListMenu.BY_NAME = {
   -- pokefirered/src/field_specials.c:1164
-  [Std.SPECIAL.ListMenu] = function(ctx)
+  ListMenu = function(ctx)
     local kind = varGet(ctx, VAR_0x8004)
     local scroll, cursor = 0, 0
     if kind == LISTMENU_SILPHCO_FLOORS then
@@ -371,11 +371,12 @@ ListMenu.HANDLERS = {
     return present(ctx, kind, scroll, cursor)
   end,
   -- pokefirered/src/field_specials.c:1469 ReturnToListMenu
-  [Std.SPECIAL.ReturnToListMenu] = function(ctx)
+  ReturnToListMenu = function(ctx)
     local state = ListMenu._suspended
     if not state then return false end
     return present(ctx, state.kind, state.scroll, state.row - 1)
   end,
 }
+Std.legacyHandlers(ListMenu)
 
 return ListMenu

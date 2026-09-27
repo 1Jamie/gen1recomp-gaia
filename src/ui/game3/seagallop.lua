@@ -6,8 +6,7 @@ local Fade = require("src.ui.game3.fade")
 local Seagallop = {}
 
 local W, H = 240, 160
-local SE_SHIP = 19 -- pokefirered/include/constants/songs.h:23
-local SE_EXIT = 9  -- pokefirered/include/constants/songs.h:13
+local SE = require("src.core.game3.se_ids") -- pokefirered/include/constants/songs.h:23
 local CROSSING_FRAMES = 140
 local MUSIC_FADE_FRAMES = 64
 
@@ -142,7 +141,7 @@ function Seagallop.start(originId, destId, onWarp, onDone)
 
   local okA, Audio = pcall(require, "src.core.game3.audio")
   if okA and Audio and Audio.playSe then
-    pcall(Audio.playSe, SE_SHIP)
+    pcall(Audio.playSe, SE.SE_SHIP)
   end
 
   Seagallop._run = run
@@ -227,7 +226,7 @@ local function stepTick(run)
   run.state = "done"
   Seagallop.stop()
   if Audio and Audio.playSe then
-    pcall(Audio.playSe, SE_EXIT)
+    pcall(Audio.playSe, SE.SE_EXIT)
   end
   if run.onWarp then
     run.onWarp()

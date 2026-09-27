@@ -99,6 +99,7 @@ normalizeVersion = function(v)
     c = "crystal", crystal = "crystal",
     firered = "firered", fr = "firered", fire_red = "firered",
     leafgreen = "leafgreen", lg = "leafgreen", leaf_green = "leafgreen",
+    emerald = "emerald", em = "emerald",
   }
   v = alias[v] or v
   if GameVersion.VERSIONS and not GameVersion.VERSIONS[v] then return nil end

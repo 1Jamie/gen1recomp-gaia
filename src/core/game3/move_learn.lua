@@ -199,14 +199,28 @@ function MoveLearn.tutorMoves()
   return pack and pack.moves or nil
 end
 
+local function cape_brink()
+  local Profile = require("src.core.game3.profile")
+  return Profile.has(nil, "sevii") and CAPE_BRINK or {}
+end
+
+-- pokeemerald/src/data/pokemon/tutor_learnsets.h:1
+function MoveLearn.tutorMoveCount()
+  local moves = MoveLearn.tutorMoves()
+  if not moves then return MoveLearn.TUTOR_MOVE_COUNT end
+  local n = 0
+  while moves[n] ~= nil do n = n + 1 end
+  return n
+end
+
 --- pokefirered/src/party_menu.c:1892 GetTutorMove
 function MoveLearn.tutorMove(tutor)
   tutor = tonumber(tutor)
   if not tutor then return nil end
-  for _, row in pairs(CAPE_BRINK) do
+  for _, row in pairs(cape_brink()) do
     if row.tutor == tutor then return row.move end
   end
-  if tutor < 0 or tutor >= MoveLearn.TUTOR_MOVE_COUNT then return nil end
+  if tutor < 0 or tutor >= MoveLearn.tutorMoveCount() then return nil end
   local moves = MoveLearn.tutorMoves()
   return moves and moves[tutor] or nil
 end
@@ -216,10 +230,10 @@ function MoveLearn.canLearnTutorMove(species, tutor)
   species = tonumber(species)
   tutor = tonumber(tutor)
   if not species or not tutor then return false end
-  for _, row in pairs(CAPE_BRINK) do
+  for _, row in pairs(cape_brink()) do
     if row.tutor == tutor then return species == row.species end
   end
-  if tutor < 0 or tutor >= MoveLearn.TUTOR_MOVE_COUNT then return false end
+  if tutor < 0 or tutor >= MoveLearn.tutorMoveCount() then return false end
   local sets = MoveLearn.tutorLearnsets()
   local bits = sets and tonumber(sets[species])
   if not bits then return false end

@@ -125,7 +125,7 @@ local KANTO_SPECIES_END = 151
 local SPECIES_MEW = 151 -- pokefirered/include/constants/species.h:155
 local SPECIES_DEOXYS = 410 -- pokefirered/include/constants/species.h:419
 local VERSION_RUBY = 2 -- pokefirered/include/constants/global.h:9
-local VERSION_SAPPHIRE = 3 -- pokefirered/include/constants/global.h:10
+local VERSION_SAPPHIRE = 1 -- pokefirered/include/constants/global.h:8
 
 -- pokefirered/src/pokemon.c:3049 MON_DATA_SPECIES_OR_EGG
 local function speciesOrEgg(mon)
@@ -280,6 +280,11 @@ function Trade.createTradeMon(tradeIdx, level)
   mon.abilityId = ability
   mon.gender = (Pokemon.gender and Pokemon.gender(entry.species, entry.personality)) or "U"
   mon.metLocation = METLOC_IN_GAME_TRADE
+  if type(entry.conditions) == "table" then
+    -- pokeemerald/src/trade.c:4571
+    local c = entry.conditions
+    mon.contest = { cool = c[1], beauty = c[2], cute = c[3], smart = c[4], tough = c[5], sheen = entry.sheen or 0 }
+  end
   mon.item = entry.heldItem
   mon.heldItem = entry.heldItem
   -- pokefirered/src/trade_scene.c:2483
@@ -456,9 +461,9 @@ function Trade.levelOfSlot(playerSlot)
   return tonumber(mon and mon.level) or 5
 end
 
-Trade.HANDLERS = {
+Trade.BY_NAME = {
   -- pokefirered/src/trade_scene.c:2434
-  [Std.SPECIAL.GetInGameTradeSpeciesInfo] = function(ctx, adapters)
+  GetInGameTradeSpeciesInfo = function(ctx, adapters)
     local entry = Trade.entry(varGet(ctx, VAR_0x8004))
     if not entry then return false, SPECIES_NONE end
     setStringVar(ctx, adapters, 1, speciesName(entry.requestedSpecies))
@@ -466,23 +471,24 @@ Trade.HANDLERS = {
     return false, entry.requestedSpecies
   end,
   -- pokefirered/src/trade_scene.c:2514
-  [Std.SPECIAL.GetTradeSpecies] = function(ctx)
+  GetTradeSpecies = function(ctx)
     local mon = partyOf()[varGet(ctx, VAR_0x8005) + 1]
     if isEgg(mon) then return false, SPECIES_NONE end
     return false, speciesOf(mon)
   end,
   -- pokefirered/src/trade_scene.c:2522
-  [Std.SPECIAL.CreateInGameTradePokemon] = function(ctx)
+  CreateInGameTradePokemon = function(ctx)
     Trade._offered = Trade.createTradeMon(varGet(ctx, VAR_0x8004), Trade.levelOfSlot(varGet(ctx, VAR_0x8005)))
     return false
   end,
   -- pokefirered/src/trade_scene.c:2774
-  [Std.SPECIAL.DoInGameTradeScene] = function(ctx, adapters)
+  DoInGameTradeScene = function(ctx, adapters)
     local Natives = require("src.core.game3.scripting.natives")
     Natives.awaitState(ctx, Trade.sceneTask(ctx, adapters, varGet(ctx, VAR_0x8004),
       varGet(ctx, VAR_0x8005)))
     return false
   end,
 }
+Std.legacyHandlers(Trade)
 
 return Trade

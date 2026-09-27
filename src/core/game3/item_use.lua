@@ -25,6 +25,10 @@ end
 
 -- src/item_use.c:191 PrintNotTheTimeToUseThat
 local function not_the_time(session)
+  if require("src.core.game3.profile").family(session) == "rse" then
+    -- pokeemerald/src/item_use.c:158 DisplayDadsAdviceCannotUseItemMessage
+    return (RomText.box("gText_DadsAdvice", { playerName = player_name(session) }))
+  end
   return (RomText.box("gText_OakForbidsUseOfItemHere", { playerName = player_name(session) }))
 end
 
@@ -428,15 +432,40 @@ function ItemUse.useEscapeRope(session, bag, id)
   return true, "escape", t
 end
 
+-- pokeemerald/src/item_use.c:200 ItemUseOutOfBattle_Bike
+function ItemUse.useBikeRse(session, id, BikeRse)
+  local Flags = require("src.core.game3.scripting.flags")
+  local Profile = require("src.core.game3.profile")
+  local Space = package.loaded["src.core.game3.scripting.space"]
+  local st = Space and Space.store
+  local cf = Flags.forVersion(Profile.forSession(session).id).IDS.FLAG_SYS_CYCLING_ROAD
+  if (cf and st and Flags.getFlag(st, nil, cf) == true) or BikeRse.onRail() then
+    return false, "bike", cant_dismount_bike_text()
+  end
+  if map_header_flag(session, "bikingAllowed") == true and not BikeRse.bikingDisallowedByPlayer() then
+    -- pokeemerald/src/item_use.c:223 ItemUseOnFieldCB_Bike
+    local acro = require("src.core.game3.constants").active(session):id("items", "ITEM_ACRO_BIKE")
+    local num = ItemsData.toNumericId(id) or tonumber(id)
+    BikeRse.getOnOff((acro and num == acro) and "acro" or "mach", session)
+    return true, "bike", nil
+  end
+  return false, "bike", not_the_time(session)
+end
+
 -- pokefirered/src/item_use.c:253 FieldUseFunc_Bike
-function ItemUse.useBike(session)
+function ItemUse.useBike(session, id)
+  local BikeRse = require("src.core.game3.bike").rse(session)
+  if BikeRse then return ItemUse.useBikeRse(session, id, BikeRse) end
   local Player = require("src.core.game3.player")
   if Player.biking then
     -- pokefirered/src/item_use.c:261: If already on bike, cannot dismount on cycling road
     if Player.isOnCyclingRoad and Player.isOnCyclingRoad(session) then
       return false, "bike", cant_dismount_bike_text()
     end
-    -- Dismounting is always allowed elsewhere (even if indoors)
+    -- pokefirered/src/item_use.c:267
+    local allowed = map_header_flag(session, "bikingAllowed")
+    if allowed == nil then allowed = is_outdoor(session) end
+    if not allowed then return false, "bike", not_the_time(session) end
     Player.biking = false
     if session then session.biking = false end
     local Runtime = package.loaded["src.core.game3.runtime"]
@@ -848,8 +877,6 @@ local ITEM_AWAKENING = 17
 -- pokefirered/include/constants/flags.h:1330
 local FLAG_SYS_WHITE_FLUTE_ACTIVE = 0x803
 local FLAG_SYS_BLACK_FLUTE_ACTIVE = 0x804
--- pokefirered/include/constants/songs.h:114
-local SE_GLASS_FLUTE = 110
 -- pokefirered/include/constants/songs.h:346 MUS_POKE_FLUTE
 local MUS_POKE_FLUTE = 338
 
@@ -1006,7 +1033,8 @@ end
 ItemUse.BLACK_WHITE_FLUTE_DELAY = 8
 
 function ItemUse.playBlackWhiteFlute()
-  play_se(SE_GLASS_FLUTE)
+  -- pokefirered/include/constants/songs.h:114
+  play_se(require("src.core.game3.se_ids").SE_GLASS_FLUTE)
 end
 
 --- Try field use. partySlot optional for heal/status/revive/tm/give.
@@ -1015,6 +1043,12 @@ local function useField(session, bag, id, partySlot, moveSlot)
   local info = ItemsData.info(id)
   if not info then return false, "unknown", Strings("Unknown item.") end
   local use = ItemsData.fieldUseKind(id)
+
+  if info.fieldUseName == "ItemUseOutOfBattle_PokeblockCase" then
+    -- pokeemerald/src/item_use.c:609
+    require("src.core.game3.rse.pokeblock").openCase(session, {})
+    return true, "pokeblock_case", nil
+  end
 
   if use == "battle" then
     -- src/item_use.c:902 FieldUseFunc_OakStopsYou
@@ -1028,7 +1062,7 @@ local function useField(session, bag, id, partySlot, moveSlot)
   end
 
   if use == "bike" then
-    return ItemUse.useBike(session)
+    return ItemUse.useBike(session, id)
   end
 
   -- pokefirered/src/item_use.c:337 FieldUseFunc_CoinCase
@@ -1054,7 +1088,8 @@ local function useField(session, bag, id, partySlot, moveSlot)
   -- src/item_use.c:550 FieldUseFunc_Repel
   if use == "repel" then
     local vars = type(session.vars) == "table" and session.vars or nil
-    if (tonumber(session.repelSteps) or (vars and tonumber(vars[0x4020])) or 0) > 0 then
+    local repelVar = require("src.core.game3.field_semantics").var(session, "repelSteps")
+    if (tonumber(session.repelSteps) or (vars and tonumber(vars[repelVar])) or 0) > 0 then
       -- src/item_use.c:559
       return false, "repel", (RomText.box("gText_RepelEffectsLingered"))
     end
@@ -1063,7 +1098,7 @@ local function useField(session, bag, id, partySlot, moveSlot)
       or 100
     session.repelSteps = steps
     -- src/item_use.c:567 VarSet(VAR_REPEL_STEP_COUNT)
-    if vars then vars[0x4020] = steps end
+    if vars then vars[repelVar] = steps end
     Bag.remove(bag, id, 1)
     -- src/item_use.c:579 RemoveUsedItem
     local t = RomText.box("gText_PlayerUsedVar2",

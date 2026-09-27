@@ -1,5 +1,5 @@
 -- pokefirered/src/data/pokemon_graphics/front_pic_coordinates.h:1
-return {
+local FRLG = {
   front = {
     [0] = 16448,
     [1] = 10280,
@@ -831,3 +831,45 @@ return {
     [412] = 6192
   },
 }
+
+local PicSizes = { FRLG = FRLG }
+local packs = {}
+
+function PicSizes.fromPack(pack)
+  if type(pack) ~= "table" or type(pack.front) ~= "table" or type(pack.back) ~= "table" then
+    error("pic_sizes: pack is missing front/back")
+  end
+  local out = { front = {}, back = {} }
+  for sp, row in pairs(pack.front) do out.front[sp] = row.width * 256 + row.height end
+  for sp, row in pairs(pack.back) do out.back[sp] = row.width * 256 + row.height end
+  return out
+end
+
+function PicSizes.active()
+  if require("src.core.game3.profile").family() == "frlg" then return FRLG end
+  local GameVersion = require("src.core.GameVersion")
+  local key = GameVersion.get() .. ":" .. tostring(GameVersion.cachePrefix())
+  local hit = packs[key]
+  if hit then return hit end
+  local PicCoords = require("src.core.game3.battle.pic_coords")
+  local src = require("src.core.game3.dataset").cache():read(PicCoords.PACK)
+  if type(src) ~= "string" then
+    error("pic_sizes: " .. PicCoords.PACK .. " missing from the " .. GameVersion.get() .. " cache")
+  end
+  local chunk, err = load(src, "@" .. PicCoords.PACK, "t", {})
+  if not chunk then error("pic_sizes: " .. tostring(err)) end
+  hit = PicSizes.fromPack(chunk())
+  packs[key] = hit
+  return hit
+end
+
+function PicSizes.reset()
+  packs = {}
+end
+
+return setmetatable(PicSizes, {
+  __index = function(_, k)
+    if k == "front" or k == "back" then return PicSizes.active()[k] end
+    return nil
+  end,
+})

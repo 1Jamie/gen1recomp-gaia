@@ -176,4 +176,200 @@ function FieldEffectExtract.writeExtract(rom, cache, root, version)
   return results
 end
 
+FieldEffectExtract.RSE_FORMAT = 1
+FieldEffectExtract.REQUIRED = {
+  "field_effects/objects.lua",
+  "field_effects/tall_grass.rgba",
+  "field_effects/surf_blob.rgba",
+  "field_effects/field_move_streaks_outdoors.rgba",
+}
+
+local TEMPLATE_PREFIX = "gFieldEffectObjectTemplate_"
+
+-- pokeemerald/src/field_effect_helpers.c:1009
+local PALETTE_SLOT_OVERRIDE = {
+  surf_blob = 0,
+  -- pokeemerald/src/field_effect_helpers.c:1299
+  sparkle = 5,
+  -- pokeemerald/src/field_effect_helpers.c:1315
+  tree_disguise = 4,
+  -- pokeemerald/src/field_effect_helpers.c:1320
+  mountain_disguise = 3,
+  -- pokeemerald/src/field_effect_helpers.c:1325
+  sand_disguise_placeholder = 2,
+  -- pokeemerald/src/field_effect.c:3088
+  rayquaza = 4,
+  -- pokeemerald/src/field_effect.c:3123
+  bird = 0,
+  -- pokeemerald/src/trainer_see.c:725
+  heart_icon = 2,
+}
+
+local function rseRoot(opts)
+  return ((opts and opts.cacheRoot) or "data/generated/gba") .. "/field_effects"
+end
+
+local function rsePalettes(rom, V)
+  local G = require("src.import.gba.rse.sprite_gfx")
+  local F = V.FIELD_EFFECT_OBJECTS
+  local byTag = G.fieldEffectScriptPalettes(rom, F.scripts, F.script_count)
+  for tag, data in pairs(G.objectEventPalettes(rom, V.OW_SPRITE_PALETTES, V.OW_SPRITE_PALETTE_COUNT)) do
+    if byTag[tag] == nil then byTag[tag] = data end
+  end
+  local slots = {}
+  for i = 0, V.OBJ_PALETTE_SLOT_COUNT - 1 do
+    slots[i] = rom:u16(V.OBJ_PALETTE_SLOT_TAGS + i * 2)
+  end
+  return byTag, slots
+end
+
+local function rseObject(rom, S, G, cache, root, name, off, byTag, slots, symbol, palStruct)
+  local t = G.readTemplate(rom, S, off)
+  local fw, fh = t.oam.w, t.oam.h
+  local entry = {
+    name = name,
+    symbol = symbol,
+    tileTag = t.tileTag,
+    paletteTag = t.paletteTag,
+    oamPalette = t.oam.paletteNum,
+    priority = t.oam.priority,
+    affine = t.affine,
+    anims = t.anims,
+    fw = fw,
+    fh = fh,
+    frames = #t.images,
+  }
+  local slot = PALETTE_SLOT_OVERRIDE[name]
+  local palOff
+  if palStruct then
+    palOff = G.ptr(rom, palStruct)
+  elseif slot ~= nil then
+    entry.paletteSlot = slot
+    entry.paletteSlotTag = slots[slot]
+    palOff = slots[slot] and byTag[slots[slot]]
+  elseif t.paletteTag ~= 0xFFFF then
+    palOff = byTag[t.paletteTag]
+  else
+    slot = t.oam.paletteNum
+    entry.paletteSlot = slot
+    entry.paletteSlotTag = slots[slot]
+    palOff = slots[slot] and byTag[slots[slot]]
+  end
+  if palOff then
+    entry.palette = G.symName(S, palOff)
+    entry.paletteOffset = palOff
+  end
+  if #t.images == 0 then return entry end
+
+  local frameBytes = fw * fh / 2
+  entry.pic = G.symName(S, t.images[1].off)
+  entry.frameOffsets = {}
+  for i, img in ipairs(t.images) do entry.frameOffsets[i] = img.off - t.images[1].off end
+  local pix = {}
+  for i, img in ipairs(t.images) do
+    local h = fh
+    if img.size ~= frameBytes and img.size > 0 then h = math.floor(img.size * 2 / fw) end
+    G.decodeTiles(rom, img.off, fw, math.min(h, fh), pix, (i - 1) * fh, fw)
+  end
+  local w, h = fw, fh * #t.images
+  local n = w * h
+  for i = 1, n do pix[i] = pix[i] or 0 end
+  cache:write(root .. "/" .. name .. ".idx", G.idxString(pix, n))
+  entry.file = name .. ".idx"
+  entry.w, entry.h = w, h
+  if palOff then
+    local pal = G.readPalette(rom, palOff)
+    cache:write(root .. "/" .. name .. ".rgba", G.rgbaString(pix, n, pal))
+    local rgb = {}
+    for i = 0, 15 do
+      local r, g, b = G.rgb8(pal[i])
+      rgb[#rgb + 1] = string.char(r, g, b)
+    end
+    cache:write(root .. "/" .. name .. ".pal", table.concat(rgb))
+    entry.rgba = name .. ".rgba"
+    entry.colors = {}
+    for i = 0, 15 do entry.colors[i + 1] = pal[i] end
+  end
+  cache:write(root .. "/" .. name .. ".meta", string.format(
+    "return { w = %d, h = %d, frames = %d, fw = %d, fh = %d, indexed = true, format = %d }\n",
+    w, h, #t.images, fw, fh, FieldEffectExtract.FORMAT_VERSION))
+  return entry
+end
+
+function FieldEffectExtract.runRse(rom, cache, opts)
+  local V = Versions
+  local G = require("src.import.gba.rse.sprite_gfx")
+  local S = V.SYMS
+  local F = V.FIELD_EFFECT_OBJECTS
+  local root = rseRoot(opts)
+  local byTag, slots = rsePalettes(rom, V)
+  local objects, extras = {}, {}
+  for i = 0, F.count - 1 do
+    local off = G.ptr(rom, F.templates + i * 4)
+    if off then
+      local symbol = G.symName(S, off, TEMPLATE_PREFIX) or G.symName(S, off)
+      local name = G.snake((symbol or ("object_" .. i)):gsub("^" .. TEMPLATE_PREFIX, ""))
+      local e = rseObject(rom, S, G, cache, root, name, off, byTag, slots, symbol)
+      e.index = i
+      objects[#objects + 1] = e
+    end
+  end
+  for _, x in ipairs(F.extras or {}) do
+    extras[#extras + 1] = rseObject(rom, S, G, cache, root, x.name, x.template, byTag, slots,
+      G.symName(S, x.template), x.palette)
+  end
+  local streaks = {}
+  for kind, spec in pairs(V.FIELD_MOVE_STREAKS or {}) do
+    local name = "field_move_streaks_" .. kind
+    local rgba, w, h = bake_streaks(rom, spec)
+    cache:write(root .. "/" .. name .. ".rgba", rgba)
+    cache:write(root .. "/" .. name .. ".meta", string.format(
+      "return { w = %d, h = %d, frames = 1, fw = %d, fh = %d, indexed = false, format = %d }\n",
+      w, h, w, h, FieldEffectExtract.FORMAT_VERSION))
+    streaks[kind] = { file = name .. ".rgba", w = w, h = h }
+  end
+  local spot = F.spotlight
+  if spot then
+    cache:write(root .. "/spotlight.4bpp", rom:readString(spot.gfx, spot.gfx_size))
+    cache:write(root .. "/spotlight.gbapal", G.palBytes(G.readPalette(rom, spot.pal)))
+  end
+  local tags = {}
+  for tag, off in pairs(byTag) do tags[tag] = G.symName(S, off) or string.format("0x%X", off) end
+  local slotTags = {}
+  for i = 0, #slots do slotTags[i + 1] = slots[i] end
+  local serialize = require("src.import.gba.extract_scripts").serialize_lua
+  cache:write(root .. "/objects.lua", "return " .. serialize({
+    format = FieldEffectExtract.RSE_FORMAT,
+    family = "rse",
+    count = #objects,
+    objects = objects,
+    extras = extras,
+    streaks = streaks,
+    spotlight = spot and { gfx = "spotlight.4bpp", pal = "spotlight.gbapal", tiles = spot.gfx_size / 32 } or nil,
+    paletteTags = tags,
+    paletteSlotTags = slotTags,
+    aliases = { fly_bird = "bird", pokemoncenter_monitor = "pokecenter_monitor",
+      deoxys_rock_fragments = "deoxys_rock_fragment" },
+  }) .. "\n")
+  log(string.format("rse: %d objects, %d extras -> %s", #objects, #extras, root))
+  return { objects = #objects, extras = #extras }
+end
+
+function FieldEffectExtract.run(rom, cache, opts)
+  if Versions.FAMILY ~= "rse" then
+    return FieldEffectExtract.writeExtract(rom, cache, opts and opts.cacheRoot)
+  end
+  return FieldEffectExtract.runRse(rom, cache, opts)
+end
+
+function FieldEffectExtract.ready(cache, cacheRoot)
+  if Versions.FAMILY ~= "rse" then return false end
+  local body = cache and cache.read and cache:read(rseRoot({ cacheRoot = cacheRoot }) .. "/objects.lua")
+  if type(body) ~= "string" or #body == 0 then return false end
+  local chunk = load(body, "=objects", "t", {})
+  local ok, m = pcall(chunk or error)
+  return ok and type(m) == "table" and m.format == FieldEffectExtract.RSE_FORMAT
+    and m.count == Versions.FIELD_EFFECT_OBJECTS.count
+end
+
 return FieldEffectExtract

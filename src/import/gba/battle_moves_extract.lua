@@ -6,6 +6,7 @@ local BattleMovesExtract = {}
 
 BattleMovesExtract.FORMAT_VERSION = 1
 BattleMovesExtract.CACHE_SUB = "pokemon"
+BattleMovesExtract.REQUIRED = { "pokemon/battle_moves.lua" }
 
 local function default_cache_root()
   local ok, Extract = pcall(require, "src.import.gba.extract_island1")
@@ -43,9 +44,9 @@ end
 
 function BattleMovesExtract.extract(rom, opts)
   opts = opts or {}
-  local base = Versions.BATTLE_MOVES or 0x250C04
-  local stride = Versions.BATTLE_MOVE_SIZE or 12
-  local count = Versions.MOVES_COUNT or 355 -- 0 .. 354
+  local base = assert(Versions.BATTLE_MOVES, "battle_moves_extract: no BATTLE_MOVES key")
+  local stride = assert(Versions.BATTLE_MOVE_SIZE, "battle_moves_extract: no BATTLE_MOVE_SIZE key")
+  local count = assert(Versions.MOVES_COUNT, "battle_moves_extract: no MOVES_COUNT key")
   local rows = {}
   for id = 0, count - 1 do
     local off = base + id * stride

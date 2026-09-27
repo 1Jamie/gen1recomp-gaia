@@ -65,6 +65,26 @@ local function sort_tm_pocket(slots)
   end)
 end
 
+-- pokeemerald/src/item.c:615
+local function sort_by_id(slots)
+  for i = 1, #slots - 1 do
+    for j = i + 1, #slots do
+      local a = ItemsData.toNumericId(slots[i].id) or 0
+      local b = ItemsData.toNumericId(slots[j].id) or 0
+      if a > b then slots[i], slots[j] = slots[j], slots[i] end
+    end
+  end
+end
+
+local function sort_pocket(pocket, slots)
+  local model = ItemsData.BAG_MODEL
+  if model.sortHmsFirst[pocket] then
+    sort_tm_pocket(slots)
+  elseif model.sortById[pocket] then
+    sort_by_id(slots)
+  end
+end
+
 local function grant_key(bag, itemId)
   local keySlots = bag.pockets.KEY_ITEMS
   if not keySlots then return false end
@@ -111,12 +131,117 @@ local function sanitize_pockets(bag)
   end
 
   if bag.pockets.TM_CASE and #bag.pockets.TM_CASE > 0 then
-    sort_tm_pocket(bag.pockets.TM_CASE)
-    grant_key(bag, ItemsData.ITEM_TM_CASE)
+    sort_pocket("TM_CASE", bag.pockets.TM_CASE)
+    local c = ItemsData.CONTAINERS.TM_CASE
+    if c then grant_key(bag, c.item) end
   end
   if bag.pockets.BERRY_POUCH and #bag.pockets.BERRY_POUCH > 0 then
-    grant_key(bag, ItemsData.ITEM_BERRY_POUCH)
+    sort_pocket("BERRY_POUCH", bag.pockets.BERRY_POUCH)
+    local c = ItemsData.CONTAINERS.BERRY_POUCH
+    if c then grant_key(bag, c.item) end
   end
+end
+
+local function capped(pocket)
+  return ItemsData.slotMax(pocket) < Items.GAME3_MAX_QTY
+    or ItemsData.BAG_MODEL.splitSlots[pocket] == true
+end
+
+local function pocket_total(slots, id)
+  local n = 0
+  for _, slot in ipairs(slots or {}) do
+    if slot_id_eq(slot.id, id) then n = n + (tonumber(slot.qty) or 0) end
+  end
+  return n
+end
+
+-- pokeemerald/src/item.c:174
+local function capped_can_add(slots, pocket, id, count)
+  local slotCap = ItemsData.slotMax(pocket)
+  local split = ItemsData.BAG_MODEL.splitSlots[pocket] == true
+  for _, slot in ipairs(slots) do
+    if slot_id_eq(slot.id, id) then
+      local owned = tonumber(slot.qty) or 0
+      if owned + count <= slotCap then return true end
+      if not split then return false end
+      count = count - (slotCap - owned)
+      if count == 0 then break end
+    end
+  end
+  if count > 0 then
+    local empty = (ItemsData.CAPACITY[pocket] or 0) - #slots
+    for _ = 1, empty do
+      if count > slotCap then
+        if not split then return false end
+        count = count - slotCap
+      else
+        count = 0
+        break
+      end
+    end
+    if count > 0 then return false end
+  end
+  return true
+end
+
+-- pokeemerald/src/item.c:238
+local function capped_add(bag, pocket, id, count)
+  local slotCap = ItemsData.slotMax(pocket)
+  local split = ItemsData.BAG_MODEL.splitSlots[pocket] == true
+  local cap = ItemsData.CAPACITY[pocket] or 0
+  local slots = {}
+  for i, slot in ipairs(bag.pockets[pocket] or {}) do
+    slots[i] = { id = slot.id, qty = tonumber(slot.qty) or 0 }
+  end
+  local left = count
+  for _, slot in ipairs(slots) do
+    if slot_id_eq(slot.id, id) then
+      if slot.qty + left <= slotCap then
+        slot.qty = slot.qty + left
+        left = 0
+        break
+      end
+      if not split then return false, 0 end
+      left = left - (slotCap - slot.qty)
+      slot.qty = slotCap
+      if left == 0 then break end
+    end
+  end
+  while left > 0 do
+    if #slots >= cap then return false, 0 end
+    if left > slotCap then
+      if not split then return false, 0 end
+      slots[#slots + 1] = { id = id, qty = slotCap }
+      left = left - slotCap
+    else
+      slots[#slots + 1] = { id = id, qty = left }
+      left = 0
+    end
+  end
+  sort_pocket(pocket, slots)
+  bag.pockets[pocket] = slots
+  return true, count
+end
+
+-- pokeemerald/src/item.c:345
+local function capped_remove(bag, pocket, id, count)
+  local slots = bag.pockets[pocket] or {}
+  if pocket_total(slots, id) < count then return false end
+  for _, slot in ipairs(slots) do
+    if count == 0 then break end
+    if slot_id_eq(slot.id, id) then
+      local owned = tonumber(slot.qty) or 0
+      if owned >= count then
+        slot.qty = owned - count
+        count = 0
+      else
+        count = count - owned
+        slot.qty = 0
+      end
+    end
+  end
+  bag.pockets[pocket] = compact(slots)
+  return true
 end
 
 local function rebuild_stacks(bag)
@@ -213,11 +338,27 @@ function Bag.clear(bag)
   bag.stacks = {}
 end
 
+-- pokeemerald/src/item.c:136
+local function pyramidBag(bag)
+  local Py = package.loaded["src.core.game3.rse.frontier.pyramid"]
+  if not (Py and bag) then return nil end
+  local Rt = package.loaded["src.core.game3.runtime"]
+  local s = Rt and Rt.getSession and Rt.getSession()
+  if s and s.bag == bag and Py.bagActive(s) then return Py, s end
+  return nil
+end
+
 function Bag.get(bag, id)
+  local Py, ps = pyramidBag(bag)
+  if Py then return Py.bagCount(ps, id) end
   bag = ensure(bag)
   if not bag or id == nil then return 0 end
   local pocket = ItemsData.pocketOf(id)
   local slots = bag.pockets[pocket] or {}
+  if capped(pocket) then
+    local total = pocket_total(slots, id)
+    if total > 0 then return total end
+  end
   local _, slot = find_slot(slots, id)
   if slot then return tonumber(slot.qty) or 0 end
   -- stacks fallback
@@ -232,6 +373,8 @@ function Bag.has(bag, id, qty)
 end
 
 function Bag.canAdd(bag, id, qty)
+  local Py, ps = pyramidBag(bag)
+  if Py then return Py.bagHasSpace(ps, id, qty or 1) end
   bag = ensure(bag)
   qty = math.max(1, math.floor(tonumber(qty) or 1))
   -- pokefirered/src/item.c:92
@@ -239,6 +382,7 @@ function Bag.canAdd(bag, id, qty)
   local pocket = ItemsData.pocketOf(id)
   local cap = ItemsData.CAPACITY[pocket] or 42
   local slots = bag.pockets[pocket] or {}
+  if capped(pocket) then return capped_can_add(slots, pocket, id, qty) end
   local _, slot = find_slot(slots, id)
   if slot then
     local have = tonumber(slot.qty) or 0
@@ -246,15 +390,10 @@ function Bag.canAdd(bag, id, qty)
   end
   -- Need empty slot; TM Case / Berry Pouch auto-grant may need KEY slot too
   if #slots >= cap then return false end
-  if pocket == "TM_CASE" and not Bag.has(bag, ItemsData.ITEM_TM_CASE, 1) then
+  local c = ItemsData.CONTAINERS[pocket]
+  if c and not Bag.has(bag, c.item, 1) then
     local keySlots = bag.pockets.KEY_ITEMS or {}
-    if #keySlots >= (ItemsData.CAPACITY.KEY_ITEMS or 30) and not find_slot(keySlots, ItemsData.ITEM_TM_CASE) then
-      return false
-    end
-  end
-  if pocket == "BERRY_POUCH" and not Bag.has(bag, ItemsData.ITEM_BERRY_POUCH, 1) then
-    local keySlots = bag.pockets.KEY_ITEMS or {}
-    if #keySlots >= (ItemsData.CAPACITY.KEY_ITEMS or 30) and not find_slot(keySlots, ItemsData.ITEM_BERRY_POUCH) then
+    if #keySlots >= (ItemsData.CAPACITY.KEY_ITEMS or 30) and not find_slot(keySlots, c.item) then
       return false
     end
   end
@@ -264,17 +403,24 @@ end
 
 local FLAG_SYS_GOT_BERRY_POUCH = 0x847 -- include/constants/flags.h:1405
 
-local function mark_berry_pouch()
+local function mark_container(flagName)
   local Space = package.loaded["src.core.game3.scripting.space"]
   local store = type(Space) == "table" and Space.store
   if store then
-    require("src.core.game3.scripting.flags").setFlag(store, nil, FLAG_SYS_GOT_BERRY_POUCH, true)
+    local game = require("src.core.game3.profile").active().id
+    local id = require("src.core.game3.constants").of(game):require("flags", flagName)
+    require("src.core.game3.scripting.flags").setFlag(store, nil, id, true)
   end
 end
 
 Bag.FLAG_SYS_GOT_BERRY_POUCH = FLAG_SYS_GOT_BERRY_POUCH
 
 function Bag.add(bag, id, qty)
+  local Py, ps = pyramidBag(bag)
+  if Py then
+    local ok = Py.bagAdd(ps, id, qty or 1)
+    return ok, ok and (qty or 1) or 0
+  end
   bag = ensure(bag)
   qty = math.max(0, math.floor(tonumber(qty) or 1))
   if qty <= 0 or not id or ItemsData.toNumericId(id) == 0 then return false, 0 end
@@ -289,19 +435,23 @@ function Bag.add(bag, id, qty)
 
   local pocket = ItemsData.pocketOf(storeId)
 
-  if pocket == "TM_CASE" and not Bag.has(bag, ItemsData.ITEM_TM_CASE, 1) then
-    if not grant_key(bag, ItemsData.ITEM_TM_CASE) then
-      return false, 0
-    end
-  end
-  if pocket == "BERRY_POUCH" and not Bag.has(bag, ItemsData.ITEM_BERRY_POUCH, 1) then
-    if not grant_key(bag, ItemsData.ITEM_BERRY_POUCH) then
+  local container = ItemsData.CONTAINERS[pocket]
+  if container and not Bag.has(bag, container.item, 1) then
+    if not grant_key(bag, container.item) then
       return false, 0
     end
   end
   -- src/item.c:242
-  if pocket == "BERRY_POUCH" or num == ItemsData.ITEM_BERRY_POUCH or storeId == ItemsData.ITEM_BERRY_POUCH then
-    mark_berry_pouch()
+  for cPocket, c in pairs(ItemsData.CONTAINERS) do
+    if c.flag and (pocket == cPocket or num == c.item or storeId == c.item) then
+      mark_container(c.flag)
+    end
+  end
+
+  if capped(pocket) then
+    local ok, placed = capped_add(bag, pocket, storeId, qty)
+    if ok then rebuild_stacks(bag) end
+    return ok, placed
   end
 
   local slots = bag.pockets[pocket]
@@ -317,20 +467,25 @@ function Bag.add(bag, id, qty)
 
   local placed = Items.clampGame3(qty)
   slots[#slots + 1] = { id = storeId, qty = placed }
-  if pocket == "TM_CASE" then
-    sort_tm_pocket(slots)
-  end
+  sort_pocket(pocket, slots)
   rebuild_stacks(bag)
   return placed == qty, placed
 end
 
 function Bag.remove(bag, id, qty)
+  local Py, ps = pyramidBag(bag)
+  if Py then return Py.bagRemove(ps, id, qty or 1) end
   bag = ensure(bag)
   qty = math.max(1, math.floor(tonumber(qty) or 1))
   if not id then return false end
   local num = ItemsData.toNumericId(id)
   local storeId = num or id
   local pocket = ItemsData.pocketOf(storeId)
+  if capped(pocket) then
+    local ok = capped_remove(bag, pocket, storeId, qty)
+    if ok then rebuild_stacks(bag) end
+    return ok
+  end
   local slots = bag.pockets[pocket]
   local idx, slot = find_slot(slots, storeId)
   if not slot then return false end
@@ -341,9 +496,7 @@ function Bag.remove(bag, id, qty)
     table.remove(slots, idx)
   end
   bag.pockets[pocket] = compact(slots)
-  if pocket == "TM_CASE" then
-    sort_tm_pocket(bag.pockets[pocket])
-  end
+  sort_pocket(pocket, bag.pockets[pocket])
   rebuild_stacks(bag)
   return true
 end

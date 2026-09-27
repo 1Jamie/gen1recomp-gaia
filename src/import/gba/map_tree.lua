@@ -1,17 +1,11 @@
--- Walk FireRed gMapGroups → MapHeader → MapLayout → Tileset (pret map tree).
+-- Walk gMapGroups → MapHeader → MapLayout → Tileset (pret map tree).
 -- One ROM pin (gMapGroups) + pret group lengths/names; no per-map header offsets.
 
 local Versions = require("src.import.gba.versions")
 local ExtractMapEvents = require("src.import.gba.extract_map_events")
+local Family = require("src.import.gba.family")
 
 local MapTree = {}
-
-local CONN_DIR = {
-  [1] = "south",
-  [2] = "north",
-  [3] = "west",
-  [4] = "east",
-}
 
 local function gba_off(rom, ptr)
   return rom:ptrOffset(ptr)
@@ -24,7 +18,7 @@ local function s32(rom, offset)
 end
 
 function MapTree.loadGroups()
-  return require("src.import.gba.map_groups_firered")
+  return Family.active():groups()
 end
 
 --- Stable id for a (group, map) tuple. Prefer pret name; else g{G}_m{N}.
@@ -51,15 +45,7 @@ function MapTree.parseHeader(rom, headerOff)
   base.cave = rom:get(headerOff + 21)
   base.weather = rom:get(headerOff + 22)
   base.mapType = rom:get(headerOff + 23)
-  base.bikingAllowed = rom:get(headerOff + 24)
-  local flags = rom:get(headerOff + 25) or 0
-  base.allowEscaping = flags % 2
-  base.allowRunning = math.floor(flags / 2) % 2
-  base.showMapName = math.floor(flags / 4) % 64
-  local floor = rom:get(headerOff + 26) or 0
-  if floor >= 0x80 then floor = floor - 0x100 end
-  base.floorNum = floor
-  base.battleType = rom:get(headerOff + 27)
+  Family.active():decodeHeaderFlags(rom, headerOff, base)
   base.headerOff = headerOff
   return base
 end
@@ -72,6 +58,7 @@ function MapTree.parseLayout(rom, layoutOff)
   if width < 1 or height < 1 or width > 512 or height > 512 then
     return nil
   end
+  local bw, bh = Family.active():borderDims(rom, layoutOff)
   return {
     layoutOff = layoutOff,
     width = width,
@@ -80,8 +67,8 @@ function MapTree.parseLayout(rom, layoutOff)
     mapPtr = rom:u32(layoutOff + 12),
     primaryTilesetPtr = rom:u32(layoutOff + 16),
     secondaryTilesetPtr = rom:u32(layoutOff + 20),
-    borderWidth = rom:get(layoutOff + 24) or 2,
-    borderHeight = rom:get(layoutOff + 25) or 2,
+    borderWidth = bw,
+    borderHeight = bh,
   }
 end
 
@@ -89,26 +76,28 @@ end
 function MapTree.parseTileset(rom, tilesetPtr)
   local off = gba_off(rom, tilesetPtr)
   if not off then return nil end
+  local F = Family.active()
+  local o = F.tilesetOffsets
   local isCompressed = rom:get(off) ~= 0
   local isSecondary = rom:get(off + 1) ~= 0
-  local tilesPtr = rom:u32(off + 4)
-  local palsPtr = rom:u32(off + 8)
-  local mtPtr = rom:u32(off + 12)
-  local callbackPtr = rom:u32(off + 16)
-  local attrPtr = rom:u32(off + 20)
+  local tilesPtr = rom:u32(off + o.tiles)
+  local palsPtr = rom:u32(off + o.palettes)
+  local mtPtr = rom:u32(off + o.metatiles)
+  local callbackPtr = rom:u32(off + o.callback)
+  local attrPtr = rom:u32(off + o.attributes)
   local mtOff = gba_off(rom, mtPtr)
   local attrOff = gba_off(rom, attrPtr)
   local metatileBytes = 0
   if mtOff and attrOff and attrOff > mtOff then
     metatileBytes = attrOff - mtOff
   elseif not isSecondary then
-    metatileBytes = 10240 -- NUM_PRIMARY_METATILES * 16
+    metatileBytes = F.numPrimaryMetatiles * F.metatileBytes
   end
   if metatileBytes % 16 ~= 0 then
     metatileBytes = metatileBytes - (metatileBytes % 16)
   end
   local midCount = math.floor(metatileBytes / 16)
-  local attrBytes = midCount * 4
+  local attrBytes = midCount * F.attrBytes
   return {
     ptr = tilesetPtr,
     id = MapTree.tilesetId(tilesetPtr),
@@ -135,6 +124,7 @@ function MapTree.parseConnections(rom, connectionsPtr, groupsData)
   local listOff = gba_off(rom, rom:u32(off + 4))
   if not listOff or count < 1 then return {} end
   local out = {}
+  local dirs = Family.active().connDirs
   for i = 0, count - 1 do
     local base = listOff + i * 12
     local direction = rom:get(base)
@@ -142,7 +132,7 @@ function MapTree.parseConnections(rom, connectionsPtr, groupsData)
     if offset >= 0x80000000 then offset = offset - 0x100000000 end
     local mapGroup = rom:get(base + 8)
     local mapNum = rom:get(base + 9)
-    local dirName = CONN_DIR[direction]
+    local dirName = dirs[direction]
     if dirName then
       local pretName = nil
       if groupsData and groupsData.groups and groupsData.groups[mapGroup] then
@@ -192,7 +182,7 @@ end
 -- @return { maps = {...}, tilesets = { [ptr] = spec }, groups = ... }
 function MapTree.walk(rom, version, opts)
   opts = opts or {}
-  version = version or Versions.lookup(rom.md5)
+  version = version or Versions.lookup(rom.sha1 or rom.md5)
   local groupsData = MapTree.loadGroups()
   local gMapGroups = (version and version.g_map_groups) or Versions.G_MAP_GROUPS
   if not gMapGroups then

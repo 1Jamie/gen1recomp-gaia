@@ -25,10 +25,8 @@ local ITEM_X = 9
 local CURSOR_X = 1
 local QTY_X = 110
 
-local SE_SELECT = 5
 -- include/constants/songs.h:6
-local SE_PC_LOGIN = 2
-local SE_PC_OFF = 3
+local SE = require("src.core.game3.se_ids")
 
 -- src/item_pc.c:124 sTextColors
 local COLORS = {
@@ -221,7 +219,7 @@ function ItemPc.show(opts)
   set_cursor_position()
   set_scroll_position()
   ItemPc._fx = fx_on()
-  se(SE_PC_LOGIN)
+  se(SE.SE_PC_LOGIN)
   Stack.push("item_pc", ItemPc, { hideBelow = true, fullscreen = true })
 end
 
@@ -235,7 +233,7 @@ end
 
 -- src/item_pc.c:668 Task_ItemPcTurnOff1
 local function turn_off(after)
-  se(SE_PC_OFF)
+  se(SE.SE_PC_OFF)
   ItemPc._fx = fx_off(after or finish_close)
 end
 
@@ -376,13 +374,13 @@ function ItemPc.handleInput(input)
     -- src/item_pc.c:707 Task_ItemPcMain
     if input:wasPressed("select") then
       if cursor_pos() ~= #items() then
-        se(SE_SELECT)
+        se(SE.SE_SELECT)
         begin_move()
       end
       return
     end
     if input:wasPressed("a") then
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
       if cursor_pos() == #items() then
         turn_off()
       else
@@ -390,35 +388,35 @@ function ItemPc.handleInput(input)
         ItemPc.subCursor = 1
       end
     elseif input:wasPressed("b") then
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
       turn_off()
     elseif held_repeat(input, "up") then
-      if move_cursor(false) then se(SE_SELECT) end
+      if move_cursor(false) then se(SE.SE_SELECT) end
     elseif held_repeat(input, "down") then
-      if move_cursor(true) then se(SE_SELECT) end
+      if move_cursor(true) then se(SE.SE_SELECT) end
     end
   elseif mode == "move" then
     -- src/item_pc.c:782 Task_ItemPcMoveItemModeRun
     if held_repeat(input, "up") then
-      if move_cursor(false) then se(SE_SELECT) end
+      if move_cursor(false) then se(SE.SE_SELECT) end
     elseif held_repeat(input, "down") then
-      if move_cursor(true) then se(SE_SELECT) end
+      if move_cursor(true) then se(SE.SE_SELECT) end
     end
     if input:wasPressed("a") or input:wasPressed("select") then
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
       end_move(true)
     elseif input:wasPressed("b") then
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
       end_move(false)
     end
   elseif mode == "submenu" then
     -- src/menu.c:614 Menu_ProcessInputNoWrapAround
     if input:wasPressed("up") then
-      if ItemPc.subCursor > 1 then ItemPc.subCursor = ItemPc.subCursor - 1; se(SE_SELECT) end
+      if ItemPc.subCursor > 1 then ItemPc.subCursor = ItemPc.subCursor - 1; se(SE.SE_SELECT) end
     elseif input:wasPressed("down") then
-      if ItemPc.subCursor < #SUBMENU then ItemPc.subCursor = ItemPc.subCursor + 1; se(SE_SELECT) end
+      if ItemPc.subCursor < #SUBMENU then ItemPc.subCursor = ItemPc.subCursor + 1; se(SE.SE_SELECT) end
     elseif input:wasPressed("a") then
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
       local run = SUBMENU[ItemPc.subCursor].run
       if run == "withdraw" then
         -- src/item_pc.c:853 Task_ItemPcWithdraw
@@ -434,7 +432,7 @@ function ItemPc.handleInput(input)
         return_from_submenu()
       end
     elseif input:wasPressed("b") then
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
       return_from_submenu()
     end
   elseif mode == "qty" then
@@ -454,18 +452,18 @@ function ItemPc.handleInput(input)
     end
     if q ~= ItemPc.qty then
       ItemPc.qty = q
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
     elseif input:wasPressed("a") then
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
       do_withdraw()
     elseif input:wasPressed("b") then
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
       return_from_submenu()
     end
   elseif mode == "result" then
     -- src/item_pc.c:894 Task_ItemPcWaitButtonAndFinishWithdrawMultiple
     if input:wasPressed("a") or input:wasPressed("b") then
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
       local p = ItemPc._pending
       ItemPc._pending = nil
       if p then
@@ -479,7 +477,7 @@ function ItemPc.handleInput(input)
   elseif mode == "msg" then
     -- src/item_pc.c:1037 gTask_ItemPcWaitButtonAndExitSubmenu
     if input:wasPressed("a") then
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
       ItemPc.msgText = nil
       return_from_submenu()
     end

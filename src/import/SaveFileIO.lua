@@ -76,7 +76,7 @@ function SaveFileIO.dropStaleCart(version, slotId, save)
   end
   local bytes = readCart(version, slotId)
   if not bytes then return false end
-  local Gen3Save = require("src.save_convert.Gen3Save")
+  local Gen3Save = require("src.save_convert.Gen3Save").forVersion(version)
   if Gen3Save.templateBelongs(Gen3Save.ownerOf(bytes), save) then return false end
   return removeCart(version, slotId)
 end

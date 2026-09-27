@@ -25,7 +25,7 @@ SaveMenu._game = nil
 SaveMenu._onClose = nil
 
 local function se(id)
-  pcall(function() require("src.core.game3.audio").playSe(id) end)
+  pcall(function() require("src.core.game3.audio").playSe(require("src.core.game3.se_ids").resolve(id)) end)
 end
 
 function SaveMenu.flagStore(session)
@@ -47,6 +47,11 @@ end
 -- pokefirered/src/save_menu_util.c:25
 function SaveMenu.countDex(session)
   local dex = type(session) == "table" and session.dex or nil
+  if SaveMenu.layout(session) == "rse" then
+    -- pokeemerald/src/menu.c:2122
+    local st = SaveMenu.flagStore(session)
+    return Dex.summaryCount({ version = session.version, dex = dex, flags = st.flags, vars = st.vars })
+  end
   if type(dex) ~= "table" then return tonumber(session and session.caughtMonsCount) or 0 end
   local national = false
   local okP, PokedexData = pcall(require, "src.core.game3.pokedex_data")
@@ -59,7 +64,20 @@ end
 
 -- pokefirered/src/start_menu.c:984
 function SaveMenu.hasDex(session)
-  return Flags.getFlag(SaveMenu.flagStore(session), nil, Flags.IDS.SYS_POKEDEX_GET or 0x829) == true
+  local id = require("src.ui.game3.screens").flags(session).IDS.SYS_POKEDEX_GET
+  return id ~= nil and Flags.getFlag(SaveMenu.flagStore(session), nil, id) == true
+end
+
+function SaveMenu.layout(session)
+  local ok, Profile = pcall(require, "src.core.game3.profile")
+  local row = ok and Profile.forSession(session) or nil
+  local ui = row and type(row.ui) == "table" and row.ui or nil
+  return ui and ui.saveMenu or "frlg"
+end
+
+local function saveExists(session)
+  local ok, raw = pcall(require("src.core.SaveData").load, session and session.version)
+  return ok and type(raw) == "table"
 end
 
 function SaveMenu.show(opts)
@@ -67,6 +85,8 @@ function SaveMenu.show(opts)
   SaveMenu.open = true
   SaveMenu.cursor = 1
   SaveMenu._phase = "confirm"
+  SaveMenu._rse = SaveMenu.layout(opts.session) == "rse"
+  SaveMenu._timer = nil
   SaveMenu._error = nil
   SaveMenu._session = opts.session
   SaveMenu._game = opts.game
@@ -90,7 +110,7 @@ end
 function SaveMenu.move(delta)
   if SaveMenu._phase ~= "confirm" and SaveMenu._phase ~= "overwrite" then return end
   SaveMenu.cursor = SaveMenu.cursor == 1 and 2 or 1
-  se(5) -- SE_SELECT
+  se("SE_SELECT")
 end
 
 local function do_save()
@@ -106,6 +126,10 @@ local function do_save()
   -- (no session / quest-log phase).  Treat a raise, an explicit false, or an
   -- absent saveGame as failure.
   local failure = nil
+  if SaveMenu._rse then
+    -- pokeemerald/src/start_menu.c:1091
+    require("src.core.game3.rse.init").call("pyramid", "pause", nil, nil, SaveMenu._session)
+  end
   if game and mod and Bridge and type(Bridge.persistSessionOnly) == "function" then
     local ok, err = pcall(Bridge.persistSessionOnly, mod, game)
     if not ok then failure = "sidecar persist failed: " .. tostring(err) end
@@ -130,8 +154,27 @@ local function do_save()
     return
   end
 
-  se(48) -- SE_SAVE
+  se("SE_SAVE")
   SaveMenu._phase = "saved"
+  -- pokeemerald/src/start_menu.c:1086
+  if SaveMenu._rse then SaveMenu._timer = 60 end
+end
+
+-- pokeemerald/src/start_menu.c:1123
+function SaveMenu.update()
+  if not (SaveMenu.open and SaveMenu._rse) then return end
+  if SaveMenu._phase == "saving_msg" then
+    SaveMenu._phase = "saving"
+    do_save()
+    return
+  end
+  if SaveMenu._phase == "saved" and SaveMenu._timer then
+    SaveMenu._timer = SaveMenu._timer - 1
+    if SaveMenu._timer <= 0 then
+      SaveMenu._timer = nil
+      SaveMenu.confirm()
+    end
+  end
 end
 
 function SaveMenu.confirm()
@@ -147,31 +190,42 @@ function SaveMenu.confirm()
     if StartMenu.isOpen() then StartMenu.close(true) end -- pokefirered/src/start_menu.c:583
     return
   end
-  if SaveMenu._phase == "saving" then
+  if SaveMenu._phase == "saving" or SaveMenu._phase == "saving_msg" then
     return
   end
 
-  if SaveMenu.cursor == 1 then -- YES
+  if SaveMenu.cursor == 1 and SaveMenu._rse then
+    se("SE_SELECT")
+    if SaveMenu._phase == "confirm" and saveExists(SaveMenu._session) then
+      -- pokeemerald/src/start_menu.c:1003
+      SaveMenu._phase = "overwrite"
+      SaveMenu.cursor = 1
+    else
+      -- pokeemerald/src/start_menu.c:1080
+      SaveMenu._phase = "saving_msg"
+    end
+  elseif SaveMenu.cursor == 1 then -- YES
     if SaveMenu._phase == "confirm" then
       -- If there is an active save file, ask overwrite confirm
       SaveMenu._phase = "overwrite"
       SaveMenu.cursor = 1
-      se(5) -- SE_SELECT
+      se("SE_SELECT")
     elseif SaveMenu._phase == "overwrite" then
       do_save()
     end
   else -- NO
-    se(5) -- pokefirered/src/menu.c:376
+    se("SE_SELECT") -- pokefirered/src/menu.c:376
     SaveMenu.close()
   end
 end
 
 function SaveMenu.cancel()
   if SaveMenu._phase == "saved" then
+    if SaveMenu._rse then return end
     SaveMenu.confirm()
     return
   end
-  if SaveMenu._phase == "saving" then
+  if SaveMenu._phase == "saving" or SaveMenu._phase == "saving_msg" then
     return
   end
   SaveMenu.close()
@@ -181,8 +235,17 @@ end
 -- GetMapNameGeneric(dest, gMapHeader.regionMapSectionId) -> region_map.c
 -- GetMapName(dst, mapsec, 0), i.e. the sMapNames place name and never the
 -- engine's internal map id (which is what session.map holds).
+-- pokeemerald/src/menu.c:2135
+local function rseLocationName(session)
+  local sec = require("src.core.game3.pokemon").currentMapSec(session)
+  local pack = require("src.ui.game3.rse.scene_kit").loadLua("data/generated/gba/region_map/map_sections.lua")
+  local row = sec and pack and pack.sections and pack.sections[sec]
+  return row and row.name or ""
+end
+
 function SaveMenu.locationName(session)
   session = session or {}
+  if SaveMenu.layout(session) == "rse" then return rseLocationName(session) end
   if type(session.mapName) == "string" and session.mapName ~= "" and not session.mapName:find("^FR_") and not session.mapName:find("^SEVII_") then
     return session.mapName:upper()
   end
@@ -219,8 +282,65 @@ function SaveMenu.valueX(labels)
   return x
 end
 
+-- pokeemerald/src/start_menu.c:1332
+local SAVE_BLUE = { fg = FrlgFont.STDPAL[8], shadow = FrlgFont.STDPAL[9], bg = FrlgFont.STDPAL[0] }
+local SAVE_RED = { fg = FrlgFont.STDPAL[4], shadow = FrlgFont.STDPAL[5], bg = FrlgFont.STDPAL[0] }
+local SAVE_GREEN = { fg = FrlgFont.STDPAL[6], shadow = FrlgFont.STDPAL[7], bg = FrlgFont.STDPAL[0] }
+
+function SaveMenu.drawRse()
+  local session = SaveMenu._session or {}
+  local hasDex = SaveMenu.hasDex(session)
+  local win = Window.template(1, 1, 14, hasDex and 10 or 8)
+  Window.stdFrame(win)
+  local x0, y0 = win.left * 8, win.top * 8
+  local color = (session.gender == 1 or session.playerGender == 1) and SAVE_RED or SAVE_BLUE
+  local NORMAL = FrlgFont.COLOR.NORMAL
+  local function row(y, labelKey, value)
+    FrlgFont.draw(RomText.plain(labelKey), x0, y0 + y, { colors = NORMAL })
+    FrlgFont.draw(value, x0 + 0x70 - FrlgFont.measure(value), y0 + y, { colors = color })
+  end
+  FrlgFont.draw(Strings(SaveMenu.locationName(session)), x0, y0 + 1, { colors = SAVE_GREEN })
+  row(17, "gText_SavingPlayer", tostring(session.name or session.playerName or ""))
+  row(33, "gText_SavingBadges", tostring(SaveMenu.countBadges(session)))
+  local y = 49
+  if hasDex then
+    row(y, "gText_SavingPokedex", tostring(SaveMenu.countDex(session)))
+    y = y + 16
+  end
+  local pt = session.playtime or session.playTime or {}
+  row(y, "gText_SavingTime", string.format("%d:%02d", tonumber(pt.hours or session.hours) or 0,
+    tonumber(pt.minutes or session.minutes) or 0))
+
+  Chrome.dialogueFrame()
+  local left, top, width = Chrome.dialogueWindow()
+  local key = ({ confirm = "gText_ConfirmSave", overwrite = "gText_AlreadySavedFile",
+    saving_msg = "gText_SavingDontTurnOff", saving = "gText_SavingDontTurnOff", saved = "gText_PlayerSavedGame",
+    save_failed = "gText_SaveError" })[SaveMenu._phase] or "gText_ConfirmSave"
+  local msg
+  local pyramid = SaveMenu._phase == "confirm" and require("src.core.game3.rse.init").system("pyramid")
+  if pyramid and pyramid.inPyramid(session) then
+    -- pokeemerald/src/start_menu.c:986
+    msg = require("src.core.game3.scripting.text_ir").toPlain(pyramid.manifest().confirmRest.ir)
+  else
+    msg = RomText.plain(key, { playerName = tostring(session.name or session.playerName or "") })
+  end
+  FrlgFont.draw(FrlgFont.wrap(msg, width * 8), left * 8, top * 8 + 1,
+    { maxWidth = width * 8, colors = NORMAL, linePitch = FrlgFont.linePitch() })
+
+  if SaveMenu._phase == "confirm" or SaveMenu._phase == "overwrite" then
+    -- pokeemerald/src/menu.c:98
+    local yn = Window.template(21, 9, 5, 4)
+    Window.stdFrame(yn)
+    local yx, yy = yn.left * 8, yn.top * 8
+    FrlgFont.draw(RomText.plain("gText_Yes"), yx + 8, yy + 1, { colors = NORMAL })
+    FrlgFont.draw(RomText.plain("gText_No"), yx + 8, yy + 17, { colors = NORMAL })
+    Window.cursorPx(yx, yy + 1 + (SaveMenu.cursor == 2 and 16 or 0))
+  end
+end
+
 function SaveMenu.draw()
   if not SaveMenu.open then return end
+  if SaveMenu._rse then return SaveMenu.drawRse() end
   local session = SaveMenu._session or {}
   local name = tostring(session.name or session.playerName or "")
   local map = Strings(SaveMenu.locationName(session))

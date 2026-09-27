@@ -85,7 +85,10 @@ local FLAG_FOUGHT_LUGIA = 0x2F2
 local FLAG_FOUGHT_HO_OH = 0x2F3
 
 -- pokefirered/include/constants/vars.h:87
-local VAR_WONDER_NEWS_STEP_COUNTER = 0x4028
+local function wonderNewsStepVar(session)
+  local game = require("src.core.game3.profile").forSession(session).id
+  return require("src.core.game3.constants").of(game):require("vars", "VAR_WONDER_NEWS_STEP_COUNTER")
+end
 -- pokefirered/include/constants/vars.h:71
 local VAR_ALTERING_CAVE_WILD_SET = 0x4024
 -- pokefirered/include/constants/vars.h:234
@@ -788,19 +791,19 @@ function MysteryGift.resetNews(session)
   data.sentRewardCounter = 0
   data.rewardCounter = 0
   data.berry = 0
-  setVar(session, VAR_WONDER_NEWS_STEP_COUNTER, 0)
+  setVar(session, wonderNewsStepVar(session), 0)
 end
 
 -- pokefirered/src/wonder_news.c:53 WonderNews_IncrementStepCounter
 function MysteryGift.incrementNewsStepCounter(session)
   local data = MysteryGift.getSavedNewsMetadata(session)
   if num(data.rewardCounter) >= MAX_REWARD then
-    local steps = getVar(session, VAR_WONDER_NEWS_STEP_COUNTER) + 1
+    local steps = getVar(session, wonderNewsStepVar(session)) + 1
     if steps >= NEWS_STEP_LIMIT then
       data.rewardCounter = 0
       steps = 0
     end
-    setVar(session, VAR_WONDER_NEWS_STEP_COUNTER, steps)
+    setVar(session, wonderNewsStepVar(session), steps)
   end
 end
 

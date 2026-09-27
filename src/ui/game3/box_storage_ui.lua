@@ -27,6 +27,13 @@ local MENU_TEXT = {
   ["SWITCH BOX"] = 9, WALLPAPER = 10, TAKE = 12,
 }
 local MENU_TEXT_FOREST = 22
+-- pokeemerald/src/pokemon_storage_system.c:135
+local MENU_TEXT_FOREST_RSE = 23
+
+local function menu_text_forest(session)
+  local Profile = require("src.core.game3.profile")
+  return Profile.family(session) == "rse" and MENU_TEXT_FOREST_RSE or MENU_TEXT_FOREST
+end
 
 local function menu_text(act)
   return RomText.at("sMenuTexts", (assert(MENU_TEXT[act], act)))
@@ -64,10 +71,17 @@ local function se(id)
   pcall(function() require("src.core.game3.audio").playSe(id) end)
 end
 
--- pokefirered/include/constants/vars.h:105
-local VAR_PC_BOX_TO_SEND_MON = 0x4037
--- pokefirered/include/constants/flags.h:1401
-local FLAG_SHOWN_BOX_WAS_FULL_MESSAGE = 0x843
+local function se_id(name)
+  return require("src.core.game3.se_ids")[name]
+end
+
+local function storage_ids(session)
+  local Profile = require("src.core.game3.profile")
+  local row = Profile.forSession(session)
+  local C = require("src.core.game3.constants").of(row.id)
+  local names = row.save.storage
+  return C:require("vars", names.sendVar), C:require("flags", names.boxFullFlag)
+end
 
 local function script_store(session)
   local Space = package.loaded["src.core.game3.scripting.space"]
@@ -82,6 +96,7 @@ local function update_box_to_send_mons()
   if BoxStorageUI._lastUsedBox == cur then return end
   local Flags = require("src.core.game3.scripting.flags")
   local store = script_store(BoxStorageUI._session)
+  local VAR_PC_BOX_TO_SEND_MON, FLAG_SHOWN_BOX_WAS_FULL_MESSAGE = storage_ids(BoxStorageUI._session)
   Flags.setFlag(store, nil, FLAG_SHOWN_BOX_WAS_FULL_MESSAGE, false)
   Flags.setVar(store, nil, VAR_PC_BOX_TO_SEND_MON, cur)
   BoxStorageUI._lastUsedBox = cur
@@ -332,7 +347,7 @@ function BoxStorageUI.handleInput(input)
             -- Place mon back into same slot
             BoxStorageUI.holdingMon = nil
             BoxStorageUI.holdingSource = nil
-            se(246)
+            se(se_id("SE_BAG_POCKET"))
           elseif BoxStorageUI.holdingSource and BoxStorageUI.holdingSource.loc == "party" then
             -- Swap between two party slots
             local srcIdx = BoxStorageUI.holdingSource.slot
@@ -341,7 +356,7 @@ function BoxStorageUI.handleInput(input)
             party[pIdx] = BoxStorageUI.holdingMon
             BoxStorageUI.holdingMon = nil
             BoxStorageUI.holdingSource = nil
-            se(246)
+            se(se_id("SE_BAG_POCKET"))
           elseif BoxStorageUI.holdingSource and BoxStorageUI.holdingSource.loc == "box" then
             -- Placing/Swapping from box into party
             local srcBox = BoxStorageUI.holdingSource.boxId
@@ -354,14 +369,14 @@ function BoxStorageUI.handleInput(input)
               party[pIdx] = BoxStorageUI.holdingMon
               BoxStorageUI.holdingMon = nil
               BoxStorageUI.holdingSource = nil
-              se(246)
+              se(se_id("SE_BAG_POCKET"))
             else
               -- Place into empty party slot
               party[pIdx] = BoxStorageUI.holdingMon
               box.mons[srcSlot] = nil
               BoxStorageUI.holdingMon = nil
               BoxStorageUI.holdingSource = nil
-              se(246)
+              se(se_id("SE_BAG_POCKET"))
             end
           end
         elseif mon then
@@ -403,7 +418,7 @@ function BoxStorageUI.handleInput(input)
           local ok, err = Storage.withdraw(BoxStorageUI._session, bId, sId)
           if ok then
             BoxStorageUI.mode = returnMode
-            se(246)
+            se(se_id("SE_BAG_POCKET"))
           else
             BoxStorageUI._status = RomText.plain("gText_YourPartysFull")
             BoxStorageUI.mode = "message"
@@ -417,7 +432,7 @@ function BoxStorageUI.handleInput(input)
           if #party <= 1 then
             BoxStorageUI._status = RomText.plain("gText_JustOnePkmn")
             BoxStorageUI.mode = "message"
-            se(26) -- pokefirered/src/pokemon_storage_system_tasks.c:1052
+            se(se_id("SE_FAILURE")) -- pokefirered/src/pokemon_storage_system_tasks.c:1052
           else
             local ok, b, s = Storage.deposit(BoxStorageUI._session, sId)
             if ok then
@@ -430,7 +445,7 @@ function BoxStorageUI.handleInput(input)
                 BoxStorageUI.partyCursor = math.min(#newParty, BoxStorageUI.partyCursor or 1)
                 BoxStorageUI.mode = returnMode
               end
-              se(246)
+              se(se_id("SE_BAG_POCKET"))
             else
               BoxStorageUI._status = RomText.plain("gText_BoxIsFull2")
               BoxStorageUI.mode = "message"
@@ -457,11 +472,11 @@ function BoxStorageUI.handleInput(input)
             -- pokefirered/src/pokemon_storage_system_tasks.c:1501
             BoxStorageUI._status = RomText.plain("gText_PlacedItemInBag")
             BoxStorageUI.mode = "message"
-            se(246)
+            se(se_id("SE_BAG_POCKET"))
           elseif err == "bag_full" then
             BoxStorageUI._status = RomText.plain("gText_BagIsFull2")
             BoxStorageUI.mode = "message"
-            se(26) -- pokefirered/src/pokemon_storage_system_tasks.c:1487
+            se(se_id("SE_FAILURE")) -- pokefirered/src/pokemon_storage_system_tasks.c:1487
           else
             BoxStorageUI._status = Strings("This POKéMON isn't holding anything.")
             BoxStorageUI.mode = "message"
@@ -486,7 +501,7 @@ function BoxStorageUI.handleInput(input)
             startY = py,
             onComplete = function(released)
               if released then
-                se(246)
+                se(se_id("SE_BAG_POCKET"))
               end
             end,
           })
@@ -541,7 +556,7 @@ function BoxStorageUI.handleInput(input)
       local box = current_box_data()
       if box then box.wallpaper = BoxStorageUI.wallpaperCursor end
       BoxStorageUI.mode = "browse"
-      se(246)
+      se(se_id("SE_BAG_POCKET"))
     elseif input:wasPressed("b") then
       BoxStorageUI.mode = "browse"
       se(5)
@@ -678,7 +693,7 @@ function BoxStorageUI.handleInput(input)
         end
         BoxStorageUI.holdingMon = nil
         BoxStorageUI.holdingSource = nil
-        se(246)
+        se(se_id("SE_BAG_POCKET"))
       else
         local mon, loc, bId, sId = mon_at_cursor()
         if mon then
@@ -872,7 +887,7 @@ function BoxStorageUI.draw()
     Window.printPx(RomText.plain("gText_PickTheWallpaper"), 44, 18, { small = true })
     for i = 1, 4 do
       local wpId = ((BoxStorageUI.wallpaperCursor - 1 + i - 1) % 16) + 1
-      local wpName = RomText.at("sMenuTexts", MENU_TEXT_FOREST + wpId - 1)
+      local wpName = RomText.at("sMenuTexts", menu_text_forest(BoxStorageUI._session) + wpId - 1)
       local yPx = 34 + (i - 1) * 14
       if i == 1 then Window.cursorPx(44, yPx) end
       Window.printPx(wpName, 52, yPx)

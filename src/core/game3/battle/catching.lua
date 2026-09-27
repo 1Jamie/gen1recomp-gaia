@@ -183,6 +183,20 @@ function Catching.tryCatch(itemId, foeBattler, st, session, rng)
   if st and (st.oldManTutorial or st.pokedude) then
     return true, 4
   end
+  -- pokeemerald/src/battle_script_commands.c:9921
+  if st and st.kinds and st.kinds.tutorial == "wally" then return true, 4 end
+  -- pokeemerald/src/battle_script_commands.c:9995
+  if st and not st.safari then
+    local ballId = ItemsData.toNumericId(itemId) or tonumber(itemId) or 4
+    local r = st.battleResults or { catchAttempts = {} }
+    st.battleResults = r
+    r.lastUsedItem = ballId
+    if ballId == 1 then
+      r.usedMasterBall = true
+    elseif (r.catchAttempts[ballId - 1] or 0) < 255 then
+      r.catchAttempts[ballId - 1] = (r.catchAttempts[ballId - 1] or 0) + 1
+    end
+  end
   local caught, shakes
   if ModRuntime.wantsHook("catch.rate") then
     local G3 = require("src.mods.Gen3Compat")

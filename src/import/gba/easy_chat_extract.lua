@@ -7,6 +7,7 @@ local EasyChatExtract = {}
 
 EasyChatExtract.CACHE_SUB = "easy_chat"
 EasyChatExtract.FILE = "easy_chat/words.lua"
+EasyChatExtract.REQUIRED = { EasyChatExtract.FILE }
 
 -- include/constants/easy_chat.h:15
 local VALUE_GROUPS = { [0] = "species", [18] = "move", [19] = "move", [21] = "species" }
@@ -71,12 +72,44 @@ function EasyChatExtract.extractFromRom(rom)
   return groups
 end
 
+-- pokeemerald/src/easy_chat.c:428
+function EasyChatExtract.templatesFromRom(rom)
+  local T = Versions.EASY_CHAT_TEMPLATES
+  local function text(ptr)
+    local off = rom:ptrOffset(ptr)
+    return off and read_string(rom, off, 256) or ""
+  end
+  local out = {}
+  for i = 0, T.count - 1 do
+    local e = T.off + i * 24
+    local b3 = rom:get(e + 3)
+    out[#out + 1] = {
+      type = rom:get(e), numColumns = rom:get(e + 1), numRows = rom:get(e + 2),
+      frameId = b3 % 128, fourFooterOptions = b3 >= 128,
+      title = text(rom:u32(e + 4)), instructions1 = text(rom:u32(e + 8)), instructions2 = text(rom:u32(e + 12)),
+      confirm1 = text(rom:u32(e + 16)), confirm2 = text(rom:u32(e + 20)),
+    }
+  end
+  local frames = {}
+  for i = 0, T.frameCount - 1 do
+    local e = T.frames + i * 4
+    local b0 = rom:get(e)
+    frames[i] = { left = b0 % 32, top = math.floor(b0 / 32), width = rom:get(e + 1), height = rom:get(e + 2),
+      footerId = rom:get(e + 3) }
+  end
+  return out, frames
+end
+
 function EasyChatExtract.run(rom, cache, opts)
   opts = opts or {}
   local serialize = require("src.import.gba.extract_scripts").serialize_lua
   local groups = EasyChatExtract.extractFromRom(rom)
   local outRel = (opts.cacheRoot or "data/generated/gba") .. "/" .. EasyChatExtract.FILE
-  assert(cache:write(outRel, "return " .. serialize({ groups = groups }) .. "\n"),
+  local pack = { groups = groups }
+  if Versions.EASY_CHAT_TEMPLATES then
+    pack.templates, pack.frames = EasyChatExtract.templatesFromRom(rom)
+  end
+  assert(cache:write(outRel, "return " .. serialize(pack) .. "\n"),
     "could not write " .. outRel)
   return { ok = true, groupCount = Versions.EASY_CHAT_GROUP_COUNT, path = outRel }
 end

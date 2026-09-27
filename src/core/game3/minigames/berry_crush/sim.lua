@@ -13,14 +13,11 @@ Sim.SAVE_FRAMES = 93
 Sim.STOP_FRAMES = 120
 
 -- pokefirered/include/constants/songs.h:9
-Sim.SE = {
-  SELECT = 5, FAILURE = 26, FALL = 37, BALL_THROW = 54,
-  BREAKABLE_DOOR = 70, MUD_BALL = 71, M_STRENGTH = 207,
-}
+Sim.SE = setmetatable({}, {
+  __index = function(_, k) return require("src.core.game3.se_ids")["SE_" .. tostring(k)] end,
+})
 -- pokefirered/include/constants/songs.h:281
-Sim.MUS_GAME_CORNER = 273
--- pokefirered/include/constants/songs.h:311
-Sim.MUS_POKE_CENTER = 303
+require("src.core.game3.song_fields")(Sim)
 -- pokefirered/include/constants/game_stat.h:55
 Sim.GAME_STAT_BERRY_CRUSH_POINTS = 51
 

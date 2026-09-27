@@ -7,6 +7,7 @@ local BattleAiExtract = {}
 BattleAiExtract.FORMAT_VERSION = 2
 BattleAiExtract.CACHE_SUB = "battle_ai"
 BattleAiExtract.FILE = "pack.lua"
+BattleAiExtract.REQUIRED = { "battle_ai/pack.lua" }
 
 local B, S, H, W, P, L, LH = "b", "s", "h", "w", "p", "l", "lh"
 
@@ -107,6 +108,12 @@ local OPS = {
   [0x5B] = { "if_level_cond", { "cond", B }, { "target", P } },
   [0x5C] = { "if_target_taunted", { "target", P } },
   [0x5D] = { "if_target_not_taunted", { "target", P } },
+  -- pokeemerald/asm/macros/battle_ai_script.inc:524
+  [0x5E] = { "if_target_is_ally", { "target", P } },
+  [0x5F] = { "is_of_type", { "battler", B }, { "type", B } },
+  [0x60] = { "check_ability", { "battler", B }, { "ability", B } },
+  [0x61] = { "if_flash_fired", { "battler", B }, { "target", P } },
+  [0x62] = { "if_holds_item", { "battler", B }, { "item", H }, { "target", P } },
 }
 BattleAiExtract.OPS = OPS
 

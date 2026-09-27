@@ -31,12 +31,9 @@ Deoxys.LOCALID_ROCK = 1
 Deoxys.LOCALID_DEOXYS = 2
 
 -- pokefirered/include/constants/songs.h
-Deoxys.SE_M_CONFUSE_RAY = 189
-Deoxys.SE_DEOXYS_MOVE = 253
 -- The event battle: EventScript_Deoxys plays MUS_ENCOUNTER_DEOXYS on the field,
 -- then StartLegendaryBattle switches to the unique MUS_VS_DEOXYS.
-Deoxys.MUS_ENCOUNTER_DEOXYS = 343
-Deoxys.MUS_VS_DEOXYS = 339
+require("src.core.game3.song_fields")(Deoxys)
 
 -- pokefirered/include/constants/species.h:419 — FRLG internal id, not the
 -- National Dex number (386 is SPECIES_VOLBEAT).

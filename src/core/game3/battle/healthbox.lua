@@ -226,8 +226,8 @@ end
 local function safari_balls_text(balls)
   if _ballsCount ~= balls or not _ballsText then
     _ballsCount = balls
-    -- pokefirered/src/battle_interface.c:1762
-    _ballsText = RomText.plain("gText_HighlightRed_Left") .. tostring(balls)
+    local key = require("src.core.game3.battle.profile").get(nil).strings.safariBallsLeft
+    _ballsText = RomText.plain(key) .. tostring(balls)
     _ballsW = FrlgFont.measure(_ballsText, { small = true })
   end
   return _ballsText, _ballsW
@@ -556,7 +556,7 @@ function Healthbox.shouldShowCaughtMarker(st, battler)
     return false
   end
   local name = State.displayName(battler)
-  if name == RomText.plain("gText_Ghost") then
+  if RomText.has("gText_Ghost") and name == RomText.plain("gText_Ghost") then
     return false
   end
 

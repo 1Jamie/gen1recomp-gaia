@@ -1,7 +1,7 @@
 local Connections = require("src.core.game3.connections")
 local Itemfinder = {}
 
-local SE_ITEMFINDER = 65
+local SE = require("src.core.game3.se_ids")
 local CENTER_X, CENTER_Y = 120, 76
 local STAR_ANIM = 4
 
@@ -176,7 +176,7 @@ function Itemfinder.runTask()
       return
     end
     local Audio = require("src.core.game3.audio")
-    Audio.playSe(SE_ITEMFINDER)
+    Audio.playSe(SE.SE_ITEMFINDER)
     if t.result.underfoot then
       spawn(STAR_ANIM, 0, -100, 0)
     else

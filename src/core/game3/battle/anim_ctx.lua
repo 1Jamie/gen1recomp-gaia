@@ -63,6 +63,7 @@ function AnimCtx.build(attacker, target, opts)
     -- pokefirered/src/battle_anim_special.c:2273
     safariReaction = (st and tonumber(st.safariReaction)) or 0,
     oldManTutorial = st and st.oldManTutorial or false,
+    wallyTutorial = (st and st.kinds and st.kinds.tutorial == "wally") or false,
     pokeball = mon.pokeball,
     ballItem = {
       player = st and st.player and st.player.mon and st.player.mon.pokeball,

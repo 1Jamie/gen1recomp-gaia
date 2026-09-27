@@ -9,11 +9,21 @@ local function bundle()
   return require("src.core.game3.scripting.space").ensureBundle()
 end
 
+local function alias(key)
+  local ok, row = pcall(function() return require("src.core.game3.profile").forSession() end)
+  local aliases = ok and type(row) == "table" and type(row.ui) == "table" and row.ui.textAliases or nil
+  return aliases and aliases[key] or nil
+end
+
 function RomText.ir(key)
   local over = RomText.overrides[key]
   if over ~= nil then return over end
   local b = bundle()
   local ir = b and b.text and b.text[key]
+  if ir == nil then
+    local to = alias(key)
+    ir = to and b and b.text and b.text[to]
+  end
   return assert(ir, "ROM text " .. tostring(key) .. " is not in the script cache")
 end
 

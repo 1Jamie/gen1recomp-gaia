@@ -64,9 +64,7 @@ SlotMachineUi.LINE_FLASH_PERIOD = 8
 SlotMachineUi.ROW_Y = { [0] = 68, [1] = 92, [2] = 116 }
 
 -- pokefirered/include/constants/songs.h:275
-SlotMachineUi.MUS_SLOTS_JACKPOT = 268
--- pokefirered/include/constants/songs.h:276
-SlotMachineUi.MUS_SLOTS_WIN = 269
+require("src.core.game3.song_fields")(SlotMachineUi)
 
 -- pokefirered/src/slot_machine.c:2287
 SlotMachineUi.HELP_SLIDE_STEP = 16

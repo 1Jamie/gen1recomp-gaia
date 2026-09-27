@@ -453,7 +453,10 @@ function S.applyTemplate(s, tplName, vm)
   local T = P.templates()
   local tpl = T[tplName]
   local info = tpl and tpl.tag and P.tagInfo(vm, tpl.tag)
-  if tpl and tpl.tag then
+  local opTag = s._op and s._op.tag
+  local packTag = type(tpl and tpl.tag) == "string" and not info and opTag and P.tagInfo(vm, opTag) and true or false
+  if packTag then s.tag = opTag end
+  if tpl and tpl.tag and not packTag then
     s.tag = tpl.tag
     s.image = info and info.image or s.image
   end
@@ -465,7 +468,7 @@ function S.applyTemplate(s, tplName, vm)
   s.affineMode = tpl and tpl.affineMode or 0
   s.objBlend = tpl and tpl.objBlend or false
   s._pri = tpl and tpl.priority or 2
-  s._palTag = tpl and tpl.pal or s.tag
+  s._palTag = (not packTag) and tpl and tpl.pal or s.tag
   s._tile = 0
   s._sheetTileStart = 0
   s.animNum = 0

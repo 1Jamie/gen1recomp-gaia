@@ -21,7 +21,7 @@ Records.BOARD_WINDOW_ID = 1
 -- pokefirered/include/global.h:238
 Records.LINK_ROWS = 5
 -- pokefirered/include/constants/songs.h:9
-local SE_SELECT = 5
+local SE = require("src.core.game3.se_ids")
 
 Records.CACHE_BG = "data/generated/gba/trainer_tower/records_bg.rgba"
 Records.CACHE_MANIFEST = "data/generated/gba/trainer_tower/manifest.lua"
@@ -315,7 +315,7 @@ function Records.handleInput(input)
   if not Records.open or not input then return end
   if Records._phase ~= "wait" or Records._kind == "board" then return end
   if input:wasPressed("a") or input:wasPressed("b") then
-    se(SE_SELECT)
+    se(SE.SE_SELECT)
     Records.close()
   end
 end

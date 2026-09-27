@@ -292,7 +292,7 @@ local function profile3(version, kind, rule, rulesetId)
   rulesetId = rulesetId or G3_DEFAULT_RULESET
   if not isG3Ruleset(rulesetId) then return nil, "unknown ruleset" end
   local key = ArenaData.cacheKey(version, kind,
-    "gba" .. tostring(require("src.import.gba.versions").CACHE_VERSION))
+    "gba" .. tostring(require("src.import.gba.versions_game").game(version).CACHE_VERSION))
   local entry = cachedProfiles()[key]
   if not (type(entry) == "table" and entry.fingerprint) then
     if busy() then return nil, "close the game first" end

@@ -26,7 +26,11 @@ Naming.TEMPLATE = {
   BOX = "BOX",
   CAUGHT_MON = "CAUGHT_MON",
   NICKNAME = "NICKNAME",
+  WALDA = "WALDA",
 }
+
+-- pokeemerald/include/naming_screen.h:7
+Naming.TEMPLATE_ORDER = { "PLAYER", "BOX", "CAUGHT_MON", "NICKNAME", "WALDA" }
 
 -- src/naming_screen.c:1714
 function Naming.monTitle(speciesName)
@@ -148,8 +152,12 @@ local function utf8Trim(s, maxLen)
   return table.concat(out)
 end
 
+local function pagesOf(st)
+  return (st and st.pages) or PAGES
+end
+
 local function pageInfo(st)
-  return PAGES[st.page]
+  return pagesOf(st)[st.page]
 end
 
 local function colCount(st)
@@ -214,7 +222,7 @@ end
 -- pokefirered/src/naming_screen.c:768
 local function cyclePage(st)
   if st.swapT ~= nil then return end
-  st.swapTo = st.page % #PAGES + 1
+  st.swapTo = st.page % #pagesOf(st) + 1
   st.swapT = 0
   playSe(6)
 end
@@ -281,8 +289,8 @@ end
 local KB_KEYS = { "kb_upper", "kb_lower", "kb_symbols" }
 
 -- pokefirered/src/naming_screen.c:2019
-local function drawKeyboardPage(pageIdx, dy)
-  local page = PAGES[pageIdx]
+local function drawKeyboardPage(pageIdx, dy, pages)
+  local page = (pages or PAGES)[pageIdx]
   if not page then return end
   love.graphics.push()
   love.graphics.translate(0, -(dy or 0))
@@ -313,7 +321,10 @@ local function drawKeyboardPage(pageIdx, dy)
 end
 
 local function playerOwId(gender)
-  if gender == 1 or gender == "female" or gender == "F" then
+  local isFemale = gender == 1 or gender == "female" or gender == "F"
+  local avatar = require("src.core.game3.ow_sprites").avatarGraphicsId("NORMAL", isFemale)
+  if avatar then return avatar end
+  if isFemale then
     return Versions.OW_PLAYER_FEMALE or 7
   end
   return Versions.OW_PLAYER_MALE or 0
@@ -395,16 +406,60 @@ local function drawPlayerIcon(st)
   end
 end
 
+local function cacheManifest()
+  if not (love and love.filesystem and love.filesystem.load) then return nil end
+  local ok, chunk = pcall(love.filesystem.load, "data/generated/gba/naming/manifest.lua")
+  if not ok or type(chunk) ~= "function" then return nil end
+  local ok2, t = pcall(chunk)
+  if ok2 and type(t) == "table" then return t end
+  return nil
+end
+
+-- pokeemerald/src/naming_screen.c:280
+local KB_ORDER = { { id = "UPPER", kb = 2 }, { id = "LOWER", kb = 1 }, { id = "OTHERS", kb = 3 } }
+
+function Naming.pagesFromKeyboard(kb)
+  if type(kb) ~= "table" or type(kb.chars) ~= "table" then return nil end
+  local pages = {}
+  for i, entry in ipairs(KB_ORDER) do
+    local chars = kb.chars[entry.kb]
+    local count = kb.columnCounts and kb.columnCounts[entry.kb] or 8
+    local rows = {}
+    for r, row in ipairs(chars or {}) do
+      local out = {}
+      for c = 1, count do
+        local cell = row[c]
+        out[c] = cell and cell.char or " "
+      end
+      rows[r] = out
+    end
+    local colX = {}
+    for c = 1, count do colX[c] = kb.columnX and kb.columnX[entry.kb] and kb.columnX[entry.kb][c] or 0 end
+    pages[i] = { id = entry.id, rows = rows, colX = colX }
+  end
+  return pages
+end
+
+function Naming.templateFromManifest(man, name)
+  if type(man) ~= "table" or type(man.templates) ~= "table" then return nil end
+  for i, key in ipairs(Naming.TEMPLATE_ORDER) do
+    if key == name then return man.templates[i] end
+  end
+  error("naming: template " .. tostring(name) .. " does not exist in this game's naming screen", 3)
+end
+
 function Naming.open(opts)
   opts = opts or {}
+  local man = cacheManifest()
+  local tpl = Naming.templateFromManifest(man, opts.template or "PLAYER")
   local okF, Fade = pcall(require, "src.ui.game3.fade")
   if okF and Fade and Fade.clear then
     Fade.clear()
   end
   NamingChrome.ready()
   local st = {
-    title = opts.title or RomText.plain("gText_YourName"),
-    maxLen = opts.maxLen or Naming.MAX_LEN,
+    title = opts.title or (tpl and tpl.title) or RomText.plain("gText_YourName"),
+    maxLen = opts.maxLen or (tpl and tpl.maxChars) or Naming.MAX_LEN,
     name = "",
     seed = opts.seed,
     page = 1,
@@ -422,6 +477,7 @@ function Naming.open(opts)
     hold = opts.hold,
     session = opts.session,
     sentToPc = opts.sentToPc,
+    pages = man and Naming.pagesFromKeyboard(man.keyboard) or nil,
   }
   Naming._state = st
   Naming.openFlag = true
@@ -720,17 +776,17 @@ function Naming.draw()
     local dIn = gbaSin(st.swapT, 40)
     local dOut = gbaSin(st.swapT + 128, 40)
     if st.swapT < 64 then
-      drawKeyboardPage(st.swapTo, dIn)
-      drawKeyboardPage(st.page, dOut)
+      drawKeyboardPage(st.swapTo, dIn, st.pages)
+      drawKeyboardPage(st.page, dOut, st.pages)
     else
-      drawKeyboardPage(st.page, dOut)
-      drawKeyboardPage(st.swapTo, dIn)
+      drawKeyboardPage(st.page, dOut, st.pages)
+      drawKeyboardPage(st.swapTo, dIn, st.pages)
     end
   else
-    drawKeyboardPage(st.page, 0)
+    drawKeyboardPage(st.page, 0, st.pages)
   end
 
-  local nextPage = st.page % #PAGES + 1
+  local nextPage = st.page % #pagesOf(st) + 1
   local onSide = onButtonCol(st)
   -- pokefirered/src/naming_screen.c:1293
   local labelPage, labelDy, labelShow = nextPage, 0, true
@@ -739,7 +795,7 @@ function Naming.draw()
     if f < 8 then
       labelDy = f
     else
-      labelPage = st.swapTo % #PAGES + 1
+      labelPage = st.swapTo % #pagesOf(st) + 1
       if f == 8 then
         labelShow = false
       else

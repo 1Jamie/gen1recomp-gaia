@@ -378,6 +378,99 @@ function BattleChrome.drawPanel(mode)
   end
 end
 
+function BattleChrome.layout()
+  local m = BattleChrome._manifest
+  return type(m) == "table" and m.layout or "frlg"
+end
+
+function BattleChrome.isRse()
+  return BattleChrome.layout() == "rse"
+end
+
+-- pokeemerald/include/constants/battle.h:347
+BattleChrome.WIN = {
+  MSG = 0, ACTION_PROMPT = 1, ACTION_MENU = 2,
+  MOVE_NAME_1 = 3, MOVE_NAME_2 = 4, MOVE_NAME_3 = 5, MOVE_NAME_4 = 6,
+  PP = 7, DUMMY = 8, PP_REMAINING = 9, MOVE_TYPE = 10, SWITCH_PROMPT = 11, YESNO = 12,
+  LEVEL_UP_BOX = 13, LEVEL_UP_BANNER = 14,
+}
+
+-- pokeemerald/src/battle_message.c:1478
+BattleChrome.RSE_TEXT = {
+  [0] = { x = 0, y = 1 },
+  [1] = { x = 1, y = 1 },
+  [2] = { x = 0, y = 1 },
+  [3] = { x = 0, y = 1, narrow = true },
+  [4] = { x = 0, y = 1, narrow = true },
+  [5] = { x = 0, y = 1, narrow = true },
+  [6] = { x = 0, y = 1, narrow = true },
+  [7] = { x = 0, y = 1, narrow = true },
+  [8] = { x = 0, y = 1 },
+  [9] = { x = 2, y = 1 },
+  [10] = { x = 0, y = 1, narrow = true },
+  [11] = { x = 0, y = 1, narrow = true },
+  [12] = { x = 0, y = 1 },
+}
+
+function BattleChrome.window(id)
+  local m = BattleChrome._manifest or BattleChrome.manifest()
+  local rows = m.windows and m.windows.normal
+  local row = rows and rows[(tonumber(id) or 0) + 1]
+  if not row then error("battle chrome: manifest has no window template " .. tostring(id)) end
+  return {
+    left = row.left, top = row.top % 20, w = row.w, h = row.h,
+    x = row.left * 8, y = (row.top % 20) * 8,
+  }
+end
+
+function BattleChrome.textOrigin(id)
+  local w = BattleChrome.window(id)
+  local t = BattleChrome.RSE_TEXT[tonumber(id) or 0] or { x = 0, y = 1 }
+  return w.x + t.x, w.y + t.y, w.w * 8, t.narrow == true
+end
+
+function BattleChrome.messageOrigin()
+  if not BattleChrome.isRse() then return 10, 122, 224 end
+  local x, y, w = BattleChrome.textOrigin(BattleChrome.WIN.MSG)
+  return x, y, w
+end
+
+local function c5to8(x)
+  return (x * 8 + math.floor(x / 4)) / 255
+end
+
+local function bgr555(v)
+  v = tonumber(v) or 0
+  return { c5to8(v % 32), c5to8(math.floor(v / 32) % 32), c5to8(math.floor(v / 1024) % 32), 1 }
+end
+
+-- pokeemerald/src/battle_message.c:1480
+function BattleChrome.textboxColors(fg, shadow)
+  local pal = (BattleChrome._manifest or {}).textboxPal
+  if not pal then
+    local FrlgFont = require("src.ui.game3.frlg_font")
+    return FrlgFont.COLOR.WHITE
+  end
+  return { fg = bgr555(pal[fg + 1]), shadow = bgr555(pal[shadow + 1]), bg = { 0, 0, 0, 0 } }
+end
+
+-- pokeemerald/graphics/battle_interface/textbox_map.bin
+BattleChrome.RSE_MENU_FRAMES = {
+  menu = { { 16, 15, 13, 4 } },
+  moves = { { 1, 15, 18, 4 }, { 21, 15, 8, 4 } },
+}
+
+-- pokeemerald/src/battle_bg.c:744
+function BattleChrome.drawMenuFrames(mode)
+  if not BattleChrome.isRse() then return end
+  local rects = BattleChrome.RSE_MENU_FRAMES[mode]
+  if not rects then return end
+  local Chrome = require("src.ui.game3.chrome")
+  for _, r in ipairs(rects) do
+    Chrome.userFrame(Chrome._frameType or 0, r[1], r[2], r[3], r[4])
+  end
+end
+
 function BattleChrome.drawEnemyBox(x, y)
   if not BattleChrome._enemyBox then return end
   love.graphics.setColor(1, 1, 1, 1)

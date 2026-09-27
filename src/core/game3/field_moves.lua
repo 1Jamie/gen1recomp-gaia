@@ -27,6 +27,7 @@ FieldMoves.MOVES = {
   MILK_DRINK  = 208,
   SWEET_SCENT = 230,
   HEADBUTT    = 29,
+  SECRET_POWER = 290,
 }
 
 -- Move ID reverse lookup table
@@ -49,14 +50,39 @@ FieldMoves.BADGE_FLAGS = {
   DIVE       = 0x827, -- FLAG_BADGE08_GET (Earth Badge / RSE Dive)
 }
 
+local function activeProfile()
+  return require("src.core.game3.profile").forSession(nil)
+end
+
+local function isRse()
+  local P = activeProfile()
+  return P ~= nil and P.family == "rse"
+end
+FieldMoves.isRse = isRse
+
 -- System flags
 -- include/constants/flags.h:1330
-FieldMoves.SYS_FLAGS = {
+local FRLG_SYS_FLAGS = {
   WHITE_FLUTE_ACTIVE = 0x803,
   BLACK_FLUTE_ACTIVE = 0x804,
   USE_STRENGTH  = 0x805,
   FLASH_ACTIVE  = 0x806,
 }
+
+-- pokeemerald/include/constants/flags.h:1398
+local RSE_SYS_FLAGS = {
+  USE_STRENGTH = "FLAG_SYS_USE_STRENGTH",
+  FLASH_ACTIVE = "FLAG_SYS_USE_FLASH",
+}
+
+FieldMoves.SYS_FLAGS = setmetatable({}, {
+  __index = function(_, key)
+    local P = activeProfile()
+    if P.family ~= "rse" then return FRLG_SYS_FLAGS[key] end
+    local name = RSE_SYS_FLAGS[key]
+    return name and Flags.forVersion(P.id).IDS[name] or nil
+  end,
+})
 
 -- src/event_data.c:49
 FieldMoves.TEMP_SYS_FLAGS = {
@@ -64,22 +90,49 @@ FieldMoves.TEMP_SYS_FLAGS = {
 }
 
 -- Graphics IDs for interactable field objects
-FieldMoves.GFX_IDS = {
+local FRLG_GFX_IDS = {
   CUT_TREE          = 95, -- OBJ_EVENT_GFX_CUT_TREE
   ROCK_SMASH_ROCK   = 96, -- OBJ_EVENT_GFX_ROCK_SMASH_ROCK
   PUSHABLE_BOULDER  = 97, -- OBJ_EVENT_GFX_PUSHABLE_BOULDER
 }
 
+FieldMoves.GFX_IDS = setmetatable({}, {
+  __index = function(_, key)
+    local P = require("src.core.game3.profile").forSession(nil)
+    local names = P.field and P.field.fieldMoveGfx
+    if not names then return FRLG_GFX_IDS[key] end
+    local name = names[key]
+    return name and require("src.core.game3.constants").of(P.id):require("event_objects", name) or nil
+  end,
+})
+
+function FieldMoves.badgeFlag(badgeKey)
+  local Profile = require("src.core.game3.profile")
+  local P = Profile.forSession(nil)
+  if (P.family or "frlg") == "frlg" then return FieldMoves.BADGE_FLAGS[badgeKey] end
+  for _, b in ipairs(Flags.forVersion(P.id).BADGES) do
+    if b.fieldMove == badgeKey then return b.flag end
+  end
+  return nil
+end
+
 -- Sound Effect IDs (matching pret include/constants/songs.h)
-FieldMoves.SE = {
-  USE_ITEM    = 1,   -- SE_USE_ITEM
-  BANG        = 20,
-  WARP_OUT    = 40,  -- SE_WARP_OUT
-  CUT         = 121, -- SE_M_CUT
-  ROCK_SMASH  = 124, -- SE_M_ROCK_THROW
-  FLASH       = 200, -- SE_M_REFLECT
-  SWEET_SCENT = 229, -- SE_M_SWEET_SCENT
+local SE_NAMES = {
+  USE_ITEM    = "SE_USE_ITEM",
+  BANG        = "SE_BANG",
+  WARP_OUT    = "SE_WARP_OUT",
+  CUT         = "SE_M_CUT",
+  ROCK_SMASH  = "SE_M_ROCK_THROW",
+  FLASH       = "SE_M_REFLECT",
+  SWEET_SCENT = "SE_M_SWEET_SCENT",
+  DIVE        = "SE_M_DIVE",
 }
+FieldMoves.SE = setmetatable({}, {
+  __index = function(_, key)
+    local name = SE_NAMES[key]
+    return name and require("src.core.game3.se_ids")[name] or nil
+  end,
+})
 
 -- pokefirered/src/field_specials.c:2296 CutMoveRuinValleyCheck
 FieldMoves.RUIN_VALLEY = {
@@ -170,9 +223,41 @@ local TEXT_ROM = {
   USED_SURF             = "Text_UsedSurf",
   CANT_SURF_CURRENT     = "Text_CurrentTooFast",
 }
+-- pokeemerald/data/scripts/field_move_scripts.inc:2
+local TEXT_RSE = {
+  ASK_CUT_TREE          = "Text_WantToCut",
+  TREE_CAN_BE_CUT       = "Text_CantCut",
+  USED_MOVE             = "Text_MonUsedFieldMove",
+  ASK_ROCK_SMASH        = "Text_WantToSmash",
+  MON_MAY_SMASH_ROCK    = "Text_CantSmash",
+  ASK_STRENGTH          = "Text_WantToStrength",
+  MON_MAY_PUSH_BOULDER  = "Text_CantStrength",
+  USED_STRENGTH         = "Text_MonUsedStrength",
+  STRENGTH_ACTIVE       = "Text_StrengthActivated",
+  ASK_WATERFALL         = "Text_WantToWaterfall",
+  USED_WATERFALL        = "Text_MonUsedWaterfall",
+  CANT_WATERFALL        = "Text_CantWaterfall",
+  NO_SWEET_SCENT_MONS   = "Text_FailSweetScent",
+  ASK_DIVE              = "Text_WantToDive",
+  CANT_DIVE             = "Text_CantDive",
+  USED_DIVE             = "Text_MonUsedDive",
+  ASK_SURFACE           = "Text_WantToSurface",
+  CANT_SURFACE          = "Text_CantSurface",
+  -- pokeemerald/data/text/surf.inc:1
+  ASK_SURF              = "gText_WantToUseSurf",
+  USED_SURF             = "gText_PlayerUsedSurf",
+}
+
+local function textKey(key)
+  if isRse() and TEXT_RSE[key] then return TEXT_RSE[key] end
+  return TEXT_ROM[key]
+end
+FieldMoves.textKey = textKey
+
 FieldMoves.TEXT = setmetatable({}, {
   __index = function(_, key)
-    if TEXT_ROM[key] then return require("src.core.game3.rom_text").ascii(TEXT_ROM[key]) end
+    local k = textKey(key)
+    if k then return require("src.core.game3.rom_text").ascii(k) end
     return nil
   end,
 })
@@ -180,7 +265,7 @@ FieldMoves.TEXT = setmetatable({}, {
 -- data/scripts/field_moves.inc:8 bufferpartymonnick STR_VAR_1, buffermovename STR_VAR_2
 function FieldMoves.monText(key, monName, moveId)
   local moveName = moveId and require("src.core.game3.pokemon").moveName(moveId) or nil
-  return require("src.core.game3.rom_text").ascii(TEXT_ROM[key], { stringVars = { monName, moveName } })
+  return require("src.core.game3.rom_text").ascii(textKey(key), { stringVars = { monName, moveName } })
 end
 
 -- ---------------------------------------------------------------- helpers
@@ -224,7 +309,7 @@ end
 
 --- Check if badge is owned in store / session / save
 function FieldMoves.hasBadge(ctxOrStore, badgeKey)
-  local flagId = FieldMoves.BADGE_FLAGS[badgeKey]
+  local flagId = FieldMoves.badgeFlag(badgeKey)
   if not flagId then return true end
 
   -- Direct flag store check
@@ -335,6 +420,15 @@ function FieldMoves.cutFromMenu(ctx)
       mon = mon,
       se = FieldMoves.SE.CUT,
     }
+  end
+
+  -- pokeemerald/src/fldeff_cut.c:156
+  if isRse() and ctx.cutGrassQuery then
+    local plan = FieldMoves.cutGrassPlan(ctx.cutGrassQuery, ctx.hyperCutter == true)
+    if plan then
+      return { ok = true, action = "cut_grass", mon = mon, se = FieldMoves.SE.CUT, cutPlan = plan }
+    end
+    return { ok = false, text = FieldMoves.TEXT.CUT_NOTHING }
   end
 
   -- 2) Check facing / standing 3x3 grass
@@ -586,6 +680,53 @@ function FieldMoves.softboiledTransfer(userMon, targetMon, cost)
   return true, userMon.hp, targetMon.hp
 end
 
+-- pokeemerald/src/party_menu.c:3916 SetUpFieldMove_Dive
+function FieldMoves.diveFromMenu(ctx)
+  if not FieldMoves.hasBadge(ctx, "DIVE") then
+    return { ok = false, text = FieldMoves.TEXT.BADGE_REQUIRED, badge = "DIVE" }
+  end
+  local Dive = require("src.core.game3.dive")
+  local code, dest = Dive.trySetDiveWarp(ctx.session)
+  if code == 0 then
+    return { ok = false, text = FieldMoves.TEXT.CANT_USE_HERE }
+  end
+  local mon, slot = ctx.mon, nil
+  if not mon then mon, slot = FieldMoves.partyMoveUser(ctx.party, "DIVE") end
+  return { ok = true, action = "dive", mon = mon, slot = slot, diveCode = code, dest = dest }
+end
+
+-- pokeemerald/src/fldeff_misc.c:547 SetUpFieldMove_SecretPower
+function FieldMoves.secretPowerFromMenu(ctx)
+  local Rse = require("src.core.game3.rse.init")
+  local r, handled = Rse.call("secretBaseField", "setUpFieldMove", "SetUpFieldMove_SecretPower", nil, ctx)
+  if handled and type(r) == "table" and r.ok then
+    r.action = r.action or "secret_power"
+    r.mon = r.mon or ctx.mon
+    return r
+  end
+  return { ok = false, text = FieldMoves.TEXT.CANT_USE_HERE }
+end
+
+-- pokeemerald/src/party_menu.c:120
+local RSE_MENU_ORDER = {
+  "CUT", "FLASH", "ROCK_SMASH", "STRENGTH", "SURF", "FLY", "DIVE", "WATERFALL",
+  "TELEPORT", "DIG", "SECRET_POWER", "MILK_DRINK", "SOFTBOILED", "SWEET_SCENT",
+}
+
+function FieldMoves.menuOrder()
+  if isRse() then return RSE_MENU_ORDER end
+  return nil
+end
+
+-- pokeemerald/src/party_menu.c:3725
+function FieldMoves.menuBadgeKey(moveName)
+  if not isRse() then return nil end
+  for i = 1, 8 do
+    if RSE_MENU_ORDER[i] == moveName then return moveName end
+  end
+  return nil
+end
+
 -- Jumptable of menu field move handlers
 FieldMoves.MENU_HANDLERS = {
   [FieldMoves.MOVES.CUT]         = FieldMoves.cutFromMenu,
@@ -600,6 +741,8 @@ FieldMoves.MENU_HANDLERS = {
   [FieldMoves.MOVES.SWEET_SCENT] = FieldMoves.sweetScentFromMenu,
   [FieldMoves.MOVES.SOFTBOILED]  = FieldMoves.softboiledFromMenu,
   [FieldMoves.MOVES.MILK_DRINK]  = FieldMoves.softboiledFromMenu,
+  [FieldMoves.MOVES.DIVE]        = FieldMoves.diveFromMenu,
+  [FieldMoves.MOVES.SECRET_POWER] = FieldMoves.secretPowerFromMenu,
 }
 
 --- Universal entry point for party menu field move execution
@@ -666,6 +809,10 @@ end
 
 --- Strength Boulder Interaction (EventScript_StrengthBoulder)
 function FieldMoves.tryStrengthOW(ctx)
+  -- pokeemerald/data/scripts/field_move_scripts.inc:122
+  if isRse() and not FieldMoves.hasBadge(ctx, "STRENGTH") then
+    return { ok = false, text = FieldMoves.TEXT.MON_MAY_PUSH_BOULDER }
+  end
   local isStrengthActive = ctx.isStrengthActive or (ctx.store and Flags.getFlag(ctx.store, ctx.ctx, FieldMoves.SYS_FLAGS.USE_STRENGTH))
   if isStrengthActive then
     return {
@@ -781,6 +928,138 @@ function FieldMoves.mowGrass3x3(cx, cy, getMetatileFn, setMetatileFn, sameElevat
   end
 
   return count
+end
+
+-- pokeemerald/src/fldeff_cut.c:71
+local HYPER_CUT = {
+  { -2, -2, { 1 } }, { -1, -2, { 1 } }, { 0, -2, { 2 } }, { 1, -2, { 3 } }, { 2, -2, { 3 } },
+  { -2, -1, { 1 } }, { 2, -1, { 3 } }, { -2, 0, { 4 } }, { 2, 0, { 6 } }, { -2, 1, { 7 } },
+  { 2, 1, { 9 } }, { -2, 2, { 7 } }, { -1, 2, { 7 } }, { 0, 2, { 8 } }, { 1, 2, { 9 } }, { 2, 2, { 9 } },
+}
+
+local function mbIs(beh, ...)
+  if beh == nil then return false end
+  local MB = require("src.core.game3.mb")
+  for i = 1, select("#", ...) do
+    local id = MB.id((select(i, ...)))
+    if id ~= nil and beh == id then return true end
+  end
+  return false
+end
+
+-- pokeemerald/src/metatile_behavior.c:175
+function FieldMoves.isPokeGrass(beh) return mbIs(beh, "TALL_GRASS", "LONG_GRASS") end
+-- pokeemerald/src/metatile_behavior.c:753
+function FieldMoves.isAshGrass(beh) return mbIs(beh, "ASHGRASS") end
+-- pokeemerald/src/metatile_behavior.c:1269
+function FieldMoves.isCuttableGrass(beh)
+  return mbIs(beh, "TALL_GRASS", "LONG_GRASS", "ASHGRASS", "LONG_GRASS_SOUTH_EDGE")
+end
+
+-- pokeemerald/src/fldeff_cut.c:138 SetUpFieldMove_Cut
+function FieldMoves.cutGrassPlan(q, hyper)
+  local tiles = {}
+  local cutTiles = {}
+  local found = false
+  for i = 0, 2 do
+    local y = i - 1 + q.y
+    for j = 0, 2 do
+      local x = j - 1 + q.x
+      if q.elevationAt(x, y) == q.elevation then
+        local beh = q.behavior(x, y)
+        if FieldMoves.isPokeGrass(beh) or FieldMoves.isAshGrass(beh) then
+          tiles[6 + i * 5 + j] = true
+          found = true
+        end
+        if q.impassable(x, y) then
+          cutTiles[i * 3 + j] = false
+        else
+          cutTiles[i * 3 + j] = true
+          if FieldMoves.isCuttableGrass(beh) then tiles[6 + i * 5 + j] = true end
+        end
+      else
+        cutTiles[i * 3 + j] = false
+      end
+    end
+  end
+  if hyper then
+    for _, h in ipairs(HYPER_CUT) do
+      local x, y = q.x + h[1], q.y + h[2]
+      local ok = true
+      for _, need in ipairs(h[3]) do
+        if not cutTiles[need - 1] then ok = false break end
+      end
+      if ok and q.elevationAt(x, y) == q.elevation then
+        local id = h[2] * 5 + 12 + h[1]
+        local beh = q.behavior(x, y)
+        if FieldMoves.isPokeGrass(beh) or FieldMoves.isAshGrass(beh) then
+          tiles[id] = true
+          found = true
+        elseif FieldMoves.isCuttableGrass(beh) then
+          tiles[id] = true
+        end
+      end
+    end
+  end
+  if not found then return nil end
+  local out = { side = hyper and 5 or 3, reach = hyper and 2 or 1, cells = {} }
+  for i = 0, 24 do
+    if tiles[i] then out.cells[#out.cells + 1] = { x = q.x + (i % 5) - 2, y = q.y + math.floor(i / 5) - 2 } end
+  end
+  return out
+end
+
+local function label(name)
+  local P = activeProfile()
+  return require("src.core.game3.constants").of(P.id):require("metatile_labels", "METATILE_" .. name)
+end
+
+-- pokeemerald/src/fldeff_cut.c:354 SetCutGrassMetatile
+local RSE_CUT_GRASS = {
+  { { "Fortree_LongGrass_Root", "General_LongGrass", "General_TallGrass" }, "General_Grass" },
+  { { "General_TallGrass_TreeLeft" }, "General_Grass_TreeLeft" },
+  { { "General_TallGrass_TreeRight" }, "General_Grass_TreeRight" },
+  { { "Fortree_SecretBase_LongGrass_BottomLeft" }, "Fortree_SecretBase_LongGrass_TopLeft" },
+  { { "Fortree_SecretBase_LongGrass_BottomMid" }, "Fortree_SecretBase_LongGrass_TopMid" },
+  { { "Fortree_SecretBase_LongGrass_BottomRight" }, "Fortree_SecretBase_LongGrass_TopRight" },
+  { { "Lavaridge_NormalGrass", "Lavaridge_AshGrass" }, "Lavaridge_LavaField" },
+  { { "Fallarbor_NormalGrass", "Fallarbor_AshGrass" }, "Fallarbor_AshField" },
+  { { "General_TallGrass_TreeUp" }, "General_Grass_TreeUp" },
+}
+
+function FieldMoves.cutGrassMetatile(mid)
+  for _, row in ipairs(RSE_CUT_GRASS) do
+    for _, from in ipairs(row[1]) do
+      if mid == label(from) then return label(row[2]) end
+    end
+  end
+  return nil
+end
+
+-- pokeemerald/src/fldeff_cut.c:417 SetCutGrassMetatiles
+function FieldMoves.fixLongGrass(x, y, side, getMid, setMid)
+  local longGrass, grass, root = label("General_LongGrass"), label("General_Grass"), label("Fortree_LongGrass_Root")
+  local topL, topM, topR = label("Fortree_SecretBase_LongGrass_TopLeft"), label("Fortree_SecretBase_LongGrass_TopMid"),
+    label("Fortree_SecretBase_LongGrass_TopRight")
+  local botL, botM, botR = label("Fortree_SecretBase_LongGrass_BottomLeft"),
+    label("Fortree_SecretBase_LongGrass_BottomMid"), label("Fortree_SecretBase_LongGrass_BottomRight")
+  local lowerY = y + side
+  for i = 0, side - 1 do
+    local cx = x + i
+    if getMid(cx, y) == longGrass then
+      local below = getMid(cx, y + 1)
+      if below == grass then setMid(cx, y + 1, root)
+      elseif below == topL then setMid(cx, y + 1, botL)
+      elseif below == topM then setMid(cx, y + 1, botM)
+      elseif below == topR then setMid(cx, y + 1, botR) end
+    end
+    if getMid(cx, lowerY) == grass then
+      if getMid(cx, lowerY + 1) == root then setMid(cx, lowerY + 1, grass) end
+      if getMid(cx, lowerY + 1) == botL then setMid(cx, lowerY + 1, topL) end
+      if getMid(cx, lowerY + 1) == botM then setMid(cx, lowerY + 1, topM) end
+      if getMid(cx, lowerY + 1) == botR then setMid(cx, lowerY + 1, topR) end
+    end
+  end
 end
 
 --- Check if boulder can be pushed in direction `dir`

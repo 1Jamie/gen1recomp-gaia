@@ -378,6 +378,12 @@ local function sendSetup()
   local lk = link().link
   if not (lk and lk:isOpen()) then return false end
   local me = LB.localPlayer()
+  local hostRules
+  if lk.hostRules and LB.multiplayerId() == 0 then
+    local g3 = type(lk.myHello) == "table" and lk.myHello.game3 or nil
+    local version = g3 and g3.version or require("src.core.game3.link.family").activeVersion()
+    hostRules = require("src.core.game3.link.host_rules").block(version)
+  end
   lk:send({
     type = LB.MSG.SETUP,
     seed = (not LB.onRelay()) and LB.seed or nil,
@@ -388,11 +394,35 @@ local function sendSetup()
     gender = me.gender,
     seat = LB.relaySeat() or LB.seat,
     party = LB.myPacked(),
+    hostRules = hostRules,
   })
   return true
 end
 
 LB.sendSetup = sendSetup
+
+-- pokeemerald/src/battle_controllers.c:397
+function LB.hostRulesFrom(hostSetup, announced)
+  local HostRules = require("src.core.game3.link.host_rules")
+  local lk = not LB._spec and link().link or nil
+  local block = type(hostSetup) == "table" and hostSetup.hostRules or nil
+  if block == nil then
+    if lk and lk.hostRules then return nil, "host_rules_missing" end
+    return false
+  end
+  if announced == nil and lk and type(lk.hostGame3) == "function" then
+    local g3 = lk:hostGame3()
+    announced = g3 and g3.moves or nil
+  end
+  return HostRules.decode(block, announced)
+end
+
+function LB.applyHostRules(decoded)
+  local HostRules = require("src.core.game3.link.host_rules")
+  if decoded then HostRules.apply(decoded) else HostRules.clear() end
+  LB.hostRulesVersion = decoded and decoded.version or nil
+  return LB.hostRulesVersion
+end
 
 function LB.foeFrom(setup)
   local party = {}
@@ -481,8 +511,7 @@ function LB.battleFlags(mode)
 end
 
 -- pokefirered/include/constants/songs.h:272
-LB.MUS_RS_VS_GYM_LEADER = 265
-LB.MUS_RS_VS_TRAINER = 266
+require("src.core.game3.song_fields")(LB)
 
 -- pokefirered/src/cable_club.c:656 Task_StartWiredCableClubBattle
 function LB.battleSong(setup, mine)
@@ -492,8 +521,9 @@ function LB.battleSong(setup, mine)
   else
     leader = tonumber(setup and setup.trainerId) or 0
   end
-  if leader % 2 == 1 then return LB.MUS_RS_VS_GYM_LEADER end
-  return LB.MUS_RS_VS_TRAINER
+  local songs = require("src.core.game3.link.family").linkBattleSongs()
+  if leader % 2 == 1 then return LB[songs.leader] end
+  return LB[songs.trainer]
 end
 
 local function resetTurnState()
@@ -519,6 +549,7 @@ function LB.refuse(why, onDone)
   if lk and lk:isOpen() then lk:send({ type = LB.MSG.FORFEIT, reason = why }) end
   LB.state = "off"
   LB._started = false
+  LB.applyHostRules(nil)
   LB.report("error")
   local okM, Message = pcall(require, "src.ui.game3.message")
   if okM and type(Message) == "table" and Message.show and type(love) == "table" and love.graphics then
@@ -536,6 +567,10 @@ function LB.beginBattle(setup, onDone)
   if not mine then return LB.refuse(mineWhy, onDone) end
   local foe = LB.foeFrom({ name = setup.name, party = peerParty })
   if not foe then return LB.refuse("peer_has_no_party", onDone) end
+  local hosted, hostWhy = false, nil
+  if not LB.isMaster() then hosted, hostWhy = LB.hostRulesFrom(setup) end
+  if hosted == nil then return LB.refuse(hostWhy, onDone) end
+  local hostVersion = LB.applyHostRules(hosted)
   LB.peer = {
     name = setup.name,
     trainerId = tonumber(setup.trainerId) or 0,
@@ -560,6 +595,7 @@ function LB.beginBattle(setup, onDone)
     linkFlags = flags,
     -- pokefirered/src/battle_controllers.c:148 the master's own mon is battler 0 on both machines
     linkMaster = LB.isMaster(),
+    hostRules = hostVersion,
     double = double,
     unionRoom = LB.unionRoom,
     trainerId = nil,
@@ -684,6 +720,10 @@ function LB.beginMulti(setups, onDone)
   local oppSeat = LB.oppositeSeat(mySeat)
   local foe = LB.foeFrom({ name = names[oppSeat], party = foeParty })
   if not foe then return LB.refuse("peer_has_no_party", onDone) end
+  local hosted, hostWhy = false, nil
+  if mySeat ~= 0 then hosted, hostWhy = LB.hostRulesFrom(setups and setups[0]) end
+  if hosted == nil then return LB.refuse(hostWhy, onDone) end
+  local hostVersion = LB.applyHostRules(hosted)
   LB.peer = info[oppSeat]
   LB.multiNames = names
   LB.state = "battle"
@@ -703,6 +743,7 @@ function LB.beginMulti(setups, onDone)
     linkFlags = LB.battleFlags(L.USING.MULTI_BATTLE),
     -- pokefirered/src/battle_controllers.c:248
     linkMaster = mySeat % 2 == 0,
+    hostRules = hostVersion,
     double = true,
     multi = layout,
     unionRoom = false,
@@ -1339,6 +1380,7 @@ end
 function LB.finish(result)
   if not LB._started then return false end
   LB._started = false
+  LB.applyHostRules(nil)
   local L = link()
   local s = session()
   local outcome = LB.outcomeCode(result)
@@ -1491,10 +1533,16 @@ function LB.createLinkupTask(ctx, adapters, spec)
   LB.seed = nil
   local announced = false
   local lk = L.link
+  local Family = require("src.core.game3.link.family")
+  local mine = Family.localLinkPlayer(L.session())
+  local function linkupMsg()
+    return { type = LB.MSG.LINKUP, linkType = spec.linkType, players = spec.min,
+             version = mine.version, progressFlags = mine.progressFlags }
+  end
   if lk then
     lk.linkType = spec.linkType
     -- pokefirered/src/cable_club.c:318 Task_LinkupExchangeDataWithLeader
-    lk:send({ type = LB.MSG.LINKUP, linkType = spec.linkType, players = spec.min })
+    lk:send(linkupMsg())
     announced = true
   else
     -- pokefirered/src/cable_club.c:222 CreateLinkupTask waits for the other machine
@@ -1513,7 +1561,7 @@ function LB.createLinkupTask(ctx, adapters, spec)
     local live = L.link
     if live and not announced then
       live.linkType = spec.linkType
-      live:send({ type = LB.MSG.LINKUP, linkType = spec.linkType, players = spec.min })
+      live:send(linkupMsg())
       announced = true
     end
     if not announced then
@@ -1535,6 +1583,12 @@ function LB.createLinkupTask(ctx, adapters, spec)
       elseif players < spec.min or players > spec.max then
         -- pokefirered/src/cable_club.c:127 EXCHANGE_WRONG_NUM_PLAYERS
         report(L.LINKUP.WRONG_NUM_PLAYERS)
+        LB.state = "off"
+      elseif spec.linkType == require("src.link.Game3Link").LINKTYPE.TRADE_SETUP and peer.version ~= nil
+          and Family.gameProgressForLinkTrade(mine.family, mine, peer) ~= Family.TRADE.BOTH_PLAYERS_READY then
+        -- pokeemerald/src/link.c:853
+        local code = Family.gameProgressForLinkTrade(mine.family, mine, peer)
+        report(code == Family.TRADE.PLAYER_NOT_READY and L.LINKUP.PLAYER_NOT_READY or L.LINKUP.PARTNER_NOT_READY)
         LB.state = "off"
       else
         report(L.LINKUP.SUCCESS)
@@ -1717,6 +1771,7 @@ function LB.freshBattle()
   LB.outcome = nil
   LB.peerForfeit = nil
   LB.multiNames = nil
+  LB.applyHostRules(nil)
 end
 
 local function arenaLinkType(mode)
@@ -1865,6 +1920,7 @@ local function spectatorFinish(word)
   local sp = LB._spec
   if not sp or sp.finished then return end
   sp.finished = true
+  LB.applyHostRules(nil)
   local done = sp.done
   sp.done = nil
   if done then done(word) end
@@ -1944,6 +2000,14 @@ function LB.spectatorStep()
     return false
   end
   local host, guest = sp.setups[0], sp.setups[1]
+  local hosted, hostWhy = LB.hostRulesFrom(host)
+  if hosted == nil then
+    note("spectator refused the host rules: %s", tostring(hostWhy))
+    LB.state = "off"
+    spectatorFinish("error")
+    return false
+  end
+  local hostVersion = LB.applyHostRules(hosted)
   local foe = LB.foeFrom({ name = guest.name, party = theirs })
   LB.peer = { name = guest.name, trainerId = tonumber(guest.trainerId) or 0, gender = tonumber(guest.gender) or 0 }
   sp.watched = {
@@ -1965,6 +2029,7 @@ function LB.spectatorStep()
     linkParty = mine,
     linkFlags = flags,
     linkMaster = true,
+    hostRules = hostVersion,
     double = LB.mode == LB.MODE_OF.double,
     unionRoom = false,
     rng = LB.makeRng(LB.seed, LB._draws),
@@ -2022,6 +2087,14 @@ function LB.spectatorStepMulti()
   local genders = {}
   for seat = 0, 3 do genders[seat] = info[seat].gender end
   local layout, playerParty, foeParty = LB.multiLayout(nil, parties, names, genders)
+  local hosted, hostWhy = LB.hostRulesFrom(sp.setups[0])
+  if hosted == nil then
+    note("spectator refused the host rules: %s", tostring(hostWhy))
+    LB.state = "off"
+    spectatorFinish("error")
+    return false
+  end
+  local hostVersion = LB.applyHostRules(hosted)
   local foe = LB.foeFrom({ name = names[1], party = foeParty })
   LB.peer = info[1]
   LB.multiNames = names
@@ -2043,6 +2116,7 @@ function LB.spectatorStepMulti()
     linkParty = playerParty,
     linkFlags = flags,
     linkMaster = true,
+    hostRules = hostVersion,
     double = true,
     multi = layout,
     unionRoom = false,

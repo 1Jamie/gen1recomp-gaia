@@ -26,6 +26,19 @@ ShopMenu.ROOT = {
 
 local VISIBLE = 6
 
+local function rse_shop(session)
+  if require("src.core.game3.profile").family(session) ~= "rse" then return nil end
+  return require("src.ui.game3.rse.shop_menu")
+end
+
+local function mart_entry(items)
+  local Marts = package.loaded["src.core.game3.marts"]
+  for _, e in pairs(Marts and Marts._byKey or {}) do
+    if e.items == items then return e end
+  end
+  return nil
+end
+
 local function se(id)
   pcall(function() require("src.core.game3.audio").playSe(id) end)
 end
@@ -52,7 +65,7 @@ local function tick_shop_se(force)
   if not force and p.frames > 0 then return false end
   ShopMenu._shopSe = nil
   MoneyBox.update(p.money)
-  se(248)
+  se(require("src.core.game3.se_ids").SE_SHOP)
   return true
 end
 
@@ -99,12 +112,16 @@ function ShopMenu.show(opts)
   ShopMenu._rowsGen = (ShopMenu._rowsGen or 0) + 1
   ShopMenu._session = opts.session
   ShopMenu._onClose = opts.onClose
+  ShopMenu._rse = rse_shop(opts.session)
   -- data/text/poke_mart.inc:1
-  ShopMenu._status = RomText.box("Text_MayIHelpYou")
+  if not ShopMenu._rse then ShopMenu._status = RomText.box("Text_MayIHelpYou") end
   local okMB, MoneyBox = pcall(require, "src.ui.game3.money_box")
   if okMB and MoneyBox and MoneyBox.hide then MoneyBox.hide() end
   local okC, Chrome = pcall(require, "src.ui.game3.chrome")
   if okC and Chrome and Chrome.invalidate then Chrome.invalidate() end
+  if ShopMenu._rse then
+    ShopMenu._rse.show(ShopMenu, { mart = opts.mart or mart_entry(opts.items), martType = opts.martType })
+  end
   Stack.push("shop", ShopMenu, { hideBelow = false })
   -- pokefirered/src/shop.c:205
 end
@@ -128,6 +145,7 @@ function ShopMenu.reset()
   ShopMenu._pending = nil
   ShopMenu._shopSe = nil
   ShopMenu._session = nil
+  ShopMenu._rse = nil
 end
 
 function ShopMenu.isOpen()
@@ -136,6 +154,11 @@ end
 
 function ShopMenu.isShopCamera()
   return ShopMenu.open and ShopMenu.mode ~= "root"
+end
+
+function ShopMenu.shopCameraOffset()
+  if ShopMenu._rse and ShopMenu.isShopCamera() then return ShopMenu._rse.CAMERA_OFFSET end
+  return nil
 end
 
 local open_sell_bag
@@ -263,6 +286,7 @@ end
 
 function ShopMenu.handleInput(input)
   if not ShopMenu.open or ShopMenu._fading then return end
+  if ShopMenu._rse then return ShopMenu._rse.handleInput(ShopMenu, input) end
 
   if ShopMenu.mode == "buy_msg" then
     if input:wasPressed("a") or input:wasPressed("b") then
@@ -408,6 +432,7 @@ end
 
 function ShopMenu.draw()
   if not ShopMenu.open then return end
+  if ShopMenu._rse then return ShopMenu._rse.draw(ShopMenu) end
   local session = ShopMenu._session
 
   local okSC, ShopChrome = pcall(require, "src.ui.game3.shop_chrome")

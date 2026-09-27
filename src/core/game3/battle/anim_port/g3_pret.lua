@@ -674,6 +674,11 @@ local function setup(s, vm, tmplName)
   s.affineAnimPaused = false
   s._mat = nil
   local tag = T.tag or s.tag
+  local opTag = s._op and s._op.tag
+  if type(T.tag) == "string" and opTag and vm and vm._pack and vm._pack.tags and not vm._pack.tags[T.tag]
+      and vm._pack.tags[opTag] then
+    tag = opTag
+  end
   if tag and vm then
     local img, frames = P.sheet(vm, tag, w, h)
     if img then s.image = img end

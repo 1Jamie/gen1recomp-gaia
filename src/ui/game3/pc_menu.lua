@@ -13,8 +13,14 @@ local FrlgFont = require("src.ui.game3.frlg_font")
 local Storage = require("src.core.game3.storage")
 local Strings = require("src.core.Strings")
 local RomText = require("src.core.game3.rom_text")
+local Profile = require("src.core.game3.profile")
 
 local PcMenu = {}
+
+local function rse_pc()
+  if Profile.family(PcMenu._session) ~= "rse" then return nil end
+  return require("src.ui.game3.rse.player_pc")
+end
 
 PcMenu.open = false
 PcMenu.mode = "root"
@@ -76,6 +82,8 @@ end
 
 -- pokefirered/src/script_menu.c:1006
 function PcMenu._rootEntries()
+  local Rse = rse_pc()
+  if Rse then return Rse.rootEntries(PcMenu) end
   local who = someone_or_bill_name(PcMenu._session)
   local player = player_pc_name(PcMenu._session)
   local Flags = require("src.core.game3.scripting.flags")
@@ -111,7 +119,11 @@ function PcMenu.show(opts)
   PcMenu._prevStatus = nil
   PcMenu._prevCursor = nil
   Storage.ensure(PcMenu._session)
-  if opts.startMode == "player_pc" then
+  local bedroom = opts.bedroom == true or PcMenu._nextBedroom == true
+  PcMenu._nextBedroom = nil
+  if opts.startMode == "player_pc" and rse_pc() then
+    rse_pc().enter(PcMenu, { bedroom = bedroom })
+  elseif opts.startMode == "player_pc" then
     PcMenu.mode = "player_pc"
     PcMenu._status = TEXT.WHAT_TO_DO -- pokefirered/src/player_pc.c:160
   elseif opts.startMode == "storage" then
@@ -187,6 +199,8 @@ end
 
 function PcMenu.handleInput(input)
   if not PcMenu.open then return end
+  local Rse = rse_pc()
+  if Rse and Rse.handles(PcMenu.mode) then return Rse.handleInput(PcMenu, input) end
 
   -- Message state
   if PcMenu.mode == "msg" then
@@ -296,7 +310,7 @@ function PcMenu.handleInput(input)
           PcMenu._status = RomText.plain("gText_JustOnePkmn")
           PcMenu._prevMode = "storage_menu"
           PcMenu.mode = "msg"
-          se(26) -- pokefirered/src/pokemon_storage_system_tasks.c:1052
+          se(require("src.core.game3.se_ids").SE_FAILURE) -- pokefirered/src/pokemon_storage_system_tasks.c:1052
         else
           se(5)
           local BoxStorageUI = require("src.ui.game3.box_storage_ui")
@@ -422,6 +436,15 @@ end
 
 function PcMenu.draw()
   if not PcMenu.open then return end
+  local Rse = rse_pc()
+  if Rse and Rse.handles(PcMenu.mode) then return Rse.draw(PcMenu) end
+  if Rse and PcMenu.mode == "root" then
+    local labels = {}
+    for i, e in ipairs(PcMenu._rootEntries()) do labels[i] = e.label end
+    Rse.drawMenu(labels, PcMenu.cursor, #labels * 2)
+    Rse.drawStatus(PcMenu)
+    return
+  end
 
   -- Root Menu Box
   if PcMenu.mode == "root" then

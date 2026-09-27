@@ -30,8 +30,7 @@ VsSeeker.RESPONSE_FOUND_REMATCHES = 2
 
 local RESP_RAND, RESP_NO, RESP_YES = 0, 1, 2
 
-local SE_PIN = 21
-local SE_CONTEST_MONS_TURN = 94
+local SE = require("src.core.game3.se_ids")
 VsSeeker.EFFECT_FRAMES = 89
 VsSeeker.WAIT_FRAMES = 48
 
@@ -357,7 +356,7 @@ function VsSeeker.computeResponse(infos, px, py, s, st)
     end
   end
   if wants then
-    se(SE_PIN)
+    se(SE.SE_PIN)
     setFlag(VsSeeker.FLAG_SYS_VS_SEEKER_CHARGING, true, st)
     s.charging = 0
     return VsSeeker.RESPONSE_FOUND_REMATCHES, actions, responders
@@ -576,7 +575,7 @@ function VsSeeker.use(session, game, onDone)
       if seq.finished or seq.waitingText then return end
       seq.t = seq.t + 1
       local t = seq.t
-      if t == 31 or t == 42 then se(SE_CONTEST_MONS_TURN) end
+      if t == 31 or t == 42 then se(SE.SE_CONTEST_MONS_TURN) end
       if t == VsSeeker.EFFECT_FRAMES then
         s.steps = 0
         local ppx, ppy = playerCoords()

@@ -6,8 +6,7 @@ local VAR_0x8004 = 0x8004 -- pokefirered/include/constants/vars.h:319
 local VAR_0x8005 = 0x8005 -- pokefirered/include/constants/vars.h:320
 local VAR_0x8006 = 0x8006 -- pokefirered/include/constants/vars.h:321
 
-local SE_M_WING_ATTACK = 150 -- pokefirered/include/constants/songs.h:155
-local SE_SS_ANNE_HORN = 249 -- pokefirered/include/constants/songs.h:255
+local SE = require("src.core.game3.se_ids") -- pokefirered/include/constants/songs.h:155
 
 local SPECIES_KABUTOPS = 141 -- pokefirered/src/script_menu.c:1165
 local SPECIES_AERODACTYL = 142 -- pokefirered/src/script_menu.c:1171
@@ -55,9 +54,9 @@ local function cameraObject()
   return nil
 end
 
-Cutscene.HANDLERS = {
+Cutscene.BY_NAME = {
   -- pokefirered/src/field_specials.c:318
-  [Std.SPECIAL.SpawnCameraObject] = function()
+  SpawnCameraObject = function()
     local CameraObject = cameraObject()
     if CameraObject and CameraObject.spawn then
       pcall(CameraObject.spawn, currentGame())
@@ -65,7 +64,7 @@ Cutscene.HANDLERS = {
     return false
   end,
   -- pokefirered/src/field_specials.c:325
-  [Std.SPECIAL.RemoveCameraObject] = function()
+  RemoveCameraObject = function()
     local CameraObject = cameraObject()
     if CameraObject and CameraObject.remove then
       pcall(CameraObject.remove, currentGame())
@@ -73,7 +72,7 @@ Cutscene.HANDLERS = {
     return false
   end,
   -- src/special_field_anim.c:223-265, include/constants/metatile_labels.h:177-186
-  [Std.SPECIAL.AnimateTeleporterHousing] = function(ctx)
+  AnimateTeleporterHousing = function(ctx)
     local P = package.loaded["src.core.game3.player"]
       or require("src.core.game3.player")
     local okF, Field = pcall(require, "src.core.game3.field")
@@ -107,7 +106,7 @@ Cutscene.HANDLERS = {
     return false
   end,
   -- src/special_field_anim.c:285-330
-  [Std.SPECIAL.AnimateTeleporterCable] = function()
+  AnimateTeleporterCable = function()
     local P = package.loaded["src.core.game3.player"]
       or require("src.core.game3.player")
     local okF, Field = pcall(require, "src.core.game3.field")
@@ -140,7 +139,7 @@ Cutscene.HANDLERS = {
   end,
 
   -- pokefirered/src/credits.c:711, data/maps/IndigoPlateau_Exterior/scripts.inc:80
-  [Std.SPECIAL.DoCredits] = function(ctx)
+  DoCredits = function(ctx)
     local ok, Credits = pcall(require, "src.ui.game3.credits")
     if not (ok and ctx) then return false end
     local okStart, started = pcall(Credits.start)
@@ -151,7 +150,7 @@ Cutscene.HANDLERS = {
   end,
 
   -- pokefirered/src/field_specials.c:90, src/diploma.c:100, data/maps/CeladonCity_Condominiums_3F/scripts.inc:34
-  [Std.SPECIAL.ShowDiploma] = function(ctx)
+  ShowDiploma = function(ctx)
     local ok, Diploma = pcall(require, "src.ui.game3.diploma")
     if not (ok and ctx) then return false end
     local done = false
@@ -163,17 +162,17 @@ Cutscene.HANDLERS = {
   end,
 
   -- pokefirered/src/field_specials.c:2133, data/scripts/pokemon_league.inc:63
-  [Std.SPECIAL.DoPokemonLeagueLightingEffect] = function()
+  DoPokemonLeagueLightingEffect = function()
     local Space = package.loaded["src.core.game3.scripting.space"]
     pcall(require("src.core.game3.league_lighting").start, Space and Space.mapId)
     return false
   end,
 
   -- pokefirered/src/field_specials.c:2535, NavelRock_Summit/scripts.inc:39-41
-  [Std.SPECIAL.LoopWingFlapSound] = function(ctx, adapters)
+  LoopWingFlapSound = function(ctx, adapters)
     local loops = varGet(ctx, VAR_0x8004)
     local delay = varGet(ctx, VAR_0x8005)
-    playSe(adapters, SE_M_WING_ATTACK)
+    playSe(adapters, SE.SE_M_WING_ATTACK)
     if loops > 0 and delay > 0 then
       local okT, Task = pcall(require, "src.core.game3.task")
       if okT and Task and Task.spawn then
@@ -183,7 +182,7 @@ Cutscene.HANDLERS = {
           if ticks >= delay then
             ticks = 0
             count = count + 1
-            playSe(adapters, SE_M_WING_ATTACK)
+            playSe(adapters, SE.SE_M_WING_ATTACK)
           end
           -- field_specials.c:2553, field_specials.c:2546-2554
           return count >= loops - 1
@@ -194,7 +193,7 @@ Cutscene.HANDLERS = {
   end,
 
   -- pokefirered/src/script_menu.c:1151, scripts.inc:170-187, script_menu.c:1165-1176
-  [Std.SPECIAL.OpenMuseumFossilPic] = function(ctx)
+  OpenMuseumFossilPic = function(ctx)
     local species = varGet(ctx, VAR_0x8004)
     if species ~= SPECIES_KABUTOPS and species ~= SPECIES_AERODACTYL then
       return false
@@ -210,17 +209,18 @@ Cutscene.HANDLERS = {
   end,
 
   -- pokefirered/src/script_menu.c:1184
-  [Std.SPECIAL.CloseMuseumFossilPic] = function(ctx)
+  CloseMuseumFossilPic = function(ctx)
     if ctx then ctx.museumFossilPic = nil end
     return false
   end,
   -- pokefirered/src/ss_anne.c:82 DoSSAnneDepartureCutscene
-  [Std.SPECIAL.DoSSAnneDepartureCutscene] = function(ctx, adapters)
+  DoSSAnneDepartureCutscene = function(ctx, adapters)
     local SSAnne = require("src.core.game3.ss_anne_cutscene")
     local Natives = require("src.core.game3.scripting.natives")
     Natives.awaitState(ctx, SSAnne.start(ctx, adapters))
     return false
   end,
 }
+Std.legacyHandlers(Cutscene)
 
 return Cutscene

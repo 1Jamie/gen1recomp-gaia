@@ -10,13 +10,21 @@ return function(host)
   local BACK_THROW = {
     red = { [1] = { { f = 1, d = 20 }, { f = 2, d = 6 }, { f = 3, d = 6 }, { f = 4, d = 24 }, { f = 0, d = 1 }, { e = true } } },
     oldman = { [1] = { { f = 1, d = 24 }, { f = 2, d = 9 }, { f = 3, d = 24 }, { f = 0, d = 9 }, { e = true } } },
+    -- pokeemerald/src/data/trainer_graphics/back_pic_anims.h:1
+    rse = { [1] = { { f = 0, d = 24 }, { f = 1, d = 9 }, { f = 2, d = 24 }, { f = 0, d = 9 }, { f = 3, d = 50 }, { e = true } } },
   }
+
+  local function family_throw()
+    local ok, BattleProfile = pcall(require, "src.core.game3.battle.profile")
+    if ok and BattleProfile.get().family == "rse" then return BACK_THROW.rse end
+    return BACK_THROW.red
+  end
 
   -- pokefirered/src/battle_main.c:2172
   function C.startPlayerThrow(vm)
     local ctx = vm.ctx or {}
     local pseudo = {
-      _g4a = (ctx.oldManThrow and BACK_THROW.oldman) or BACK_THROW.red,
+      _g4a = (ctx.oldManThrow and BACK_THROW.oldman) or family_throw(),
       data = {},
     }
     P.startAnim(pseudo, 1)

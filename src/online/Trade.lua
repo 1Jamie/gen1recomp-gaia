@@ -349,8 +349,9 @@ local function sideFor(handle, ref, packed, record, warnings)
   end)
 end
 
--- pokefirered/include/constants/global.h:11
-local VERSION_FIRE_RED, VERSION_LEAF_GREEN = 4, 5
+local function family3()
+  return require("src.core.game3.link.family")
+end
 
 local ONLY_MON3 = "that's your only POKéMON for battle"
 
@@ -366,6 +367,7 @@ end
 
 local function nationalProxy(save)
   return {
+    version = type(save.version) == "string" and save.version or nil,
     dex = save.dex,
     national_dex_unlocked = save.national_dex_unlocked,
     store = { flags = type(save.flags) == "table" and save.flags or {},
@@ -383,20 +385,52 @@ local function isEgg3(mon)
   return require("src.core.game3.pokemon").isEgg(mon) == true
 end
 
+local function versionOf3(handle)
+  local Family = family3()
+  if Family.isGame3(handle.version) then return handle.version end
+  return Family.activeVersion()
+end
+
+-- pokeemerald/src/link.c:324
 local function partnerInfo3(handle)
+  local Family = family3()
+  local version = versionOf3(handle)
+  local flags = national3(handle.save) and Family.PROGRESS_NATIONAL or 0
+  local save = type(handle.save) == "table" and handle.save or {}
+  local name = Family.PROGRESS_FLAG[Family.of(version)]
+  local okF, id = pcall(Family.flag, version, name)
+  local fl = type(save.flags) == "table" and okF and save.flags[id]
+  if fl == true or fl == 1 then flags = flags + Family.PROGRESS_LINK_NATIONALLY end
   return {
-    version = handle.version == "leafgreen" and VERSION_LEAF_GREEN
-      or VERSION_FIRE_RED,
-    progressFlags = national3(handle.save) and 1 or 0,
+    version = Family.cartVersion(version),
+    progressFlags = flags,
+    family = Family.of(version),
   }
 end
 
--- pokefirered/src/trade.c:2745
+Trade.partnerInfo3 = partnerInfo3
+
+-- pokeemerald/src/trade.c:2453
+function Trade.crossVersionGate3(handle, partner)
+  local Family = family3()
+  partner = type(partner) == "table" and partner or {}
+  local mine = partnerInfo3(handle)
+  if Family.familyForCart(partner.version) == nil
+      or Family.familyForCart(partner.version) == mine.family then
+    return nil
+  end
+  local code = Family.gameProgressForLinkTrade(mine.family, mine, partner)
+  if code == Family.TRADE.PLAYER_NOT_READY then return "you can't trade with that game yet" end
+  if code == Family.TRADE.PARTNER_NOT_READY then return "the other game can't trade with you yet" end
+  return nil
+end
+
+-- pokeemerald/src/trade.c:2389
 local function refusal3(handle, ref, partner)
   local NTrade = require("src.core.game3.scripting.natives_trade")
   local party = handle.party or {}
   partner = type(partner) == "table" and partner or {}
-  local code = NTrade.canTradeSelectedMon(party, ref.index - 1, {
+  local code = family3().canTradeSelectedMon(versionOf3(handle), party, ref.index - 1, {
     partyCount = #party,
     nationalDex = national3(handle.save),
     partner = {
@@ -506,7 +540,9 @@ local function sideFor3(handle, ref, incoming, partnerMail, warnings, partnerNam
 end
 
 local function plan3(from, to, refA, refB, monA, monB)
-  local why = refusal3(from, refA, partnerInfo3(to))
+  local why = Trade.crossVersionGate3(from, partnerInfo3(to))
+    or Trade.crossVersionGate3(to, partnerInfo3(from))
+    or refusal3(from, refA, partnerInfo3(to))
     or refusal3(to, refB, partnerInfo3(from))
   if why then return nil, why end
   local mailA, mailB = mailOf3(from.save, monA), mailOf3(to.save, monB)
@@ -1460,8 +1496,10 @@ function Remote3:start()
   local save = self.handle.save
   local game = { data = { generation = 3, gen3Inputs = inputs },
                  save = { player = { name = saveName3(save) } } }
+  local info = partnerInfo3(self.handle)
   local player = { name = saveName3(save), trainerId = saveTrainerId3(save),
-                   gender = saveGender3(save) }
+                   gender = saveGender3(save), version = versionOf3(self.handle),
+                   session = save, progressFlags = info.progressFlags }
   local hello = Game3Link.hello(game, Game3Link.LINKTYPE.TRADE, player)
   self.transport = self.opts.transport
     or require("src.core.game3.link.relay_transport").new(self.link)
@@ -1510,6 +1548,11 @@ function Remote3:_theirParty(msg)
     name = msg.name,
     trainerId = tonumber(msg.trainerId) or 0,
   }
+  local gate = Trade.crossVersionGate3(self.handle, self.partner)
+  if gate then
+    self:_cmd(lt().LINKCMD.BOTH_CANCEL_TRADE, 0)
+    return self:_cancel(gate)
+  end
   if self.phase == "waitParty" then self.phase = "picking" end
 end
 

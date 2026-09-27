@@ -109,9 +109,26 @@ local function load_texture(name)
   return nil
 end
 
+local function load_manifest()
+  local src = read_bytes("data/generated/gba/pokemon/storage/manifest.lua")
+  local chunk = src and load(src, "@storage/manifest.lua", "t", {})
+  local ok, t = pcall(chunk or function() return nil end)
+  return ok and type(t) == "table" and t or nil
+end
+
+local function active_game()
+  local ok, GameVersion = pcall(require, "src.core.GameVersion")
+  return ok and GameVersion.get and GameVersion.get() or nil
+end
+
 function PcChrome.ensure()
-  if PcChrome._initialized then return end
+  local game = active_game()
+  if PcChrome._initialized and PcChrome._game == game then return end
   PcChrome._initialized = true
+  PcChrome._game = game
+  PcChrome._wallpapers = {}
+  PcChrome._friends = nil
+  PcChrome._manifest = load_manifest()
 
   PcChrome._cursorImg = load_texture("cursor.png")
   PcChrome._shadowImg = load_texture("cursor_shadow.png")
@@ -126,9 +143,80 @@ function PcChrome.ensure()
   PcChrome._waveformImg = load_texture("waveform.png")
   PcChrome._waveformQuads = nil
 
-  for id, name in ipairs(PcChrome.WALLPAPER_NAMES) do
+  for id, name in ipairs(PcChrome.wallpaperNames()) do
     PcChrome._wallpapers[id] = load_texture("wallpapers/" .. name .. ".png")
   end
+end
+
+function PcChrome.wallpaperNames()
+  local m = PcChrome._manifest
+  if m and type(m.wallpaperOrder) == "table" then return m.wallpaperOrder end
+  return PcChrome.WALLPAPER_NAMES
+end
+
+function PcChrome.hasFriends()
+  PcChrome.ensure()
+  return PcChrome._manifest ~= nil and PcChrome._manifest.friends ~= nil
+end
+
+-- pokeemerald/src/pokemon_storage_system.c:9661
+PcChrome.WALDA_DEFAULT = { colors = { 0x7B35, 0x6186 }, iconId = 0, patternId = 0 }
+
+local function bgr(c)
+  c = tonumber(c) or 0
+  return (c % 32) / 31, (math.floor(c / 32) % 32) / 31, (math.floor(c / 1024) % 32) / 31
+end
+
+-- pokeemerald/src/pokemon_storage_system.c:5388
+function PcChrome.friendsWallpaper(walda)
+  PcChrome.ensure()
+  local m = PcChrome._manifest
+  if not (m and m.friends) then return nil end
+  walda = walda or PcChrome.WALDA_DEFAULT
+  local colors = walda.colors or PcChrome.WALDA_DEFAULT.colors
+  local key = string.format("%d:%d:%d:%d", tonumber(walda.patternId) or 0, tonumber(walda.iconId) or 0,
+    tonumber(colors[1]) or 0, tonumber(colors[2]) or 0)
+  if PcChrome._friends and PcChrome._friends.key == key then return PcChrome._friends.image end
+  local dir = "data/generated/gba/pokemon/storage/" .. m.friends:match("^(.*)/[^/]+$") .. "/"
+  local src = read_bytes("data/generated/gba/pokemon/storage/" .. m.friends)
+  local fm = src and load(src, "@friends", "t", {})()
+  if not fm then return nil end
+  local pat = fm.patterns[tonumber(walda.patternId) or 0] or fm.patterns[0]
+  local tiles = read_bytes(dir .. pat.tiles) or ""
+  local icon = read_bytes(dir .. fm.icons[tonumber(walda.iconId) or 0]) or ""
+  local off = fm.iconTileOffset
+  tiles = tiles:sub(1, off) .. icon .. tiles:sub(off + #icon + 1)
+  local map = read_bytes(dir .. pat.map) or ""
+  local pal = {}
+  for i = 0, 31 do pal[i] = pat.palette[i + 1] end
+  pal[1], pal[2], pal[17], pal[18] = colors[1], colors[2], colors[1], colors[2]
+  local W, H = fm.width * 8, fm.height * 8
+  local img = love.image.newImageData(W, H)
+  for ty = 0, fm.height - 1 do
+    for tx = 0, fm.width - 1 do
+      local mi = (ty * fm.width + tx) * 2 + 1
+      local e = (map:byte(mi) or 0) + (map:byte(mi + 1) or 0) * 256
+      local tile = e % 1024
+      local hf, vf = math.floor(e / 1024) % 2 == 1, math.floor(e / 2048) % 2 == 1
+      local bank = (math.floor(e / 4096) % 16) - 1
+      if bank < 0 then bank = 0 end
+      for y = 0, 7 do
+        for x = 0, 7 do
+          local sx, sy = hf and 7 - x or x, vf and 7 - y or y
+          local b = tiles:byte(tile * 32 + sy * 4 + math.floor(sx / 2) + 1) or 0
+          local idx = sx % 2 == 0 and b % 16 or math.floor(b / 16)
+          if idx ~= 0 then
+            local r, g, bb = bgr(pal[bank * 16 + idx])
+            img:setPixel(tx * 8 + x, ty * 8 + y, r, g, bb, 1)
+          end
+        end
+      end
+    end
+  end
+  local image = love.graphics.newImage(img)
+  image:setFilter("nearest", "nearest")
+  PcChrome._friends = { key = key, image = image }
+  return image
 end
 
 --- Draw authentic tiled scrolling background (BG3).
@@ -187,10 +275,16 @@ function PcChrome.drawWaveforms(active, frame)
 end
 
 --- Draw the 160×144 ROM wallpaper (BG2) at (80, 16).
-function PcChrome.drawWallpaper(wallpaperId)
+function PcChrome.drawWallpaper(wallpaperId, walda)
   PcChrome.ensure()
-  wallpaperId = math.max(1, math.min(16, tonumber(wallpaperId) or 1))
-  local wpImg = PcChrome._wallpapers[wallpaperId] or PcChrome._wallpapers[1]
+  local count = #PcChrome.wallpaperNames()
+  local wpImg
+  if tonumber(wallpaperId) == count + 1 and PcChrome.hasFriends() then
+    wpImg = PcChrome.friendsWallpaper(walda)
+  else
+    wallpaperId = math.max(1, math.min(count, tonumber(wallpaperId) or 1))
+    wpImg = PcChrome._wallpapers[wallpaperId] or PcChrome._wallpapers[1]
+  end
   if wpImg then
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.draw(wpImg, 80, 16)

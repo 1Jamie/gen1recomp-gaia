@@ -8,11 +8,12 @@ local FrlgFont = require("src.ui.game3.frlg_font")
 local Strings = require("src.core.Strings")
 local RomText = require("src.core.game3.rom_text")
 local ModRuntime = require("src.mods.Runtime")
+local FrlgData = require("src.ui.game3.start_menu_frlg")
 
 local StartMenu = {}
 
 local function se(id)
-  pcall(function() require("src.core.game3.audio").playSe(id) end)
+  pcall(function() require("src.core.game3.audio").playSe(require("src.core.game3.se_ids").resolve(id)) end)
 end
 
 StartMenu.open = false
@@ -47,81 +48,64 @@ local function safari_active(session)
   return require("src.core.game3.safari").isActive(session) == true
 end
 
--- pokefirered/src/start_menu.c:116
-local ACTION = { pokedex = 0, pokemon = 1, bag = 2, trainer = 3, save = 4, option = 5, exit = 6, retire = 7, trainer_link = 8 }
+local function data(session)
+  local ok, Profile = pcall(require, "src.core.game3.profile")
+  local row = ok and Profile.forSession(session) or nil
+  local mod = row and type(row.ui) == "table" and row.ui.startMenu or nil
+  if not mod then return FrlgData end
+  return require(mod)
+end
 
-local function entry(id, session)
-  return { id = id, label = RomText.at("sStartMenuActionTable", ACTION[id], nil, { playerName = player_label(session) }) }
+local function context(session)
+  local ctx = { session = session }
+  function ctx.playerLabel() return player_label(session) end
+  function ctx.linkActive() return link_state_active() end
+  function ctx.inUnionRoom() return in_union_room(session) end
+  function ctx.safariActive() return safari_active(session) end
+  function ctx.mapId()
+    local Map = package.loaded["src.core.game3.map"]
+    return (Map and type(Map.current) == "string" and Map.current) or (session and session.map)
+  end
+  function ctx.version() return session and session.version end
+  function ctx.flag(name, fallback)
+    local Flags = package.loaded["src.core.game3.scripting.flags"]
+    local Space = package.loaded["src.core.game3.scripting.space"]
+    local store = Space and Space.store
+    if not (store and Flags and Flags.getFlag) then return true end
+    local ids = require("src.ui.game3.screens").flags(session).IDS
+    local id = ids and ids[name] or fallback
+    if id == nil then return false end
+    return Flags.getFlag(store, nil, id) == true
+  end
+  function ctx.var(name)
+    local Flags = package.loaded["src.core.game3.scripting.flags"]
+    local Space = package.loaded["src.core.game3.scripting.space"]
+    local store = Space and Space.store
+    if not (store and Flags and Flags.getVar) then return 0 end
+    local id = require("src.ui.game3.screens").flags(session).VAR_IDS[name]
+    return id and Flags.getVar(store, nil, id) or 0
+  end
+  function ctx.safariBalls() return require("src.core.game3.safari").balls(session) end
+  function ctx.pyramidFloor()
+    local f = session and session.frontier
+    return tonumber(f and f.curChallengeBattleNum) or 0
+  end
+  return ctx
 end
 
 -- pret MENU_POKEDEX..MENU_EXIT order for normal field.
 -- `game` is only read for modStatus (the gated MODS row); session alone is
 -- enough for the retail entry lists.
 local function build_entries(session, game)
-  if link_state_active() then
-    -- pokefirered/src/start_menu.c:236 SetUpStartMenu_Link
-    return {
-      entry("pokemon", session),
-      entry("bag", session),
-      entry("trainer_link", session),
-      entry("option", session),
-      entry("exit", session),
-    }
-  end
-  if in_union_room(session) then
-    -- pokefirered/src/start_menu.c:245 SetUpStartMenu_UnionRoom
-    return {
-      entry("pokemon", session),
-      entry("bag", session),
-      entry("trainer", session),
-      entry("option", session),
-      entry("exit", session),
-    }
-  end
-  if safari_active(session) then
-    -- pokefirered/src/start_menu.c:226 SetUpStartMenu_SafariZone
-    return {
-      entry("retire", session),
-      entry("pokedex", session),
-      entry("pokemon", session),
-      entry("bag", session),
-      entry("trainer", session),
-      entry("option", session),
-      entry("exit", session),
-    }
-  end
-  local entries = {}
-  local Flags = package.loaded["src.core.game3.scripting.flags"]
-  local Space = package.loaded["src.core.game3.scripting.space"]
-  local store = Space and Space.store
-  local hasDex = true
-  -- Retail gates Pokédex on FLAG_SYS_POKEDEX_GET (SYS_FLAGS+0x29 = 0x829).
-  if store and Flags and Flags.getFlag then
-    hasDex = Flags.getFlag(store, nil, Flags.IDS and Flags.IDS.SYS_POKEDEX_GET or 0x829) == true
-  end
-  if hasDex then
-    entries[#entries + 1] = entry("pokedex", session)
-  end
-  -- start_menu.c:217-218
-  local hasMon = true
-  if store and Flags and Flags.getFlag then
-    hasMon = Flags.getFlag(store, nil, Flags.IDS and Flags.IDS.SYS_POKEMON_GET or 0x828) == true
-  end
-  if hasMon then
-    entries[#entries + 1] = entry("pokemon", session)
-  end
-  entries[#entries + 1] = entry("bag", session)
-  entries[#entries + 1] = entry("trainer", session)
-  entries[#entries + 1] = entry("save", session)
-  entries[#entries + 1] = entry("option", session)
+  local ctx = context(session)
+  local entries, kind = data(session).build(ctx)
   -- Same discoverable home as Gen 1/2 start menus (18-mod-manager-ux):
   -- only once at least one mod is discovered, so vanilla is unchanged.
   local status = game and game.modStatus
-  if status and #(status.available or {}) > 0 then
-    entries[#entries + 1] = { id = "mods", label = "MODS" }
+  if kind == "normal" and status and #(status.available or {}) > 0 then
+    table.insert(entries, #entries, { id = "mods", label = "MODS" })
   end
-  entries[#entries + 1] = entry("exit", session)
-  return entries
+  return entries, kind, ctx
 end
 
 function StartMenu.resetCursor()
@@ -143,9 +127,13 @@ function StartMenu.show(opts)
   StartMenu._session = opts.session
   StartMenu._game = opts.game
   StartMenu._onClose = opts.onClose
-  StartMenu.ENTRIES = build_entries(opts.session, opts.game)
-  StartMenu._safariStats = not link_state_active() and not in_union_room(opts.session)
-    and safari_active(opts.session)
+  local entries, kind, ctx = build_entries(opts.session, opts.game)
+  local d = data(opts.session)
+  StartMenu.ENTRIES = entries
+  StartMenu._kind = kind
+  StartMenu._data = d
+  StartMenu._ctx = ctx
+  StartMenu._safariStats = kind == "safari"
   if ModRuntime.wantsHook("ui.start_menu.items") then
     local hooked = ModRuntime.call("ui.start_menu.items", function(_, items) return items end,
       opts.game, StartMenu.ENTRIES)
@@ -155,7 +143,7 @@ function StartMenu.show(opts)
   if pos < 1 or pos > #StartMenu.ENTRIES then pos = 1 end -- pokefirered/src/menu.c:276
   StartMenu.cursor = pos -- pokefirered/src/start_menu.c:329
   Stack.push("start", StartMenu, { hideBelow = true })
-  se(6) -- SE_WIN_OPEN
+  se("SE_WIN_OPEN")
 end
 
 function StartMenu.close(silent)
@@ -164,7 +152,7 @@ function StartMenu.close(silent)
   Stack.pop("start")
   local cb = StartMenu._onClose
   StartMenu._onClose = nil
-  if not silent then se(5) end -- pokefirered/src/start_menu.c:1005
+  if not silent then se("SE_SELECT") end -- pokefirered/src/start_menu.c:1005
   if cb then cb() end
 end
 
@@ -180,17 +168,17 @@ end
 function StartMenu.move(delta)
   if StartMenu._confirmExit then
     StartMenu._confirmCursor = (StartMenu._confirmCursor == 1) and 2 or 1
-    se(5) -- SE_SELECT
+    se("SE_SELECT")
     return
   end
   local n = #StartMenu.ENTRIES
   if n < 1 then return end
   StartMenu.cursor = ((StartMenu.cursor - 1 + delta) % n) + 1
-  se(5) -- SE_SELECT
+  se("SE_SELECT")
 end
 
 function StartMenu.confirm()
-  se(5)
+  se("SE_SELECT")
   if StartMenu._confirmExit then
     if StartMenu._confirmCursor == 1 then -- YES
       StartMenu.open = false
@@ -212,26 +200,40 @@ function StartMenu.confirm()
   local e = StartMenu.ENTRIES[StartMenu.cursor]
   if not e then return end
   local session = StartMenu._session
+  local d = StartMenu._data or data(session)
+  local Screens = require("src.ui.game3.screens")
   if type(e.onSelect) == "function" then
     local ok, err = pcall(e.onSelect, StartMenu._game, session)
     if not ok then print("[game3/start_menu] onSelect failed: " .. tostring(err)) end
   elseif e.id == "exit" then
-    StartMenu._confirmExit = true
-    StartMenu._confirmCursor = 2 -- Default to NO
+    if d.exitConfirms then
+      StartMenu._confirmExit = true
+      StartMenu._confirmCursor = 2 -- Default to NO
+    else
+      StartMenu.close(true) -- pokeemerald/src/start_menu.c:747
+    end
   elseif e.id == "bag" then
-    local BagMenu = require("src.ui.game3.bag_menu")
+    local BagMenu = Screens.get("bag", session)
     BagMenu.show(session and session.bag, {
       session = session,
       onClose = function() end,
     })
   elseif e.id == "pokedex" then
-    local Pokedex = require("src.ui.game3.pokedex")
+    if d.dexNeedsSeen and not StartMenu.anySeen(session) then return end
+    local Pokedex = Screens.get("pokedex", session)
     Pokedex.show(session and session.dex, { session = session })
   elseif e.id == "pokemon" then
-    local PartyMenu = require("src.ui.game3.party_menu")
+    local PartyMenu = Screens.get("party", session)
     PartyMenu.show(session and session.party, session and session.move_overlay, {
       session = session,
     })
+  elseif e.id == "pokenav" or e.id == "pyramid_bag" or e.id == "retire_frontier" then
+    local mod = Screens.get(e.id, session)
+    if mod and mod.show then
+      mod.show({ session = session, game = StartMenu._game })
+    else
+      StartMenu.logUnported(e.id)
+    end
   elseif e.id == "retire" then
     -- pokefirered/src/start_menu.c:546 StartMenuSafariZoneRetireCallback
     local game = StartMenu._game
@@ -242,13 +244,18 @@ function StartMenu.confirm()
     local TrainerCard = require("src.ui.game3.trainer_card")
     TrainerCard.show({ session = require("src.core.game3.link").localTrainerCard() })
   elseif e.id == "trainer" then
-    local TrainerCard = require("src.ui.game3.trainer_card")
-    TrainerCard.show({ session = session })
-  elseif e.id == "save" then
-    local SaveMenu = require("src.ui.game3.save_menu")
+    local pass = StartMenu._kind ~= "union" and StartMenu.frontierPassScreen(session)
+    if pass then
+      pass.show({ session = session, game = StartMenu._game }) -- pokeemerald/src/start_menu.c:711
+    else
+      local TrainerCard = Screens.get("trainer_card", session)
+      TrainerCard.show({ session = session })
+    end
+  elseif e.id == "save" or e.id == "rest_frontier" then
+    local SaveMenu = Screens.get("save", session)
     SaveMenu.show({ session = session, game = StartMenu._game })
   elseif e.id == "option" then
-    local OptionMenu = require("src.ui.game3.option_menu")
+    local OptionMenu = Screens.get("option", session)
     OptionMenu.show({ session = session })
   elseif e.id == "mods" then
     local ModManager = require("src.ui.game3.mod_manager")
@@ -263,9 +270,44 @@ function StartMenu.isOpen()
   return StartMenu.open
 end
 
+-- pokeemerald/src/start_menu.c:612
+function StartMenu.anySeen(session)
+  local dex = session and session.dex
+  local seen = type(dex) == "table" and (dex.seen or dex.owned) or nil
+  if type(seen) ~= "table" then return false end
+  for _, on in pairs(seen) do
+    if on and on ~= 0 then return true end
+  end
+  return false
+end
+
+-- pokeemerald/src/start_menu.c:700
+function StartMenu.frontierPassScreen(session)
+  local Flags = package.loaded["src.core.game3.scripting.flags"]
+  local Space = package.loaded["src.core.game3.scripting.space"]
+  local store = Space and Space.store
+  if not (store and Flags) then return nil end
+  local id = require("src.ui.game3.screens").flags(session).IDS.SYS_FRONTIER_PASS
+  if not (id and Flags.getFlag(store, nil, id)) then return nil end
+  local Screens = require("src.ui.game3.screens")
+  if not Screens.path("frontier_pass", session) then return nil end
+  return Screens.get("frontier_pass", session)
+end
+
+local unported = {}
+function StartMenu.logUnported(id)
+  if unported[id] then return end
+  unported[id] = true
+  print("[game3/start_menu] no screen registered for " .. tostring(id))
+end
+
 --- pret: content at (22,1), width 7; labels at +8px, rows every 15px.
 function StartMenu.contentTemplate()
   local n = math.max(1, #StartMenu.ENTRIES)
+  local d = StartMenu._data
+  if d and d.window then
+    return Window.template(d.window.left, d.window.top, d.window.width, n * 2 + 2) -- pokeemerald/src/menu.c:493
+  end
   -- Window height in tiles: pret (numActions*2)+2 includes frame padding;
   -- content height for n×15px rows ≈ ceil(n*15/8) tiles.
   local contentH = math.max(2, math.ceil((n * Window.OPTION_HEIGHT) / 8))
@@ -274,26 +316,23 @@ end
 
 function StartMenu.draw()
   if not StartMenu.open then return end
-  if StartMenu._safariStats then
-    -- pokefirered/src/start_menu.c:255 DrawSafariZoneStatsWindow
-    local Safari = require("src.core.game3.safari")
-    local stats = Window.template(1, 1, 10, 4)
+  local dd = StartMenu._data
+  local ex = dd and dd.extraWindow and StartMenu._ctx and dd.extraWindow(StartMenu._kind, StartMenu._ctx) or nil
+  if ex then
+    local stats = Window.template(ex.left, ex.top, ex.width, ex.height)
     Window.stdFrame(stats)
-    -- pokefirered/src/start_menu.c:260
-    local text = RomText.plain("gText_MenuSafariStats", { stringVars = {
-      string.format("%3d", Safari.steps(StartMenu._session)),
-      string.format("%3d", Safari.STEPS),
-      string.format("%2d", Safari.balls(StartMenu._session)),
-    } })
-    Window.printPx(text, stats.left * 8 + 4, stats.top * 8 + 3)
+    local text = RomText.plain(ex.key, { stringVars = ex.vars })
+    Window.printPx(text, stats.left * 8 + (ex.textX or 0), stats.top * 8 + (ex.textY or 1))
   end
   local tpl = StartMenu.contentTemplate()
   Window.stdFrame(tpl)
   local leftPx = tpl.left * 8
   local topPx = tpl.top * 8
+  local d = StartMenu._data
   for i, e in ipairs(StartMenu.ENTRIES) do
     -- pret: cursor (0, i*15), text (8, i*15) inside the window.
     local yPx = Window.menuRowPx(topPx, i)
+    if d and d.rowPitch then yPx = topPx + d.textY + (i - 1) * d.rowPitch end
     if not StartMenu._confirmExit and i == StartMenu.cursor then
       Window.cursorPx(leftPx, yPx)
     end

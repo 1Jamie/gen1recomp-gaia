@@ -27,6 +27,35 @@ Message._speedUp = false
 -- pret sTextSpeedFrameDelays (options 0/1/2)
 local SPEED_DELAYS = { 8, 4, 1 }
 
+local function liveSession()
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  local s = Runtime and Runtime.session
+  return type(s) == "table" and s or nil
+end
+
+local placeholderCache = {}
+
+-- pokeemerald/src/string_util.c:456
+TextIR.setContextProvider(function(kind, dialect, ctx)
+  if kind == "gender" then
+    local s = liveSession()
+    return s and s.gender or nil
+  end
+  if kind ~= "placeholders" or not dialect.placeholders then return nil end
+  local GameVersion = require("src.core.GameVersion")
+  local s = liveSession()
+  local id = (s and s.version) or GameVersion.get() or ""
+  local hit = placeholderCache[id]
+  if hit then return hit end
+  local okC, CacheFs = pcall(require, "src.import.CacheFs")
+  local t = okC and CacheFs.loadActive(dialect.placeholders) or nil
+  if type(t) == "table" then
+    placeholderCache[id] = t
+    return t
+  end
+  return nil
+end)
+
 local function split_pages(box)
   local pages = TextIR.splitPages(box)
   if #pages == 0 then pages[1] = box or "" end
@@ -45,6 +74,7 @@ local function beginPage()
   Message._total = B and B.countGlyphs(page) or FrlgFont.countChars(page)
   Message._revealed = 0
   Message._delay = 0
+  Message._arrowTicks = 0
   Message._waiting = (Message._total == 0)
   Message._speedUp = false
   -- pokefirered/src/text_printer.c:91
@@ -142,7 +172,8 @@ function Message.show(text, opts)
     Message._speedIdx = 0
   end
 
-  local maxW = (opts.frame == "battle" or opts.battle) and 212 or 208
+  local _, _, dlgW = Chrome.dialogueWindow()
+  local maxW = (opts.frame == "battle" or opts.battle) and 212 or dlgW * Display.TILE
   local ctx = opts.ctx or {}
   if not ctx.maxWidth then ctx.maxWidth = maxW end
   -- pokefirered/src/scrcmd.c:1566
@@ -253,6 +284,9 @@ function Message.reset()
 end
 
 function Message.tick()
+  if Message.open and Message._waiting then
+    Message._arrowTicks = (Message._arrowTicks or 0) + 1
+  end
   if not Message.open or Message._waiting then return end
   if Message._revealed >= Message._total then
     Message._waiting = true
@@ -309,9 +343,10 @@ function Message.drawText()
     -- Panel chrome now drawn from y=112.
     baseX, baseY, maxW = 10, 122, 224
   else
-    baseX = Chrome.DLG_LEFT * Display.TILE
-    baseY = Chrome.DLG_TOP * Display.TILE + 1
-    maxW = Chrome.DLG_W * Display.TILE
+    local L, Top, W = Chrome.dialogueWindow()
+    baseX = L * Display.TILE
+    baseY = Top * Display.TILE + 1
+    maxW = W * Display.TILE
   end
   if Message._frame == "braille" then
     -- pokefirered/src/scrcmd.c:1566
@@ -333,6 +368,15 @@ function Message.drawText()
     colors = (Message._frame == "battle") and FrlgFont.COLOR.WHITE or (Message._colors or FrlgFont.COLOR.NORMAL),
   })
 
+  local rse = Chrome.arrowSpec()
+  if rse then
+    -- pokeemerald/src/text.c:792
+    if Message._waiting and not Message._held and (rse.lastPage or Message._page < #Message._pages) then
+      local n = math.floor((Message._arrowTicks or 0) / ((rse.delay or 0) + 1))
+      Chrome.promptArrow(endX or baseX, endY or baseY, n)
+    end
+    return
+  end
   if Message._waiting and not Message._stay and not Message._held then
     local t = love and love.timer and love.timer.getTime and love.timer.getTime() or 0
     -- Red arrow has 4 vertical bounce frames (0..3) in down_arrows.png

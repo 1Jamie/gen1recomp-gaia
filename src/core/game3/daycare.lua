@@ -39,12 +39,24 @@ function Daycare.nickname(mon)
   return (Pokemon.name and Pokemon.name(speciesOf(mon))) or ""
 end
 
+local function isRse(session)
+  local ok, row = pcall(function() return require("src.core.game3.profile").forSession(session) end)
+  return ok and type(row) == "table" and row.family == "rse", row
+end
+
+function Daycare.saveKey(session)
+  local rse, row = isRse(session)
+  if rse then return tostring(row.id) .. "_daycare" end
+  return Daycare.SAVE_KEY
+end
+
 local function persistentStore(session, field)
   if type(session.modData) ~= "table" then session.modData = {} end
-  local root = session.modData[Daycare.SAVE_KEY]
+  local key = Daycare.saveKey(session)
+  local root = session.modData[key]
   if type(root) ~= "table" then
     root = {}
-    session.modData[Daycare.SAVE_KEY] = root
+    session.modData[key] = root
   end
   local store = root[field]
   if type(store) ~= "table" then
@@ -335,9 +347,28 @@ local function isEgg(mon)
 end
 
 -- pokefirered/src/daycare.c:1157
+-- pokeemerald/src/egg_hatch.c:926 GetEggCyclesToSubtract
+function Daycare.eggCyclesToSubtract(session)
+  local Constants = require("src.core.game3.constants")
+  local C = Constants.of(Constants.versionOf(session))
+  local magma = C:require("abilities", "ABILITY_MAGMA_ARMOR")
+  local flame = C:require("abilities", "ABILITY_FLAME_BODY")
+  local Pokemon = pokemonMod()
+  for i = 1, PARTY_SIZE do
+    local mon = session and session.party and session.party[i]
+    if mon and speciesOf(mon) ~= SPECIES_NONE and not isEgg(mon) then
+      local ability = tonumber(mon.abilityId or mon.ability)
+      if ability == nil and Pokemon.abilityId then ability = Pokemon.abilityId(speciesOf(mon), mon.personality) end
+      if ability == magma or ability == flame then return 2 end
+    end
+  end
+  return 1
+end
+
 function Daycare.tickEggCycles(session)
   local party = session and session.party
   if type(party) ~= "table" then return nil end
+  local toSub = isRse(session) and Daycare.eggCyclesToSubtract(session) or nil
   for slotIdx = 1, PARTY_SIZE do
     local mon = party[slotIdx]
     -- pokefirered/src/daycare.c:1161
@@ -345,7 +376,12 @@ function Daycare.tickEggCycles(session)
       local cycles = eggCyclesOf(mon)
       if cycles ~= 0 then
         -- pokefirered/src/daycare.c:1171 steps -= 1
-        cycles = cycles - 1
+        if toSub and cycles >= toSub then
+          -- pokeemerald/src/daycare.c:913
+          cycles = cycles - toSub
+        else
+          cycles = cycles - 1
+        end
         mon.friendship = cycles
         mon.eggCycles = cycles
       else

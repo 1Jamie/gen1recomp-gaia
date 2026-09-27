@@ -487,9 +487,9 @@ function TowerNatives.chooseOptions()
   }
 end
 
-TowerNatives.HANDLERS = {
+TowerNatives.BY_NAME = {
   -- pokefirered/src/trainer_tower.c:438 CallTrainerTowerFunc
-  [Std.SPECIAL.CallTrainerTowerFunc] = function(ctx, adapters)
+  CallTrainerTowerFunc = function(ctx, adapters)
     local index = varGet(ctx, VAR_0x8004)
     local fn = FUNCS[index]
     if not fn then
@@ -500,25 +500,25 @@ TowerNatives.HANDLERS = {
   end,
 
   -- pokefirered/src/load_save.c:160 SavePlayerParty
-  [Std.SPECIAL.SavePlayerParty] = function()
+  SavePlayerParty = function()
     Tower.savePlayerParty(sessionOf())
     return false
   end,
 
   -- pokefirered/src/load_save.c:170 LoadPlayerParty
-  [Std.SPECIAL.LoadPlayerParty] = function()
+  LoadPlayerParty = function()
     Tower.loadPlayerParty(sessionOf())
     return false
   end,
 
   -- pokefirered/src/script_pokemon_util.c:197 ReducePlayerPartyToThree
-  [Std.SPECIAL.ReducePlayerPartyToThree] = function()
+  ReducePlayerPartyToThree = function()
     Tower.reducePartyToThree(sessionOf())
     return false
   end,
 
   -- pokefirered/src/script_pokemon_util.c:152 ChooseHalfPartyForBattle
-  [Std.SPECIAL.ChooseHalfPartyForBattle] = function(ctx, adapters)
+  ChooseHalfPartyForBattle = function(ctx, adapters)
     local session = sessionOf()
     Tower.clearSelectedOrder(session)
     local picked, settled = nil, false
@@ -556,13 +556,13 @@ TowerNatives.HANDLERS = {
   end,
 
   -- pokefirered/src/battle_tower.c:1354 ValidateEReaderTrainer
-  [Std.SPECIAL.ValidateEReaderTrainer] = function(ctx)
+  ValidateEReaderTrainer = function(ctx)
     -- pokefirered/data/maps/SevenIsland_House_Room1/scripts.inc:9
     return setResult(ctx, Tower.ereaderTrainer(sessionOf()) and 0 or 1)
   end,
 
   -- pokefirered/src/battle_records.c:83 ShowBattleRecords
-  [Std.SPECIAL.ShowBattleRecords] = function(ctx, adapters)
+  ShowBattleRecords = function(ctx, adapters)
     local session = sessionOf()
     -- pokefirered/src/battle_records.c:136
     local kind = (varGet(ctx, VAR_0x8004) ~= 0) and "tower" or "link"
@@ -578,7 +578,7 @@ TowerNatives.HANDLERS = {
   end,
 
   -- pokefirered/src/battle_tower.c:895 StartSpecialBattle
-  [Std.SPECIAL.StartSpecialBattle] = function(ctx, adapters)
+  StartSpecialBattle = function(ctx, adapters)
     local session = sessionOf()
     local which = varGet(ctx, VAR_0x8004)
     local foe, after
@@ -613,5 +613,6 @@ TowerNatives.HANDLERS = {
     }, after)
   end,
 }
+Std.legacyHandlers(TowerNatives)
 
 return TowerNatives

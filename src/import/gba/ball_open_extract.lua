@@ -5,6 +5,7 @@ local BallOpenExtract = {}
 
 BallOpenExtract.FORMAT_VERSION = 2
 BallOpenExtract.CACHE_SUB = "pokemon/battle/ball_open"
+BallOpenExtract.REQUIRED = { "pokemon/battle/ball_open/manifest.lua" }
 BallOpenExtract.BALL_COUNT = 12
 BallOpenExtract.TAG_PARTICLES_POKEBALL = 55020
 BallOpenExtract.TAG_POKE_BALL = 55000

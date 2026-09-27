@@ -44,120 +44,118 @@ for name, id in pairs(NativesLink.SPECIAL) do
   if Std.SPECIAL_NAME_BY_ID[id] == nil then Std.SPECIAL_NAME_BY_ID[id] = name end
 end
 
-local S = NativesLink.SPECIAL
-
-NativesLink.HANDLERS = {
+NativesLink.BY_NAME = {
   -- pokefirered/src/field_control_avatar.c:1173
-  [S.SetCableClubWarp] = function(ctx)
+  SetCableClubWarp = function(ctx)
     Link.setCableClubWarp(ctx)
     return false
   end,
   -- pokefirered/src/field_fadetransition.c:646
-  [S.DoCableClubWarp] = function(ctx, adapters)
+  DoCableClubWarp = function(ctx, adapters)
     return Link.doCableClubWarp(ctx, adapters)
   end,
   -- pokefirered/src/field_fadetransition.c:685
-  [S.ReturnFromLinkRoom] = function(ctx, adapters)
+  ReturnFromLinkRoom = function(ctx, adapters)
     Link.returnFromLinkRoom(ctx, adapters)
     return false
   end,
   -- pokefirered/src/cable_club.c:809
-  [S.CleanupLinkRoomState] = function(ctx, adapters)
+  CleanupLinkRoomState = function(ctx, adapters)
     Link.cleanupLinkRoomState(ctx, adapters)
     return false
   end,
   -- pokefirered/src/cable_club.c:821
-  [S.ExitLinkRoom] = function(ctx, adapters)
+  ExitLinkRoom = function(ctx, adapters)
     Link.exitLinkRoom(ctx, adapters)
     return false
   end,
   -- pokefirered/src/cable_club.c:493
-  [S.TryBattleLinkup] = function(ctx, adapters)
+  TryBattleLinkup = function(ctx, adapters)
     return LinkBattle.tryBattleLinkup(ctx, adapters)
   end,
   -- pokefirered/src/cable_club.c:525
-  [S.TryTradeLinkup] = function(ctx, adapters)
+  TryTradeLinkup = function(ctx, adapters)
     return LinkTrade.tryTradeLinkup(ctx, adapters)
   end,
   -- pokefirered/src/cable_club.c:945
-  [S.EnterTradeSeat] = function(ctx, adapters)
+  EnterTradeSeat = function(ctx, adapters)
     return LinkTrade.enterTradeSeat(ctx, adapters)
   end,
   -- pokefirered/src/cable_club.c:958
-  [S.StartWiredCableClubTrade] = function(ctx, adapters)
+  StartWiredCableClubTrade = function(ctx, adapters)
     return LinkTrade.startWiredCableClubTrade(ctx, adapters)
   end,
   -- pokefirered/src/cable_club.c:532
-  [S.TryRecordMixLinkup] = function(ctx, adapters)
+  TryRecordMixLinkup = function(ctx, adapters)
     return LinkBattle.tryRecordMixLinkup(ctx, adapters)
   end,
   -- pokefirered/src/script_pokemon_util.c:90
-  [S.HasEnoughMonsForDoubleBattle] = function(ctx)
+  HasEnoughMonsForDoubleBattle = function(ctx)
     return LinkBattle.hasEnoughMonsForDoubleBattle(ctx)
   end,
   -- pokefirered/src/link.c:419
-  [S.CloseLink] = function()
+  CloseLink = function()
     Link.closeLink("close_link")
     return false
   end,
   -- pokefirered/src/cable_club.c:964
-  [S.EnterColosseumPlayerSpot] = function(ctx, adapters)
+  EnterColosseumPlayerSpot = function(ctx, adapters)
     return LinkBattle.enterColosseumPlayerSpot(ctx, adapters)
   end,
   -- pokefirered/src/cable_club.c:621
-  [S.CableClub_AskSaveTheGame] = function(ctx, adapters)
+  CableClub_AskSaveTheGame = function(ctx, adapters)
     return Link.askSaveTheGame(ctx, adapters)
   end,
   -- pokefirered/src/start_menu.c:620
-  [S.Field_AskSaveTheGame] = function(ctx, adapters)
+  Field_AskSaveTheGame = function(ctx, adapters)
     return Link.askSaveTheGame(ctx, adapters)
   end,
   -- pokefirered/src/load_save.c:208
-  [S.LoadPlayerBag] = function()
+  LoadPlayerBag = function()
     Link.loadPlayerBag()
     return false
   end,
   -- pokefirered/src/link.c:243
-  [S.IsWirelessAdapterConnected] = function(ctx, adapters)
+  IsWirelessAdapterConnected = function(ctx, adapters)
     return Link.isWirelessAdapterConnected(ctx, adapters)
   end,
   -- pokefirered/src/union_room.c:382
-  [S.TryBecomeLinkLeader] = function(ctx, adapters)
+  TryBecomeLinkLeader = function(ctx, adapters)
     return Union.tryBecomeLinkLeader(ctx, adapters)
   end,
   -- pokefirered/src/union_room.c:1126
-  [S.TryJoinLinkGroup] = function(ctx, adapters)
+  TryJoinLinkGroup = function(ctx, adapters)
     return Union.tryJoinLinkGroup(ctx, adapters)
   end,
   -- pokefirered/src/union_room.c:2579
-  [S.RunUnionRoom] = function(ctx, adapters)
+  RunUnionRoom = function(ctx, adapters)
     Union.run(ctx, adapters)
     return false, 0
   end,
   -- pokefirered/src/wireless_communication_status_screen.c:195
-  [S.ShowWirelessCommunicationScreen] = function(ctx, adapters)
+  ShowWirelessCommunicationScreen = function(ctx, adapters)
     return Link.showWirelessCommunicationScreen(ctx, adapters)
   end,
   -- pokefirered/src/union_room.c:3515
-  [S.InitUnionRoom] = function(ctx)
+  InitUnionRoom = function(ctx)
     Union.init(ctx)
     return false, 0
   end,
   -- pokefirered/src/union_room.c:3606
-  [S.BufferUnionRoomPlayerName] = function(ctx, adapters)
+  BufferUnionRoomPlayerName = function(ctx, adapters)
     return Union.bufferPlayerName(ctx, adapters)
   end,
   -- pokefirered/src/union_room.c:4595
-  [S.Script_ResetUnionRoomTrade] = function()
+  Script_ResetUnionRoomTrade = function()
     Union.resetTrade()
     return false, 0
   end,
   -- pokefirered/src/cable_club.c:980
-  [S.Script_ShowLinkTrainerCard] = function(ctx, adapters)
+  Script_ShowLinkTrainerCard = function(ctx, adapters)
     return Link.showLinkTrainerCard(ctx, adapters)
   end,
   -- pokefirered/src/event_object_lock.c:106, data/scripts/cable_club.inc:699
-  [Std.SPECIAL.Script_FacePlayer] = function(ctx, adapters)
+  Script_FacePlayer = function(ctx, adapters)
     if adapters and adapters.facePlayer then
       local okF, Flags = pcall(require, "src.core.game3.scripting.flags")
       if okF then adapters.facePlayer(Flags.getVar(nil, ctx, 0x800F)) end
@@ -165,10 +163,11 @@ NativesLink.HANDLERS = {
     return false
   end,
   -- pokefirered/src/event_object_lock.c:111, data/scripts/cable_club.inc:701
-  [Std.SPECIAL.Script_ClearHeldMovement] = function()
+  Script_ClearHeldMovement = function()
     return false
   end,
 }
+Std.legacyHandlers(NativesLink)
 
 local okM, Multi = pcall(require, "src.core.game3.scripting.multichoice")
 if okM and type(Multi) == "table" then
@@ -179,9 +178,9 @@ end
 
 -- pokefirered/src/union_room.c:3606 natives_queries sorts after this module, so its
 local okQ, Queries = pcall(require, "src.core.game3.scripting.natives_queries")
-if okQ and type(Queries) == "table" and type(Queries.HANDLERS) == "table" then
-  Queries.HANDLERS[S.BufferUnionRoomPlayerName] =
-    NativesLink.HANDLERS[S.BufferUnionRoomPlayerName]
+if okQ and type(Queries) == "table" and type(Queries.BY_NAME) == "table" then
+  Queries.BY_NAME.BufferUnionRoomPlayerName = NativesLink.BY_NAME.BufferUnionRoomPlayerName
+  Std.legacyHandlers(Queries)
 end
 
 return NativesLink

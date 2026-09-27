@@ -511,6 +511,7 @@ local CART_COLOR = {
   red = PAL.railRed, blue = PAL.railBlue, yellow = PAL.railGold,
   gold = PAL.railAmber, silver = PAL.railSilver,
   crystal = PAL.railCrystal, firered = PAL.railFireRed, leafgreen = PAL.railLeafGreen,
+  emerald = PAL.railEmerald,
 }
 local function cartColor(version)
   return CART_COLOR[version] or PAL.green
@@ -1471,6 +1472,8 @@ local GAME_TABS = {
     color = PAL.railFireRed, label = "Fire Red" },
   { id = "leafgreen", key = "tab-leafgreen", letter = "L",
     color = PAL.railLeafGreen, label = "Leaf Green" },
+  { id = "emerald", key = "tab-emerald", letter = "E",
+    color = PAL.railEmerald, label = "Emerald" },
 }
 
 local HEADER_TABS = {
@@ -1775,10 +1778,11 @@ local function romModel(imp, version, info, ready, locked)
       detail = Strings("Support for this game is on the way."),
       label = Strings("Import unavailable"), enabled = false }
   end
-  local dropHint = imp.isNX and Strings("Copy the .gb/.gbc via MTP into imports/.")
-    or (imp.baseRomDiscovery and Strings("Or copy the .gb/.gbc into baseroms/.")
-      or (imp.android and Strings("Copy the .gb/.gbc via USB.")
-        or Strings("Or drop the .gb/.gbc file here.")))
+  local ext = GameVersion.generation(version) == 3 and ".gba" or ".gb/.gbc"
+  local dropHint = imp.isNX and Strings("Copy the %s via MTP into imports/.", ext)
+    or (imp.baseRomDiscovery and Strings("Or copy the %s into baseroms/.", ext)
+      or (imp.android and Strings("Copy the %s via USB.", ext)
+        or Strings("Or drop the %s file here.", ext)))
   local importing = imp.importing == version
   local erroring = imp.workState == "error" and imp.errorVersion == version
   local notice = imp.notice and imp.notice.version == version and imp.notice

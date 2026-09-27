@@ -61,11 +61,7 @@ local FIRST_BERRY_INDEX = 133
 local LAST_BERRY_INDEX = 175
 
 -- pokefirered/include/constants/songs.h:14
-Game.SE_LEDGE = 10
--- pokefirered/include/constants/songs.h:261
-Game.SE_POKE_JUMP_FAILURE = 255
--- pokefirered/include/constants/songs.h:334
-Game.MUS_POKE_JUMP = 326
+require("src.core.game3.song_fields")(Game)
 
 -- pokefirered/src/save.c:882
 Game.SAVE_FRAMES = 93

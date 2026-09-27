@@ -24,15 +24,23 @@ local function play_select_se()
   end)
 end
 
+local function uiBlock()
+  local ok, P = pcall(function() return require("src.core.game3.profile").forSession(nil) end)
+  return ok and P and P.ui or nil
+end
+
 function StatGrowth.open(mon, oldStats, newStats, onDone, opts)
   opts = opts or {}
+  local ui = uiBlock()
+  local box = ui and ui.levelUpBox
   StatGrowth._open = true
   StatGrowth._mon = mon
   StatGrowth._oldStats = oldStats or {}
   StatGrowth._newStats = newStats or {}
   StatGrowth._page = 1
   StatGrowth._onDone = onDone
-  StatGrowth._pos = opts.pos or { x = 19, y = 1, w = 10, h = 11 }
+  StatGrowth._box = box
+  StatGrowth._pos = opts.pos or (box and { x = box.x, y = box.y, w = box.w, h = box.h }) or { x = 19, y = 1, w = 10, h = 11 }
 end
 
 function StatGrowth.isOpen()
@@ -85,6 +93,28 @@ function StatGrowth.draw()
   local newList = { newS.maxHp or 0, newS.atk or 0, newS.def or 0, newS.spa or 0, newS.spd or 0, newS.spe or 0 }
   local isPage1 = (StatGrowth._page == 1)
 
+  local box = StatGrowth._box
+  if box then
+    local ui = uiBlock()
+    local keys = ui and ui.party and ui.party.text and ui.party.text.levelUpStats or {}
+    for idx = 1, 6 do
+      -- pokeemerald/src/menu_specialized.c:1536
+      local rowY = winY * 8 + (idx - 1) * box.pitch
+      FrlgFont.draw(RomText.plain(keys[idx]), winX * 8, rowY, { colors = FrlgFont.COLOR.NORMAL })
+      if isPage1 then
+        local diff = newList[idx] - oldList[idx]
+        FrlgFont.draw(diff >= 0 and "+" or "-", winX * 8 + 56, rowY, { colors = FrlgFont.COLOR.NORMAL })
+        local x = math.abs(diff) <= 9 and 18 or 12
+        FrlgFont.draw(tostring(math.abs(diff)), winX * 8 + 56 + x, rowY, { colors = FrlgFont.COLOR.NORMAL })
+      else
+        -- pokeemerald/src/menu_specialized.c:1588
+        local v = newList[idx]
+        local digits = v > 99 and 3 or (v > 9 and 2 or 1)
+        FrlgFont.draw(tostring(v), winX * 8 + 56 + 6 * (4 - digits), rowY, { colors = FrlgFont.COLOR.NORMAL })
+      end
+    end
+    return
+  end
   for idx = 1, 6 do
     local rowY = winY * 8 + 2 + (idx - 1) * 14
     -- src/pokemon_special_anim_scene.c:1518

@@ -8,6 +8,7 @@ local SE = require("src.core.game3.se_ids")
 local ShinySeq = require("src.core.game3.battle.shiny_seq")
 local BattleText = require("src.core.game3.battle.battle_text")
 local Adapter = require("src.core.game3.battle.adapter")
+local MonAnimBattle = require("src.core.game3.battle.mon_anim_battle")
 
 local SwitchSeq = {}
 
@@ -31,6 +32,7 @@ function SwitchSeq.reset()
   SwitchSeq._onDone = nil
   SwitchSeq._st = nil
   SwitchSeq._waitAnimSeq = false
+  SwitchSeq._waitingMonAnim = nil
 end
 
 function SwitchSeq.busy()
@@ -151,6 +153,7 @@ end
 function SwitchSeq.switchInFill(st, battler)
   return Adapter.fill(st, {
     side = battler.side, hpScale = hp_thresholds(st, battler), buff1 = State.displayName(battler),
+    switchBattler = State.idOf(battler),
     linkScrTrainerName = st and st.linkNames and st.linkNames[State.idOf(battler)] or nil,
   })
 end
@@ -536,9 +539,45 @@ function SwitchSeq.beginTrainerSlideIn(st, opts)
   end
 
   local steps = {
-    { kind = "trainer_slide_in", data = { side = "enemy" } },
+    { kind = "trainer_slide_in", data = { side = "enemy", picId = opts.picId } },
   }
+  if opts.trainerB then
+    -- pokeemerald/data/battle_scripts_1.s:2929
+    if opts.loseTextA and opts.loseTextA ~= "" then
+      steps[#steps + 1] = { kind = "msg", data = { text = opts.loseTextA } }
+    end
+    steps[#steps + 1] = { kind = "trainer_slide_out", data = {} }
+    steps[#steps + 1] = { kind = "trainer_slide_in", data = { side = "enemy", picId = opts.trainerB.pic } }
+  end
   SwitchSeq._steps = steps
+  SwitchSeq._i = 1
+  return true
+end
+
+-- pokeemerald/data/battle_scripts_2.s:193
+function SwitchSeq.beginWallyThrow(st, opts)
+  opts = opts or {}
+  SwitchSeq.reset()
+  SwitchSeq._st = st
+  SwitchSeq._headless = opts.headless and true or false
+  SwitchSeq._pushMsg = opts.pushMsg
+  SwitchSeq._onDone = opts.onDone
+  local retText = withdraw_text(st, st.player)
+  local nowText = BattleText.get("STRINGID_YOUTHROWABALLNOWRIGHT", Adapter.fill(st))
+  if SwitchSeq._headless then
+    if SwitchSeq._pushMsg then
+      SwitchSeq._pushMsg(retText)
+      SwitchSeq._pushMsg(nowText)
+    end
+    finish()
+    return false
+  end
+  SwitchSeq._steps = {
+    { kind = "msg", data = { text = retText } },
+    { kind = "withdraw", data = { side = "player" } },
+    { kind = "player_trainer_slide_in", data = { backPic = opts.backPic } },
+    { kind = "msg", data = { text = nowText } },
+  }
   SwitchSeq._i = 1
   return true
 end
@@ -553,6 +592,19 @@ local function run_step(step)
   local d = step.data or {}
   local s = stage()
   local st = SwitchSeq._st
+
+  if kind == "mon_anim" then
+    for _, key in ipairs(d.ids or {}) do
+      MonAnimBattle.start(key, d.kind, { st = st, noCry = d.noCry })
+    end
+    advance()
+    return
+  end
+
+  if kind == "mon_anim_wait" then
+    SwitchSeq._waitingMonAnim = d.ids
+    return
+  end
 
   if kind == "msg" then
     if SwitchSeq._pushMsg and d.text then
@@ -812,9 +864,10 @@ local function run_step(step)
     end
     local Trainers = require("src.core.game3.scripting.trainers")
     local info = st and st.trainerId and Trainers.info(st.trainerId)
-    local picId = (st and st.trainerPicId) or (info and info.pic) or 0
+    local picId = d.picId or (st and st.trainerPicId) or (info and info.pic) or 0
     s.trainer.enemy.visible = true
     s.trainer.enemy.picId = picId
+    s.trainer.enemy.x, s.trainer.enemy.pic2, s.trainer.enemy.x2 = nil, nil, nil
     s.trainer.enemy.ox = 240
     wait_busy()
     Anim.tweenStage(35, function(u)
@@ -826,11 +879,48 @@ local function run_step(step)
     return
   end
 
+  if kind == "player_trainer_slide_in" then
+    -- pokeemerald/src/battle_controller_wally.c:1050
+    local tp = s.trainer.player
+    if d.backPic ~= nil then tp.gender = d.backPic end
+    tp.visible = true
+    tp.frame = 0
+    tp.ox = -96
+    wait_busy()
+    Anim.tweenStage(48, function(u)
+      tp.ox = -96 * (1 - u)
+    end, function()
+      tp.ox = 0
+      advance()
+    end)
+    return
+  end
+
+  if kind == "trainer_slide_out" then
+    -- pokeemerald/src/battle_controller_opponent.c:1397
+    wait_busy()
+    Anim.tweenStage(35, function(u)
+      s.trainer.enemy.ox = 104 * u
+    end, function()
+      s.trainer.enemy.visible = false
+      s.trainer.enemy.ox = 0
+      advance()
+    end)
+    return
+  end
+
   advance()
 end
 
 function SwitchSeq.update()
   if not SwitchSeq._steps then return true end
+  if SwitchSeq._i == 1 then SwitchSeq._steps = MonAnimBattle.switchSteps(SwitchSeq._steps) end
+
+  if SwitchSeq._waitingMonAnim then
+    if MonAnimBattle.busy(SwitchSeq._waitingMonAnim) then return false end
+    SwitchSeq._waitingMonAnim = nil
+    advance()
+  end
 
   if SwitchSeq._waitAnimSeq then
     local AnimSeq = require("src.core.game3.battle.anim_seq")
@@ -867,7 +957,8 @@ function SwitchSeq.update()
 
   while SwitchSeq._steps and SwitchSeq._i <= #SwitchSeq._steps do
     run_step(SwitchSeq._steps[SwitchSeq._i])
-    if SwitchSeq._waiting or SwitchSeq._waitingCry or SwitchSeq._waitingMsg or SwitchSeq._waitAnimSeq then
+    if SwitchSeq._waiting or SwitchSeq._waitingCry or SwitchSeq._waitingMsg or SwitchSeq._waitAnimSeq
+        or SwitchSeq._waitingMonAnim then
       return false
     end
   end

@@ -6,6 +6,119 @@ local Pokemon = require("src.core.game3.pokemon")
 
 local Roamer = {}
 
+local function rse_cfg(session)
+  local ok, BattleProfile = pcall(require, "src.core.game3.battle.profile")
+  if not ok then return nil end
+  local okP, p = pcall(BattleProfile.get, session)
+  return okP and p and p.roamer or nil
+end
+Roamer.rseConfig = rse_cfg
+
+Roamer._locations = setmetatable({}, { __mode = "k" })
+
+function Roamer.locationSets(cfg)
+  local hit = Roamer._locations[cfg]
+  if hit then return hit end
+  local src = require("src.core.game3.dataset").cache():read(cfg.locations)
+  if type(src) ~= "string" then error(tostring(cfg.locations) .. " is missing from the cache") end
+  local data = assert(load(src, "@" .. cfg.locations, "t", {}))()
+  if type(data) ~= "table" or type(data.sets) ~= "table" or #data.sets == 0 then
+    error(tostring(cfg.locations) .. " has no roamer location sets")
+  end
+  Roamer._locations[cfg] = data.sets
+  return data.sets
+end
+
+local function rse_state(session)
+  local r = session and session.roamer
+  if type(r) ~= "table" then return nil end
+  r.history = r.history or { false, false, false }
+  return r
+end
+
+-- pokeemerald/src/roamer.c:84
+function Roamer.initRse(session, createLatios)
+  local cfg = rse_cfg(session)
+  if not (session and cfg) then return false end
+  local C = require("src.core.game3.constants").of(require("src.core.game3.constants").versionOf(session))
+  local species = C:require("species", cfg.species[createLatios and 1 or 0])
+  local Party = require("src.core.game3.party")
+  local tmp = { party = {}, name = session.name, trainerId = session.trainerId, secretId = session.secretId,
+    gender = session.gender }
+  local _, _, mon = Party.giveMon(tmp, species, cfg.level)
+  session.roamer = {
+    active = true,
+    species = species,
+    level = cfg.level,
+    status = 0,
+    ivs = mon.ivs,
+    personality = mon.personality,
+    hp = mon.maxHp,
+    history = { false, false, false },
+  }
+  -- pokeemerald/src/roamer.c:104
+  local sets = Roamer.locationSets(cfg)
+  session.roamer.map = sets[(Rng.Random() % #sets) + 1][1]
+  return true
+end
+
+-- pokeemerald/src/roamer.c:115
+function Roamer.updateHistory(session, mapId)
+  local r = rse_state(session)
+  if not r then return end
+  r.history[3] = r.history[2]
+  r.history[2] = r.history[1]
+  r.history[1] = mapId or false
+end
+
+-- pokeemerald/src/roamer.c:127
+function Roamer.moveToOtherSet(session)
+  local r = rse_state(session)
+  if not (r and r.active) then return end
+  local sets = Roamer.locationSets(rse_cfg(session))
+  while true do
+    local mapId = sets[(Rng.Random() % #sets) + 1][1]
+    if r.map ~= mapId then
+      r.map = mapId
+      return
+    end
+  end
+end
+
+-- pokeemerald/src/roamer.c:149
+function Roamer.moveRse(session)
+  local cfg = rse_cfg(session)
+  if (Rng.Random() % cfg.moveOdds) == 0 then
+    return Roamer.moveToOtherSet(session)
+  end
+  local r = rse_state(session)
+  if not (r and r.active) then return end
+  for _, set in ipairs(Roamer.locationSets(cfg)) do
+    if r.map == set[1] then
+      while true do
+        local mapId = set[(Rng.Random() % (#set - 1)) + 2]
+        if r.history[3] ~= mapId and mapId then
+          r.map = mapId
+          return
+        end
+      end
+    end
+  end
+end
+
+-- pokeemerald/src/roamer.c:216
+local function try_encounter_rse(session, cfg, mapId)
+  local r = session.roamer
+  if not (r.active and r.map == mapId) then return nil end
+  if (Rng.Random() % cfg.encounterOdds) ~= 0 then return nil end
+  -- pokeemerald/src/roamer.c:194
+  local foe = {
+    species = r.species, speciesId = r.species, level = r.level,
+    ivs = r.ivs, personality = r.personality, hp = r.hp, status = r.status, roamer = true,
+  }
+  return { species = r.species, level = r.level, roamer = true, foe = foe }
+end
+
 Roamer.SPECIES_RAIKOU = 243
 Roamer.SPECIES_ENTEI = 244
 Roamer.SPECIES_SUICUNE = 245
@@ -208,7 +321,14 @@ function Roamer.jump(session)
 end
 
 --- Step roamer across connected routes (on map transition)
-function Roamer.move(session, reason)
+function Roamer.move(session, reason, mapId)
+  if rse_cfg(session) then
+    -- pokeemerald/src/overworld.c:816
+    Roamer.updateHistory(session, mapId)
+    if reason == "map_transition" or reason == "connection" then return Roamer.moveRse(session) end
+    -- pokeemerald/src/overworld.c:861
+    return Roamer.moveToOtherSet(session)
+  end
   if not (session and session.roamer and session.roamer.active) then return end
   if reason == "warp_random" then
     Roamer.jump(session)
@@ -248,6 +368,8 @@ end
 --- Intercept wild encounter if roamer is active on current map
 function Roamer.tryEncounter(session, mapId, terrain)
   if not (session and session.roamer and session.roamer.active) then return nil end
+  local cfg = rse_cfg(session)
+  if cfg then return try_encounter_rse(session, cfg, mapId) end
   local roamer = session.roamer
   if roamer.hp <= 0 then return nil end
 
@@ -300,6 +422,18 @@ end
 function Roamer.onBattleEnd(session, foeState, battleResult, endReason)
   if not (session and session.roamer and session.roamer.active) then return end
   local roamer = session.roamer
+  if rse_cfg(session) then
+    -- pokeemerald/src/battle_main.c:5234
+    if foeState then
+      roamer.hp = math.max(0, tonumber(foeState.hp) or roamer.hp)
+      roamer.status = foeState.status or 0
+    end
+    Roamer.moveToOtherSet(session)
+    -- pokeemerald/src/battle_main.c:5239
+    local code = require("src.core.game3.scripting.natives").outcome_to_code(battleResult)
+    if code % 2 == 1 then roamer.active = false end
+    return
+  end
 
   if foeState then
     roamer.hp = math.max(0, tonumber(foeState.hp) or roamer.hp)

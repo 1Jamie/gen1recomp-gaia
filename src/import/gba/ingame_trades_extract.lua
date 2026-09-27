@@ -7,6 +7,7 @@ local InGameTradesExtract = {}
 
 InGameTradesExtract.CACHE_SUB = "trades"
 InGameTradesExtract.FILES = { "ingame_trades.lua" }
+InGameTradesExtract.REQUIRED = { "trades/ingame_trades.lua" }
 
 local MAIL_WORDS = 9 -- include/constants/global.h:65
 local MAIL_ROW = 10
@@ -56,6 +57,11 @@ function InGameTradesExtract.extract(rom)
     mail[m] = words
   end
   return { trades = trades, mail = mail }
+end
+
+function InGameTradesExtract.ready(cache, cacheRoot)
+  local rel = (cacheRoot or "data/generated/gba") .. "/" .. InGameTradesExtract.CACHE_SUB .. "/ingame_trades.lua"
+  return (cache and cache.exists and cache:exists(rel)) and true or false
 end
 
 function InGameTradesExtract.run(rom, cache, opts)

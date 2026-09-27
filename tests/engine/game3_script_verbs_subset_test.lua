@@ -115,7 +115,7 @@ eq(Flags.getVar(vm.store, vm.ctx, VAR_RESULT), 0, "...and the verb reports failu
 --    ctx.comparisonResult to LT/EQ/GT from the serialized game stat table.
 local Opcodes = require("src.core.game3.scripting.opcodes")
 local cs = Opcodes.get(0xcc)
-eq(cs.size, 7, "comparestat is a 7-byte instruction (0xcc + B + W)")
+eq(cs.size, 6, "comparestat is a 6-byte instruction (0xcc + B + W)")
 eq(cs.args[1].kind, "byte", "...statId is a byte")
 eq(cs.args[2].kind, "word", "...value is a word")
 session.gameStats = { [5] = 10 }

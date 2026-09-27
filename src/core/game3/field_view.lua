@@ -4,6 +4,8 @@
 local Display = require("src.core.game3.display")
 local Versions = require("src.import.gba.versions")
 local GfxIds = require("src.core.game3.scripting.gfx_ids")
+local FieldModules = require("src.core.game3.field_modules")
+local Sem = require("src.core.game3.field_semantics")
 
 local FieldView = {}
 
@@ -31,8 +33,6 @@ FieldView._loggedNativeFallback = false
 
 -- pokefirered/src/field_screen_effect.c:18
 local FLASH_LEVEL_RADIUS = { [0] = 200, 72, 56, 40, 24 }
--- pokefirered/include/constants/flags.h:1333
-local FLAG_SYS_FLASH_ACTIVE = 0x806
 
 FieldView.MAX_FLASH_LEVEL = 4
 FieldView.flashLevel = 0
@@ -82,7 +82,10 @@ local function modPalettes() return getMod("Palettes", "src.world.gen2.Palettes"
 local function modFlags() return getMod("Flags", "src.core.game3.scripting.flags") end
 local function modDoors() return getMod("Doors", "src.core.game3.doors") end
 local function modHeal() return getMod("Heal", "src.core.game3.pokecenter_heal") end
-local function modSSAnne() return getMod("SSAnne", "src.core.game3.ss_anne_cutscene") end
+local function modSSAnne()
+  if not FieldModules.enabled("ssAnne") then return nil end
+  return getMod("SSAnne", "src.core.game3.ss_anne_cutscene")
+end
 local function modFieldWeather() return getMod("FieldWeather", "src.core.game3.field_weather") end
 local function modAssets() return getMod("Assets", "src.render.Assets") end
 local function modPlayer() return getMod("Player", "src.core.game3.player") end
@@ -661,6 +664,7 @@ local function collectGame3Actors(game, mapDef, camX, camY, px, py, facing, walk
     a.fishing = fishFrame ~= nil
     a.fishFrame = fishFrame
     a.running = PlayerMod and PlayerMod.runPose and PlayerMod.runPose() or nil
+    a.frame = PlayerMod and PlayerMod.acroFrame and PlayerMod.acroFrame() or nil
     a.sprite = playerSpriteName(game)
     a.graphicsId = useOw and OwSprites.playerGraphicsId(game) or nil
     a.priority = nil
@@ -983,15 +987,40 @@ local function drawNativeOverTiles()
   end
 end
 
+local function rseFamily()
+  local Profile = package.loaded["src.core.game3.profile"] or require("src.core.game3.profile")
+  local ok, row = pcall(Profile.forSession)
+  return ok and row ~= nil and row.family == "rse"
+end
+
+-- pokeemerald/src/field_screen_effect.c:53
+local function flashRadii()
+  if not rseFamily() then return FLASH_LEVEL_RADIUS end
+  local ok, FxRse = pcall(require, "src.core.game3.field_effects_rse")
+  local m = ok and FxRse and FxRse.fc()
+  return m and m.flashRadii or FLASH_LEVEL_RADIUS
+end
+FieldView.flashRadii = flashRadii
+
+-- pokeemerald/src/field_screen_effect.c:54
+function FieldView.maxFlashLevel()
+  local t = flashRadii()
+  if t == FLASH_LEVEL_RADIUS then return FieldView.MAX_FLASH_LEVEL end
+  local n = 0
+  for k in pairs(t) do if k > n then n = k end end
+  return n
+end
+
 function FieldView.radiusForLevel(level)
   level = tonumber(level) or 0
-  return FLASH_LEVEL_RADIUS[level] or FLASH_LEVEL_RADIUS[0]
+  local t = flashRadii()
+  return t[level] or t[0]
 end
 
 -- pokefirered/src/overworld.c:966
 function FieldView.setFlashLevel(level)
   level = tonumber(level) or 0
-  if level < 0 or level > FieldView.MAX_FLASH_LEVEL then level = 0 end
+  if level < 0 or level > FieldView.maxFlashLevel() then level = 0 end
   FieldView.flashLevel = level
   FieldView._flashRadius = nil
   -- pokefirered/include/global.h:770 gSaveBlock1Ptr->flashLevel
@@ -1033,18 +1062,19 @@ function FieldView.setCameraPanning(x, y)
 end
 
 local function flashActive()
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  local session = Runtime and Runtime.getSession and Runtime.getSession()
+  local flashFlag = Sem.flag(session, "flashActive")
   local Space = package.loaded["src.core.game3.scripting.space"]
   if Space and Space.store then
     local Flags = modFlags()
     if Flags and Flags.getFlag
-        and Flags.getFlag(Space.store, nil, FLAG_SYS_FLASH_ACTIVE) then
+        and Flags.getFlag(Space.store, nil, flashFlag) then
       return true
     end
   end
-  local Runtime = package.loaded["src.core.game3.runtime"]
-  local session = Runtime and Runtime.getSession and Runtime.getSession()
   local flags = session and session.flags
-  return (flags and flags[FLAG_SYS_FLASH_ACTIVE]) and true or false
+  return (flags and flags[flashFlag]) and true or false
 end
 
 -- pokefirered/src/overworld.c:958
@@ -1056,8 +1086,36 @@ end
 -- pokefirered/src/overworld.c:956
 function FieldView.defaultFlashLevel(game, mapId)
   if not mapIsCave(resolveMapDef(game, mapId)) then return 0 end
+  if rseFamily() then
+    -- pokeemerald/src/overworld.c:971
+    if flashActive() then return 1 end
+    return FieldView.maxFlashLevel() - 1
+  end
   if flashActive() then return 0 end
   return FieldView.MAX_FLASH_LEVEL
+end
+
+-- pokeemerald/src/field_screen_effect.c:994
+function FieldView.setPyramidLightRadius(radius)
+  FieldView.setFlashRadius(radius)
+end
+
+-- pokeemerald/src/battle_pyramid.c:1187
+function FieldView.setBgPaletteOverride(slot, pal16)
+  local NativeTileset = require("src.core.game3.tileset_native")
+  local prev = FieldView._bgPalOverride
+  if prev and (pal16 == nil or prev.slot ~= slot) then
+    NativeTileset.resetSlotPalette(prev.pair, prev.slot)
+    FieldView._bgPalOverride = nil
+  end
+  if pal16 == nil then return true end
+  local Map = package.loaded["src.core.game3.map"]
+  local def = Map and Map.currentDef and Map.currentDef()
+  local pair = def and (def.pair or (def.midLayout and def.midLayout.pair))
+  if not pair then return false end
+  if not NativeTileset.setSlotPalette(pair, slot, pal16) then return false end
+  FieldView._bgPalOverride = { pair = pair, slot = slot }
+  return true
 end
 
 function FieldView.setDefaultFlashLevel(game, mapId)
@@ -1217,8 +1275,14 @@ function FieldView.draw(game, canvasW, canvasH, opts)
     else fx = fx - CELL end
     local fTileX = math.floor(fx / CELL)
     local fTileY = math.floor(fy / CELL)
-    camX = (fTileX - 2) * CELL
-    camY = (fTileY - 4) * CELL
+    local off = ShopMenu.shopCameraOffset and ShopMenu.shopCameraOffset()
+    if off then
+      camX = (fTileX + off.x) * CELL
+      camY = (fTileY + off.y) * CELL
+    else
+      camX = (fTileX - 2) * CELL
+      camY = (fTileY - 4) * CELL
+    end
   end
 
   FieldView._billboard = opts.billboard
@@ -1271,6 +1335,11 @@ function FieldView.draw(game, canvasW, canvasH, opts)
       if Doors and Doors.draw then
         Doors.draw(camX, camY, canvasW, canvasH)
       end
+    end
+    local FieldWeather = modFieldWeather()
+    if FieldWeather and FieldWeather.drawBelow then
+      -- pokeemerald/src/field_weather_effect.c:1280
+      FieldWeather.drawBelow(camX, camY, canvasW, canvasH)
     end
   end
 

@@ -1340,6 +1340,26 @@ local function g3extra(v)
     trainerId = Wire.num(v.trainerId, 0, 0, MAX_U32),
     gender = Wire.num(v.gender, 0, 0, 1),
     seat = Wire.num(v.seat, nil, 0, MAX_SEAT),
+    version = Wire.str(v.version, nil, MAX_NAME),
+    family = Wire.str(v.family, nil, MAX_NAME),
+    gameVersion = Wire.num(v.gameVersion, nil, 0, 65535),
+    progressFlags = Wire.num(v.progressFlags, nil, 0, 255),
+    rules = Wire.str(v.rules, nil, 128),
+    core = Wire.digest(v.core),
+    moves = Wire.digest(v.moves),
+  }
+end
+
+local MAX_HOST_ROWS = 512
+local MAX_HOST_ROW = 64
+
+local function hostRules3(v)
+  if type(v) ~= "table" then return nil end
+  return {
+    version = Wire.str(v.version, nil, MAX_NAME),
+    rules = Wire.digest(v.rules),
+    moves = Wire.digest(v.moves),
+    rows = Wire.list(v.rows, MAX_HOST_ROWS, function(s) return Wire.str(s, nil, MAX_HOST_ROW) end),
   }
 end
 
@@ -1363,6 +1383,8 @@ SCHEMAS.game3_battle_linkup = inner3(function(m)
   return {
     linkType = Wire.num(m.linkType, nil, 0, 65535),
     players = Wire.num(m.players, nil, 0, MAX_SEATS),
+    version = Wire.num(m.version, nil, 0, 65535),
+    progressFlags = Wire.num(m.progressFlags, nil, 0, 255),
   }
 end)
 
@@ -1377,6 +1399,7 @@ SCHEMAS.game3_battle_setup = inner3(function(m)
     gender = Wire.num(m.gender, 0, 0, 1),
     seed = Wire.num(m.seed, nil, 0, MAX_U32),
     party = party3(m.party),
+    hostRules = hostRules3(m.hostRules),
   }
 end)
 

@@ -1,4 +1,4 @@
--- Bake FRLG pokemart item lists (u16[] → ITEM_NONE) into CacheFS.
+-- Bake pokemart item and decoration lists (u16[] → ITEM_NONE) into CacheFS.
 -- Keys: raw GBA ptr number, decimal string, and Opcodes.key (g3:%08x).
 
 local Opcodes = require("src.core.game3.scripting.opcodes")
@@ -23,6 +23,22 @@ local function is_rom_ptr(p)
   return p and p >= 0x08000000 and p < 0x0A000000
 end
 
+-- pokeemerald/asm/macros/event.inc:1152
+MartsExtract.OPS = {
+  pokemart = { kind = "items" },
+  pokemartdecoration = { kind = "decorations", martType = "DECOR" },
+  pokemartdecoration2 = { kind = "decorations", martType = "DECOR2" },
+}
+
+local function tag_entry(entry, op)
+  local spec = MartsExtract.OPS[op]
+  if spec and spec.kind ~= "items" then
+    entry.kind = spec.kind
+    entry.martType = spec.martType
+  end
+  return entry
+end
+
 --- Read one mart list from ROM (halfwords until ITEM_NONE / 0).
 function MartsExtract.readList(rom, gbaPtr)
   local off = rom:ptrOffset(tonumber(gbaPtr) or 0)
@@ -43,16 +59,14 @@ function MartsExtract.collectPtrs(scripts)
   for _, rows in pairs(scripts or {}) do
     if type(rows) == "table" then
       for _, row in ipairs(rows) do
-        if row and (row.op == "pokemart"
-            or row.op == "pokemartdecoration"
-            or row.op == "pokemartdecoration2") then
+        if row and MartsExtract.OPS[row.op] then
           local ptr = tonumber(row[1] or row.ptr or row.items)
           if not ptr and type(row[1]) == "string" then
             local hex = row[1]:match("^g3:(%x+)$")
             if hex then ptr = tonumber(hex, 16) end
           end
           if is_rom_ptr(ptr) and not seen[ptr] then
-            seen[ptr] = true
+            seen[ptr] = row.op
             list[#list + 1] = ptr
           end
         end
@@ -60,22 +74,22 @@ function MartsExtract.collectPtrs(scripts)
     end
   end
   table.sort(list)
-  return list
+  return list, seen
 end
 
 --- Build marts map from ROM + script IR.
 function MartsExtract.build(rom, scripts)
   local marts = {}
-  local ptrs = MartsExtract.collectPtrs(scripts)
+  local ptrs, ops = MartsExtract.collectPtrs(scripts)
   for _, ptr in ipairs(ptrs) do
     local items = MartsExtract.readList(rom, ptr)
     if items and #items > 0 then
       local key = Opcodes.key(ptr)
-      local entry = {
+      local entry = tag_entry({
         ptr = ptr,
         key = key,
         items = items,
-      }
+      }, ops[ptr])
       marts[ptr] = entry
       marts[tostring(ptr)] = entry
       marts[key] = entry
@@ -171,8 +185,7 @@ end
 -- Also fills `outMarts` keyed like MartsExtract.build.
 function MartsExtract.remapRow(rom, row, outMarts)
   if not row then return end
-  if row.op ~= "pokemart" and row.op ~= "pokemartdecoration"
-      and row.op ~= "pokemartdecoration2" then
+  if not MartsExtract.OPS[row.op] then
     return
   end
   local ptr = tonumber(row[1] or row.ptr)
@@ -181,7 +194,7 @@ function MartsExtract.remapRow(rom, row, outMarts)
   if outMarts and not outMarts[ptr] then
     local items = MartsExtract.readList(rom, ptr)
     if items and #items > 0 then
-      local entry = { ptr = ptr, key = key, items = items }
+      local entry = tag_entry({ ptr = ptr, key = key, items = items }, row.op)
       outMarts[ptr] = entry
       outMarts[tostring(ptr)] = entry
       outMarts[key] = entry

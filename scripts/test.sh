@@ -291,6 +291,16 @@ run_game3_tier() {
 }
 run_tier "T6 game3 top-level scenario suites" run_game3_tier
 
+run_emerald_tier() {
+  local t rc=0
+  for t in tests/emerald_*.lua; do
+    [ -f "$t" ] || continue
+    "$LUA" "$t" || { echo "FAIL $t"; rc=1; }
+  done
+  return $rc
+}
+run_tier "T6e emerald suites" run_emerald_tier
+
 run_tier "T4 title checkpoint cold restart" \
   bash tests/integration/title_checkpoint_cold_start.sh
 

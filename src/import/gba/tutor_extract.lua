@@ -1,12 +1,14 @@
 -- src/data/pokemon/tutor_learnsets.h:1 sTutorMoves, :22 sTutorLearnsets
 
 local Versions = require("src.import.gba.versions")
+local Layouts = require("src.import.gba.layouts.registry")
 
 local TutorExtract = {}
 
 TutorExtract.CACHE_SUB = "pokemon"
 TutorExtract.CACHE_FILE = "tutor.lua"
 TutorExtract.FORMAT_VERSION = 1
+TutorExtract.REQUIRED = { "pokemon/tutor.lua" }
 
 local function default_cache_root()
   local ok, Extract = pcall(require, "src.import.gba.extract_island1")
@@ -21,8 +23,10 @@ function TutorExtract.read(rom)
   for i = 0, Versions.TUTOR_MOVE_COUNT - 1 do
     moves[i] = rom:u16(Versions.TUTOR_MOVES + i * 2)
   end
+  local width = Layouts.active().tutorLearnsetBytes
   for species = 0, Versions.NUM_SPECIES - 1 do
-    learnsets[species] = rom:u16(Versions.TUTOR_LEARNSETS + species * 2)
+    local off = Versions.TUTOR_LEARNSETS + species * width
+    learnsets[species] = width == 4 and rom:u32(off) or rom:u16(off)
   end
   return moves, learnsets
 end

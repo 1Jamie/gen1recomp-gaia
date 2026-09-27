@@ -75,6 +75,23 @@ function Adapter.fill(st, extra)
     f.trainer1Class = (st.trainerClassName ~= nil and st.trainerClassName ~= "") and st.trainerClassName
       or st.trainerClass
     f.trainer1Name = st.trainerName
+    if st.trainerB then
+      -- pokeemerald/src/battle_message.c:2673
+      f.twoOpponents = true
+      f.trainer2Class = (st.trainerB.className ~= nil and st.trainerB.className ~= "") and st.trainerB.className
+        or st.trainerB.class
+      f.trainer2Name = st.trainerB.name
+      f.trainer2LoseText = st.trainerB.defeatText
+    end
+    -- pokeemerald/src/battle_message.c:2029
+    f.wally = (st.kinds and st.kinds.tutorial == "wally") or nil
+    if st.partner then
+      -- pokeemerald/src/battle_message.c:2039
+      f.inGamePartner = true
+      f.partnerClass = (st.partner.className ~= nil and st.partner.className ~= "") and st.partner.className
+        or st.partner.class
+      f.partnerName = st.partner.name
+    end
     if st.unionRoom then
       -- src/battle_message.c:2039
       f.trainer1Class = require("src.core.game3.link.battle").unionRoomTrainerClass()

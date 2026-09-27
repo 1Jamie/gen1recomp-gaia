@@ -17,6 +17,7 @@ local SHARED = {
   ["src.core.game3.save_mon"] = true,
   ["src.core.game3.battle.moves"] = true,
 }
+H.SHARED = SHARED
 
 local function swappable(name)
   if type(name) ~= "string" or name:sub(1, 4) ~= "src." then return false end

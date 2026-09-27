@@ -13,59 +13,32 @@ local SINE = Trig.SINE
 
 local BattleTransition = {}
 
-local ID = {
-  BLUR = 0,
-  SWIRL = 1,
-  SHUFFLE = 2,
-  BIG_POKEBALL = 3,
-  POKEBALLS_TRAIL = 4,
-  CLOCKWISE_WIPE = 5,
-  RIPPLE = 6,
-  WAVE = 7,
-  SLICE = 8,
-  WHITE_BARS_FADE = 9,
-  GRID_SQUARES = 10,
-  ANGLED_WIPES = 11,
-  LORELEI = 12,
-  BRUNO = 13,
-  AGATHA = 14,
-  LANCE = 15,
-  BLUE = 16,
-  SPIRAL = 17,
-}
-BattleTransition.ID = ID
+local IdsFrlg = require("src.core.game3.battle_transition_ids_frlg")
+local ID = IdsFrlg.ID
+local MUGSHOT_BY_ID = IdsFrlg.MUGSHOT_BY_ID
 
-local TERRAIN = {
-  NORMAL = 0,
-  CAVE = 1,
-  FLASH = 2,
-  WATER = 3,
-}
-BattleTransition.TERRAIN = TERRAIN
-
--- src/battle_setup.c:87
-local TABLE_WILD = {
-  [TERRAIN.NORMAL] = { ID.SLICE, ID.WHITE_BARS_FADE },
-  [TERRAIN.CAVE]   = { ID.CLOCKWISE_WIPE, ID.GRID_SQUARES },
-  [TERRAIN.FLASH]  = { ID.BLUR, ID.GRID_SQUARES },
-  [TERRAIN.WATER]  = { ID.WAVE, ID.RIPPLE },
+local IDS_MODULES = {
+  frlg = "src.core.game3.battle_transition_ids_frlg",
+  rse = "src.core.game3.battle_transition_ids_rse",
 }
 
--- src/battle_setup.c:95
-local TABLE_TRAINER = {
-  [TERRAIN.NORMAL] = { ID.POKEBALLS_TRAIL, ID.ANGLED_WIPES },
-  [TERRAIN.CAVE]   = { ID.SHUFFLE, ID.BIG_POKEBALL },
-  [TERRAIN.FLASH]  = { ID.BLUR, ID.GRID_SQUARES },
-  [TERRAIN.WATER]  = { ID.SWIRL, ID.RIPPLE },
-}
+function BattleTransition.family()
+  return require("src.core.game3.profile").family()
+end
 
-local MUGSHOT_BY_ID = {
-  [ID.LORELEI] = "lorelei",
-  [ID.BRUNO]   = "bruno",
-  [ID.AGATHA]  = "agatha",
-  [ID.LANCE]   = "lance",
-  [ID.BLUE]    = "blue",
-}
+function BattleTransition.ids(family)
+  family = family or BattleTransition.family()
+  local module = IDS_MODULES[family]
+  if not module then error("battle transition: no id table for family '" .. tostring(family) .. "'") end
+  return require(module)
+end
+
+setmetatable(BattleTransition, {
+  __index = function(_, k)
+    if k == "ID" or k == "TERRAIN" then return BattleTransition.ids()[k] end
+    return nil
+  end,
+})
 
 BattleTransition._active = false
 BattleTransition._phase = "idle"
@@ -95,79 +68,15 @@ end
 --------------------------------------------------------------------------------
 
 function BattleTransition.getTerrainByMap(opts)
-  opts = opts or {}
-  if opts.flash or opts.flashLevel and opts.flashLevel > 0 then
-    return TERRAIN.FLASH
-  end
-  if opts.surfing or opts.isWater or opts.mapKind == "water" or opts.mapType == 4 or opts.mapType == 5 then
-    return TERRAIN.WATER
-  end
-  if opts.isCave or opts.mapKind == "cave" or opts.mapKind == "dungeon" or opts.mapType == 3 then
-    return TERRAIN.CAVE
-  end
-  return TERRAIN.NORMAL
+  return BattleTransition.ids().getTerrainByMap(opts)
 end
 
 function BattleTransition.pickWild(opts)
-  opts = opts or {}
-  local terrain = opts.terrain or BattleTransition.getTerrainByMap(opts)
-  local tableEntry = TABLE_WILD[terrain] or TABLE_WILD[TERRAIN.NORMAL]
-  local playerLv = tonumber(opts.playerLevel) or 5
-  local enemyLv = tonumber(opts.enemyLevel) or 3
-  if enemyLv < playerLv then
-    return tableEntry[1]
-  else
-    return tableEntry[2]
-  end
+  return BattleTransition.ids().pickWild(opts)
 end
 
--- pokefirered/include/constants/trainers.h:270, :273
-local TRAINER_CLASS_ELITE_FOUR = 87
-local TRAINER_CLASS_CHAMPION = 90
--- pokefirered/include/constants/opponents.h:416-419, :741-744 (first run, rematch)
-local ELITE_FOUR_TRANSITION = {
-  [410] = ID.LORELEI, [735] = ID.LORELEI,
-  [411] = ID.BRUNO, [736] = ID.BRUNO,
-  [412] = ID.AGATHA, [737] = ID.AGATHA,
-  [413] = ID.LANCE, [738] = ID.LANCE,
-}
-
--- pokefirered/src/battle_setup.c:624 GetTrainerBattleTransition: the Elite Four
--- and the champion are recognised by class id, never by the class's name.
 function BattleTransition.pickTrainer(opts)
-  opts = opts or {}
-  local tid = tonumber(opts.trainerId) or 0
-  -- A Trainer Tower or e-Reader foe carries a facility class, whose numbers
-  -- overlap the trainer classes (FACILITY_CLASS_LASS is 90, the champion's,
-  -- pokefirered/include/constants/trainers.h:381); pret never picks their
-  -- transition by class (battle_setup.c:660).
-  local tClass = not (opts.trainerTower or opts.eReader) and tonumber(opts.trainerClass) or nil
-
-  if tClass == TRAINER_CLASS_ELITE_FOUR then
-    if opts.isLorelei then return ID.LORELEI end
-    if opts.isBruno then return ID.BRUNO end
-    if opts.isAgatha then return ID.AGATHA end
-    if opts.isLance then return ID.LANCE end
-    return ELITE_FOUR_TRANSITION[tid] or ID.BLUE
-  end
-  if tClass == TRAINER_CLASS_CHAMPION or opts.isRival or opts.isChampion then
-    return ID.BLUE
-  end
-  if opts.isLorelei then return ID.LORELEI end
-  if opts.isBruno then return ID.BRUNO end
-  if opts.isAgatha then return ID.AGATHA end
-  if opts.isLance then return ID.LANCE end
-  if opts.isBlue then return ID.BLUE end
-
-  local terrain = opts.terrain or BattleTransition.getTerrainByMap(opts)
-  local tableEntry = TABLE_TRAINER[terrain] or TABLE_TRAINER[TERRAIN.NORMAL]
-  local playerLv = tonumber(opts.playerLevel) or 5
-  local enemyLv = tonumber(opts.enemyLevel) or 3
-  if enemyLv < playerLv then
-    return tableEntry[1]
-  else
-    return tableEntry[2]
-  end
+  return BattleTransition.ids().pickTrainer(opts)
 end
 
 function BattleTransition.pick(opts)
@@ -313,7 +222,7 @@ DEF[ID.BLUR] = {
       if t.delay ~= 0 then
         t.delay = t.delay - 1
       else
-        t.delay = 2
+        t.delay = fx.K.blurDelay
         t.counter = t.counter + 1
         if t.counter == 10 then
           fx.pal:beginFade(Pal.ALL, -1, 0, 16, Pal.BLACK)
@@ -612,7 +521,7 @@ DEF[ID.CLOCKWISE_WIPE] = {
       repeat
         b[T.currY] = WIN_RANGE(DW / 2, T.currX + 1)
       until updateBlackWipe(T, true, true)
-      T.endX = T.endX + 32
+      T.endX = T.endX + fx.K.wipeStepX
       if T.endX >= DW then
         T.endY = 0
         fx.state = 2
@@ -637,7 +546,7 @@ DEF[ID.CLOCKWISE_WIPE] = {
         if finished then break end
         finished = updateBlackWipe(T, true, true)
       end
-      T.endY = T.endY + 16
+      T.endY = T.endY + fx.K.wipeStepY
       if T.endY >= DH then
         T.endX = DW
         fx.state = 3
@@ -657,7 +566,7 @@ DEF[ID.CLOCKWISE_WIPE] = {
       repeat
         b[T.currY] = u16(bor(lshift(T.currX, 8), DW))
       until updateBlackWipe(T, true, true)
-      T.endX = T.endX - 32
+      T.endX = T.endX - fx.K.wipeStepX
       if T.endX <= 0 then
         T.endY = DH
         fx.state = 4
@@ -682,7 +591,7 @@ DEF[ID.CLOCKWISE_WIPE] = {
         if finished then break end
         finished = updateBlackWipe(T, true, true)
       end
-      T.endY = T.endY - 16
+      T.endY = T.endY - fx.K.wipeStepY
       if T.endY <= 0 then
         T.endX = 0
         fx.state = 5
@@ -706,7 +615,7 @@ DEF[ID.CLOCKWISE_WIPE] = {
         end
         b[T.currY] = WIN_RANGE(start, stop)
       until updateBlackWipe(T, true, true)
-      T.endX = T.endX + 32
+      T.endX = T.endX + fx.K.wipeStepX
       if T.currX > DW / 2 then fx.state = 6 end
       T.vblankDma = true
       return false
@@ -745,9 +654,9 @@ DEF[ID.RIPPLE] = {
       if t.amp <= 0x1FFF then t.amp = t.amp + 384 end
       fx.rp0 = { sinVal = sinVal, amp = amp }
       t.timer = t.timer + 1
-      if t.timer == 41 then
+      if t.timer == fx.K.rippleFadeAt then
         t.fadeStarted = true
-        fx.pal:beginFade(Pal.ALL, -8, 0, 16, Pal.BLACK)
+        fx.pal:beginFade(Pal.ALL, fx.K.rippleFadeDelay, 0, 16, Pal.BLACK)
       end
       if t.fadeStarted and not fx.pal:fadeActive() then fx.done = true end
       fx.T.vblankDma = true
@@ -1272,11 +1181,6 @@ DEF[ID.SPIRAL] = {
   end,
 }
 
--- src/battle_transition.c:1849
-local MUGSHOT_PIC = { lorelei = 112, bruno = 113, agatha = 114, lance = 115, blue = 125 }
-local MUGSHOT_COORDS = {
-  lorelei = { -8, 0 }, bruno = { -10, 0 }, agatha = { 0, 0 }, lance = { -32, 0 }, blue = { 0, 0 },
-}
 local PIC_SLIDE_SPEEDS = { [0] = 12, [1] = -12 }
 local PIC_SLIDE_ACCELS = { [0] = -1, [1] = 1 }
 
@@ -1326,12 +1230,12 @@ local MUGSHOT_DEF = {
   funcs = {
     function(fx)
       local t, T = fx.t, fx.T
-      local key = fx.mugKey
-      local c = MUGSHOT_COORDS[key] or { 0, 0 }
+      local mug = fx.mug
+      local c = mug.coords or { 0, 0 }
       fx.opp = { x = c[1] - 32, y = c[2] + 42, state = 0, dir = 0, speed = 0, accel = 0,
-        pic = MUGSHOT_PIC[key] or 125 }
+        pic = mug.pic, scale = mug.scale }
       fx.player = { x = DW + 32, y = 106, state = 0, dir = 0, speed = 0, accel = 0,
-        pic = fx.female and 136 or 135, flip = true }
+        pic = mug.playerPic, flip = true, scale = 2 }
       fx.sprites[1] = fx.opp
       fx.sprites[2] = fx.player
       t.sinIndex = 0
@@ -1475,20 +1379,86 @@ local MUGSHOT_DEF = {
 
 for mid in pairs(MUGSHOT_BY_ID) do DEF[mid] = MUGSHOT_DEF end
 
+local DEFS = { frlg = DEF }
+
+BattleTransition.RSE_MODULES = {
+  "src.core.game3.battle_transition_rse_a",
+  "src.core.game3.battle_transition_rse_b",
+  "src.core.game3.battle_transition_rse_frontier",
+}
+
+BattleTransition.H = {
+  DW = DW, DH = DH, Pal = Pal, Audio = Audio,
+  s16 = s16, u16 = u16, u8 = u8, Sin = Sin, Cos = Cos,
+  WIN_RANGE = WIN_RANGE, winH = winH, winV = winV,
+  initBlackWipe = initBlackWipe, updateBlackWipe = updateBlackWipe,
+  setCircularMask = setCircularMask, fadeScreenBlack = fadeScreenBlack, copyBuf = copyBuf,
+  getChrome = getChrome, getTrainerPic = getTrainerPic,
+}
+
+function BattleTransition.defs(family)
+  family = family or BattleTransition.family()
+  local hit = DEFS[family]
+  if hit then return hit end
+  local Ids = BattleTransition.ids(family)
+  local t = {}
+  for name, id in pairs(Ids.ID) do
+    local frId = ID[name]
+    if frId ~= nil and not MUGSHOT_BY_ID[frId] and DEF[frId] then t[id] = DEF[frId] end
+  end
+  for id in pairs(Ids.MUGSHOT_BY_ID) do t[id] = MUGSHOT_DEF end
+  for _, module in ipairs(BattleTransition.RSE_MODULES) do
+    require(module).register(t, Ids.ID, BattleTransition.H)
+  end
+  DEFS[family] = t
+  return t
+end
+
+local function mugshotFor(Ids, key, female)
+  if Ids.family == "frlg" then
+    -- pokefirered/src/battle_transition.c:360
+    local pics = { lorelei = 112, bruno = 113, agatha = 114, lance = 115, blue = 125 }
+    local coords = {
+      lorelei = { -8, 0 }, bruno = { -10, 0 }, agatha = { 0, 0 }, lance = { -32, 0 }, blue = { 0, 0 },
+    }
+    return { pic = pics[key] or 125, coords = coords[key] or { 0, 0 }, scale = 2,
+      playerPic = female and 136 or 135 }
+  end
+  local Chrome = getChrome()
+  local manifest = Chrome and Chrome.manifest and Chrome.manifest() or {}
+  local pics, coords, scales = Ids.mugshotTables(manifest)
+  local sc = scales[key]
+  return {
+    pic = pics[key],
+    coords = coords[key] or { 0, 0 },
+    scale = sc and sc[1] / 256 or 2,
+    playerPic = Ids.MUGSHOT_PLAYER_PIC[female and "female" or "male"],
+  }
+end
+
 --------------------------------------------------------------------------------
 -- Orchestrator Lifecycle
 --------------------------------------------------------------------------------
 
 local function newFx(tid, opts)
-  local def = DEF[tid] or DEF[ID.SLICE]
+  local Ids = BattleTransition.ids()
+  local defs = BattleTransition.defs(Ids.family)
+  local def = defs[tid]
+  if not def then
+    if Ids.family ~= "frlg" then
+      print("[game3/battle_transition] transition " .. tostring(tid) .. " has no port; drawing SLICE")
+    end
+    def = defs[Ids.ID.SLICE]
+  end
   local fx = {
     id = tid, def = def, state = 0, t = {}, T = { vblankDma = false },
     buf0 = {}, buf1 = {}, sprites = {}, done = false,
-    pal = BattleTransition._pal,
+    pal = BattleTransition._pal, opts = opts or {}, K = Ids.TUNE,
   }
-  fx.mugKey = MUGSHOT_BY_ID[tid]
+  fx.mugKey = Ids.MUGSHOT_BY_ID[tid]
   local g = opts and opts.playerGender
   fx.female = (g == 1 or g == "female")
+  if fx.mugKey then fx.mug = mugshotFor(Ids, fx.mugKey, fx.female) end
   if def.init then def.init(fx) end
   return fx
 end
@@ -1541,7 +1511,8 @@ function BattleTransition.start(transitionId, opts, doneCb)
   BattleTransition._frame = 0
   BattleTransition._pal = Pal.new()
   BattleTransition._fx = nil
-  BattleTransition._intro = { state = 0, blend = 0, fades = 2, wait = 1, done = false }
+  BattleTransition._intro = { state = 0, blend = 0, fades = BattleTransition.ids().TUNE.introFades, wait = 1,
+    done = false }
   BattleTransition._worldDrawn = false
 
   if opts.skipIntro then
@@ -1943,8 +1914,9 @@ local function drawMugshot(R, G, fx)
     local entry = s and TP.front and TP.front(s.pic)
     local img = entry and (entry.image or entry)
     if img and type(img) ~= "table" then
-      local sx = s.flip and -2 or 2
-      G.draw(img, pq, R.hmap(s.x), s.y, 0, sx, 2, 32, 16)
+      local k = s.scale or 2
+      local sx = s.flip and -k or k
+      G.draw(img, pq, R.hmap(s.x), s.y, 0, sx, k, 32, 16)
     end
   end
 end
@@ -1982,11 +1954,12 @@ local function render(R, G)
   G.setBlendMode("alpha")
   if fx and fx.def.redraw then drawFieldRows(R, G, fx) end
   if fx then
-    local def, id = fx.def, fx.id
-    if id == ID.BIG_POKEBALL then drawBigPokeball(R, G, fx) end
-    if id == ID.GRID_SQUARES then drawGrid(R, G, fx) end
-    if id == ID.POKEBALLS_TRAIL then drawTrail(R, G, fx) end
+    local def = fx.def
+    if def == DEF[ID.BIG_POKEBALL] then drawBigPokeball(R, G, fx) end
+    if def == DEF[ID.GRID_SQUARES] then drawGrid(R, G, fx) end
+    if def == DEF[ID.POKEBALLS_TRAIL] then drawTrail(R, G, fx) end
     if fx.mugKey then drawMugshot(R, G, fx) end
+    if def.draw then def.draw(fx, R, G) end
     if def.rowSpans then
       drawSpanRows(R, G, function(y, out) return def.rowSpans(fx, y, R, out) end)
     elseif def.winSpans then

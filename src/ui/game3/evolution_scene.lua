@@ -59,12 +59,25 @@ local function clean_string(s)
   return (s:gsub("%z+", ""):match("^%s*(.-)%s*$")) or ""
 end
 
+local Song = require("src.core.game3.song_ids")
+
+-- pokefirered/src/sound.c:50
+local NON_MAP_SONGS = {
+  MUS_HEAL = true, MUS_LEVEL_UP = true, MUS_OBTAIN_ITEM = true, MUS_EVOLVED = true, MUS_OBTAIN_BADGE = true,
+  MUS_OBTAIN_TMHM = true, MUS_OBTAIN_BERRY = true, MUS_EVOLUTION_INTRO = true, MUS_EVOLUTION = true,
+  MUS_RS_VS_GYM_LEADER = true, MUS_RS_VS_TRAINER = true, MUS_SCHOOL = true, MUS_SLOTS_JACKPOT = true,
+  MUS_SLOTS_WIN = true, MUS_MOVE_DELETED = true, MUS_TOO_BAD = true, MUS_DEX_RATING = true,
+  MUS_OBTAIN_KEY_ITEM = true, MUS_POKE_FLUTE = true,
+  -- pokeemerald/src/sound.c:37
+  MUS_AWAKEN_LEGEND = true, MUS_RG_POKE_FLUTE = true, MUS_RG_OBTAIN_KEY_ITEM = true, MUS_RG_DEX_RATING = true,
+  MUS_OBTAIN_B_POINTS = true, MUS_OBTAIN_SYMBOL = true, MUS_REGISTER_MATCH_CALL = true,
+}
+
 local function is_fanfare_or_evo_song(id)
   id = tonumber(id)
   if not id or id == 0 or id == 0xFFFF then return true end
-  if id >= 256 and id <= 271 then return true end
-  if id == 317 or id == 318 or id == 338 then return true end
-  return false
+  local name = Song.nameOf(id)
+  return name ~= nil and NON_MAP_SONGS[name] == true
 end
 
 function EvolutionScene.isOpen()
@@ -76,6 +89,30 @@ local function evo_pic(species)
   local mon = EvolutionScene._mon
   return Pokemon.frontPic(Pokemon.picSpecies(species, mon and mon.personality), nil, Pokemon.isShiny(mon),
     mon and mon.personality)
+end
+
+-- pokeemerald/src/evolution_scene.c:1674
+local function evo_mon_anim(species)
+  local MonAnim = require("src.core.game3.mon_anim")
+  if not MonAnim.enabled() then return false end
+  if EvolutionScene._monAnim then MonAnim.stop(EvolutionScene._monAnim) end
+  local sp = tonumber(species) or 0
+  local sprite = MonAnim.run(MonAnim.newSprite(sp, { data = { [2] = sp } }), { tasksFirst = false })
+  sprite.evoSpecies = species
+  EvolutionScene._monAnim = sprite
+  MonAnim.doFront(sprite, sp, false, 0, { cry = function(s, pan) pcall(Audio.playCry, s, 0, pan) end })
+  return true
+end
+
+local function evo_anim_draw(species, pic, cx, cy)
+  local sprite = EvolutionScene._monAnim
+  if not (sprite and sprite.evoSpecies == species and pic and pic.image) then return false end
+  local MonAnim = require("src.core.game3.mon_anim")
+  local mon = EvolutionScene._mon
+  local f = MonAnim.framePic(Pokemon.picSpecies(species, mon and mon.personality), sprite.frame, Pokemon.isShiny(mon))
+  love.graphics.setColor(1, 1, 1, 1)
+  MonAnim.draw(sprite, (f or pic).image, cx, cy)
+  return true
 end
 
 --- Start an evolution scene.
@@ -90,6 +127,7 @@ function EvolutionScene.start(mon, postSpecies, opts)
   end
 
   EvolutionScene.open = true
+  EvolutionScene._monAnim = nil
   EvolutionScene._mon = mon
   EvolutionScene._preSpecies = Pokemon.speciesOf(mon) or 1
   EvolutionScene._postSpecies = Pokemon.speciesFromName(postSpecies) or tonumber(postSpecies) or EvolutionScene._preSpecies
@@ -445,15 +483,18 @@ function EvolutionScene.update(dt)
     if EvolutionScene._timer >= 45 then
       EvolutionScene._state = "intro_cry"
       EvolutionScene._timer = 0
-      Audio.playCry(EvolutionScene._preSpecies)
+      if not evo_mon_anim(EvolutionScene._preSpecies) then Audio.playCry(EvolutionScene._preSpecies) end
     end
 
   elseif st == "intro_cry" then
     EvolutionScene._timer = EvolutionScene._timer + 1
-    if EvolutionScene._timer >= 40 then
+    local ma = EvolutionScene._monAnim
+    -- pokeemerald/src/evolution_scene.c:676
+    if ma and require("src.core.game3.mon_anim").busy(ma) then EvolutionScene._timer = 0 end
+    if EvolutionScene._timer >= (ma and 1 or 40) then
       EvolutionScene._state = "intro_sound"
       EvolutionScene._timer = 0
-      Audio.playSong(263, { loop = false }) -- MUS_EVOLUTION_INTRO
+      Audio.playSong(Song.MUS_EVOLUTION_INTRO, { loop = false })
     end
 
   elseif st == "intro_sound" then
@@ -461,7 +502,7 @@ function EvolutionScene.update(dt)
     if EvolutionScene._timer >= 35 then
       EvolutionScene._state = "start_music"
       EvolutionScene._timer = 0
-      Audio.playSong(264, { restart = true, loop = true }) -- MUS_EVOLUTION
+      Audio.playSong(Song.MUS_EVOLUTION, { restart = true, loop = true })
     end
 
   elseif st == "start_music" then
@@ -525,7 +566,7 @@ function EvolutionScene.update(dt)
     if EvolutionScene._timer >= 30 then
       EvolutionScene._state = "evo_cry"
       EvolutionScene._timer = 0
-      Audio.playCry(EvolutionScene._postSpecies)
+      if not evo_mon_anim(EvolutionScene._postSpecies) then Audio.playCry(EvolutionScene._postSpecies) end
     end
 
   elseif st == "evo_cry" then
@@ -534,7 +575,7 @@ function EvolutionScene.update(dt)
       EvolutionScene._state = "congrats"
       EvolutionScene._timer = 0
       Audio.stopCry()
-      Audio.playFanfare(259) -- MUS_EVOLVED
+      Audio.playFanfare(Song.MUS_EVOLVED)
 
       local fromName = EvolutionScene._nick or clean_string(Pokemon.name(EvolutionScene._preSpecies))
       local intoName = Pokemon.name(EvolutionScene._postSpecies) or "POKéMON"
@@ -617,14 +658,16 @@ function EvolutionScene.draw()
 
   elseif st == "cancel" or st == "fade_in" or st == "intro_msg" or st == "intro_cry" or st == "intro_sound" or st == "start_music" then
     -- Normal pre-evolution sprite
-    if prePic and prePic.image then
+    if evo_anim_draw(EvolutionScene._preSpecies, prePic, cx, cy) then
+    elseif prePic and prePic.image then
       love.graphics.setColor(1, 1, 1, 1)
       love.graphics.draw(prePic.image, cx, cy, 0, 1, 1, 32, 32)
     end
 
   else
     -- Normal post-evolution sprite (flash_reveal, evo_cry, congrats, learn_moves)
-    if postPic and postPic.image then
+    if evo_anim_draw(EvolutionScene._postSpecies, postPic, cx, cy) then
+    elseif postPic and postPic.image then
       love.graphics.setColor(1, 1, 1, 1)
       love.graphics.draw(postPic.image, cx, cy, 0, 1, 1, 32, 32)
     end

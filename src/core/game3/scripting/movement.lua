@@ -45,11 +45,54 @@ local DIR = { [0] = "down", [1] = "up", [2] = "left", [3] = "right" }
 
 -- FRLG MOVEMENT_ACTION_* (include/constants/event_object_movement.h).
 -- Older Emerald-ish 0x08 walk_normal tables are wrong for FireRed.
+local DIAG = {
+  UP_LEFT = { "up", "left", -1, -1 },
+  UP_RIGHT = { "up", "right", 1, -1 },
+  DOWN_LEFT = { "down", "left", -1, 1 },
+  DOWN_RIGHT = { "down", "right", 1, 1 },
+}
+
+local function rseAction(b)
+  local name = require("src.import.gba.movement_emerald").nameOf(b)
+  if type(name) ~= "string" then return { kind = "nop" } end
+  name = name:gsub("^MOVEMENT_ACTION_", "")
+  -- pokeemerald/src/event_object_movement.c:6495
+  if name == "EMOTE_HEART" then return { kind = "emote", emoteType = "heart", frames = 60 } end
+  -- pokeemerald/src/event_object_movement.c:6617
+  if name == "HIDE_REFLECTION" then return { kind = "reflection", hidden = true } end
+  if name == "SHOW_REFLECTION" then return { kind = "reflection", hidden = false } end
+  -- pokeemerald/src/event_object_movement.c:7228
+  local wheelie = name:match("^ACRO_END_WHEELIE_MOVE_(%u+)$")
+  if wheelie then return { kind = "step", dir = wheelie:lower(), acroEndWheelie = true } end
+  -- pokeemerald/src/event_object_movement.c:5290
+  local speed, diag = name:match("^WALK_(%u+)_DIAGONAL_(%u+_%u+)$")
+  if speed and DIAG[diag] then
+    local d = DIAG[diag]
+    return { kind = "step_diagonal", dirs = { d[1], d[2] }, dx = d[3], dy = d[4], slow = speed == "SLOW" }
+  end
+  -- pokeemerald/src/event_object_movement.c:8809
+  if name == "LOCK_ANIM" then return { kind = "lock_anim", locked = true } end
+  if name == "UNLOCK_ANIM" then return { kind = "lock_anim", locked = false } end
+  -- pokeemerald/src/event_object_movement.c:6667
+  local affine = name:match("^WALK_(%u+)_AFFINE$")
+  if affine then return { kind = "step", dir = affine:lower(), run = true, affine = true } end
+  -- pokeemerald/src/event_object_movement.c:7292
+  if name == "LEVITATE" then return { kind = "levitate", on = true } end
+  if name == "STOP_LEVITATE" then return { kind = "levitate", on = false } end
+  if name == "STOP_LEVITATE_AT_TOP" then return { kind = "levitate", on = false, atTop = true } end
+  -- pokeemerald/src/event_object_movement.c:6828
+  if name == "FIGURE_8" then return { kind = "figure8" } end
+  return { kind = "nop", name = name }
+end
+
+Movement.decodeRse = rseAction
+
 function Movement.decodeAction(b)
   b = tonumber(b) or 0
   if b == Movement.STEP_END or b == 0xFF then
     return { kind = "end" }
   end
+  if b >= 0x100 then return rseAction(b) end
   if b <= 0x07 then
     return { kind = "turn", dir = DIR[b % 4] }
   end
@@ -68,7 +111,9 @@ function Movement.decodeAction(b)
   end
   -- Walk fast / in-place / faster walks → step or turn-in-place.
   if b >= 0x1D and b <= 0x20 then
-    return { kind = "step", dir = DIR[b - 0x1D] }
+    -- pokeemerald/src/event_object_movement.c:5639
+    local fast = require("src.core.game3.profile").family(nil) == "rse" or nil
+    return { kind = "step", dir = DIR[b - 0x1D], fast = fast }
   end
   if b >= 0x21 and b <= 0x30 then
     return { kind = "turn", dir = DIR[(b - 0x21) % 4] }
@@ -110,6 +155,24 @@ function Movement.decodeAction(b)
   -- Jump 1 cell (0x4E–0x51): MOVEMENT_ACTION_JUMP_DOWN/UP/LEFT/RIGHT
   if b >= 0x4E and b <= 0x51 then
     return { kind = "jump", dir = DIR[b - 0x4E], distance = 1 }
+  end
+  local rse = b >= 0x52 and b <= 0x67 and require("src.core.game3.profile").family(nil) == "rse"
+  if rse and b >= 0x52 and b <= 0x55 then
+    -- pokeemerald/src/event_object_movement.c:6289
+    return { kind = "jump", dir = DIR[b - 0x52], distance = 0, jumpType = "high" }
+  end
+  if rse and b >= 0x56 and b <= 0x59 then
+    -- pokeemerald/src/event_object_movement.c:6357
+    local THEN = { [0] = "up", [1] = "down", [2] = "right", [3] = "left" }
+    return { kind = "jump", dir = DIR[b - 0x56], distance = 0, jumpType = "normal", thenFace = THEN[b - 0x56] }
+  end
+  if rse and (b == 0x5C or b == 0x5D) then
+    -- pokeemerald/src/event_object_movement.c:6444
+    return { kind = "jump_landing_effect", on = b == 0x5C }
+  end
+  if rse and b == 0x67 then
+    -- pokeemerald/src/event_object_movement.c:6503
+    return { kind = "reveal_trainer" }
   end
   -- Jump in place / face (0x52–0x59)
   if b >= 0x52 and b <= 0x55 then

@@ -20,9 +20,7 @@ local CONFIRM_PROMPT_DELAY = 120
 -- pokefirered/src/trade.c:2273
 local SELECTED_MOVE_FRAMES = 20
 -- pokefirered/include/constants/songs.h:281
-local MUS_GAME_CORNER = 273
--- pokefirered/include/constants/songs.h:9
-local SE_SELECT = 5
+local Song = require("src.core.game3.song_ids")
 -- pokefirered/src/pokemon_icon.c:938
 local ICON_ANIM_FRAMES = { [0] = 6, 8, 14, 22 }
 -- pokefirered/src/battle_interface.c:1844
@@ -318,7 +316,7 @@ end
 -- pokefirered/src/trade.c:1788
 local function moveCursor(dir)
   local nextPos = LinkTradeMenu.newCursorPosition(LinkTradeMenu.pos, dir)
-  if nextPos ~= LinkTradeMenu.pos then playSe(SE_SELECT) end
+  if nextPos ~= LinkTradeMenu.pos then playSe(Song.SE_SELECT) end
   setPos(nextPos)
 end
 
@@ -418,7 +416,7 @@ local function enterMenu()
   if hasGraphics() then
     local Audio = audio()
     -- pokefirered/src/trade.c:1049
-    if Audio and Audio.playSong and pcall(Audio.playSong, MUS_GAME_CORNER) then
+    if Audio and Audio.playSong and pcall(Audio.playSong, Song.MUS_GAME_CORNER) then
       LinkTradeMenu._song = true
     end
   end
@@ -581,16 +579,16 @@ end
 local function menuInput(input, field)
   local cur = LinkTradeMenu[field]
   if input:wasPressed("a") then
-    playSe(SE_SELECT)
+    playSe(Song.SE_SELECT)
     return cur
   end
   if input:wasPressed("b") then return "b" end
   if input:wasPressed("up") and cur > 1 then
     LinkTradeMenu[field] = cur - 1
-    playSe(SE_SELECT)
+    playSe(Song.SE_SELECT)
   elseif input:wasPressed("down") and cur < 2 then
     LinkTradeMenu[field] = cur + 1
-    playSe(SE_SELECT)
+    playSe(Song.SE_SELECT)
   end
   return nil
 end
@@ -633,7 +631,7 @@ local function processMenuInput(input)
   elseif joyRept(input, "right") then moveCursor(DIR_RIGHT)
   end
   if not input:wasPressed("a") then return end
-  playSe(SE_SELECT)
+  playSe(Song.SE_SELECT)
   local pos = LinkTradeMenu.pos
   if pos < PARTY_SIZE then
     LinkTradeMenu.subCursor = 1
@@ -660,7 +658,7 @@ function LinkTradeMenu.handleInput(input)
     -- pokefirered/src/trade.c:1890
     local choice = menuInput(input, "subCursor")
     if choice == "b" then
-      playSe(SE_SELECT)
+      playSe(Song.SE_SELECT)
       redrawChooseAPokemonWindow()
     elseif choice == 1 then
       showSummary(0, LinkTradeMenu.pos)
@@ -676,7 +674,7 @@ function LinkTradeMenu.handleInput(input)
       LinkTradeMenu.cb = "idle"
       trade().cancelSelect()
     elseif choice == 2 or choice == "b" then
-      playSe(SE_SELECT)
+      playSe(Song.SE_SELECT)
       redrawChooseAPokemonWindow()
     end
   elseif cb == "confirm_prompt" then
@@ -704,7 +702,7 @@ function LinkTradeMenu.handleInput(input)
   elseif cb == "trade_canceled" then
     -- pokefirered/src/trade.c:2094
     if input:wasPressed("a") then
-      playSe(SE_SELECT)
+      playSe(Song.SE_SELECT)
       LinkTradeMenu.message = nil
       LinkTradeMenu.submenuVisible = false
       redrawPartyWindow(0)

@@ -24,13 +24,7 @@ local INPUT_PROXY = {
   isDown = function(_, k) return proxyInput ~= nil and proxyInput.isDown and proxyInput:isDown(k) or false end,
 }
 
-local MUS_ROUTE24 = 292
-local MUS_NEW_GAME_INSTRUCT = 323
-local MUS_NEW_GAME_INTRO = 324
-local MUS_NEW_GAME_EXIT = 325
-local SE_SELECT = 5
-local SE_WARP_IN = 39
-local SE_BALL_TRADE = 53
+local Song = require("src.core.game3.song_ids")
 local SPECIES_NIDORAN_F = 29
 
 local GUIDE_BLUE = { 0, 15, 24 }
@@ -223,7 +217,7 @@ function Printer:render(newAB, heldAB)
       self.arrowIdx = (self.arrowIdx + 1) % 4
     end
     if newAB then
-      Audio.playSe(SE_SELECT)
+      Audio.playSe(Song.SE_SELECT)
       self.page = self.page + 1
       self.revealed = 0
       self.arrowFrame = nil
@@ -668,7 +662,7 @@ function Scene:createTradeBall(mon, x, y, delay, mask)
   local function sendOff(s)
     -- pokefirered/src/pokeball.c:1180
     timer = timer + 1
-    if timer == 11 then Audio.playSe(SE_BALL_TRADE) end
+    if timer == 11 then Audio.playSe(Song.SE_BALL_TRADE) end
     if mon.affineAnimEnded then
       Oam.startAnim(s, 2)
       mon.invisible = true
@@ -723,7 +717,7 @@ function Scene.Task_NewGameScene(self, t)
   elseif st == 10 then
     self.pal:beginFade(Pal.ALL, 0, 16, 0, Pal.BLACK)
     self.bgVisible[0], self.bgVisible[1] = true, true
-    Audio.playSong(MUS_NEW_GAME_INSTRUCT, { restart = true })
+    Audio.playSong(Song.MUS_NEW_GAME_INSTRUCT, { restart = true })
     t.func = Scene.Task_ControlsGuide_HandleInput
     t.state = 0
     return
@@ -759,7 +753,7 @@ function Scene.Task_ControlsGuide_HandleInput(self, t)
       t.data.delta = -1
       self.pal:beginFade(GUIDE_FADE_MASK, -1, 0, 16, GUIDE_BLUE)
     end
-    Audio.playSe(SE_SELECT)
+    Audio.playSe(Song.SE_SELECT)
     t.func = Scene.Task_ControlsGuide_ChangePage
   end
 end
@@ -800,7 +794,7 @@ function Scene.Task_PikachuIntro_LoadPage1(self, t)
     return
   end
   self.section = "pikachu"
-  Audio.playSong(MUS_NEW_GAME_INTRO, { restart = true })
+  Audio.playSong(Song.MUS_NEW_GAME_INTRO, { restart = true })
   self:setTopBar(nil, HINT_NEXT)
   self.bg1 = { image = self.assets.pikachuBg or self.assets.pikachuIntroBg }
   self.currentPage = 1
@@ -832,7 +826,7 @@ function Scene.Task_PikachuIntro_HandleInput(self, t)
         if self.currentPage == 1 then return end
         self.currentPage = self.currentPage - 1
       end
-      Audio.playSe(SE_SELECT)
+      Audio.playSe(Song.SE_SELECT)
       if self.currentPage == 4 then
         t.state = 4
       else
@@ -864,7 +858,7 @@ function Scene.Task_PikachuIntro_HandleInput(self, t)
   elseif st == 4 then
     destroySprite(d.cursor)
     d.cursor = nil
-    Audio.playSong(MUS_NEW_GAME_EXIT, { restart = true })
+    Audio.playSong(Song.MUS_NEW_GAME_EXIT, { restart = true })
     d.blendTarget = 24
     t.state = 5
   else
@@ -914,7 +908,7 @@ function Scene.Task_OakSpeech_Init(self, t)
   if d.nidoran then d.nidoran.invisible = true end
   self:loadTrainerPic("oak")
   self:createPikachuOrPlatform(t, "platform")
-  Audio.playSong(MUS_ROUTE24, { restart = true })
+  Audio.playSong(Song.MUS_ROUTE24, { restart = true })
   self.pal:beginFade(Pal.ALL, 5, 16, 0, Pal.BLACK)
   d.timer = 80
   self.bgVisible[2] = true
@@ -1047,7 +1041,7 @@ function Scene:menuInput(wrap)
   local p = self.input
   if not m then return "none" end
   if p.a then
-    Audio.playSe(SE_SELECT)
+    Audio.playSe(Song.SE_SELECT)
     return m.cursor
   end
   if p.b then return "b" end
@@ -1058,10 +1052,10 @@ function Scene:menuInput(wrap)
     local pos = m.cursor + delta
     if wrap then
       if pos < 0 then pos = n - 1 elseif pos > n - 1 then pos = 0 end
-      Audio.playSe(SE_SELECT)
+      Audio.playSe(Song.SE_SELECT)
     else
       pos = math.max(0, math.min(n - 1, pos))
-      if pos ~= old then Audio.playSe(SE_SELECT) end
+      if pos ~= old then Audio.playSe(Song.SE_SELECT) end
     end
     m.cursor = pos
   end
@@ -1175,11 +1169,11 @@ function Scene.Task_OakSpeech_HandleRivalNameInput(self, t)
   -- pokefirered/src/oak_speech.c:1413
   local r = self:menuInput(true)
   if r == 0 then
-    Audio.playSe(SE_SELECT)
+    Audio.playSe(Song.SE_SELECT)
     self.pal:beginFade(Pal.ALL, 0, 0, 16, Pal.BLACK)
     t.func = Scene.Task_OakSpeech_DoNamingScreen
   elseif type(r) == "number" and r >= 1 and r <= 4 then
-    Audio.playSe(SE_SELECT)
+    Audio.playSe(Song.SE_SELECT)
     self.win.menu = nil
     self:getDefaultName(r - 1)
     t.data.nameNotConfirmed = true
@@ -1323,7 +1317,7 @@ function Scene.Task_OakSpeech_HandleConfirmNameInput(self, t)
   if r == "none" then return end
   self.win.menu = nil
   if r == 0 then
-    Audio.playSe(SE_SELECT)
+    Audio.playSe(Song.SE_SELECT)
     t.data.timer = 40
     if not self.hasPlayerBeenNamed then
       self:clearDialog()
@@ -1334,7 +1328,7 @@ function Scene.Task_OakSpeech_HandleConfirmNameInput(self, t)
       t.func = Scene.Task_OakSpeech_FadeOutRivalPic
     end
   else
-    Audio.playSe(SE_SELECT)
+    Audio.playSe(Song.SE_SELECT)
     if not self.hasPlayerBeenNamed then
       t.func = Scene.Task_OakSpeech_FadeOutForPlayerNamingScreen
     else
@@ -1466,7 +1460,7 @@ function Scene.Task_OakSpeech_ShrinkPlayerPic(self, t)
   local d = t.data
   self.shrinkTimer = self.shrinkTimer + 1
   if self.shrinkTimer % 20 == 0 then
-    if self.shrinkTimer == 40 then Audio.playSe(SE_WARP_IN) end
+    if self.shrinkTimer == 40 then Audio.playSe(Song.SE_WARP_IN) end
     local old = d.scaleDelta
     d.scaleDelta = d.scaleDelta - 32
     self.bg2Affine = { pa = idiv(0x10000, old - 8), pd = idiv(0x10000, d.scaleDelta - 16) }

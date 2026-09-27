@@ -4,10 +4,41 @@
 -- System flags, and Script variables.
 
 local FlagsTable = require("src.core.game3.scripting.flags_table")
+local GameVersion = require("src.core.GameVersion")
 
 local Gen3Flags = {}
 
 local TRAINERS_CACHE = nil
+local RSE_CACHE = {}
+
+local function rseGame()
+  local v = GameVersion.get()
+  if GameVersion.layout(v) == "rse" then return v end
+  return nil
+end
+Gen3Flags.rseGame = rseGame
+
+local function constants(game)
+  return require("src.core.game3.constants").of(game)
+end
+
+-- pokeemerald/include/constants/opponents.h:4
+local function loadTrainersRse(game)
+  local hit = RSE_CACHE[game]
+  if hit then return hit end
+  local C = constants(game)
+  local start = C:require("flags", "TRAINER_FLAGS_START")
+  local count = C:require("trainers", "TRAINERS_COUNT")
+  local names = C.trainers.byId and C.trainers.byId.TRAINER_ or {}
+  local trainers = {}
+  for id = 1, count - 1 do
+    local name = names[id] or string.format("TRAINER_0x%03X", id)
+    trainers[#trainers + 1] = { id = id, name = name, flagId = start + id,
+      label = string.format("%s (0x%03X)", name, start + id) }
+  end
+  RSE_CACHE[game] = trainers
+  return trainers
+end
 
 local function readText(path)
   local fs = love and love.filesystem
@@ -24,6 +55,8 @@ end
 
 -- Parse pokefirered/include/constants/opponents.h for all 742 TRAINER_ constants
 local function loadTrainers()
+  local game = rseGame()
+  if game then return loadTrainersRse(game) end
   if TRAINERS_CACHE then return TRAINERS_CACHE end
   local trainers = {}
   local seen = {}
@@ -126,7 +159,59 @@ local function isStoryFlag(name, id)
   return false
 end
 
+-- pokeemerald/include/constants/flags.h:1572
+local function rseCategories(game, extraDirs)
+  local C = constants(game)
+  local F, V = C.flags.byName, C.vars.byName
+  local sys, dailyEnd = F.SYSTEM_FLAGS, F.DAILY_FLAGS_END
+  local tStart, tEnd = F.TRAINER_FLAGS_START, F.TRAINER_FLAGS_END
+  local out = { story = {}, trainers = loadTrainersRse(game), items = {}, toggles = {}, system = {}, vars = {} }
+  local function add(list, name, id, width)
+    list[#list + 1] = { name = name, id = id, label = string.format("%s (0x%0" .. (width or 3) .. "X)", name, id) }
+  end
+  for name, id in pairs(F) do
+    if type(id) == "number" and name:find("^FLAG_") and id > F.TEMP_FLAGS_END and id <= dailyEnd then
+      local trainer = id >= tStart and id <= tEnd
+      if name:find("^FLAG_HIDDEN_ITEM_") or name:find("^FLAG_ITEM_") then
+        add(out.items, name, id)
+      elseif id >= sys then
+        add(out.system, name, id)
+      elseif not trainer and name:find("^FLAG_HIDE_") then
+        add(out.toggles, name, id)
+      elseif not trainer and not name:find("^FLAG_UNUSED_") and not name:find("^FLAG_TEMP_") then
+        add(out.story, name, id)
+      end
+    end
+  end
+  local Catalog = require("Catalog")
+  local seen = {}
+  for _, e in ipairs(out.story) do seen[e.name] = true end
+  for _, name in ipairs(Catalog.scrapeEvents(nil, nil, nil, extraDirs)) do
+    if not seen[name] then
+      seen[name] = true
+      out.story[#out.story + 1] = { name = name, id = name, label = name }
+    end
+  end
+  local seenVars = {}
+  for name, id in pairs(V) do
+    if type(id) == "number" and name:find("^VAR_") and id >= V.VARS_START and id <= V.VARS_END and not seenVars[id] then
+      seenVars[id] = true
+      add(out.vars, name, id, 4)
+    end
+  end
+  local function sortById(a, b)
+    local aid = type(a.id) == "number" and a.id or 999999
+    local bid = type(b.id) == "number" and b.id or 999999
+    if aid ~= bid then return aid < bid end
+    return tostring(a.name) < tostring(b.name)
+  end
+  for _, k in ipairs({ "story", "items", "toggles", "system", "vars" }) do table.sort(out[k], sortById) end
+  return out
+end
+
 function Gen3Flags.categories(extraDirs)
+  local game = rseGame()
+  if game then return rseCategories(game, extraDirs) end
   local trainers = loadTrainers()
 
   local story = {}

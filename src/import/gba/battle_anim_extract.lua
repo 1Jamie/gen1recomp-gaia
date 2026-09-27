@@ -11,6 +11,7 @@ local BattleAnimExtract = {}
 
 BattleAnimExtract.FORMAT_VERSION = 5
 BattleAnimExtract.CACHE_SUB      = "pokemon/battle_anims"
+BattleAnimExtract.REQUIRED       = { "pokemon/battle_anims/pack.lua" }
 
 local V = Versions.BATTLE_ANIMS or {}
 
@@ -49,6 +50,21 @@ local OP_FIXED = {
 
 local SPRITES_START = V.sprites_start or 10000
 local TAG_NAMES     = Versions.ANIM_TAG_NAMES or {}
+local unresolved    = nil
+
+local function refresh_config()
+  V = Versions.BATTLE_ANIMS or {}
+  SPRITES_START = V.sprites_start or 10000
+  TAG_NAMES = Versions.ANIM_TAG_NAMES or {}
+end
+
+local function note_unresolved(kind, ptr, at)
+  if not unresolved then return end
+  local key = kind .. string.format(" 0x%08X", ptr or 0)
+  if not unresolved[key] then
+    unresolved[key] = string.format("%s pointer 0x%08X (script offset 0x%06X)", kind, ptr or 0, at or 0)
+  end
+end
 
 local BATTLER_NAMES = { [0]="attacker", [1]="target", [2]="atk_partner", [3]="def_partner" }
 
@@ -142,6 +158,8 @@ local function decode_script(rom, startOff, visited, labels, tag_dims)
       local cb_gba = tmpl_off and rom:u32(tmpl_off + 20) or 0
       local cb_name = Versions.ANIM_CALLBACK_NAMES and Versions.ANIM_CALLBACK_NAMES[cb_gba]
       local tmpl_name = Versions.ANIM_TEMPLATE_NAMES and Versions.ANIM_TEMPLATE_NAMES[tmpl_gba]
+      if not tmpl_name then note_unresolved("template", tmpl_gba, i) end
+      if not cb_name then note_unresolved("callback", cb_gba, i) end
 
       if tag_name and tag_dims and not tag_dims[tag_name] then
         tag_dims[tag_name] = { w = w, h = h }
@@ -182,6 +200,7 @@ local function decode_script(rom, startOff, visited, labels, tag_dims)
         args[ai + 1] = s16(rom:u16(i + 7 + ai * 2))
       end
       local task_name = Versions.ANIM_TASK_NAMES and Versions.ANIM_TASK_NAMES[fn_gba]
+      if not task_name then note_unresolved("task", fn_gba, i) end
       ops[#ops + 1] = {
         op       = "createvisualtask",
         task     = task_name or string.format("0x%08X", fn_gba),
@@ -324,6 +343,7 @@ local function decode_script(rom, startOff, visited, labels, tag_dims)
         args[ai + 1] = s16(rom:u16(i + 6 + ai * 2))
       end
       local snd_name = Versions.ANIM_TASK_NAMES and Versions.ANIM_TASK_NAMES[fn_gba]
+      if not snd_name then note_unresolved("sound task", fn_gba, i) end
       ops[#ops + 1] = {
         op   = "createsoundtask",
         task = snd_name or string.format("0x%08X", fn_gba),
@@ -915,7 +935,8 @@ local function extract_stat_mask(rom, cache, root)
   if not tiles then return nil end
   local out = { files = {}, pals = {} }
   for k = 1, 8 do
-    local pb = lz_at(rom, anim.stat_mask_pal + (k - 1) * 0x20 + 0x08000000)
+    local palOff = anim.stat_mask_pals and anim.stat_mask_pals[k] or (anim.stat_mask_pal + (k - 1) * 0x20)
+    local pb = lz_at(rom, palOff + 0x08000000)
     if not pb then return nil end
     local pal = decode_palette(pb)
     local row = {}
@@ -1034,6 +1055,11 @@ end
 function BattleAnimExtract.run(rom, cache, opts)
   opts      = opts or {}
   local root = (opts.cacheRoot or "data/generated/gba") .. "/" .. BattleAnimExtract.CACHE_SUB
+  refresh_config()
+  local strict = opts.strict == true
+  unresolved = strict and {} or nil
+  local failures = {}
+  local function fail(msg) failures[#failures + 1] = msg end
 
   -- Skip if already extracted and not forced
   if not opts.force and BattleAnimExtract.ready(cache, opts.cacheRoot or "data/generated/gba") then
@@ -1047,6 +1073,9 @@ function BattleAnimExtract.run(rom, cache, opts)
   end
 
   local anim = Versions.BATTLE_ANIMS
+  if strict and not (rom and anim and anim.moves_table) then
+    error("battle_anim_extract: no ROM or BATTLE_ANIMS key table for this game")
+  end
   if not (rom and anim and anim.moves_table) then
     -- No ROM — write generic fallback
     local pack = {
@@ -1089,6 +1118,7 @@ function BattleAnimExtract.run(rom, cache, opts)
         end
       end
     else
+      if strict then fail(string.format("move %d has no script pointer", id)) end
       moves[id] = GENERIC
     end
   end
@@ -1102,6 +1132,7 @@ function BattleAnimExtract.run(rom, cache, opts)
       if off then
         out[idx] = decode_script(rom, off, visited, labels, tagDims)
       else
+        if strict then fail(string.format("table 0x%06X entry %d has no script pointer", base, idx)) end
         out[idx] = GENERIC
       end
       outNames[idx] = names and names[idx] or tostring(idx)
@@ -1214,6 +1245,32 @@ function BattleAnimExtract.run(rom, cache, opts)
   end
 
   local statMask = cache and extract_stat_mask(rom, cache, root) or nil
+
+  if strict then
+    local keys = {}
+    for k in pairs(unresolved) do keys[#keys + 1] = k end
+    table.sort(keys)
+    for _, k in ipairs(keys) do fail("unresolved " .. unresolved[k]) end
+    for name in pairs(usedTags) do
+      if not tagMeta[name] then fail("tag " .. name .. " has no sprite sheet") end
+    end
+    for id = 0, (anim.bg_count or 27) - 1 do
+      if not animBgs[id] then fail("anim bg " .. id .. " did not decode") end
+    end
+    for key in pairs(anim.named_bgs or {}) do
+      if not animBgs[key] then fail("named anim bg " .. key .. " did not decode") end
+    end
+    if anim.stat_mask_gfx and not statMask then fail("stat mask did not decode") end
+    if anim.smokescreen_gfx and not tagMeta.TAG_SMOKESCREEN then fail("smokescreen did not decode") end
+    if anim.substitute_pal and not (tagMeta.SUBSTITUTE_DOLL_FRONT and tagMeta.SUBSTITUTE_DOLL_BACK) then
+      fail("substitute doll did not decode")
+    end
+    if anim.muddy_water_pal and not bgPals.MUDDY_WATER then fail("muddy water palette did not decode") end
+    unresolved = nil
+    if #failures > 0 then
+      error("battle_anim_extract: " .. #failures .. " failures:\n  " .. table.concat(failures, "\n  "))
+    end
+  end
 
   -- ── Step 3: Serialize pack ──────────────────────────────────────────
   local pack = {

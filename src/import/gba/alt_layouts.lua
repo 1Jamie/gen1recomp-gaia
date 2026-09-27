@@ -84,4 +84,69 @@ function AltLayouts.build(rom, version, grids, borders, padEven)
   return added
 end
 
+local function owner_for(name, byPret)
+  local best, bestLen = nil, 0
+  for pret, engineId in pairs(byPret) do
+    local n = #pret
+    if n > bestLen and name:sub(1, n) == pret then
+      local nextCh = name:sub(n + 1, n + 1)
+      if nextCh == "" or nextCh == "_" or nextCh:match("%u") then
+        best, bestLen = engineId, n
+      end
+    end
+  end
+  return best
+end
+
+-- pokeemerald/src/overworld.c:993
+function AltLayouts.buildUnreferenced(rom, version, grids, borders, padEven, census)
+  local MapTree = require("src.import.gba.map_tree")
+  local MapCatalog = require("src.import.gba.map_catalog")
+  local Maps = require("src.import.gba.maps")
+  local F = require("src.import.gba.family").active()
+  local S = F:syms()
+  local base = (version and version.g_map_layouts) or Versions.G_MAP_LAYOUTS
+  local count = Versions.NUM_MAP_LAYOUTS or 0
+  local referenced, byPret = {}, {}
+  for _, entry in ipairs(census and census.maps or {}) do
+    if entry.layout and entry.layout.layoutOff then referenced[entry.layout.layoutOff] = true end
+    if entry.pretName and entry.engineId then byPret[entry.pretName] = entry.engineId end
+  end
+  local added, skipped = {}, {}
+  for id = 1, count do
+    local layoutOff = rom:ptrOffset(rom:u32(base + (id - 1) * 4))
+    if layoutOff and not referenced[layoutOff] then
+      local layout = MapTree.parseLayout(rom, layoutOff)
+      local mapOff = layout and rom:ptrOffset(layout.mapPtr)
+      local pair = layout and mapOff and MapCatalog.pairForLayout(rom, layout)
+      local key = AltLayouts.key(id)
+      if pair then
+        local name
+        for _, n in ipairs(S.namesAt(layoutOff)) do
+          name = n:match("^(.+)_Layout$") or name
+        end
+        local ownerId = name and owner_for(name, byPret) or nil
+        local owner = ownerId and grids and grids[ownerId]
+        local grid = Maps.loadGrid(rom, { offset = mapOff, width = layout.width, height = layout.height })
+        grid.map_id = key
+        grid.pair = pair
+        grid.kind = owner and owner.kind or nil
+        grid.environment = owner and owner.environment or nil
+        if padEven then grid = padEven(grid) end
+        grid.altLayoutId = id
+        grid.layoutName = name
+        if owner and owner.width == grid.width and owner.height == grid.height then
+          grid.altOwner = ownerId
+        end
+        grids[key] = grid
+        if borders then borders[key] = read_border(rom, layout) end
+        added[#added + 1] = key
+      else
+        skipped[#skipped + 1] = key
+      end
+    end
+  end
+  return added, skipped
+end
+
 return AltLayouts

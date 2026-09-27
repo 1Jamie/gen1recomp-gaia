@@ -5,8 +5,12 @@ local Strings = require("src.core.Strings")
 local Std = require("src.core.game3.scripting.stdscripts")
 local Capabilities = require("src.core.game3.capabilities")
 local Profile = require("src.core.game3.profile")
+local Constants = require("src.core.game3.constants")
+local GameVersion = require("src.core.GameVersion")
 
 local Natives = {}
+
+Natives.ALLOW = {}
 
 Natives._logged = {}
 
@@ -256,9 +260,9 @@ function Natives.setVermilionTrashCans(random)
   return first, second
 end
 
-Natives.ALLOW = {
+Natives.CORE = {
   -- pokefirered/src/field_specials.c:552
-  ["special:" .. Std.SPECIAL.SetVermilionTrashCans] = function(ctx)
+  SetVermilionTrashCans = function(ctx)
     local Rng = require("src.core.game3.rng")
     local first, second = Natives.setVermilionTrashCans(Rng.Random)
     local Flags = flagsMod()
@@ -267,14 +271,14 @@ Natives.ALLOW = {
     return false
   end,
   -- pokefirered/src/battle_setup.c:865
-  ["special:" .. Std.SPECIAL.Script_HasTrainerBeenFought] = function(ctx)
+  Script_HasTrainerBeenFought = function(ctx)
     local Flags = flagsMod()
     local fid = Flags.trainerFlagId(ctx.trainerBattleOpponentA or 0)
     setResult(ctx, Flags.getFlag(vsSeeker().store(), ctx, fid) and 1 or 0)
     return false
   end,
   -- pokefirered/src/battle_setup.c:1007
-  ["special:" .. Std.SPECIAL.PlayTrainerEncounterMusic] = function(ctx)
+  PlayTrainerEncounterMusic = function(ctx)
     if ctx.trainerBattleMode == 1 or ctx.trainerBattleMode == 8 then return false end
     local Trainers = require("src.core.game3.scripting.trainers")
     local song = Trainers.getEncounterMusic and Trainers.getEncounterMusic(ctx.trainerBattleOpponentA or 0)
@@ -283,20 +287,20 @@ Natives.ALLOW = {
     return false
   end,
   -- pokefirered/src/vs_seeker.c:1013
-  ["special:" .. Std.SPECIAL.ShouldTryRematchBattle] = function(ctx)
+  ShouldTryRematchBattle = function(ctx)
     local VsSeeker = vsSeeker()
     local ok = VsSeeker.shouldTryRematchBattle(ctx.trainerBattleOpponentA or 0, lastTalked(ctx), VsSeeker.store())
     setResult(ctx, ok and 1 or 0)
     return false
   end,
   -- pokefirered/src/vs_seeker.c:1086
-  ["special:" .. Std.SPECIAL.IsTrainerReadyForRematch] = function(ctx)
+  IsTrainerReadyForRematch = function(ctx)
     local ok = vsSeeker().isTrainerReadyForRematch(ctx.trainerBattleOpponentA or 0, lastTalked(ctx))
     setResult(ctx, ok and 1 or 0)
     return false
   end,
   -- pokefirered/src/script_pokemon_util.c:90
-  ["special:" .. Std.SPECIAL.HasEnoughMonsForDoubleBattle] = function(ctx)
+  HasEnoughMonsForDoubleBattle = function(ctx)
     local Party = require("src.core.game3.party")
     local rt = package.loaded["src.core.game3.runtime"]
     local session = rt and rt.getSession and rt.getSession()
@@ -304,7 +308,7 @@ Natives.ALLOW = {
     return false
   end,
   -- pokefirered/src/battle_setup.c:848
-  ["special:" .. Std.SPECIAL.SetUpTrainerMovement] = function(ctx)
+  SetUpTrainerMovement = function(ctx)
     local Objects = package.loaded["src.core.game3.objects"]
     local lid = lastTalked(ctx)
     local eo = Objects and not Objects.isPlayer(lid) and Objects.find(lid)
@@ -314,12 +318,12 @@ Natives.ALLOW = {
     return false
   end,
   -- pokefirered/src/vs_seeker.c:636
-  ["special:" .. Std.SPECIAL.VsSeekerResetObjectMovementAfterChargeComplete] = function()
+  VsSeekerResetObjectMovementAfterChargeComplete = function()
     vsSeeker().resetObjectMovementAfterChargeComplete()
     return false
   end,
   -- pokefirered/src/vs_seeker.c:598
-  ["special:" .. Std.SPECIAL.VsSeekerFreezeObjectsAfterChargeComplete] = function()
+  VsSeekerFreezeObjectsAfterChargeComplete = function()
     local Objects = package.loaded["src.core.game3.objects"]
     for _, lid in ipairs(Objects and Objects._order or {}) do
       local eo = Objects._byId[lid]
@@ -328,66 +332,66 @@ Natives.ALLOW = {
     return false
   end,
   -- pokefirered/src/battle_setup.c:870
-  ["special:" .. Std.SPECIAL.SetBattledTrainerFlag] = function(ctx)
+  SetBattledTrainerFlag = function(ctx)
     local Flags = flagsMod()
     local store = vsSeeker().store()
     if store then Flags.setFlag(store, ctx, Flags.trainerFlagId(ctx.trainerBattleOpponentA or 0), true) end
     return false
   end,
-  ["special:" .. Std.SPECIAL.SetUsedPkmnCenterQuestLogEvent] = function()
+  SetUsedPkmnCenterQuestLogEvent = function()
     local rt=package.loaded["src.core.game3.runtime"]
     require("src.core.game3.quest_log_recorder").event(rt and rt.getSession(),"MonsWereFullyRestoredAtCenter",{})
     return false
   end,
-  ["special:" .. Std.SPECIAL.GetQuestLogState] = function(ctx)
+  GetQuestLogState = function(ctx)
     -- Playback has no script VM; scripts executing here always belong to live play.
     require("src.core.game3.scripting.flags").setVar(nil,ctx,0x800D,0)
     return false
   end,
-  ["special:" .. Std.SPECIAL.QuestLog_CutRecording] = function()
+  QuestLog_CutRecording = function()
     local rt=package.loaded["src.core.game3.runtime"]
     local session=rt and rt.getSession()
     if session then session._questNewScene=true end
     return false
   end,
-  ["special:" .. Std.SPECIAL.QuestLog_StartRecordingInputsAfterDeferredEvent] = function()
+  QuestLog_StartRecordingInputsAfterDeferredEvent = function()
     return false -- Events are captured at their completed engine transactions.
   end,
-  ["special:" .. Std.SPECIAL.Script_SetHelpContext] = function(ctx)
+  Script_SetHelpContext = function(ctx)
     local id = require("src.core.game3.scripting.flags").getVar(nil, ctx, 0x8004)
     require("src.ui.game3.help_system").setContext(id)
     return false
   end,
-  ["special:" .. Std.SPECIAL.BackupHelpContext] = function()
+  BackupHelpContext = function()
     local Help = require("src.ui.game3.help_system")
     Help.contextBackup = Help.contextOverride
     return false
   end,
-  ["special:" .. Std.SPECIAL.RestoreHelpContext] = function()
+  RestoreHelpContext = function()
     local Help = require("src.ui.game3.help_system")
     Help.contextOverride = Help.contextBackup
     return false
   end,
-  ["special:" .. Std.SPECIAL.SetHelpContextForMap] = function()
+  SetHelpContextForMap = function()
     require("src.ui.game3.help_system").setContext(nil)
     return false
   end,
-  ["special:" .. Std.SPECIAL.HelpSystem_Disable] = function()
+  HelpSystem_Disable = function()
     require("src.ui.game3.help_system").enabled = false
     return false
   end,
-  ["special:" .. Std.SPECIAL.HelpSystem_Enable] = function()
+  HelpSystem_Enable = function()
     require("src.ui.game3.help_system").enabled = true
     return false
   end,
   -- pokefirered/src/field_specials.c:153
-  ["special:" .. Std.SPECIAL.GetBattleOutcome] = function(ctx)
+  GetBattleOutcome = function(ctx)
     local outcome = ctx and ctx.lastBattleOutcome or B_OUTCOME_WON
     setResult(ctx, outcome)
     return false, outcome
   end,
   -- pokefirered/src/field_specials.c:163
-  ["special:" .. Std.SPECIAL.GetLeadMonFriendship] = function(ctx)
+  GetLeadMonFriendship = function(ctx)
     local rt = package.loaded["src.core.game3.runtime"]
     local session = rt and rt.getSession and rt.getSession()
     local Pokemon = require("src.core.game3.pokemon")
@@ -409,7 +413,7 @@ Natives.ALLOW = {
     return false, score
   end,
   -- pokefirered/src/field_specials.c:2075
-  ["special:" .. Std.SPECIAL.DaisyMassageServices] = function(ctx)
+  DaisyMassageServices = function(ctx)
     local Pokemon = require("src.core.game3.pokemon")
     local _, session = partyOf()
     local mon = chosenMon(ctx)
@@ -421,7 +425,7 @@ Natives.ALLOW = {
     return false
   end,
   -- pokefirered/src/battle_setup.c:320
-  ["special:" .. Std.SPECIAL.StartMarowakBattle] = function(ctx, adapters)
+  StartMarowakBattle = function(ctx, adapters)
     local Enc = require("src.core.game3.encounters")
     local foe = Enc.takePendingWild()
     if not (foe and adapters and adapters.startWildBattle) then return false end
@@ -448,7 +452,7 @@ Natives.ALLOW = {
     end)
   end,
   -- pokefirered/src/battle_setup.c:349 StartLegendaryBattle (special 0x138 / 312)
-  ["special:" .. Std.SPECIAL.StartLegendaryBattle] = function(ctx, adapters)
+  StartLegendaryBattle = function(ctx, adapters)
     local Enc = require("src.core.game3.encounters")
     local foe = Enc.takePendingWild()
     if not (foe and adapters and adapters.startWildBattle) then return false end
@@ -464,19 +468,19 @@ Natives.ALLOW = {
     end)
   end,
   -- pokefirered/src/battle_setup.c:378 StartGroudonKyogreBattle (special 0x137 / 311)
-  ["special:" .. Std.SPECIAL.StartGroudonKyogreBattle] = function(ctx, adapters)
-    return Natives.ALLOW["special:" .. Std.SPECIAL.StartLegendaryBattle](ctx, adapters)
+  StartGroudonKyogreBattle = function(ctx, adapters)
+    return Natives.CORE.StartLegendaryBattle(ctx, adapters)
   end,
   -- pokefirered/src/battle_setup.c:393 StartRegiBattle (special 0x139 / 313)
-  ["special:" .. Std.SPECIAL.StartRegiBattle] = function(ctx, adapters)
-    return Natives.ALLOW["special:" .. Std.SPECIAL.StartLegendaryBattle](ctx, adapters)
+  StartRegiBattle = function(ctx, adapters)
+    return Natives.CORE.StartLegendaryBattle(ctx, adapters)
   end,
   -- pokefirered/src/battle_setup.c:339 StartSouthernIslandBattle (special 0x143 / 323)
-  ["special:" .. Std.SPECIAL.StartSouthernIslandBattle] = function(ctx, adapters)
-    return Natives.ALLOW["special:" .. Std.SPECIAL.StartLegendaryBattle](ctx, adapters)
+  StartSouthernIslandBattle = function(ctx, adapters)
+    return Natives.CORE.StartLegendaryBattle(ctx, adapters)
   end,
   -- pokefirered/src/battle_setup.c:301 StartOldManTutorialBattle (special 0x9D / 157)
-  ["special:" .. Std.SPECIAL.StartOldManTutorialBattle] = function(ctx, adapters)
+  StartOldManTutorialBattle = function(ctx, adapters)
     local foe = {
       species = 13, -- WEEDLE
       level = 5,
@@ -493,26 +497,26 @@ Natives.ALLOW = {
       end, { oldManTutorial = true })
     end)
   end,
-  ["special:" .. Std.SPECIAL.HealPlayerParty] = function(ctx, adapters)
+  HealPlayerParty = function(ctx, adapters)
     if not (adapters and adapters.nurseHeal) then return false end
     return yield_host(ctx, adapters, adapters.nurseHeal)
   end,
   -- pokefirered/src/pokemon_storage_system_menu.c:354
-  ["special:" .. Std.SPECIAL.ShowPokemonStorageSystemPC] = function(ctx, adapters)
+  ShowPokemonStorageSystemPC = function(ctx, adapters)
     if not (adapters and adapters.openPc) then return false end
     return yield_host(ctx, adapters, function(done)
       adapters.openPc(function() done() end, { mode = "storage" })
     end)
   end,
   -- pokefirered/src/player_pc.c:163
-  ["special:" .. Std.SPECIAL.PlayerPC] = function(ctx, adapters)
+  PlayerPC = function(ctx, adapters)
     if not (adapters and adapters.openPc) then return false end
     return yield_host(ctx, adapters, function(done)
       adapters.openPc(function() done() end, { mode = "player" })
     end)
   end,
   -- pokefirered/src/player_pc.c:151
-  ["special:" .. Std.SPECIAL.BedroomPC] = function(ctx, adapters)
+  BedroomPC = function(ctx, adapters)
     if not (adapters and adapters.openPc) then return false end
     return yield_host(ctx, adapters, function(done)
       adapters.openPc(function()
@@ -525,17 +529,17 @@ Natives.ALLOW = {
     end)
   end,
   -- pokefirered/src/field_specials.c:212
-  ["special:" .. Std.SPECIAL.AnimatePcTurnOn] = function(ctx)
+  AnimatePcTurnOn = function(ctx)
     require("src.core.game3.pc_anim").turnOn(ctx)
     return false
   end,
   -- pokefirered/src/field_specials.c:286
-  ["special:" .. Std.SPECIAL.AnimatePcTurnOff] = function(ctx)
+  AnimatePcTurnOff = function(ctx)
     require("src.core.game3.pc_anim").turnOff(ctx)
     return false
   end,
   -- pokefirered/src/script_menu.c:977
-  ["special:" .. Std.SPECIAL.CreatePCMenu] = function(ctx, adapters)
+  CreatePCMenu = function(ctx, adapters)
     if not (adapters and adapters.openPc) then return false end
     return yield_host(ctx, adapters, function(done)
       adapters.openPc(function(result)
@@ -545,7 +549,7 @@ Natives.ALLOW = {
     end)
   end,
   -- pokefirered/src/hof_pc.c:23
-  ["special:" .. Std.SPECIAL.HallOfFamePCBeginFade] = function(ctx, adapters)
+  HallOfFamePCBeginFade = function(ctx, adapters)
     if not (adapters and adapters.hallOfFamePc) then return false end
     return yield_host(ctx, adapters, function(done)
       adapters.hallOfFamePc(function()
@@ -557,25 +561,25 @@ Natives.ALLOW = {
       end)
     end)
   end,
-  ["special:" .. Std.SPECIAL.FieldShowRegionMap] = function(ctx, adapters)
+  ShowTownMap = function(ctx, adapters)
     if not (adapters and adapters.showTownMap) then return false end
     return yield_host(ctx, adapters, adapters.showTownMap)
   end,
   -- Shared intro/field primitives (fade / naming / cry)
-  ["special:" .. Std.SPECIAL.FadeScreen] = function(ctx, adapters)
+  FadeScreen = function(ctx, adapters)
     if not (adapters and adapters.fadeScreen) then return false end
     return yield_host(ctx, adapters, function(done)
       adapters.fadeScreen(0, 1, done)
     end)
   end,
-  ["special:" .. Std.SPECIAL.OpenNaming] = function(ctx, adapters)
+  OpenNaming = function(ctx, adapters)
     if not (adapters and adapters.openNaming) then return false end
     return yield_host(ctx, adapters, function(done)
       adapters.openNaming({ title = Strings("NAME?") }, done)
     end)
   end,
   -- pokefirered/src/easy_chat_2.c:256 ShowEasyChatScreen (special 0x5F / 95)
-  ["special:" .. Std.SPECIAL.ShowEasyChatScreen] = function(ctx, adapters)
+  ShowEasyChatScreen = function(ctx, adapters)
     if not (adapters and adapters.openEasyChat) then
       setResult(ctx, 0)
       flagsMod().setVar(nil, ctx, 0x8004, 1)
@@ -637,7 +641,7 @@ Natives.ALLOW = {
     end)
   end,
   -- pokefirered/src/easy_chat.c:276 ShowEasyChatMessage (special 0x60 / 96)
-  ["special:" .. Std.SPECIAL.ShowEasyChatMessage] = function(ctx, adapters)
+  ShowEasyChatMessage = function(ctx, adapters)
     local Runtime = package.loaded["src.core.game3.runtime"]
     local session = Runtime and Runtime.getSession and Runtime.getSession()
     local EasyChatText = require("src.core.game3.easy_chat_text")
@@ -652,7 +656,7 @@ Natives.ALLOW = {
   end,
   -- pret EventScript_ChangePokemonNickname: fadescreen TO_BLACK → this → waitstate.
   -- Opens naming under the held black, fades in, writes nickname on confirm.
-  ["special:" .. Std.SPECIAL.ChangePokemonNickname] = function(ctx, adapters)
+  ChangePokemonNickname = function(ctx, adapters)
     if not (adapters and adapters.openNaming) then return false end
     return yield_host(ctx, adapters, function(done)
       local mon = chosenMon(ctx)
@@ -680,7 +684,7 @@ Natives.ALLOW = {
     end)
   end,
   -- pokefirered/src/field_specials.c:1629 ChangeBoxPokemonNickname
-  ["special:" .. Std.SPECIAL.ChangeBoxPokemonNickname] = function(ctx, adapters)
+  ChangeBoxPokemonNickname = function(ctx, adapters)
     local mon = boxedMon()
     if not (mon and adapters and adapters.openNaming) then return false end
     return yield_host(ctx, adapters, function(done)
@@ -710,7 +714,7 @@ Natives.ALLOW = {
     end)
   end,
   -- pokefirered/src/field_specials.c:2478 BrailleCursorToggle
-  ["special:" .. Std.SPECIAL.BrailleCursorToggle] = function(ctx)
+  BrailleCursorToggle = function(ctx)
     local okB, Braille = pcall(require, "src.ui.game3.braille")
     if not (okB and type(Braille) == "table") then return false end
     if getSpecialVar(ctx, 0x8006) == 0 then
@@ -721,17 +725,17 @@ Natives.ALLOW = {
     return false
   end,
   -- pokefirered/src/party_menu_specials.c:14
-  ["special:" .. Std.SPECIAL.ChoosePartyMon] = function(ctx, adapters)
+  ChoosePartyMon = function(ctx, adapters)
     return Natives.choosePartyMon(ctx, adapters, "choose_single")
   end,
   -- pokefirered/src/party_menu.c:5793
-  ["special:" .. Std.SPECIAL.ChooseMonForMoveTutor] = function(ctx)
+  ChooseMonForMoveTutor = function(ctx)
     -- pokefirered/src/party_menu.c:855
     setResult(ctx, 0)
     return false
   end,
   -- pokefirered/src/field_specials.c:1677
-  ["special:" .. Std.SPECIAL.IsMonOTIDNotPlayers] = function(ctx)
+  IsMonOTIDNotPlayers = function(ctx)
     local _, session = partyOf()
     local mon = chosenMon(ctx)
     local playerId = tonumber(session and (session.trainerId or session.id or session.playerId)) or 0
@@ -740,11 +744,11 @@ Natives.ALLOW = {
     return false
   end,
   -- pokefirered/src/field_specials.c:1671
-  ["special:" .. Std.SPECIAL.BufferMonNickname] = function(ctx, adapters)
+  BufferMonNickname = function(ctx, adapters)
     setStringVar(ctx, adapters, 1, nicknameOf(chosenMon(ctx)))
     return false
   end,
-  ["special:" .. Std.SPECIAL.PlayCry] = function(ctx, adapters)
+  PlayCry = function(ctx, adapters)
     local Audio = require("src.core.game3.audio")
     local Flags = require("src.core.game3.scripting.flags")
     local Space = package.loaded["src.core.game3.scripting.space"]
@@ -752,7 +756,7 @@ Natives.ALLOW = {
     Audio.playCry(species)
     return false
   end,
-  ["special:" .. Std.SPECIAL.EnableNationalPokedex] = function(ctx, adapters)
+  EnableNationalPokedex = function(ctx, adapters)
     local Flags = require("src.core.game3.scripting.flags")
     local Space = package.loaded["src.core.game3.scripting.space"]
     local store = Space and Space.store
@@ -782,7 +786,7 @@ Natives.ALLOW = {
     return false
   end,
   -- pokefirered/src/event_data.c:107 IsNationalPokedexEnabled
-  ["special:" .. Std.SPECIAL.IsNationalPokedexEnabled] = function(ctx)
+  IsNationalPokedexEnabled = function(ctx)
     local PokedexData = require("src.core.game3.pokedex_data")
     local Runtime = package.loaded["src.core.game3.runtime"]
     local session = Runtime and Runtime.getSession and Runtime.getSession()
@@ -793,7 +797,7 @@ Natives.ALLOW = {
     return false, resVal
   end,
   -- pokefirered/src/save_location.c:98
-  ["special:" .. Std.SPECIAL.SetUnlockedPokedexFlags] = function()
+  SetUnlockedPokedexFlags = function()
     local rt = package.loaded["src.core.game3.runtime"]
     local session = rt and rt.getSession and rt.getSession()
     if session then
@@ -803,7 +807,7 @@ Natives.ALLOW = {
     end
     return false
   end,
-  ["special:" .. Std.SPECIAL.EnterHallOfFame] = function(ctx, adapters)
+  EnterHallOfFame = function(ctx, adapters)
     local Flags = require("src.core.game3.scripting.flags")
     local flagGameClear = (Flags.IDS and Flags.IDS.SYS_GAME_CLEAR) or 0x82C
     local Space = package.loaded["src.core.game3.scripting.space"]
@@ -877,29 +881,62 @@ local MODULE_DIR = "src/core/game3/scripting"
 local MODULE_PACKAGE = "src.core.game3.scripting."
 
 local KNOWN_MODULES = {
+  "natives_berry",
+  "natives_blender",
+  "natives_clock",
+  "natives_contest",
   "natives_corner",
   "natives_cutscene",
   "natives_daycare",
+  "natives_dewford",
   "natives_elevator",
   "natives_events",
   "natives_fame",
   "natives_fan_club",
+  "natives_field_rse",
+  "natives_frontier_story",
+  "natives_game_corner_rse",
   "natives_gift",
+  "natives_lilycove_lady",
   "natives_link",
   "natives_listmenu",
+  "natives_lottery",
+  "natives_match_call",
   "natives_moveteach",
+  "natives_old_man",
+  "natives_pc_rse",
+  "natives_pokeblock",
+  "natives_puzzles_rse",
   "natives_queries",
+  "natives_region_map_rse",
+  "natives_scenes_rse",
   "natives_seagallop",
+  "natives_secret_base",
   "natives_size_record",
   "natives_tower",
   "natives_trade",
+  "natives_tv",
   "natives_wireless",
+  "natives_frontier",
+  "natives_tower_rse",
+  "natives_tents",
+  "natives_link_rse",
+  "natives_factory",
+  "natives_pike",
+  "natives_dome",
+  "natives_palace",
+  "natives_arena",
+  "natives_pyramid",
+  "natives_trainer_hill",
+  "natives_apprentice",
+  "natives_event_islands",
+  "natives_shared_rse",
 }
 Natives.KNOWN_MODULES = KNOWN_MODULES
 Natives.MODULE_DIR = MODULE_DIR
 
-local function moduleNames()
-  local names = Profile.active().nativeModules
+local function moduleNames(profile)
+  local names = (profile or Profile.active()).nativeModules
   return type(names) == "table" and names or KNOWN_MODULES
 end
 Natives.moduleNames = moduleNames
@@ -912,55 +949,107 @@ local function collectModule(names, seen, entry)
   end
 end
 
-local function discoverModules()
-  local names, seen = {}, {}
+local listing
+
+local function listModuleDir()
+  if listing then return listing end
+  listing = {}
   local fs = type(love) == "table" and love.filesystem
   if fs and fs.getDirectoryItems then
     pcall(function()
       for _, entry in ipairs(fs.getDirectoryItems(MODULE_DIR)) do
-        collectModule(names, seen, entry)
+        listing[#listing + 1] = entry
       end
     end)
   elseif io and io.popen then
     pcall(function()
       local pipe = io.popen('ls -1 "' .. MODULE_DIR .. '" 2>/dev/null')
       if not pipe then return end
-      for line in pipe:lines() do collectModule(names, seen, line) end
+      for line in pipe:lines() do listing[#listing + 1] = line end
       pipe:close()
     end)
   end
-  for _, base in ipairs(moduleNames()) do collectModule(names, seen, base .. ".lua") end
+  return listing
+end
+
+local function discoverModules(profile)
+  profile = profile or Profile.active()
+  local names, seen = {}, {}
+  if profile.discoverNatives then
+    for _, entry in ipairs(listModuleDir()) do collectModule(names, seen, entry) end
+  end
+  for _, base in ipairs(moduleNames(profile)) do collectModule(names, seen, base .. ".lua") end
   table.sort(names)
   return names
 end
+Natives.discoverModules = discoverModules
 
-Natives.MODULE_NAMES = discoverModules()
-Natives.MODULES = {}
+function Natives.versionOf(session)
+  return Profile.resolveId(Profile.sessionVersion(session) or GameVersion.get())
+end
 
-for _, base in ipairs(Natives.MODULE_NAMES) do
-  if Capabilities.nativeAllowed(nil, base) then
-    local ok, mod = pcall(require, MODULE_PACKAGE .. base)
-    if ok and type(mod) == "table" then
-      Natives.MODULES[base] = mod
-      for id, handler in pairs(mod.HANDLERS or {}) do
-        Natives.ALLOW["special:" .. id] = handler
+function Natives.bind(version)
+  local id = Profile.resolveId(version or Natives.versionOf())
+  local game = Constants.gameKey(id)
+  if Natives.boundGame == game then return false end
+  local profile = Profile.of(id)
+  local scope = { version = id }
+  local names = discoverModules(profile)
+  local modules, byName = {}, {}
+  if type(profile.coreSpecials) == "table" then
+    for _, name in ipairs(profile.coreSpecials) do byName[name] = Natives.CORE[name] end
+  else
+    for name, fn in pairs(Natives.CORE) do byName[name] = fn end
+  end
+  for _, base in ipairs(names) do
+    if Capabilities.nativeAllowed(scope, base) then
+      local ok, mod = pcall(require, MODULE_PACKAGE .. base)
+      if ok and type(mod) == "table" then
+        modules[base] = mod
+        for name, fn in pairs(mod.BY_NAME or {}) do byName[name] = fn end
       end
     end
   end
+  for key in pairs(Natives.ALLOW) do
+    if key:sub(1, 8) == "special:" then Natives.ALLOW[key] = nil end
+  end
+  for sid, fn in pairs(Std.bindById(byName, game)) do
+    Natives.ALLOW["special:" .. sid] = fn
+  end
+  Natives.boundGame = game
+  Natives.boundVersion = id
+  Natives.BY_NAME = byName
+  Natives.MODULE_NAMES = names
+  Natives.MODULES = modules
+  Natives.Queries = modules["natives_queries"]
+  Natives.Seagallop = modules["natives_seagallop"]
+  return true
 end
 
-Natives.Queries = Natives.MODULES["natives_queries"]
-Natives.Seagallop = Natives.MODULES["natives_seagallop"]
+function Natives.ensureBound(session)
+  return Natives.bind(Natives.versionOf(session))
+end
+
+function Natives.specialName(specialId, game)
+  return Std.specialName(game or Natives.boundGame or "firered", specialId)
+end
+
+function Natives.handlerFor(name)
+  return Natives.BY_NAME and Natives.BY_NAME[name] or nil
+end
+
+Natives.bind()
 
 function Natives.resetLog()
   Natives._logged = {}
 end
 
-local function log_once(kind, id, logger)
+local function log_once(kind, id, logger, name)
   local key = kind .. ":" .. tostring(id)
   if Natives._logged[key] then return end
   Natives._logged[key] = true
   local msg = string.format("[game3] skip unknown %s 0x%X", kind, tonumber(id) or 0)
+  if name then msg = msg .. " (" .. tostring(name) .. ")" end
   if logger then logger(msg) else print(msg) end
 end
 
@@ -990,13 +1079,14 @@ function Natives.resolveNative(addr)
 end
 
 function Natives.special(ctx, specialId, adapters)
+  Natives.ensureBound()
   local id = tonumber(specialId) or 0
   local handler = Natives.ALLOW["special:" .. id]
   if handler then
     local yield, value = handler(ctx, adapters)
     return yield and true or false, value, true
   end
-  log_once("special", id, adapters and adapters.log)
+  log_once("special", id, adapters and adapters.log, Natives.specialName(id))
   return false, nil, false
 end
 

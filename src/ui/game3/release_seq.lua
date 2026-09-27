@@ -20,6 +20,7 @@ ReleaseSeq.yesNoCursor = 2 -- default to NO
 ReleaseSeq.animT = 0
 ReleaseSeq.startX = 0
 ReleaseSeq.startY = 0
+local SE = require("src.core.game3.se_ids")
 
 local function se(id)
   pcall(function() require("src.core.game3.audio").playSe(id) end)
@@ -38,7 +39,7 @@ function ReleaseSeq.start(opts)
   ReleaseSeq.animT = 0
   ReleaseSeq.startX = opts.startX or 80
   ReleaseSeq.startY = opts.startY or 60
-  se(5)
+  se(SE.SE_SELECT)
 end
 
 function ReleaseSeq.isActive()
@@ -56,9 +57,9 @@ function ReleaseSeq.handleInput(input)
   if ReleaseSeq.state == "confirm" then
     if input:wasPressed("up") or input:wasPressed("down") then
       ReleaseSeq.yesNoCursor = (ReleaseSeq.yesNoCursor == 1) and 2 or 1
-      se(5)
+      se(SE.SE_SELECT)
     elseif input:wasPressed("a") then
-      se(5) -- pokefirered/src/menu.c:376
+      se(SE.SE_SELECT) -- pokefirered/src/menu.c:376
       if ReleaseSeq.yesNoCursor == 1 then
         -- Confirmed YES
         ReleaseSeq.state = "anim"
@@ -102,7 +103,7 @@ function ReleaseSeq.update(dt)
       end
       -- pokefirered/src/pokemon_storage_system_tasks.c:1304
       ReleaseSeq.state = "released"
-      se(5)
+      se(SE.SE_SELECT)
     end
   end
 end

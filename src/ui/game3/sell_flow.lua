@@ -10,9 +10,8 @@ local Trig = require("src.core.game3.trig")
 local SellFlow = {}
 SellFlow.__index = SellFlow
 
-local SE_SELECT = 5
 -- include/constants/songs.h:254
-local SE_SHOP = 248
+local SE = require("src.core.game3.se_ids")
 
 local function se(id)
   pcall(function() require("src.core.game3.audio").playSe(id) end)
@@ -86,7 +85,7 @@ function SellFlow:commit()
     { stringVars = { self.name, [3] = tostring(earn) } })
   self.textColors = FrlgFont.COLOR.NORMAL
   self.state = "done"
-  se(SE_SHOP)
+  se(SE.SE_SHOP)
   if self.bag and Bag.remove(self.bag, self.itemId, self.qty) and self.session then
     self.session.money = math.max(0, math.floor(tonumber(self.session.money) or 0)) + earn
     local Q = require("src.core.game3.quest_log_recorder")
@@ -130,34 +129,34 @@ function SellFlow:handleInput(input)
   local st = self.state
   if st == "cant" or st == "done" then
     if input:wasPressed("a") or input:wasPressed("b") then
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
       self:finish()
     end
   elseif st == "qty" then
     local q, changed = adjust(self.qty, self.owned, input)
     if changed then
       self.qty = q
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
     elseif input:wasPressed("a") then
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
       self:ask()
     elseif input:wasPressed("b") then
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
       self:finish()
     end
   elseif st == "confirm" then
     -- src/menu_helpers.c:47 Task_CallYesOrNoCallback
     if input:wasPressed("up") and self.yesNo ~= 1 then
       self.yesNo = 1
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
     elseif input:wasPressed("down") and self.yesNo ~= 2 then
       self.yesNo = 2
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
     elseif input:wasPressed("a") then
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
       if self.yesNo == 1 then self:commit() else self:finish() end
     elseif input:wasPressed("b") then
-      se(SE_SELECT)
+      se(SE.SE_SELECT)
       self:finish()
     end
   end

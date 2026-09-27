@@ -2,6 +2,10 @@ local bit = require("bit")
 local band, rshift, lshift, bor = bit.band, bit.rshift, bit.lshift, bit.bor
 local floor = math.floor
 
+local function fallback_prefix()
+  return require("src.core.game3.battle.profile").get().animCacheFallback or nil
+end
+
 local AnimPal = {}
 
 local _lastSentPal = {}
@@ -346,7 +350,7 @@ function AnimPal.readPackFile(file)
   local ok, Dataset = pcall(require, "src.core.game3.dataset")
   local cache = ok and Dataset.cache and Dataset.cache() or nil
   local rel = "data/generated/gba/pokemon/battle_anims/" .. tostring(file)
-  return cache and cache.read and (cache:read(rel) or cache:read("firered/" .. rel))
+  return cache and cache.read and (cache:read(rel) or (fallback_prefix() and cache:read(fallback_prefix() .. rel)))
 end
 
 function AnimPal.hydrateIndex(info, tag, rgbaImg, reader)

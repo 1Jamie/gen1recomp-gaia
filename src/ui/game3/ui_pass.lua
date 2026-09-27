@@ -33,10 +33,16 @@ function UiPass.drawUi()
   local CoinsBox = require("src.ui.game3.coins_box")
   local ElevatorWindow = require("src.ui.game3.elevator_window")
 
+  local Screens = require("src.ui.game3.screens")
   local order = Stack.drawOrder()
   if #order > 0 then
     for _, layer in ipairs(order) do
-      tryDraw(layer.mod)
+      local skin = Screens.skin(layer.id)
+      if skin and skin.draw then
+        tryDraw({ draw = function() skin.draw(layer.mod) end })
+      else
+        tryDraw(layer.mod)
+      end
     end
   else
     if StartMenu.isOpen() then tryDraw(StartMenu) end

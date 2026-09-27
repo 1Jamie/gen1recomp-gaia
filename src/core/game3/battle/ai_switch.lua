@@ -170,6 +170,17 @@ local function excluded(st, i, in1, in2)
   local pend = st.monToSwitchInto or {}
   return (b1 and b1.partyIndex == i) or (b2 and b2.partyIndex == i)
     or pend[in1] == i or pend[in2] == i
+    -- pokeemerald/src/battle_ai_switch_items.c:66
+    or ((st.foeHalf ~= nil or st.playerHalf ~= nil) and not State.ownsSlot(st, in1, i))
+end
+
+local function party_of(st, id)
+  return (id % 2 == 0) and st.playerParty or st.foeParty
+end
+
+-- pokeemerald/src/battle_ai_switch_items.c:49
+local function opposing_left(id)
+  return (id % 2 == 0) and 1 or 0
 end
 
 local function num_battlers(st)
@@ -185,14 +196,15 @@ end
 -- src/battle_ai_switch_items.c:32
 local function if_wonder_guard(st, b, id, rng)
   if st.double then return false end
-  local opp = State.battler(st, 0)
+  local opp = State.battler(st, opposing_left(id))
   if not opp or battler_ability(opp) ~= AB.WONDER_GUARD then return false end
   for i = 1, 4 do
     local mv = moves_of(b)[i]
     if move_num(mv) ~= 0 and ai_type_calc(mv, opp.species, battler_ability(opp)).super then return false end
   end
+  local party = party_of(st, id)
   for i = 1, 6 do
-    local mon = st.foeParty and st.foeParty[i]
+    local mon = party and party[i]
     if mon_usable(mon) and i ~= b.partyIndex then
       for j = 1, 4 do
         local mv = mon.moves and mon.moves[j]
@@ -207,7 +219,7 @@ local function if_wonder_guard(st, b, id, rng)
 end
 
 -- src/battle_ai_switch_items.c:176
-local function has_super_effective(st, b, noRng, rng)
+local function has_super_effective(st, b, noRng, rng, id)
   local function scan(oid)
     local opp = State.battler(st, oid)
     if State.isAbsent(st, oid) or not opp then return false end
@@ -219,14 +231,15 @@ local function has_super_effective(st, b, noRng, rng)
     end
     return false
   end
-  if scan(0) then return true end
+  local left = opposing_left(id or 1)
+  if scan(left) then return true end
   if not st.double then return false end
-  return scan(2)
+  return scan(left + 2)
 end
 
 -- src/battle_ai_switch_items.c:82
 local function absorbs_opponents_move(st, b, id, rng)
-  if (has_super_effective(st, b, true, rng) and roll(rng, 0, 2) ~= 0) or last_landed(b) == 0 then
+  if (has_super_effective(st, b, true, rng, id) and roll(rng, 0, 2) ~= 0) or last_landed(b) == 0 then
     return false
   end
   local last = b.expLastLandedMove
@@ -240,7 +253,7 @@ local function absorbs_opponents_move(st, b, id, rng)
   if battler_ability(b) == absorb then return false end
   local in1, in2 = battlers_in(st, id)
   for i = 1, 6 do
-    local mon = st.foeParty and st.foeParty[i]
+    local mon = party_of(st, id) and party_of(st, id)[i]
     if mon_usable(mon) and not excluded(st, i, in1, in2) then
       if absorb == party_ability(mon) and roll(rng, 0, 1) == 1 then return true, i end
     end
@@ -257,7 +270,7 @@ local function find_mon_with_flags(st, b, id, flag, modulo, rng)
   end
   local in1, in2 = battlers_in(st, id)
   for i = 1, 6 do
-    local mon = st.foeParty and st.foeParty[i]
+    local mon = party_of(st, id) and party_of(st, id)[i]
     if mon_usable(mon) and not excluded(st, i, in1, in2) then
       local f = ai_type_calc(b.expLastLandedMove, species_of(mon), party_ability(mon))
       if f[flag] then
@@ -332,7 +345,7 @@ function AiSwitch.shouldSwitch(st, id, rng)
   local in1, in2 = battlers_in(st, id)
   local available = 0
   for i = 1, 6 do
-    local mon = st.foeParty and st.foeParty[i]
+    local mon = party_of(st, id) and party_of(st, id)[i]
     if mon_usable(mon) and not excluded(st, i, in1, in2) then available = available + 1 end
   end
   if available == 0 then return false end
@@ -345,7 +358,7 @@ function AiSwitch.shouldSwitch(st, id, rng)
   if ok then return true, pick end
   ok, pick = if_natural_cure(st, b, id, rng)
   if ok then return true, pick end
-  if has_super_effective(st, b, false, rng) or stats_raised(b) then return false end
+  if has_super_effective(st, b, false, rng, id) or stats_raised(b) then return false end
   ok, pick = find_mon_with_flags(st, b, id, "noEffect", 2, rng)
   if ok then return true, pick end
   ok, pick = find_mon_with_flags(st, b, id, "notVery", 3, rng)
@@ -361,9 +374,10 @@ function AiSwitch.trySwitch(st, ad, id, rng)
     local Engine = require("src.core.game3.battle.engine")
     if Engine.mostSuitableMon then pick = Engine.mostSuitableMon(st, ad, id) end
     if pick == nil then
-      local in1, in2 = 1, st.double and 3 or 1
+      local in1 = (id % 2 == 0) and id or 1
+      local in2 = st.double and State.PARTNER(in1) or in1
       for i = 1, 6 do
-        local mon = st.foeParty and st.foeParty[i]
+        local mon = party_of(st, id) and party_of(st, id)[i]
         if mon and (tonumber(mon.hp) or 0) ~= 0 and not excluded(st, i, in1, in2) then
           pick = i
           break

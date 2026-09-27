@@ -127,9 +127,16 @@ function Window.menuRowY(baseTop, index1)
   return baseTop + (index1 - 1) * Window.ROW_STRIDE
 end
 
---- Pret Menu_InitCursor option row Y in pixels (15px pitch).
+-- pokeemerald/src/menu.c:1203
+function Window.optionHeight(opts)
+  local face = FrlgFont.face and FrlgFont.face(opts)
+  if face then return face.height end
+  return Window.OPTION_HEIGHT
+end
+
+--- Pret Menu_InitCursor option row Y in pixels.
 function Window.menuRowPx(baseTopPx, index1)
-  return baseTopPx + (index1 - 1) * Window.OPTION_HEIGHT
+  return baseTopPx + (index1 - 1) * Window.optionHeight()
 end
 
 --- How many double-spaced rows fit in a content height (tiles), given headerTiles.

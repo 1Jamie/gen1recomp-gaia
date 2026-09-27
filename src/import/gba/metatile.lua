@@ -1,11 +1,12 @@
--- Dual-layer FRLG metatile composite (indexed + BGR555).
+-- Dual-layer GBA metatile composite (indexed + BGR555).
 -- pret DrawMetatile (field_camera.c): bottom entries 0–3, top 4–7.
--- Layer type (attr bits 29–30) picks which BG gets each half:
+-- Layer type picks which BG gets each half:
 --   NORMAL  → bottom BG1 (under sprites), top BG2 (covers sprites)
 --   COVERED → bottom BG3, top BG1 (both under sprites)
 --   SPLIT   → bottom BG3, top BG2 (covers sprites)
 
 local Tileset = require("src.import.gba.tileset")
+local Family = require("src.import.gba.family")
 
 local Metatile = {}
 
@@ -19,24 +20,26 @@ local function flip_coords(x, y, hflip, vflip)
   return x, y
 end
 
---- pret METATILE_ATTRIBUTE_LAYER_TYPE (bits 29–30 of metatile attr u32).
+-- pokefirered/include/global.fieldmap.h:32, pokeemerald/include/global.fieldmap.h:40
 function Metatile.layerType(bundle, mid)
+  local F = Family.active()
+  local nPri = F.numPrimaryMetatiles
   local attrs
-  if mid < Tileset.NUM_PRIMARY_METATILES then
+  if mid < nPri then
     attrs = bundle.primaryAttr
   else
     attrs = bundle.secondaryAttr
   end
   if not attrs then return Metatile.LAYER_NORMAL end
-  local _, w = Tileset.attrOf(attrs, mid,
-    mid < Tileset.NUM_PRIMARY_METATILES and nil or Tileset.NUM_PRIMARY_METATILES)
-  return math.floor((tonumber(w) or 0) / 0x20000000) % 4
+  local _, w = Tileset.attrOf(attrs, mid, mid < nPri and nil or nPri)
+  return F.layerOf(w)
 end
 
 --- Blit one metatile half (layer 0=bottom, 1=top) into idxBuf.
 -- Top: colorIndex 0 leaves dest unchanged. Bottom: colorIndex 0 writes 0.
 local function blit_layer(bundle, entries, layer, idxBuf)
   local isTop = layer == 1
+  local nPriTiles = Family.active().numPrimaryTiles
   for slot = 0, 3 do
     local e = entries[layer * 4 + slot + 1]
     local tid = e % 1024
@@ -45,11 +48,11 @@ local function blit_layer(bundle, entries, layer, idxBuf)
     local palSlot = math.floor(e / 4096) % 16
     local tiles
     local localTid = tid
-    if tid < Tileset.NUM_PRIMARY_TILES then
+    if tid < nPriTiles then
       tiles = bundle.primaryTiles
     else
       tiles = bundle.secondaryTiles
-      localTid = tid - Tileset.NUM_PRIMARY_TILES
+      localTid = tid - nPriTiles
     end
     if localTid >= 0 and localTid < (tiles.count or 0) then
       local ox = (slot % 2) * 8

@@ -205,7 +205,11 @@ function Damage.base(attacker, defender, move, opts)
   if aAb == "HUGE_POWER" or aAb == "PURE_POWER" then attack = attack * 2 end
   local st = adapter and adapter._st
   local Engine = package.loaded["src.core.game3.battle.engine"]
-  if st and Engine and Engine.hasBadge then
+  local k = st and st.kinds or {}
+  -- pokeemerald/src/pokemon.c:3407
+  local noBoost = st and require("src.core.game3.battle.profile").isRse(st)
+    and (st.eReader or st.secretBase or k.frontier or k.recordedLink)
+  if st and Engine and Engine.hasBadge and not noBoost then
     if attacker.side == "player" and Engine.hasBadge(st, 1) then attack = math.floor(110 * attack / 100) end
     if defender.side == "player" and Engine.hasBadge(st, 5) then defense = math.floor(110 * defense / 100) end
     if attacker.side == "player" and Engine.hasBadge(st, 7) then spAttack = math.floor(110 * spAttack / 100) end

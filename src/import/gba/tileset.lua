@@ -1,15 +1,28 @@
--- FRLG tileset load: LZ tiles (4bpp), uncompressed palettes (BGR555), metatiles, attrs.
+-- GBA tileset load: LZ tiles (4bpp), uncompressed palettes (BGR555), metatiles, attrs.
 
 local Lz77 = require("src.import.gba.lz77")
+local Family = require("src.import.gba.family")
 
 local Tileset = {}
 
-Tileset.NUM_PRIMARY_TILES = 640
-Tileset.NUM_PRIMARY_METATILES = 640
--- pret fieldmap.h — LoadPrimaryTilesetPalette / LoadSecondaryTilesetPalette
-Tileset.NUM_PALS_IN_PRIMARY = 7  -- BG slots 0..6
-Tileset.NUM_PALS_TOTAL = 13      -- BG slots 0..12
+local DYNAMIC = {
+  NUM_PRIMARY_TILES = "numPrimaryTiles",
+  NUM_PRIMARY_METATILES = "numPrimaryMetatiles",
+  NUM_PALS_IN_PRIMARY = "numPalsInPrimary",
+  NUM_PALS_TOTAL = "numPalsTotal",
+}
 
+setmetatable(Tileset, {
+  __index = function(_, k)
+    local field = DYNAMIC[k]
+    if field then return Family.active()[field] end
+    return nil
+  end,
+})
+
+function Tileset.family()
+  return Family.active()
+end
 
 --- Decode one BGR555 colour → r,g,b in 0..31 (5-bit) and 0..255.
 function Tileset.bgr555(c)
@@ -109,12 +122,11 @@ end
 
 function Tileset.loadAttributes(rom, offset, nbytes)
   local data = rom:readString(offset, nbytes)
-  local count = math.floor(nbytes / 4)
+  local count = math.floor(nbytes / Family.active().attrBytes)
   return { data = data, count = count }
 end
 
---- Behavior (low 9 bits of attr word0) and collision (bits from FRLG).
--- FRLG metatile attribute: u32 — behavior in low bits (see pret).
+-- pokefirered/include/global.fieldmap.h:26, pokeemerald/include/global.fieldmap.h:39
 function Tileset.attrOf(attrs, mid, primaryCount)
   primaryCount = primaryCount or Tileset.NUM_PRIMARY_METATILES
   local idx = mid
@@ -124,16 +136,27 @@ function Tileset.attrOf(attrs, mid, primaryCount)
   if idx < 0 or idx >= attrs.count then
     return 0, 0
   end
-  local off = idx * 4
+  local F = Family.active()
   local d = attrs.data
   local w
+  if F.attrBytes == 2 then
+    local off = idx * 2
+    if type(d) == "string" then
+      local b1, b2 = string.byte(d, off + 1, off + 2)
+      w = (b1 or 0) + (b2 or 0) * 256
+    else
+      w = d[off + 1] + d[off + 2] * 256
+    end
+    return F.behaviorOf(w), w
+  end
+  local off = idx * 4
   if type(d) == "string" then
     local b1, b2, b3, b4 = string.byte(d, off + 1, off + 4)
     w = (b1 or 0) + (b2 or 0) * 256 + (b3 or 0) * 65536 + (b4 or 0) * 16777216
   else
     w = d[off + 1] + d[off + 2] * 256 + d[off + 3] * 65536 + d[off + 4] * 16777216
   end
-  local behavior = w % 512 -- 0x1FF
+  local behavior = F.behaviorOf(w)
   -- Collision in map cells is separate; metatile attr also encodes layer type etc.
   -- Use bit 0x200 area: pret stores collision in map grid, behavior here.
   return behavior, w

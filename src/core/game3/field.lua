@@ -35,6 +35,12 @@ function Field.metatileOverrideAt(mapId, x, y)
   return bucket and bucket[y * 1024 + x] or nil
 end
 
+Field._holdInput = false
+
+function Field.holdInput(on)
+  Field._holdInput = on == true
+end
+
 function Field.start(mod, game, session)
   if session and session._continueWarpDeferred then
     require("src.core.game3.save_schema_firered").useContinueGameWarp(session)
@@ -49,7 +55,14 @@ function Field.start(mod, game, session)
   Field._fishing = nil
   Field._flyLanding = nil
   Field._fieldCallback = false
+  Field._holdInput = false
   if Player then Player.fishing = false end
+  local Dive = require("src.core.game3.dive")
+  Dive.reset()
+  if Dive.enabled(session) then
+    Dive.install()
+    Field.installRseFieldEffects()
+  end
   -- pokefirered/src/overworld.c:345
   Field._tempFlagMap = session and session.map
   Field.clearMetatiles()
@@ -135,6 +148,7 @@ function Field.update(_dt)
 
   local PcAnim = package.loaded["src.core.game3.pc_anim"]
   if PcAnim then PcAnim.update() end
+  Field.runFrameTasks()
 
   -- Game3 owns locomotion + EventObjects (host World:step is paused).
   local Objects = require("src.core.game3.objects")
@@ -150,7 +164,9 @@ function Field.update(_dt)
   local input = game and game.input
   -- pokefirered/src/field_control_avatar.c:98
   local walkInput = input
-  if Field.forcedMovementPending() then walkInput = nil end
+  if Field.forcedMovementPending() or Field._holdInput then walkInput = nil end
+  -- pokeemerald/src/overworld.c:911
+  require("src.core.game3.dive").syncAvatar()
   -- pokefirered/src/overworld.c:1402
   local NativesEvents = package.loaded["src.core.game3.scripting.natives_events"]
   if NativesEvents and NativesEvents.pollWalkaway then
@@ -173,6 +189,10 @@ function Field.update(_dt)
     if not Hud.busy() then
       Field.interact(game)
     end
+  end
+  -- pokeemerald/src/field_control_avatar.c:153
+  if input and input.wasPressed and input:wasPressed("b") and not Hud.busy() then
+    require("src.core.game3.dive").tryEmerge()
   end
 
   -- Pret General tileset anims (water / flower / sand edge).
@@ -220,7 +240,14 @@ Field._fallWarp = false
 Field._fieldCallback = false
 
 function Field.callbackPending()
-  return (Field._fieldCallback or Field._flyLanding or Field._fallWarp) and true or false
+  if Field._fieldCallback or Field._flyLanding or Field._fallWarp then return true end
+  local mapBlock = Field._session and require("src.core.game3.profile").forSession(Field._session).map
+  if mapBlock and mapBlock.onFrameAfterWarpExit then
+    local Warp = package.loaded["src.core.game3.warp"]
+    -- pokeemerald/src/field_screen_effect.c:317
+    if Warp and Warp.isBusy() then return true end
+  end
+  return false
 end
 
 function Field.unlock()
@@ -389,7 +416,7 @@ local function pick_up_hidden_coins(game, hidden, qty)
   end
   Bag.Coins.add(session, qty)
   set_hidden_item_flag(game, hidden)
-  Audio.playFanfare(257)
+  Audio.playFanfare("MUS_LEVEL_UP")
   message_then_after_fanfare(found, RomText.box("Text_PutCoinsAwayInCoinCase", ctx))
   return true
 end
@@ -414,7 +441,7 @@ local function pick_up_hidden_item(game, hidden, qty, foundKey, delay)
   end
   set_hidden_item_flag(game, hidden)
   -- pokefirered/data/scripts/obtain_item.inc:27
-  Audio.playFanfare(257)
+  Audio.playFanfare("MUS_LEVEL_UP")
   ctx.stringVars[3] = std_string(POCKET_STDSTRING[ItemsData.pocketOf(itemId)] or POCKET_STDSTRING.ITEMS)
   message_then_after_fanfare(found, RomText.box("Text_PutItemAway", ctx), delay)
   return true
@@ -431,6 +458,14 @@ function Field.pickUpHiddenItem(game, hidden)
     return false
   end
   local qty = hidden.quantity or 1
+  if require("src.core.game3.profile").family(session) == "rse" then
+    -- pokeemerald/src/field_control_avatar.c:348
+    local Space = package.loaded["src.core.game3.scripting.space"]
+    local key = Space and Space.vm and Space.scriptKey("EventScript_HiddenItemScript")
+    if not key then return false end
+    Space.vm._presetSpecial = { [0x8004] = flag, [0x8005] = tonumber(hidden.item) or 0 }
+    return Space.startScript(key) == true
+  end
   if (tonumber(hidden.item) or 0) == 0 then
     return pick_up_hidden_coins(game, hidden, qty)
   end
@@ -545,7 +580,14 @@ function Field.tryCoordEvents(game, cx, cy)
   local DIR_BY_FACING = { down = 1, up = 2, left = 3, right = 4 }
   local facingDir = DIR_BY_FACING[P.facing] or 1
 
+  local CoordWeather = require("src.core.game3.coord_weather")
+  local elevation = tonumber(P.currentElevation or P.elevation) or 0
   for _, ev in ipairs(events) do
+    -- pokeemerald/src/field_control_avatar.c:883
+    if ev.x == cx and ev.y == cy and CoordWeather.isWeatherEvent(ev)
+        and ((tonumber(ev.elevation) or 0) == 0 or tonumber(ev.elevation) == elevation) then
+      CoordWeather.run(ev.var)
+    end
     if ev.x == cx and ev.y == cy and ev.scriptKey then
       local var = tonumber(ev.var)
       if var then
@@ -746,6 +788,25 @@ function Field.tryWalkIntoSign(game, dir, probe)
   return true
 end
 
+Field._frameTasks = {}
+
+-- pokeemerald/src/task.c:110
+function Field.addFrameTask(fn)
+  Field._frameTasks = Field._frameTasks or {}
+  Field._frameTasks[#Field._frameTasks + 1] = fn
+end
+
+function Field.runFrameTasks()
+  local list = Field._frameTasks
+  if not list or #list == 0 then return end
+  local keep = {}
+  for _, fn in ipairs(list) do
+    local ok, done = pcall(fn)
+    if ok and not done then keep[#keep + 1] = fn end
+  end
+  Field._frameTasks = keep
+end
+
 function Field.interact(game)
   game = game or Field._game
   if not Field.running then return false end
@@ -789,6 +850,9 @@ function Field.interact(game)
   local eo = Objects.at(ox, oy)
   if eo and eo.def then
     local gfx = eo.def.graphicsId or eo.def.gfx
+    local FP = require("src.core.game3.profile").forSession(Field._session)
+    -- pokeemerald/data/scripts/field_move_scripts.inc:60
+    if FP.field and FP.field.fieldMoveScripts and eo.def.scriptKey then gfx = nil end
     if gfx == FieldMoves.GFX_IDS.CUT_TREE then
       local ctx = { party = party, store = Space.store, session = Field._session, facingObject = eo }
       local res = FieldMoves.tryCutOW(ctx)
@@ -874,6 +938,13 @@ function Field.interact(game)
     end
   end
 
+  -- pokeemerald/src/field_control_avatar.c:354
+  if FieldMoves.isRse() and require("src.core.game3.rse.init").call("secretBase", "interactBg", nil, nil, fx, fy,
+      P.facing, elevation) then
+    interacted(fx, fy, "secret_base", nil)
+    return true
+  end
+
   -- pokefirered/src/field_control_avatar.c:498
   local hidden = hidden_item_at(game, fx, fy, elevation)
   if hidden and not hidden.underfoot then
@@ -885,11 +956,23 @@ function Field.interact(game)
 
   -- 3) Original metatile interactions follow objects and map-specific scripts.
   local behavior=Collision.behavior(fx,fy)
-  local key=require("src.core.game3.scripting.interaction_scripts").scriptFor(behavior,P.facing)
+  local key=require("src.core.game3.scripting.interaction_scripts").scriptFor(behavior,P.facing,
+    layout and layout:elevAt(fx,fy)==elevation)
   if behavior==nil then key=CollisionStd.scriptFor(Collision.cell(fx,fy)) end
   if key and Space.startScript(key,nil,facingDir) then
     interacted(fx, fy, "script", key)
     return true
+  end
+
+  -- pokeemerald/src/field_control_avatar.c:448 GetInteractedWaterScript
+  if FieldMoves.isRse() then
+    local key = Field.rseWaterScript(fx, fy, behavior)
+    if key and Space.startScript(Space.scriptKey(key), nil, facingDir) then
+      interacted(fx, fy, "script", key)
+      return true
+    end
+    -- pokeemerald/src/field_control_avatar.c:180
+    return require("src.core.game3.dive").tryDiveDown() == true
   end
 
   -- 4) Water / Surf interact on facing water tile
@@ -933,6 +1016,85 @@ function Field.interact(game)
   return false
 end
 
+-- pokeemerald/src/field_control_avatar.c:448
+function Field.rseWaterScript(fx, fy, behavior)
+  local P = require("src.core.game3.player")
+  local Collision = require("src.core.game3.collision")
+  local FieldMoves = require("src.core.game3.field_moves")
+  local Space = package.loaded["src.core.game3.scripting.space"]
+  local ctx = { store = Space and Space.store, session = Field._session }
+  local party = Field._session and Field._session.party
+  if FieldMoves.hasBadge(ctx, "SURF") and FieldMoves.partyMoveUser(party, "SURF")
+      and not P.surfing and not P.underwater and Collision.isWater(fx, fy) then
+    return "EventScript_UseSurf"
+  end
+  if FieldMoves.isWaterfallBehavior(behavior) then
+    if FieldMoves.hasBadge(ctx, "WATERFALL") and P.surfing and P.facing == "up" then
+      return "EventScript_UseWaterfall"
+    end
+    return "EventScript_CannotUseWaterfall"
+  end
+  return nil
+end
+
+local function deferUntilScriptEnds(fn)
+  Field.locked = true
+  Field.holdInput(true)
+  require("src.core.game3.task").spawn(function()
+    local Space = package.loaded["src.core.game3.scripting.space"]
+    if Space and Space.vm and Space.vm:isRunning() then return false end
+    Field.holdInput(false)
+    fn()
+    return true
+  end)
+end
+
+local function partyMon(slot)
+  local party = Field._session and Field._session.party
+  return party and party[(tonumber(slot) or 0) + 1] or nil
+end
+
+function Field.installRseFieldEffects()
+  local FieldEffects = require("src.core.game3.field_effects")
+  local H = FieldEffects.HANDLERS
+  -- pokeemerald/src/field_effect.c:2985
+  H.FLDEFF_USE_SURF = H.FLDEFF_USE_SURF or function()
+    local mon = partyMon(FieldEffects.fieldEffectArgument(0, 0))
+    deferUntilScriptEnds(function() Field.executeFieldMove({ action = "surf", mon = mon }) end)
+    return true
+  end
+  -- pokeemerald/src/field_effect.c:1828
+  H.FLDEFF_USE_WATERFALL = H.FLDEFF_USE_WATERFALL or function()
+    local mon = partyMon(FieldEffects.fieldEffectArgument(0, 0))
+    deferUntilScriptEnds(function() Field.executeFieldMove({ action = "waterfall", mon = mon }) end)
+    return true
+  end
+end
+
+-- pokeemerald/src/fldeff_cut.c:138
+local function rseCutPlan(mon)
+  local P = require("src.core.game3.player")
+  local Collision = require("src.core.game3.collision")
+  local FieldMoves = require("src.core.game3.field_moves")
+  local Pokemon = require("src.core.game3.pokemon")
+  local hyper = false
+  if mon and mon.species then
+    local okA, ab = pcall(Pokemon.abilityId, mon.species, mon.personality)
+    local C = require("src.core.game3.constants").of(require("src.core.game3.profile").forSession(nil).id)
+    hyper = okA and ab ~= nil and ab == C.abilities.byName.ABILITY_HYPER_CUTTER
+  end
+  local elev = Collision.elevationAt(P.cellX, P.cellY)
+  return FieldMoves.cutGrassPlan({
+    x = P.cellX, y = P.cellY, elevation = elev,
+    behavior = function(x, y) return Collision.behavior(x, y) end,
+    elevationAt = function(x, y) return Collision.elevationAt(x, y) end,
+    impassable = function(x, y)
+      return not (Collision.isWalkable(x, y) or Collision.isWater(x, y))
+    end,
+  }, hyper)
+end
+Field.rseCutPlan = rseCutPlan
+
 function Field.executeFieldMove(payload)
   if not payload then return end
   local Message = require("src.ui.game3.message")
@@ -957,7 +1119,7 @@ function Field.executeFieldMove(payload)
     flash="UsedFlash",rock_smash="UsedRockSmash",dig="UsedDigInLocation",
     teleport="UsedTeleportToLocation",sweet_scent="UsedSweetScent"}
   local key=questKeys[act]
-  if key and Field._session then
+  if key and Field._session and require("src.core.game3.field_modules").enabled("questLog", Field._session) then
     local Q=require("src.core.game3.quest_log_recorder")
     -- pokefirered/src/party_menu.c:4154
     local where=act=="teleport" and {map=Field._session.healMap} or Field._session
@@ -988,6 +1150,36 @@ function Field.executeFieldMove(payload)
         Field.locked = false
       end)
     end)
+  elseif act == "cut_grass" and require("src.core.game3.field_moves").isRse() then
+    Field.locked = true
+    -- pokeemerald/src/fldeff_cut.c:316
+    showMon(function()
+      local FieldMoves = require("src.core.game3.field_moves")
+      local plan = payload.cutPlan or rseCutPlan(payload.mon)
+      if payload.se then Audio.playSe(payload.se) end
+      local Map = require("src.core.game3.map")
+      local def = Map.currentDef()
+      local layout = def and def.midLayout
+      if plan and layout then
+        local function getMid(x, y) return layout:midAt(x, y) end
+        local function setMid(x, y, mid) Field.setMetatile(x, y, mid, false) end
+        for _, c in ipairs(plan.cells) do
+          local mid = getMid(c.x, c.y)
+          local to = mid and FieldMoves.cutGrassMetatile(mid)
+          if to then setMid(c.x, c.y, to) end
+        end
+        -- pokeemerald/src/fldeff_cut.c:338
+        FieldMoves.fixLongGrass(P.cellX - plan.reach, P.cellY - (1 + plan.reach), plan.side, getMid, setMid)
+        local Collision = require("src.core.game3.collision")
+        if not Collision.isGrass(P.cellX, P.cellY) then FieldEffects.clearTallGrass() end
+      end
+      FieldEffects.startCutGrass(P.cellX, P.cellY, function()
+        Field.locked = false
+      end)
+    end)
+  elseif act == "dive" then
+    -- pokeemerald/src/party_menu.c:3910 FieldCallback_Dive
+    require("src.core.game3.dive").useDive(payload.slot, payload.mon)
   elseif act == "cut_grass" then
     Field.locked = true
     -- pokefirered/src/fldeff_cut.c:169
@@ -1025,6 +1217,22 @@ function Field.executeFieldMove(payload)
         Field.openDottedHoleDoor()
       end)
     end)
+  elseif act == "fly" and require("src.core.game3.profile").family(Field._session) == "rse" then
+    Field.locked = true
+    local RseMap = require("src.ui.game3.rse.region_map")
+    -- pokeemerald/src/region_map.c:1647 CB2_OpenFlyMap
+    RseMap.show({
+      session = Field._session,
+      mode = "fly",
+      onPick = function(sec, info)
+        info = info or {}
+        info.dest = RseMap.flyWarpDestination(Field._session, sec, info.posWithinMapSec)
+        Field.flyTo(sec, payload.mon, info)
+      end,
+      onClose = function(picked)
+        if not picked then Field.locked = false end
+      end,
+    })
   elseif act == "fly" then
     -- pokefirered/src/region_map.c:3873 CB2_OpenFlyMap
     Field.locked = true
@@ -1252,8 +1460,19 @@ function Field.tryFishingEncounter(rod)
     local Map = package.loaded["src.core.game3.map"]
     mapId = Map and Map.current
   end
-  local enc = Encounters.rollFishing(mapId, tonumber(rod) or 0)
+  local fishOpts
+  if require("src.core.game3.field_moves").isRse() then
+    -- pokeemerald/src/wild_encounter.c:124
+    local fx, fy = facing_cell(Player.cellX, Player.cellY, Player.facing)
+    fishOpts = { x = fx, y = fy }
+  end
+  local enc = Encounters.rollFishing(mapId, tonumber(rod) or 0, fishOpts)
   if not enc then return false end
+  if require("src.core.game3.field_moves").isRse() then
+    -- pokeemerald/src/wild_encounter.c:796
+    require("src.core.game3.rse.init").call("tv", "setPokemonAnglerSpecies", "SetPokemonAnglerSpecies", nil,
+      tonumber(enc.species or enc.id) or 0)
+  end
   local Runtime = package.loaded["src.core.game3.runtime"]
   local BattleBridge = require("src.core.game3.battle_bridge")
   local ok, err = BattleBridge.startWild(Runtime and Runtime._mod, Field._game, enc, {})
@@ -1327,7 +1546,13 @@ function Field.updateFishing()
       -- pokefirered/src/field_player_avatar.c:1890 Fishing12
       f.anim, f.animT = "putaway", 0
       -- pokefirered/src/field_player_avatar.c:1895
-      Message.show(RomText.box("gText_NotEvenANibble"), function() fishingStop() end)
+      Message.show(RomText.box("gText_NotEvenANibble"), function()
+        fishingStop()
+        if require("src.core.game3.field_moves").isRse() then
+          -- pokeemerald/src/field_player_avatar.c:2035
+          require("src.core.game3.rse.init").call("tv", "recordFishingAttempt", "RecordFishingAttemptForTV", nil, false)
+        end
+      end)
     else
       -- pokefirered/src/field_player_avatar.c:1791
       f.anim, f.animT = "hooked", 0
@@ -1336,6 +1561,10 @@ function Field.updateFishing()
       Message.show(RomText.box("gText_PokemonOnHook"), function()
         fishingStop()
         Field.tryFishingEncounter(rod)
+        if require("src.core.game3.field_moves").isRse() then
+          -- pokeemerald/src/field_player_avatar.c:1975
+          require("src.core.game3.rse.init").call("tv", "recordFishingAttempt", "RecordFishingAttemptForTV", nil, true)
+        end
       end)
     end
   end
@@ -1437,9 +1666,10 @@ function Field.flyDestination(section)
 end
 
 -- pokefirered/src/field_effect.c:1065 ReturnToFieldFromFlyMapSelect
-function Field.flyTo(section, mon)
-  local dest = assert(Field.flyDestination(section), "no fly destination for mapsec " .. tostring(section))
-  if dest.healLocation then
+function Field.flyTo(section, mon, info)
+  local dest = (info and info.dest)
+    or assert(Field.flyDestination(section), "no fly destination for mapsec " .. tostring(section))
+  if dest.healLocation and require("src.core.game3.field_modules").enabled("questLog", Field._session) then
     -- pokefirered/src/region_map.c:4029 SetUsedFlyQuestLogEvent
     local Q = require("src.core.game3.quest_log_recorder")
     Q.event(Field._session, "UsedFly", { require("src.core.game3.pokemon").displayMonName(mon),
@@ -1631,12 +1861,18 @@ function Field.respawnAtHeal(opts)
   local HealLocations = require("src.core.game3.heal_locations")
   HealLocations.normalizeSession(session)
   local whiteOut = not (opts and opts.fieldMove)
+  local healRow = HealLocations.model() == "heal_row"
   if whiteOut then
     -- pokefirered/src/overworld.c:1556
     local Space = package.loaded["src.core.game3.scripting.space"]
     if Space and Space.vm and Space.vm:isRunning() then Space.vm:halt(true) end
-    -- pokefirered/src/overworld.c:252
-    Field.resetEliteFour()
+    if healRow then
+      -- pokeemerald/src/overworld.c:360
+      if Space and Space.runImmediately then Space.runImmediately("EventScript_WhiteOut") end
+    else
+      -- pokefirered/src/overworld.c:252
+      Field.resetEliteFour()
+    end
     -- pokefirered/src/overworld.c:1553 CB2_WhiteOut
     local okS, Safari = pcall(require, "src.core.game3.safari")
     if okS and Safari and Safari.reset then Safari.reset(session) end
@@ -1653,9 +1889,10 @@ function Field.respawnAtHeal(opts)
     Party.healAll(session.party)
   end
   local Map = require("src.core.game3.map")
-  local mapId = session.healMap or "FR_PLAYERS_HOUSE_1F"
-  local hx = session.healX or 8
-  local hy = session.healY or 5
+  local start = require("src.core.game3.map_ids").newGameStart(session.version)
+  local mapId = session.healMap or start.healMap or start.map
+  local hx = session.healX or start.healX or start.x
+  local hy = session.healY or start.healY or start.y
   local warp = opts and opts.warp
   if type(warp) == "string" then warp = { map = warp } end
   if type(warp) == "table" and type(warp.map) == "string" then
@@ -1665,7 +1902,7 @@ function Field.respawnAtHeal(opts)
     hy = tonumber(warp.y) or hy
   end
   -- pokefirered/src/overworld.c:1555
-  local facing = whiteOut and "up" or "down"
+  local facing = (whiteOut and not healRow) and "up" or "down"
   Map.load(Field._mod, Field._game, mapId, {
     x = hx,
     y = hy,
@@ -1685,7 +1922,7 @@ function Field.respawnAtHeal(opts)
       Flags.setVar(Space.store, Space.vm and Space.vm.ctx or nil, Ctx.VAR_LAST_TALKED, healerId)
     end
   end
-  if whiteOut then
+  if whiteOut and not healRow then
     -- pokefirered/src/overworld.c:1558
     local home = HealLocations.get(1)
     require("src.ui.game3.whiteout_rush").start(Field._game, session, {

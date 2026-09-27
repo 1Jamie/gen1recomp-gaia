@@ -7,6 +7,7 @@ local TextIR = require("src.core.game3.scripting.text_ir")
 local Natives = require("src.core.game3.scripting.natives")
 local Movement = require("src.core.game3.scripting.movement")
 local ModRuntime = require("src.mods.Runtime")
+local OpsRse = require("src.core.game3.scripting.ops_rse")
 
 local Ops = {}
 
@@ -68,7 +69,8 @@ local function var_get(store, ctx, id)
   id = tonumber(id) or 0
   -- FRLG VarGet: ids ≥ VARS_START (0x4000) are variables; else literal.
   -- pokefirered/include/constants/vars.h:310,313,337
-  if (id >= 0x4000 and id <= 0x40FF) or (id >= 0x8000 and id <= 0x8014) then
+  local hi = ((ctx and ctx.specialLayout) or Ctx.specialLayout()).hi
+  if (id >= 0x4000 and id <= 0x40FF) or (id >= 0x8000 and id <= hi) then
     return Flags.getVar(store, ctx, id)
   end
   return id
@@ -286,6 +288,9 @@ local function warp_hole_dest(group, num)
   group, num = tonumber(group) or 0, tonumber(num) or 0
   if group == 0xFF and num == 0xFF then return nil end
   local Versions = require("src.import.gba.versions")
+  if not Versions.frMapFor then
+    return require("src.import.gba.map_catalog").mapIdFor(group, num)
+  end
   return (Versions.frMapFor and Versions.frMapFor(group, num))
     or (Versions.seviiMapFor and Versions.seviiMapFor(group, num))
 end
@@ -309,6 +314,18 @@ local function objectat_same_map(store, ctx, row, groupIdx)
   end
   if type(dest) ~= "string" then return true end
   return dest == current
+end
+
+-- pokeemerald/src/event_object_movement.c:1234 GetObjectEventIdByLocalIdAndMap
+local function objectat_foreign(store, ctx, row, groupIdx)
+  local Objects = package.loaded["src.core.game3.objects"]
+  if not (Objects and Objects.foreignKey) then return nil end
+  local group = var_get(store, ctx, row[groupIdx])
+  local num = tonumber(var_get(store, ctx, row[groupIdx + 1]))
+  local okC, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+  local dest = okC and MapCatalog and group and num and MapCatalog.mapIdFor(group, num) or nil
+  if type(dest) ~= "string" then return nil end
+  return Objects.foreignKey(dest, var_get(store, ctx, row.localId or row[1]))
 end
 
 local function dispatch(vm, row)
@@ -1063,8 +1080,11 @@ local function dispatch(vm, row)
     return false
   elseif op == "hideobjectat" or op == "showobjectat" then
     local lid = var_get(store, ctx, row.localId or row[1])
+    local foreign = (tonumber(lid) or 0) < 0xFF and not objectat_same_map(store, ctx, row, 2)
+      and objectat_foreign(store, ctx, row, 2)
+    if foreign then lid = foreign end
     -- src/event_object_movement.c:1258
-    if (tonumber(lid) or 0) < 0xFF and not objectat_same_map(store, ctx, row, 2) then
+    if not foreign and (tonumber(lid) or 0) < 0xFF and not objectat_same_map(store, ctx, row, 2) then
       if a.log then
         a.log("[game3] " .. op .. " targets another map — skipped")
       end
@@ -1080,6 +1100,16 @@ local function dispatch(vm, row)
     -- addobjectat (src/scrcmd.c:993, :1022, :1046, :1064).  On the current map
     -- they behave exactly like the plain command, so re-dispatch to it.
     local groupIdx = (op == "applymovementat") and 3 or 2
+    local foreign = not objectat_same_map(store, ctx, row, groupIdx) and objectat_foreign(store, ctx, row, groupIdx)
+    if foreign then
+      local plain = ({ applymovementat = "applymovement", waitmovementat = "waitmovement",
+        removeobjectat = "removeobject", addobjectat = "addobject" })[op]
+      local lid = foreign
+      if op == "waitmovementat" and not (ctx.activeMoves and ctx.activeMoves[foreign]) then
+        lid = var_get(store, ctx, row.localId or row[1])
+      end
+      return dispatch(vm, { op = plain, lid, row[2] })
+    end
     if not objectat_same_map(store, ctx, row, groupIdx) then
       if a.log then
         a.log("[game3] " .. op .. " targets another map — skipped")
@@ -1173,7 +1203,7 @@ local function dispatch(vm, row)
     ctx.nativePoll = function() return flashDone end
     return true
   elseif op == "warp" or op == "warpsilent" or op == "warpdoor"
-      or op == "warpteleport" or op == "warpspinenter" then
+      or op == "warpteleport" or op == "warpspinenter" or op == "warpmossdeepgym" or op == "warpwhitefade" then
     local group, num = row[1], row[2]
     local warpId = row[3]
     -- pokefirered/src/scrcmd.c:719-731
@@ -1193,6 +1223,12 @@ local function dispatch(vm, row)
       or require("src.core.game3.player")
     local destX, destY = tonumber(Player.cellX) or 0, tonumber(Player.cellY) or 0
     local destMap = warp_hole_dest(row[1], row[2])
+    if not destMap and tonumber(row[1]) == 0xFF and tonumber(row[2]) == 0xFF then
+      -- pokeemerald/src/scrcmd.c:790
+      local R = package.loaded["src.core.game3.runtime"]
+      local s = R and R.getSession and R.getSession()
+      destMap = s and s.holeWarp and s.holeWarp.map
+    end
     if not destMap then
       a.log(string.format("[game3] warphole unknown FRLG map %s.%s",
         tostring(row[1]), tostring(row[2])))
@@ -1454,6 +1490,15 @@ local function dispatch(vm, row)
     return false
   elseif op == "gotobeatenscript" then
     -- pret: CONTINUE_SCRIPT event pointer (e.g. DefeatedBrock → shoes aide).
+    local TS = package.loaded["src.core.game3.trainer_sight"]
+    if TS and TS.checkTrainerB then
+      -- pokeemerald/src/battle_setup.c:1413
+      TS.checkTrainerB = false
+      if TS.trainerBRet then
+        jump(vm, TS.trainerBRet)
+        return false
+      end
+    end
     if ctx.trainerBattleBeatenScript then
       jump(vm, ctx.trainerBattleBeatenScript)
     end
@@ -1466,7 +1511,8 @@ local function dispatch(vm, row)
     local trainerId = tonumber(row.trainer or row[1]) or 0
     local battleType = tonumber(row.type) or 0
     local rivalFlags = tonumber(row.flags or row.localId) or 0
-    local earlyRival = (battleType == 9) -- TRAINER_BATTLE_EARLY_RIVAL
+    -- pokefirered/include/constants/battle_setup.h:13
+    local earlyRival = Opcodes.active():trainerBattleType(battleType) == "EARLY_RIVAL"
     -- pokefirered/src/battle_setup.c:899
     local tutorialBattle = earlyRival and (rivalFlags % 4) ~= 0
     local eventScript = row.eventScript
@@ -1481,8 +1527,19 @@ local function dispatch(vm, row)
     end
     local lastTalked = Flags.getVar(store, ctx, Ctx.VAR_LAST_TALKED)
     local opponentA = trainerId
+    local rseSession, RseRematch
+    do
+      local Runtime = package.loaded["src.core.game3.runtime"]
+      rseSession = Runtime and Runtime.getSession and Runtime.getSession()
+      if rseSession and require("src.core.game3.profile").family(rseSession) == "rse" then
+        RseRematch = require("src.core.game3.rse.init").system("rematch")
+      end
+    end
     if op == "trainerbattle" then
-      if isRematch then
+      if isRematch and RseRematch then
+        -- pokeemerald/src/battle_setup.c:1137
+        opponentA = RseRematch.rematchTrainerId(rseSession, trainerId)
+      elseif isRematch then
         -- pokefirered/src/battle_setup.c:814
         opponentA = VsSeeker.rematchTrainerId(trainerId, store)
       end
@@ -1505,7 +1562,10 @@ local function dispatch(vm, row)
       return false
     end
     -- pokefirered/data/scripts/trainer_battle.inc:52
-    if op == "trainerbattle" and isRematch and not VsSeeker.isTrainerReadyForRematch(opponentA, lastTalked) then
+    if op == "trainerbattle" and isRematch and RseRematch then
+      -- pokeemerald/data/scripts/trainer_battle.inc:52
+      if not RseRematch.isTrainerReadyForRematch(rseSession, opponentA) then return false end
+    elseif op == "trainerbattle" and isRematch and not VsSeeker.isTrainerReadyForRematch(opponentA, lastTalked) then
       return false
     end
 
@@ -1561,6 +1621,11 @@ local function dispatch(vm, row)
       local defeatText = (row.defeatText and resolve_text(vm, row.defeatText)) or dialogs.defeat
       local victoryText = (row.victoryText and resolve_text(vm, row.victoryText)) or dialogs.victory
 
+      local TS = package.loaded["src.core.game3.trainer_sight"]
+      if TS then
+        -- pokeemerald/src/battle_setup.c:1313
+        TS.retScriptCount, TS.checkTrainerB, TS.trainerBRet = 1, false, nil
+      end
       ctx.mode = "native"
       ctx.status = "waiting"
       local done = false
@@ -1587,20 +1652,31 @@ local function dispatch(vm, row)
           if earlyRival then
             Flags.setVar(store, ctx, Ctx.VAR_RESULT, lost and 1 or 0)
           end
-          -- pokefirered/src/battle_main.c:3848
-          VsSeeker.clearRematchStateByTrainerId(opponentA, lastTalked, store)
+          if not RseRematch then
+            -- pokefirered/src/battle_main.c:3848
+            VsSeeker.clearRematchStateByTrainerId(opponentA, lastTalked, store)
+          end
           if isRematch then
             if not lost then
               -- pokefirered/src/battle_setup.c:967
               local rematchFlag = Flags.trainerFlagId(opponentA)
               Flags.setFlag(store, ctx, rematchFlag, true)
               if a.onFlagChanged then a.onFlagChanged(rematchFlag, true) end
-              VsSeeker.clearRematchStateOfLastTalked(lastTalked, opponentA, store)
+              if RseRematch then
+                -- pokeemerald/src/battle_setup.c:1351
+                RseRematch.onRematchBattleWon(rseSession, opponentA)
+              else
+                VsSeeker.clearRematchStateOfLastTalked(lastTalked, opponentA, store)
+              end
             end
             shouldHalt = true
           elseif not lost then
             Flags.setFlag(store, ctx, trainerFlag, true)
             if a.onFlagChanged then a.onFlagChanged(trainerFlag, true) end
+            if RseRematch then
+              -- pokeemerald/src/battle_setup.c:1327
+              RseRematch.onTrainerBattleWon(rseSession, opponentA)
+            end
             -- CONTINUE_SCRIPT*: gotobeatenscript after battle.
             if eventScript and (battleType == 1 or battleType == 2
                 or battleType == 6 or battleType == 8) then
@@ -1836,7 +1912,9 @@ local function dispatch(vm, row)
     -- pokefirered/src/scrcmd.c:1878
     coins_box("update", coins_get())
     return false
-  elseif op == "pokemart" then
+  elseif op == "pokemart" or ((op == "pokemartdecoration" or op == "pokemartdecoration2") and a.openShop
+      and ctx.specialLayout and ctx.specialLayout.family == "rse") then
+    -- pokeemerald/src/scrcmd.c:1896
     local ptr = row[1] or row.ptr or row.items
     if a.openShop then
       ctx.mode = "native"
@@ -2156,6 +2234,25 @@ local function dispatch(vm, row)
     if a.log then a.log("[game3] skip op " .. tostring(op)) end
     return false
   end
+end
+
+local dispatch_base = dispatch
+
+local H = {
+  base = function(vm, row) return dispatch_base(vm, row) end,
+  jump = jump,
+  varGet = var_get,
+  resolveText = resolve_text,
+  textCtx = function(vm) return text_ctx_view(vm) end,
+  showMessage = show_message,
+  printDone = message_print_done,
+}
+
+dispatch = function(vm, row)
+  local layout = vm.ctx.specialLayout
+  local rse = layout and layout.family == "rse" and OpsRse.HANDLERS[row.op]
+  if rse then return rse(vm, row, H) end
+  return dispatch_base(vm, row)
 end
 
 local function commandVanilla(vm)

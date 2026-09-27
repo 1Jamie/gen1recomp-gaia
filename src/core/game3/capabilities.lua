@@ -29,6 +29,41 @@ Capabilities.NAMES = {
   berryPouch = true,
   matchCall = true,
   pokeNav = true,
+  questLog = true, -- pokefirered/src/quest_log.c
+  mapPreview = true, -- pokefirered/src/map_preview_screen.c
+  signpostFrame = true,
+  rtc = true, -- pokeemerald/src/rtc.c
+  tv = true, -- pokeemerald/src/tv.c
+  berryTrees = true, -- pokeemerald/src/berry.c
+  pokeblocks = true, -- pokeemerald/src/pokeblock.c
+  berryBlender = true, -- pokeemerald/src/berry_blender.c
+  dewfordTrend = true, -- pokeemerald/src/dewford_trend.c
+  lottery = true, -- pokeemerald/src/lottery_corner.c
+  mauvilleOldMan = true, -- pokeemerald/src/mauville_old_man.c
+  lilycoveLady = true, -- pokeemerald/src/lilycove_lady.c
+  cableCar = true, -- pokeemerald/src/cable_car.c
+  rayquazaScene = true, -- pokeemerald/src/rayquaza_scene.c
+  gameCornerRSE = true, -- pokeemerald/src/roulette.c
+  battleFrontier = true, -- pokeemerald/src/frontier_util.c
+  battleTents = true, -- pokeemerald/src/battle_tent.c
+  battlePyramid = true, -- pokeemerald/src/battle_pyramid.c
+  apprentice = true, -- pokeemerald/src/apprentice.c
+  trainerHill = true, -- pokeemerald/src/trainer_hill.c
+  recordMixing = true, -- pokeemerald/src/record_mixing.c
+  roamerData = true, -- pokeemerald/src/roamer.c
+  decorations = true, -- pokeemerald/src/decoration.c
+  wallClock = true, -- pokeemerald/src/wallclock.c
+  contestPainting = true, -- pokeemerald/src/contest_painting.c
+  berryTag = true, -- pokeemerald/src/berry_tag_screen.c
+  pyramidBag = true, -- pokeemerald/src/battle_pyramid_bag.c
+  frontierPass = true, -- pokeemerald/src/frontier_pass.c
+  ribbons = true, -- pokeemerald/src/pokenav_ribbons_list.c
+  trainersEyes = true,
+  dive = true, -- pokeemerald/src/field_effect.c
+  machAcroBike = true, -- pokeemerald/src/bike.c
+  secretBaseField = true, -- pokeemerald/src/secret_base.c
+  mirageTower = true, -- pokeemerald/src/mirage_tower.c
+  rseFieldSpecials = true, -- pokeemerald/src/field_specials.c
 }
 
 Capabilities.CORE = {
@@ -51,8 +86,29 @@ Capabilities.RSE = {
   daycare = true, pokecenter = true, marts = true, moveRelearner = true,
   eggs = true, berries = true, sizeRecord = true,
   battleTower = true, -- pokeemerald/src/battle_tower.c
-  contests = true, secretBase = true, matchCall = true, pokeNav = true,
+  contests = true, secretBase = true, pokeNav = true,
+  rtc = true, tv = true, berryTrees = true, pokeblocks = true, berryBlender = true,
+  dewfordTrend = true, lottery = true, mauvilleOldMan = true, cableCar = true,
+  gameCornerRSE = true, recordMixing = true, roamerData = true, decorations = true,
+  wallClock = true, contestPainting = true, berryTag = true, ribbons = true,
+  dive = true, machAcroBike = true, secretBaseField = true, mirageTower = true,
+  rseFieldSpecials = true,
 }
+
+Capabilities.EMERALD = {
+  matchCall = true, -- pokeemerald/src/match_call.c
+  battleFrontier = true, battleTents = true, battlePyramid = true, pyramidBag = true,
+  frontierPass = true, apprentice = true, trainerHill = true, lilycoveLady = true,
+  rayquazaScene = true,
+}
+
+function Capabilities.compose(...)
+  local out = {}
+  for i = 1, select("#", ...) do
+    for name, value in pairs(select(i, ...) or {}) do out[name] = value end
+  end
+  return out
+end
 
 -- pokefirered/src/fame_checker.c
 Capabilities.FEATURES = {
@@ -138,24 +194,401 @@ Capabilities.FEATURES = {
     label = "Pokemon Contests",
     source = "pokeemerald/src/contest.c",
     counterpart = "absent from pokefirered",
+    core = "src.core.game3.rse.contest",
+    ui = "src.ui.game3.rse.contest",
+    extractor = "rse/contest_gfx_extract",
+    natives = "natives_contest",
   },
   secret_base = {
     cap = "secretBase",
     label = "Secret Bases",
     source = "pokeemerald/src/secret_base.c",
     counterpart = "absent from pokefirered",
+    core = "src.core.game3.rse.secret_base",
+    ui = "src.ui.game3.rse.decoration",
+    extractor = "rse/secret_base_extract",
+    natives = "natives_secret_base",
   },
   match_call = {
     cap = "matchCall",
     label = "Match Call (Emerald)",
     source = "pokeemerald/src/match_call.c",
     counterpart = "absent from pokefirered and pokeruby (RS use the PokeNav)",
+    core = "src.core.game3.rse.match_call",
+    ui = "src.ui.game3.rse.pokenav.init",
+    natives = "natives_match_call",
   },
   poke_nav = {
     cap = "pokeNav",
     label = "PokeNav",
     source = "pokeemerald/src/pokenav.c",
     counterpart = "absent from pokefirered",
+  },
+  quest_log = {
+    cap = "questLog",
+    label = "Quest Log",
+    source = "pokefirered/src/quest_log.c",
+    counterpart = "absent from pokeemerald/pokeruby",
+  },
+  map_preview = {
+    cap = "mapPreview",
+    label = "Map preview",
+    source = "pokefirered/src/map_preview_screen.c",
+    counterpart = "absent from pokeemerald/pokeruby",
+  },
+  rtc = {
+    cap = "rtc",
+    label = "Real-time clock",
+    source = "pokeemerald/src/rtc.c",
+    counterpart = "pokefirered has no RTC",
+  },
+  tv = {
+    cap = "tv",
+    label = "TV shows",
+    source = "pokeemerald/src/tv.c",
+    counterpart = "absent from pokefirered",
+    core = "src.core.game3.rse.tv",
+    natives = "natives_tv",
+  },
+  rse_field_specials = {
+    cap = "rseFieldSpecials",
+    label = "Hoenn field specials",
+    source = "pokeemerald/src/field_specials.c",
+    counterpart = "pokefirered/src/field_specials.c carries the Kanto set",
+    ui = "src.ui.game3.rse.starter_choose",
+    extractor = "rse/extract_starter_choose_rse",
+    natives = "natives_field_rse",
+  },
+  rse_field_puzzles = {
+    cap = "rseFieldSpecials",
+    label = "Hoenn field puzzles and scenes",
+    source = "pokeemerald/src/rotating_gate.c",
+    counterpart = "absent from pokefirered",
+    natives = "natives_puzzles_rse",
+  },
+  rse_region_map = {
+    cap = "rseFieldSpecials",
+    label = "Hoenn region map",
+    source = "pokeemerald/src/region_map.c",
+    counterpart = "pokefirered/src/region_map.c (Kanto/Sevii)",
+    ui = "src.ui.game3.rse.region_map",
+    extractor = "rse/region_map_extract",
+    natives = "natives_region_map_rse",
+  },
+  rse_pc = {
+    cap = "rseFieldSpecials",
+    label = "Hoenn PC and Hall of Fame",
+    source = "pokeemerald/src/player_pc.c",
+    counterpart = "pokefirered/src/player_pc.c",
+    natives = "natives_pc_rse",
+  },
+  rse_story_battles = {
+    cap = "rseFieldSpecials",
+    label = "Hoenn story special battles",
+    source = "pokeemerald/src/battle_tower.c",
+    counterpart = "pokefirered/src/battle_setup.c (Kanto legendary/old man starts)",
+    natives = "natives_frontier_story",
+  },
+  berry_trees = {
+    cap = "berryTrees",
+    label = "Berry trees",
+    source = "pokeemerald/src/berry.c",
+    counterpart = "absent from pokefirered (berries are items only)",
+    natives = "natives_berry",
+  },
+  pokeblocks = {
+    cap = "pokeblocks",
+    label = "Pokeblocks",
+    source = "pokeemerald/src/pokeblock.c",
+    counterpart = "absent from pokefirered",
+    natives = "natives_pokeblock",
+  },
+  berry_blender = {
+    cap = "berryBlender",
+    label = "Berry Blender",
+    source = "pokeemerald/src/berry_blender.c",
+    counterpart = "absent from pokefirered",
+    natives = "natives_blender",
+  },
+  dewford_trend = {
+    cap = "dewfordTrend",
+    label = "Dewford trends",
+    source = "pokeemerald/src/dewford_trend.c",
+    counterpart = "absent from pokefirered",
+    natives = "natives_dewford",
+  },
+  lottery = {
+    cap = "lottery",
+    label = "Lottery Corner",
+    source = "pokeemerald/src/lottery_corner.c",
+    counterpart = "absent from pokefirered",
+    natives = "natives_lottery",
+  },
+  mauville_old_man = {
+    cap = "mauvilleOldMan",
+    label = "Mauville old man",
+    source = "pokeemerald/src/mauville_old_man.c",
+    counterpart = "absent from pokefirered",
+    natives = "natives_old_man",
+  },
+  lilycove_lady = {
+    cap = "lilycoveLady",
+    label = "Lilycove lady",
+    source = "pokeemerald/src/lilycove_lady.c",
+    counterpart = "absent from pokefirered and pokeruby",
+    natives = "natives_lilycove_lady",
+  },
+  cable_car = {
+    cap = "cableCar",
+    label = "Cable car",
+    source = "pokeemerald/src/cable_car.c",
+    counterpart = "absent from pokefirered",
+  },
+  rayquaza_scene = {
+    cap = "rayquazaScene",
+    label = "Rayquaza scenes",
+    source = "pokeemerald/src/rayquaza_scene.c",
+    counterpart = "absent from pokefirered and pokeruby",
+    natives = "natives_scenes_rse",
+  },
+  game_corner_rse = {
+    cap = "gameCornerRSE",
+    label = "Mauville Game Corner",
+    source = "pokeemerald/src/roulette.c",
+    counterpart = "pokefirered/src/slot_machine.c is a different machine",
+    natives = "natives_game_corner_rse",
+  },
+  battle_frontier = {
+    cap = "battleFrontier",
+    label = "Battle Frontier",
+    source = "pokeemerald/src/frontier_util.c",
+    counterpart = "absent from pokefirered and pokeruby",
+  },
+  battle_tents = {
+    cap = "battleTents",
+    label = "Battle Tents",
+    source = "pokeemerald/src/battle_tent.c",
+    counterpart = "absent from pokefirered and pokeruby",
+  },
+  battle_pyramid = {
+    cap = "battlePyramid",
+    label = "Battle Pyramid",
+    source = "pokeemerald/src/battle_pyramid.c",
+    counterpart = "absent from pokefirered and pokeruby",
+  },
+  pyramid_bag = {
+    cap = "pyramidBag",
+    label = "Pyramid Bag",
+    source = "pokeemerald/src/battle_pyramid_bag.c",
+    counterpart = "absent from pokefirered and pokeruby",
+  },
+  frontier_pass = {
+    cap = "frontierPass",
+    label = "Frontier Pass",
+    source = "pokeemerald/src/frontier_pass.c",
+    counterpart = "absent from pokefirered and pokeruby",
+  },
+  apprentice = {
+    cap = "apprentice",
+    label = "Apprentice",
+    source = "pokeemerald/src/apprentice.c",
+    counterpart = "absent from pokefirered and pokeruby",
+  },
+  trainer_hill = {
+    cap = "trainerHill",
+    label = "Trainer Hill",
+    source = "pokeemerald/src/trainer_hill.c",
+    counterpart = "absent from pokefirered and pokeruby",
+  },
+  record_mixing = {
+    cap = "recordMixing",
+    label = "Record mixing",
+    source = "pokeemerald/src/record_mixing.c",
+    counterpart = "absent from pokefirered",
+  },
+  roamer_data = {
+    cap = "roamerData",
+    label = "Hoenn roamer",
+    source = "pokeemerald/src/roamer.c",
+    counterpart = "pokefirered/src/roamer.c roams Kanto beasts",
+  },
+  decorations = {
+    cap = "decorations",
+    label = "Decorations",
+    source = "pokeemerald/src/decoration.c",
+    counterpart = "absent from pokefirered",
+  },
+  wall_clock = {
+    cap = "wallClock",
+    label = "Wall clock",
+    source = "pokeemerald/src/wallclock.c",
+    counterpart = "absent from pokefirered",
+    natives = "natives_clock",
+  },
+  contest_painting = {
+    cap = "contestPainting",
+    label = "Contest painting",
+    source = "pokeemerald/src/contest_painting.c",
+    counterpart = "absent from pokefirered",
+    ui = "src.ui.game3.rse.contest_painting",
+    extractor = "rse/contest_painting_extract",
+  },
+  berry_tag = {
+    cap = "berryTag",
+    label = "Berry tag",
+    source = "pokeemerald/src/berry_tag_screen.c",
+    counterpart = "absent from pokefirered",
+  },
+  ribbons = {
+    cap = "ribbons",
+    label = "Ribbons",
+    source = "pokeemerald/src/pokenav_ribbons_list.c",
+    counterpart = "absent from pokefirered",
+  },
+  dive = {
+    cap = "dive",
+    label = "Dive",
+    source = "pokeemerald/src/field_effect.c",
+    counterpart = "absent from pokefirered",
+  },
+  mach_acro_bike = {
+    cap = "machAcroBike",
+    label = "Mach and Acro Bikes",
+    source = "pokeemerald/src/bike.c",
+    counterpart = "pokefirered has one bike",
+  },
+  mirage_tower = {
+    cap = "mirageTower",
+    label = "Mirage Tower",
+    source = "pokeemerald/src/mirage_tower.c",
+    counterpart = "absent from pokefirered",
+  },
+  frontier_util = {
+    cap = "battleFrontier",
+    label = "Battle Frontier core",
+    source = "pokeemerald/src/frontier_util.c",
+    counterpart = "absent from pokefirered and pokeruby",
+    core = "src.core.game3.rse.frontier.util",
+    ui = "src.ui.game3.rse.frontier_records",
+    extractor = "rse/frontier_extract",
+    natives = "natives_frontier",
+  },
+  battle_tower_rse = {
+    cap = "battleFrontier",
+    label = "Battle Tower",
+    source = "pokeemerald/src/battle_tower.c",
+    counterpart = "pokefirered/src/battle_tower.c is the unused RS tower",
+    core = "src.core.game3.rse.frontier.tower",
+    natives = "natives_tower_rse",
+  },
+  battle_tents_rse = {
+    cap = "battleTents",
+    label = "Battle Tents",
+    source = "pokeemerald/src/battle_tent.c",
+    counterpart = "absent from pokefirered and pokeruby",
+    core = "src.core.game3.rse.frontier.tents",
+    natives = "natives_tents",
+  },
+  rse_link = {
+    cap = "recordMixing",
+    label = "Hoenn cable club and record corner",
+    source = "pokeemerald/src/cable_club.c",
+    counterpart = "pokefirered/src/cable_club.c binds through natives_link",
+    core = "src.core.game3.link.record_mix",
+    natives = "natives_link_rse",
+  },
+  battle_factory = {
+    cap = "battleFrontier",
+    label = "Battle Factory",
+    source = "pokeemerald/src/battle_factory.c",
+    counterpart = "absent from pokefirered and pokeruby",
+    core = "src.core.game3.rse.frontier.factory",
+    ui = "src.ui.game3.rse.factory_select",
+    extractor = "rse/factory_extract",
+    natives = "natives_factory",
+  },
+  battle_pike = {
+    cap = "battleFrontier",
+    label = "Battle Pike",
+    source = "pokeemerald/src/battle_pike.c",
+    counterpart = "absent from pokefirered and pokeruby",
+    core = "src.core.game3.rse.frontier.pike",
+    extractor = "rse/pike_extract",
+    natives = "natives_pike",
+  },
+  battle_dome = {
+    cap = "battleFrontier",
+    label = "Battle Dome",
+    source = "pokeemerald/src/battle_dome.c",
+    counterpart = "absent from pokefirered and pokeruby",
+    core = "src.core.game3.rse.frontier.dome",
+    ui = "src.ui.game3.rse.dome_tourney",
+    extractor = "rse/frontier_f2_extract",
+    natives = "natives_dome",
+  },
+  battle_palace = {
+    cap = "battleFrontier",
+    label = "Battle Palace",
+    source = "pokeemerald/src/battle_palace.c",
+    counterpart = "absent from pokefirered and pokeruby",
+    core = "src.core.game3.rse.frontier.palace",
+    extractor = "rse/frontier_f2_extract",
+    natives = "natives_palace",
+  },
+  battle_arena = {
+    cap = "battleFrontier",
+    label = "Battle Arena",
+    source = "pokeemerald/src/battle_arena.c",
+    counterpart = "absent from pokefirered and pokeruby",
+    core = "src.core.game3.rse.frontier.arena",
+    extractor = "rse/frontier_f2_extract",
+    natives = "natives_arena",
+  },
+  battle_pyramid_rse = {
+    cap = "battlePyramid",
+    label = "Battle Pyramid",
+    source = "pokeemerald/src/battle_pyramid.c",
+    counterpart = "absent from pokefirered and pokeruby",
+    core = "src.core.game3.rse.frontier.pyramid",
+    ui = "src.ui.game3.rse.pyramid_bag",
+    extractor = "rse/pyramid_extract",
+    natives = "natives_pyramid",
+  },
+  trainer_hill_rse = {
+    cap = "trainerHill",
+    label = "Trainer Hill",
+    source = "pokeemerald/src/trainer_hill.c",
+    counterpart = "absent from pokefirered and pokeruby",
+    core = "src.core.game3.rse.trainer_hill",
+    ui = "src.ui.game3.rse.trainer_hill_records",
+    extractor = "rse/trainer_hill_extract",
+    natives = "natives_trainer_hill",
+  },
+  apprentice_rse = {
+    cap = "apprentice",
+    label = "Apprentice",
+    source = "pokeemerald/src/apprentice.c",
+    counterpart = "absent from pokefirered and pokeruby",
+    core = "src.core.game3.rse.frontier.apprentice",
+    extractor = "rse/apprentice_extract",
+    natives = "natives_apprentice",
+  },
+  event_islands = {
+    cap = "rseFieldSpecials",
+    label = "Event islands and tickets",
+    source = "pokeemerald/src/field_specials.c",
+    counterpart = "pokefirered/src/field_specials.c DoDeoxysTriangleInteraction binds through natives_events",
+    core = "src.core.game3.rse.event_islands",
+    extractor = "rse/event_islands_extract",
+    natives = "natives_event_islands",
+  },
+  shared_specials_rse = {
+    cap = "rseFieldSpecials",
+    label = "In-game trades, move relearner and move deleter",
+    source = "pokeemerald/src/trade.c",
+    counterpart = "pokefirered/src/trade_scene.c binds through natives_trade and natives_moveteach",
+    core = "src.core.game3.scripting.natives_trade",
+    natives = "natives_shared_rse",
   },
 }
 

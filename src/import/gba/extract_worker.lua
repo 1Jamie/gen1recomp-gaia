@@ -26,6 +26,10 @@ local task_name, prefix, romData, sha1, ch_name = ...
 local ch = love and love.thread and love.thread.getChannel and love.thread.getChannel(ch_name)
 
 local ok, err = pcall(function()
+  local GameVersion = require("src.core.GameVersion")
+  local version = GameVersion.forSha1(sha1)
+  assert(version and GameVersion.generation(version) == 3, "unknown gen 3 ROM sha1 " .. tostring(sha1))
+  GameVersion.set(version)
   local CacheFs = require("src.import.CacheFs")
   CacheFs.prefix = prefix or ""
 
@@ -45,22 +49,7 @@ local ok, err = pcall(function()
   end, sha1)
 
   local t0 = (love and love.timer and love.timer.getTime()) or os.clock()
-  local res, detail
-  if task_name == "gba" then
-    res, detail = ext:runGbaExtract(sha1, true)
-  elseif task_name == "scripts_ow" then
-    res, detail = ext:runScriptsAndOwExtract(sha1)
-  elseif task_name == "pokemon" then
-    res, detail = ext:runPokemonExtract(sha1, 201, 411)
-  elseif task_name == "pokemon_gfx" then
-    res, detail = ext:runPokemonGfxExtract(sha1, 0, 200)
-  elseif task_name == "aux" then
-    res, detail = ext:runAuxExtracts(sha1)
-  elseif task_name == "intro_audio" then
-    res, detail = ext:runIntroAudio(sha1)
-  else
-    error("unknown extract task: " .. tostring(task_name))
-  end
+  local res, detail = ext:runTask(task_name, sha1)
 
   local dt = ((love and love.timer and love.timer.getTime()) or os.clock()) - t0
   print(string.format("[worker %s] completed in %.3fs (res=%s)", task_name, dt, tostring(res)))

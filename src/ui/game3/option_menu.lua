@@ -44,6 +44,8 @@ end
 
 function OptionMenu.show(opts)
   opts = opts or {}
+  local other = require("src.ui.game3.screens").redirect("option", OptionMenu, opts.session)
+  if other then return other.show(opts) end
   OptionMenu.open = true
   OptionMenu._session = opts.session
   OptionMenu._onClose = opts.onClose

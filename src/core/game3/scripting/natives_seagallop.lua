@@ -26,8 +26,7 @@ local VAR_ORIGIN = 0x8004 -- pokefirered/include/constants/vars.h:319
 local VAR_PAGE = 0x8005 -- pokefirered/include/constants/vars.h:320
 local VAR_DEST = 0x8006 -- pokefirered/include/constants/vars.h:321
 
-local SE_SHIP = 19 -- pokefirered/include/constants/songs.h:23
-local SE_EXIT = 9 -- pokefirered/include/constants/songs.h:13
+local SE = require("src.core.game3.se_ids") -- pokefirered/include/constants/songs.h:23
 
 -- pokefirered/src/seagallop.c:286
 local CROSSING_FRAMES = 140
@@ -174,7 +173,7 @@ function Seagallop.ferryTask(ctx, adapters, destId)
   return function()
     if phase == "cross" then
       frames = frames + 1
-      if frames == 1 and Audio and Audio.playSe then pcall(Audio.playSe, SE_SHIP) end
+      if frames == 1 and Audio and Audio.playSe then pcall(Audio.playSe, SE.SE_SHIP) end
       if frames < CROSSING_FRAMES then return false end
       -- pokefirered/src/seagallop.c:286
       if Audio and Audio.fadeOutBgm then pcall(Audio.fadeOutBgm, 4) end
@@ -191,7 +190,7 @@ function Seagallop.ferryTask(ctx, adapters, destId)
       if Fade and Fade.isActive() then return false end
       if Audio and Audio._fadeOut and waited < MUSIC_FADE_FRAMES then return false end
       phase = "warp"
-      if Audio and Audio.playSe then pcall(Audio.playSe, SE_EXIT) end
+      if Audio and Audio.playSe then pcall(Audio.playSe, SE.SE_EXIT) end
       if warp and adapters and adapters.warp then
         adapters.warp(warp[1], warp[2], -1, warp[3], warp[4], function() arrived = true end,
           "seagallop")
@@ -207,9 +206,9 @@ function Seagallop.ferryTask(ctx, adapters, destId)
   end
 end
 
-Seagallop.HANDLERS = {
+Seagallop.BY_NAME = {
   -- pokefirered/src/seagallop.c:174
-  [Std.SPECIAL.DoSeagallopFerryScene] = function(ctx, adapters)
+  DoSeagallopFerryScene = function(ctx, adapters)
     local Natives = require("src.core.game3.scripting.natives")
     local destId = varGet(ctx, VAR_DEST)
     -- pokefirered/src/seagallop.c:309
@@ -221,11 +220,11 @@ Seagallop.HANDLERS = {
     return false
   end,
   -- pokefirered/src/seagallop.c:454
-  [Std.SPECIAL.GetSeagallopNumber] = function(ctx)
+  GetSeagallopNumber = function(ctx)
     return false, Seagallop.seagallopNumber(varGet(ctx, VAR_ORIGIN), varGet(ctx, VAR_DEST))
   end,
   -- pokefirered/src/script_menu.c:1234
-  [Std.SPECIAL.DrawSeagallopDestinationMenu] = function(ctx, adapters)
+  DrawSeagallopDestinationMenu = function(ctx, adapters)
     local Natives = require("src.core.game3.scripting.natives")
     varSet(ctx, VAR_RESULT, SCR_MENU_UNSET)
     local originId = varGet(ctx, VAR_ORIGIN)
@@ -249,11 +248,12 @@ Seagallop.HANDLERS = {
     return false
   end,
   -- pokefirered/src/script_menu.c:1291
-  [Std.SPECIAL.GetSelectedSeagallopDestination] = function(ctx)
+  GetSelectedSeagallopDestination = function(ctx)
     local dest = Seagallop.selectedDestination(
       varGet(ctx, VAR_ORIGIN), varGet(ctx, VAR_PAGE), varGet(ctx, VAR_RESULT))
     return false, dest
   end,
 }
+Std.legacyHandlers(Seagallop)
 
 return Seagallop

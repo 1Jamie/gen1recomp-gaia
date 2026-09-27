@@ -136,8 +136,9 @@ function Rows.build(ctx)
       return RomText.plain("gText_FrameType") .. string.format("%2d", (tonumber(cart(c).frameType) or 0) + 1) -- src/option_menu.c:496
     end,
     step = function(c, dir)
-      cartCycle(c, "frameType", 10, dir)
       local okC, Chrome = pcall(require, "src.ui.game3.chrome")
+      -- pokeemerald/src/option_menu.c:518
+      cartCycle(c, "frameType", (okC and Chrome and Chrome.userFrameCount) and Chrome.userFrameCount() or 10, dir)
       if okC and Chrome and Chrome.setFrameType then
         Chrome.setFrameType(cart(c).frameType)
       end
@@ -317,6 +318,9 @@ function Rows.build(ctx)
       return true
     end,
   })
+  if require("src.core.game3.profile").family(ctx and ctx.session) == "rse" then
+    add(require("src.core.game3.rse.event_islands").optionRow())
+  end
 
   add({
     id = "touchControls", label = Strings("TOUCH PAD"),
@@ -408,7 +412,7 @@ Rows.GROUPS = {
   { id = "group.battle", label = "BATTLE OPTIONS",
     members = { "battleScene", "battleStyle" } },
   { id = "group.extras", label = "EXTRAS",
-    members = { "tilt", "zoom", "voidFill" } },
+    members = { "tilt", "zoom", "voidFill", "eventTickets" } },
 }
 
 Rows.ORDER = {

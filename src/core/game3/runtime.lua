@@ -274,6 +274,15 @@ function Runtime.update(dt)
   if not inMenu then
     Runtime.pumpRtc(game, dt)
   end
+  local rtcSession = Runtime.session
+  if rtcSession and require("src.core.game3.rtc").enabled(rtcSession) then
+    -- pokeemerald/src/field_tasks.c:168
+    Runtime._vblankCounter = (Runtime._vblankCounter or 0) + 1
+    local Field = package.loaded["src.core.game3.field"]
+    if not (Field and Field.locked) and not inMenu then
+      require("src.core.game3.time_events").tick(rtcSession, Runtime._vblankCounter)
+    end
+  end
 
   local okF, Fade = pcall(require, "src.ui.game3.fade")
   if okF and Fade.tick then Fade.tick(dt) end

@@ -14,8 +14,9 @@ local ITEM_BERRY_POUCH = 365 -- pokefirered/include/constants/items.h:437
 local KANTO_DEX_COUNT = 151 -- pokefirered/include/constants/pokedex.h:424
 local JOHTO_DEX_COUNT = 251 -- pokefirered/include/constants/pokedex.h:425
 local NATIONAL_DEX_COUNT = 386 -- pokefirered/include/constants/pokedex.h:426
-local FLAG_SHOWN_BOX_WAS_FULL_MESSAGE = 0x843 -- pokefirered/include/constants/flags.h:1401
-local VAR_STARTER_MON = 0x4031 -- pokefirered/include/constants/vars.h:98
+local function C()
+  return require("src.core.game3.constants").of(require("src.core.game3.profile").forSession(nil).id)
+end
 
 -- pokefirered/src/field_specials.c:1519
 local STARTER_SPECIES = { [0] = 1, 7, 4 }
@@ -156,9 +157,9 @@ local function bagHas(itemId, qty)
   return Bag.has(bag, itemId, qty or 1) and true or false
 end
 
-Queries.HANDLERS = {
+Queries.BY_NAME = {
   -- pokefirered/src/prof_pc.c:23
-  [Std.SPECIAL.GetPokedexCount] = function(ctx)
+  GetPokedexCount = function(ctx)
     local Dex = require("src.core.game3.dex")
     local PokedexData = require("src.core.game3.pokedex_data")
     local dex = dexOf()
@@ -169,7 +170,7 @@ Queries.HANDLERS = {
     return false, enabled
   end,
   -- pokefirered/src/field_specials.c:1537
-  [Std.SPECIAL.SetSeenMon] = function(ctx)
+  SetSeenMon = function(ctx)
     local Dex = require("src.core.game3.dex")
     local dex = dexOf()
     local species = varGet(ctx, 0x8004)
@@ -177,18 +178,18 @@ Queries.HANDLERS = {
     return false
   end,
   -- pokefirered/src/field_specials.c:158
-  [Std.SPECIAL.SetHiddenItemFlag] = function(ctx)
+  SetHiddenItemFlag = function(ctx)
     local store = scriptStore()
     if store then flagsMod().setFlag(store, ctx, varGet(ctx, 0x8004), true) end
     return false
   end,
   -- pokefirered/src/pokemon.c:3742
-  [Std.SPECIAL.CalculatePlayerPartyCount] = function(ctx)
+  CalculatePlayerPartyCount = function(ctx)
     local n = playerPartyCount()
     return false, n
   end,
   -- pokefirered/src/pokemon_storage_system_menu.c:141
-  [Std.SPECIAL.CountPartyNonEggMons] = function(ctx)
+  CountPartyNonEggMons = function(ctx)
     local party = partyOf()
     local count = 0
     for i = 1, PARTY_SIZE do
@@ -198,7 +199,7 @@ Queries.HANDLERS = {
     return false, count
   end,
   -- pokefirered/src/pokemon_storage_system_menu.c:155
-  [Std.SPECIAL.CountPartyAliveNonEggMons_IgnoreVar0x8004Slot] = function(ctx)
+  CountPartyAliveNonEggMons_IgnoreVar0x8004Slot = function(ctx)
     local party = partyOf()
     local skip = varGet(ctx, 0x8004) + 1
     local count = 0
@@ -212,7 +213,7 @@ Queries.HANDLERS = {
     return false, count
   end,
   -- pokefirered/src/field_specials.c:1767
-  [Std.SPECIAL.DoesPlayerPartyContainSpecies] = function(ctx)
+  DoesPlayerPartyContainSpecies = function(ctx)
     local party = partyOf()
     local want = varGet(ctx, 0x8004)
     for i = 1, playerPartyCount() do
@@ -221,7 +222,7 @@ Queries.HANDLERS = {
     return boolReturn(false)
   end,
   -- pokefirered/src/field_specials.c:2494
-  [Std.SPECIAL.PlayerPartyContainsSpeciesWithPlayerID] = function(ctx)
+  PlayerPartyContainsSpeciesWithPlayerID = function(ctx)
     local session = sessionOf()
     local party = partyOf()
     local want = varGet(ctx, 0x8004)
@@ -236,18 +237,18 @@ Queries.HANDLERS = {
     return boolReturn(false)
   end,
   -- pokefirered/src/field_specials.c:524
-  [Std.SPECIAL.GetPartyMonSpecies] = function(ctx)
+  GetPartyMonSpecies = function(ctx)
     local mon = partyOf()[varGet(ctx, 0x8004) + 1]
     local species = speciesOrEgg(mon)
     return false, species
   end,
   -- pokefirered/src/party_menu_specials.c:102
-  [Std.SPECIAL.IsSelectedMonEgg] = function(ctx)
+  IsSelectedMonEgg = function(ctx)
     local mon = partyOf()[varGet(ctx, 0x8004) + 1]
     return boolResult(ctx, isEgg(mon))
   end,
   -- pokefirered/src/field_specials.c:529
-  [Std.SPECIAL.IsMonOTNameNotPlayers] = function(ctx, adapters)
+  IsMonOTNameNotPlayers = function(ctx, adapters)
     local mon = partyOf()[varGet(ctx, 0x8004) + 1]
     local player = nameOfPlayer()
     local otName = tostring((mon and (mon.otName or mon.ot_name)) or player)
@@ -255,7 +256,7 @@ Queries.HANDLERS = {
     return boolReturn(otName ~= player)
   end,
   -- pokefirered/src/field_specials.c:1619
-  [Std.SPECIAL.NameRaterWasNicknameChanged] = function(ctx, adapters)
+  NameRaterWasNicknameChanged = function(ctx, adapters)
     local mon = partyOf()[varGet(ctx, 0x8004) + 1]
     local nick = nicknameOf(mon)
     setStringVar(ctx, adapters, 1, nick)
@@ -263,7 +264,7 @@ Queries.HANDLERS = {
     return boolReturn(before ~= nick)
   end,
   -- pokefirered/src/daycare.c:1216
-  [Std.SPECIAL.GetSelectedMonNicknameAndSpecies] = function(ctx, adapters)
+  GetSelectedMonNicknameAndSpecies = function(ctx, adapters)
     -- pokefirered/src/party_menu.c:1200
     local mon = partyOf()[varGet(ctx, 0x8004) + 1]
     local species = speciesOf(mon)
@@ -271,13 +272,13 @@ Queries.HANDLERS = {
     return false, species
   end,
   -- pokefirered/src/money.c:63
-  [Std.SPECIAL.IsEnoughForCostInVar0x8005] = function(ctx)
+  IsEnoughForCostInVar0x8005 = function(ctx)
     local session = sessionOf()
     local money = tonumber(session and session.money) or 0
     return boolReturn(money >= varGet(ctx, 0x8005))
   end,
   -- pokefirered/src/money.c:68
-  [Std.SPECIAL.SubtractMoneyFromVar0x8005] = function(ctx)
+  SubtractMoneyFromVar0x8005 = function(ctx)
     local session = sessionOf()
     if session then
       local money = tonumber(session.money) or 0
@@ -286,7 +287,7 @@ Queries.HANDLERS = {
     return false
   end,
   -- pokefirered/src/pokedex.c:110
-  [Std.SPECIAL.HasAllKantoMons] = function(ctx)
+  HasAllKantoMons = function(ctx)
     local Dex = require("src.core.game3.dex")
     local dex = dexOf()
     for i = 1, KANTO_DEX_COUNT - 1 do
@@ -295,7 +296,7 @@ Queries.HANDLERS = {
     return boolReturn(true)
   end,
   -- pokefirered/src/pokedex.c:123
-  [Std.SPECIAL.HasAllMons] = function(ctx)
+  HasAllMons = function(ctx)
     local Dex = require("src.core.game3.dex")
     local dex = dexOf()
     local function caughtNational(nat)
@@ -313,49 +314,49 @@ Queries.HANDLERS = {
     return boolReturn(true)
   end,
   -- pokefirered/src/field_specials.c:1525
-  [Std.SPECIAL.GetStarterSpecies] = function(ctx)
-    local idx = varGet(ctx, VAR_STARTER_MON)
+  GetStarterSpecies = function(ctx)
+    local idx = varGet(ctx, C():var("VAR_STARTER_MON"))
     if idx > 2 then idx = 0 end
     return false, STARTER_SPECIES[idx] or STARTER_SPECIES[0]
   end,
   -- pokefirered/src/field_specials.c:387
-  [Std.SPECIAL.GetRandomSlotMachineId] = function(ctx)
+  GetRandomSlotMachineId = function(ctx)
     local Rng = require("src.core.game3.rng")
     local pick = SLOT_MACHINE_IDS[(Rng.Random() % #SLOT_MACHINE_IDS) + 1]
     return false, pick
   end,
   -- pokefirered/src/field_specials.c:137
-  [Std.SPECIAL.BufferBigGuyOrBigGirlString] = function(ctx, adapters)
+  BufferBigGuyOrBigGirlString = function(ctx, adapters)
     local session = sessionOf()
     local female = (tonumber(session and session.gender) or 0) ~= 0
     setStringVar(ctx, adapters, 1, RomText.plain(female and "gText_BigGirl" or "gText_BigGuy"))
     return false
   end,
   -- pokefirered/src/field_player_avatar.c:1082
-  [Std.SPECIAL.GetPlayerFacingDirection] = function(ctx)
+  GetPlayerFacingDirection = function(ctx)
     local P = package.loaded["src.core.game3.player"]
     local dirs = { down = 1, up = 2, left = 3, right = 4 }
     local facing = dirs[P and P.facing] or varGet(ctx, 0x800C)
     return false, facing
   end,
   -- pokefirered/src/seagallop.c:496
-  [Std.SPECIAL.IsPlayerLeftOfVermilionSailor] = function(ctx)
+  IsPlayerLeftOfVermilionSailor = function(ctx)
     local session = sessionOf()
     local onMap = session and session.map == "FR_VERMILION_CITY"
     local x = tonumber(session and session.x) or 0
     return boolReturn(onMap and x < 24)
   end,
   -- pokefirered/src/field_specials.c:2470
-  [Std.SPECIAL.IsPlayerNotInTrainerTowerLobby] = function()
+  IsPlayerNotInTrainerTowerLobby = function()
     local session = sessionOf()
     return boolReturn((session and session.map) ~= "FR_TRAINER_TOWER_LOBBY")
   end,
   -- pokefirered/src/union_room.c:3606
-  [Std.SPECIAL.BufferUnionRoomPlayerName] = function()
+  BufferUnionRoomPlayerName = function()
     return boolReturn(false)
   end,
   -- pokefirered/src/field_specials.c:2458
-  [Std.SPECIAL.IsBadEggInParty] = function()
+  IsBadEggInParty = function()
     local party = partyOf()
     for i = 1, playerPartyCount() do
       if party[i] and party[i].isBadEgg == true then return boolReturn(true) end
@@ -363,7 +364,7 @@ Queries.HANDLERS = {
     return boolReturn(false)
   end,
   -- pokefirered/src/field_specials.c:432
-  [Std.SPECIAL.IsThereRoomInAnyBoxForMorePokemon] = function()
+  IsThereRoomInAnyBoxForMorePokemon = function()
     local session = sessionOf()
     local Storage = require("src.core.game3.storage")
     local storage = session and session.storage
@@ -376,7 +377,7 @@ Queries.HANDLERS = {
     return boolReturn(false)
   end,
   -- pokefirered/src/dodrio_berry_picking.c:2911
-  [Std.SPECIAL.IsDodrioInParty] = function(ctx)
+  IsDodrioInParty = function(ctx)
     local party = partyOf()
     for i = 1, PARTY_SIZE do
       local mon = party[i]
@@ -387,7 +388,7 @@ Queries.HANDLERS = {
     return boolResult(ctx, false)
   end,
   -- pokefirered/src/item.c:142
-  [Std.SPECIAL.HasAtLeastOneBerry] = function(ctx)
+  HasAtLeastOneBerry = function(ctx)
     if not bagHas(ITEM_BERRY_POUCH, 1) then return boolResult(ctx, false) end
     for itemId = FIRST_BERRY_INDEX, LAST_BERRY_INDEX do
       if bagHas(itemId, 1) then return boolResult(ctx, true) end
@@ -395,7 +396,7 @@ Queries.HANDLERS = {
     return boolResult(ctx, false)
   end,
   -- pokefirered/src/script_pokemon_util.c:119
-  [Std.SPECIAL.DoesPartyHaveEnigmaBerry] = function(ctx, adapters)
+  DoesPartyHaveEnigmaBerry = function(ctx, adapters)
     local party = partyOf()
     for i = 1, PARTY_SIZE do
       if heldItemOf(party[i]) == ITEM_ENIGMA_BERRY then
@@ -406,25 +407,26 @@ Queries.HANDLERS = {
     return boolReturn(false)
   end,
   -- pokefirered/src/field_specials.c:1985
-  [Std.SPECIAL.ShouldShowBoxWasFullMessage] = function(ctx)
+  ShouldShowBoxWasFullMessage = function(ctx)
     local store = scriptStore()
     local Flags = flagsMod()
-    if Flags.getFlag(store, ctx, FLAG_SHOWN_BOX_WAS_FULL_MESSAGE) then
+    local shownFlag = C():flag("FLAG_SHOWN_BOX_WAS_FULL_MESSAGE")
+    if Flags.getFlag(store, ctx, shownFlag) then
       return boolReturn(false)
     end
     local session = sessionOf()
     local storage = session and session.storage
     local current = (tonumber(storage and storage.currentBox) or 1) - 1
-    if current == varGet(ctx, 0x4037) then return boolReturn(false) end
-    if store then Flags.setFlag(store, ctx, FLAG_SHOWN_BOX_WAS_FULL_MESSAGE, true) end
+    if current == varGet(ctx, C():var("VAR_PC_BOX_TO_SEND_MON")) then return boolReturn(false) end
+    if store then Flags.setFlag(store, ctx, shownFlag, true) end
     return boolReturn(true)
   end,
   -- pokefirered/src/field_specials.c:1980
-  [Std.SPECIAL.GetPCBoxToSendMon] = function()
+  GetPCBoxToSendMon = function()
     return false, Queries.pcBoxToSendMon or 0
   end,
   -- pokefirered/src/field_specials.c:2056
-  [Std.SPECIAL.BufferTMHMMoveName] = function(ctx, adapters)
+  BufferTMHMMoveName = function(ctx, adapters)
     local Pokemon = require("src.core.game3.pokemon")
     local move = Pokemon.moveFromTmItem(varGet(ctx, 0x8004))
     if not move then return boolReturn(false) end
@@ -432,6 +434,7 @@ Queries.HANDLERS = {
     return boolReturn(true)
   end,
 }
+Std.legacyHandlers(Queries)
 
 -- pokefirered/src/field_specials.c:1975
 Queries.pcBoxToSendMon = 0

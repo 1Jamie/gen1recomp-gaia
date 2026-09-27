@@ -78,9 +78,12 @@ local open_forget_list
 local ask_to_learn
 
 local function T(battle, field, relearner)
-  if LearnMove._relearner then return relearner or field end
-  if LearnMove._battleText then return battle end
-  return field
+  local v
+  if LearnMove._relearner then v = relearner or field
+  elseif LearnMove._battleText then v = battle
+  else v = field end
+  if type(v) == "function" then return v() end
+  return v
 end
 
 local function battle_text(id, forgotten)
@@ -99,20 +102,24 @@ local function field_pages(key, v2, v3)
   return pages
 end
 
+local function lazy(fn, a, b, c)
+  return function() return fn(a, b, c) end
+end
+
 local function did_not_learn_text()
   -- pokefirered/data/battle_scripts_1.s:3134
   -- pokefirered/src/party_menu.c:4987
-  return T(battle_text("STRINGID_DIDNOTLEARNMOVE"), field_text("gText_MoveNotLearned"))
+  return T(lazy(battle_text, "STRINGID_DIDNOTLEARNMOVE"), lazy(field_text, "gText_MoveNotLearned"))
 end
 
 local function try_to_learn_pages()
   -- pokefirered/data/battle_scripts_1.s:3124
   -- pokefirered/src/party_menu.c:4793
   -- pokefirered/src/learn_move.c:551
-  return T({ battle_text("STRINGID_TRYTOLEARNMOVE1"), battle_text("STRINGID_TRYTOLEARNMOVE2"),
-      battle_text("STRINGID_TRYTOLEARNMOVE3") },
-    field_pages("gText_PkmnNeedsToReplaceMove"),
-    field_pages("gText_MonIsTryingToLearnMove"))
+  return T(function() return { battle_text("STRINGID_TRYTOLEARNMOVE1"), battle_text("STRINGID_TRYTOLEARNMOVE2"),
+      battle_text("STRINGID_TRYTOLEARNMOVE3") } end,
+    lazy(field_pages, "gText_PkmnNeedsToReplaceMove"),
+    lazy(field_pages, "gText_MonIsTryingToLearnMove"))
 end
 
 function ask_to_learn()
@@ -160,8 +167,8 @@ function open_stop_prompt()
   -- pokefirered/data/battle_scripts_1.s:3130
   -- pokefirered/src/party_menu.c:4963
   -- pokefirered/src/learn_move.c:572
-  LearnMove._askYesNo(T(battle_text("STRINGID_STOPLEARNINGMOVE"), field_text("gText_StopLearningMove2"),
-    field_text("gText_StopLearningMove")), function(stop)
+  LearnMove._askYesNo(T(lazy(battle_text, "STRINGID_STOPLEARNINGMOVE"), lazy(field_text, "gText_StopLearningMove2"),
+    lazy(field_text, "gText_StopLearningMove")), function(stop)
     LearnMove._waitingChoice = false
     if stop then
       if LearnMove._relearner then
@@ -211,7 +218,8 @@ function open_forget_list()
     if Pokemon.isHmMove(oldId) then
       -- pokefirered/src/battle_script_commands.c:5212
       -- pokefirered/src/pokemon_summary_screen.c:3899
-      say(T(BattleText.get("STRINGID_HMMOVESCANTBEFORGOTTEN"), RomText.ascii("gText_PokeSum_HmMovesCantBeForgotten")), function()
+      say(T(lazy(BattleText.get, "STRINGID_HMMOVESCANTBEFORGOTTEN"),
+        lazy(RomText.ascii, require("src.core.game3.battle.profile").get(nil).strings.hmCantForget)), function()
         if LearnMove._battleText or LearnMove._relearner then
           -- pokefirered/src/battle_script_commands.c:5247
           -- pokefirered/src/pokemon_summary_screen.c:3899
@@ -226,7 +234,7 @@ function open_forget_list()
     if forgotten then
       local battle = LearnMove._battleText
       local function fanfare()
-        pcall(function() require("src.core.game3.audio").playFanfare(257) end)
+        pcall(function() require("src.core.game3.audio").playFanfare("MUS_LEVEL_UP") end)
       end
       if not battle then fanfare() end
       local oldName = move_name(forgotten)
@@ -312,12 +320,12 @@ function LearnMove.begin(opts)
   if Pokemon.moveSlotCount(mon) < 4 then
     local ok = Pokemon.teachMove(mon, moveId)
     if ok then
-      pcall(function() require("src.core.game3.audio").playFanfare(257) end)
+      pcall(function() require("src.core.game3.audio").playFanfare("MUS_LEVEL_UP") end)
       -- pokefirered/data/battle_scripts_1.s:3143
       -- pokefirered/src/party_menu.c:4817
       -- pokefirered/src/learn_move.c:518
-      local learned = T(battle_text("STRINGID_PKMNLEARNEDMOVE"), field_text("gText_PkmnLearnedMove3"),
-        field_text("gText_MonLearnedMove"))
+      local learned = T(lazy(battle_text, "STRINGID_PKMNLEARNEDMOVE"), lazy(field_text, "gText_PkmnLearnedMove3"),
+        lazy(field_text, "gText_MonLearnedMove"))
       if LearnMove._headless then
         say(learned)
         finish(ok)

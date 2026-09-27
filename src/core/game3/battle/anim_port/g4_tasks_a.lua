@@ -3,7 +3,7 @@ return function(K)
   local P, D = K.P, K.destroy
   local TK = {}
 
-  local SE_BALL_THROW = 54
+  local SE = require("src.core.game3.se_ids")
 
   local function audio()
     local ok, Audio = pcall(require, "src.core.game3.audio")
@@ -136,6 +136,13 @@ return function(K)
     D(t)
   end
 
+  -- pokeemerald/src/battle_anim_throw.c:718
+  TK.IsBallBlockedByTrainer = function(t, vm)
+    local c = (vm.ctx or {}).ballThrowCaseId
+    vm.args[P.ARG_RET_ID] = (c == 5) and -1 or 0
+    D(t)
+  end
+
   local function throw_wait(t, vm)
     local b = t._ball
     if not b or b.finished or b.dead then D(t) end
@@ -157,7 +164,7 @@ return function(K)
   local function throwSpecialPlaySfx(t, vm)
     local C = K.cb()
     if C and C.playerThrowIndex(vm) == 1 then
-      play_se12(SE_BALL_THROW, 0)
+      play_se12(SE.SE_BALL_THROW, 0)
       if t._ball then t._ball.cb = t._ballInit end
       t.func = throw_wait
     end
@@ -178,6 +185,31 @@ return function(K)
       local b = CatchSeq.startBall({ caseId = ctx.ballThrowCaseId or 0, itemId = ctx.lastUsedItem })
       if b then
         b.x = P.bor(x, 32)
+        b.y = P.bor(y, 80)
+        t._ballInit = b.cb
+        b.cb = function() end
+        t._ball = b
+      end
+    end
+    local C = K.cb()
+    if C then C.startPlayerThrow(vm) end
+    t.func = throwSpecialPlaySfx
+  end
+
+  -- pokeemerald/src/battle_anim_throw.c:790
+  TK.ThrowBall_StandingTrainer = function(t, vm)
+    local ctx = vm.ctx or {}
+    local x, y
+    if ctx.wallyTutorial then
+      x, y = 32, 11
+    else
+      x, y = 23, 5
+    end
+    local ok, CatchSeq = pcall(require, "src.core.game3.battle.catch_seq")
+    if ok and CatchSeq and CatchSeq.startBall then
+      local b = CatchSeq.startBall({ caseId = ctx.ballThrowCaseId or 0, itemId = ctx.lastUsedItem })
+      if b then
+        b.x = x + 32
         b.y = P.bor(y, 80)
         t._ballInit = b.cb
         b.cb = function() end

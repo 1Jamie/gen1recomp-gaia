@@ -3,6 +3,7 @@
 
 local Logger = require("src.core.Logger")
 local Runtime = require("src.mods.Runtime")
+local GameVersion = require("src.core.GameVersion")
 
 local Gen3Compat = {}
 
@@ -89,6 +90,14 @@ end
 -- ------- ids
 
 local MAP_PREFIX = "FR_"
+
+Gen3Compat.FAMILIES = { frlg = true }
+
+function Gen3Compat.appliesTo(version)
+  if type(version) ~= "string" then return true end
+  if not GameVersion.VERSIONS[version] then return true end
+  return Gen3Compat.FAMILIES[GameVersion.layout(version)] == true
+end
 
 function Gen3Compat.gen1MapId(id)
   if type(id) ~= "string" then return id end

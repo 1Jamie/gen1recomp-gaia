@@ -7,6 +7,7 @@ local CaveTransitionExtract = {}
 
 CaveTransitionExtract.CACHE_SUB = "cave_transition"
 CaveTransitionExtract.FILES = { "screen.bin", "palettes.lua" }
+CaveTransitionExtract.REQUIRED = { "cave_transition/screen.bin", "cave_transition/palettes.lua" }
 
 local SCREEN_W, SCREEN_H = 240, 160
 local MAP_W = 32

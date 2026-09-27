@@ -1,7 +1,12 @@
-local Plaza = {}
+local Family = require("src.core.game3.link.family")
 
-Plaza.MAP_ID = "FR_UNION_ROOM_PLAZA"
-Plaza.SOURCE_ID = "FR_UNION_ROOM"
+local Plaza = setmetatable({}, {
+  __index = function(_, k)
+    if k == "SOURCE_ID" then return Family.mapId(nil, "unionRoom") end
+    if k == "MAP_ID" then return Family.mapId(nil, "unionRoom") .. "_PLAZA" end
+    return nil
+  end,
+})
 Plaza.CAP = 40
 Plaza.WIDTH = 25
 Plaza.HEIGHT = 25

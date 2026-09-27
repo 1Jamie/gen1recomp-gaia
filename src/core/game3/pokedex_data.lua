@@ -121,7 +121,8 @@ function PokedexData._buildSpeciesWildAreas()
   local encounters = load_lua(cache_root() .. "/encounters.lua")
     or load_lua("data/generated/gba/encounters.lua")
     or load_lua("data/generated/encounters.lua")
-  local mapGroups = load_lua("src/import/gba/map_groups_firered.lua")
+  local family = require("src.import.gba.family").active()
+  local mapGroups = family:groups()
   local mapsecToArea = PokedexData._areaData and PokedexData._areaData.mapsecToArea or {}
   local markers = PokedexData._areaData and PokedexData._areaData.markers or {}
   local MapSectionsExtract = package.loaded["src.import.gba.map_sections_extract"]
@@ -143,7 +144,7 @@ function PokedexData._buildSpeciesWildAreas()
         local gTable = mapGroups.groups[gIdx] or mapGroups.groups[gIdx + 1]
         local pretName = gTable and gTable.maps and (gTable.maps[mIdx + 1] or gTable.maps[mIdx])
         local secIdStr = nil
-        if MapSectionsExtract and MapSectionsExtract.getInfo then
+        if family.aliases and MapSectionsExtract and MapSectionsExtract.getInfo then
           local info = MapSectionsExtract.getInfo(nil, pretName)
           secIdStr = info and info.id
         end
@@ -339,6 +340,17 @@ function PokedexData.getAreaMarker(dexAreaKey)
 end
 
 function PokedexData.isNationalUnlocked(session, dex)
+  local P = require("src.core.game3.profile").forSession(session)
+  if (P.family or "frlg") ~= "frlg" then
+    local Runtime = package.loaded["src.core.game3.runtime"]
+    local Space = package.loaded["src.core.game3.scripting.space"]
+    local cur = session or (Runtime and Runtime.getSession and Runtime.getSession())
+    local store = (cur and cur.store) or (Space and Space.store) or cur
+    return Dex.nationalEnabled({
+      version = P.id, dex = dex or (cur and cur.dex),
+      flags = store and store.flags, vars = store and store.vars,
+    })
+  end
   if dex and (dex.nationalUnlocked or dex.isNationalUnlocked) then
     return true
   end

@@ -83,24 +83,131 @@ Flags.BADGES = FlagsTable.BADGES or {
   { num = 8, flag = 0x827, name = "EARTH", gym = "VIRIDIAN", fieldMove = "DIVE" },
 }
 
-local BADGE_LOOKUP = {}
-for _, b in ipairs(Flags.BADGES) do
-  BADGE_LOOKUP[b.num] = b
-  BADGE_LOOKUP[b.name] = b
-  BADGE_LOOKUP[b.name:lower()] = b
-  BADGE_LOOKUP[b.name .. "BADGE"] = b
-  BADGE_LOOKUP[(b.name .. "BADGE"):lower()] = b
-  BADGE_LOOKUP[b.name .. "_BADGE"] = b
-  BADGE_LOOKUP[(b.name .. "_BADGE"):lower()] = b
-  BADGE_LOOKUP[b.fieldMove] = b
-  BADGE_LOOKUP[b.fieldMove:lower()] = b
-  BADGE_LOOKUP[b.flag] = b
-  BADGE_LOOKUP[tostring(b.flag)] = b
-  BADGE_LOOKUP[string.format("FLAG_BADGE0%d_GET", b.num)] = b
+local function buildBadgeLookup(badges)
+  local BADGE_LOOKUP = {}
+  for _, b in ipairs(badges) do
+    BADGE_LOOKUP[b.num] = b
+    BADGE_LOOKUP[b.name] = b
+    BADGE_LOOKUP[b.name:lower()] = b
+    BADGE_LOOKUP[b.name .. "BADGE"] = b
+    BADGE_LOOKUP[(b.name .. "BADGE"):lower()] = b
+    BADGE_LOOKUP[b.name .. "_BADGE"] = b
+    BADGE_LOOKUP[(b.name .. "_BADGE"):lower()] = b
+    BADGE_LOOKUP[b.fieldMove] = b
+    BADGE_LOOKUP[b.fieldMove:lower()] = b
+    BADGE_LOOKUP[b.flag] = b
+    BADGE_LOOKUP[tostring(b.flag)] = b
+    BADGE_LOOKUP[string.format("FLAG_BADGE0%d_GET", b.num)] = b
+  end
+  return BADGE_LOOKUP
+end
+
+local BADGE_LOOKUP = buildBadgeLookup(Flags.BADGES)
+local badgeLookups = {}
+
+local function activeBadges()
+  local game = require("src.core.game3.profile").forSession(nil).id
+  local t = Flags.forVersion(game)
+  if t.BADGES == Flags.BADGES then return Flags.BADGES, BADGE_LOOKUP end
+  local lookup = badgeLookups[t.game]
+  if not lookup then
+    lookup = buildBadgeLookup(t.BADGES)
+    badgeLookups[t.game] = lookup
+  end
+  return t.BADGES, lookup
 end
 
 function Flags.badgeInfo(badgeKey)
-  return BADGE_LOOKUP[badgeKey] or (type(badgeKey) == "number" and BADGE_LOOKUP[badgeKey])
+  local _, lookup = activeBadges()
+  return lookup[badgeKey] or (type(badgeKey) == "number" and lookup[badgeKey])
+end
+
+-- pokeemerald/src/party_menu.c:120
+local EM_BADGES = {
+  { num = 1, name = "STONE", gym = "RUSTBORO", fieldMove = "CUT" },
+  { num = 2, name = "KNUCKLE", gym = "DEWFORD", fieldMove = "FLASH" },
+  { num = 3, name = "DYNAMO", gym = "MAUVILLE", fieldMove = "ROCK_SMASH" },
+  { num = 4, name = "HEAT", gym = "LAVARIDGE", fieldMove = "STRENGTH" },
+  { num = 5, name = "BALANCE", gym = "PETALBURG", fieldMove = "SURF" },
+  { num = 6, name = "FEATHER", gym = "FORTREE", fieldMove = "FLY" },
+  { num = 7, name = "MIND", gym = "MOSSDEEP", fieldMove = "DIVE" },
+  { num = 8, name = "RAIN", gym = "SOOTOPOLIS", fieldMove = "WATERFALL" },
+}
+
+local function sortedKeys(t)
+  local keys = {}
+  for k in pairs(t) do keys[#keys + 1] = k end
+  table.sort(keys)
+  return keys
+end
+
+local function buildGenerated(game)
+  local C = require("src.core.game3.constants").of(game)
+  local flags, vars = C.flags, C.vars
+  local ids, varIds = {}, {}
+  local fkeys, vkeys = sortedKeys(flags.byName), sortedKeys(vars.byName)
+  for _, k in ipairs(fkeys) do ids[k] = flags.byName[k] end
+  for _, k in ipairs(vkeys) do
+    varIds[k] = vars.byName[k]
+    if ids[k] == nil then ids[k] = vars.byName[k] end
+  end
+  for _, k in ipairs(fkeys) do
+    if k:find("^FLAG_") and ids[k:sub(6)] == nil then ids[k:sub(6)] = flags.byName[k] end
+  end
+  for _, k in ipairs(vkeys) do
+    if k:find("^VAR_") then
+      local s = k:sub(5)
+      if varIds[s] == nil then varIds[s] = vars.byName[k] end
+      if ids[s] == nil then ids[s] = vars.byName[k] end
+    end
+  end
+  local badges = {}
+  for i, b in ipairs(EM_BADGES) do
+    badges[i] = {
+      num = b.num, name = b.name, gym = b.gym, fieldMove = b.fieldMove,
+      flag = flags.byName[string.format("FLAG_BADGE0%d_GET", b.num)],
+    }
+  end
+  return {
+    game = game,
+    IDS = ids,
+    VAR_IDS = varIds,
+    NAMES = flags.byId.FLAG_ or {},
+    VAR_NAMES = vars.byId.VAR_ or {},
+    BADGES = badges,
+    TRAINER_FLAGS_START = ids.TRAINER_FLAGS_START,
+    TRAINER_FLAGS_END = ids.TRAINER_FLAGS_END,
+    FLAGS_COUNT = ids.FLAGS_COUNT,
+  }
+end
+
+local versionTables = {}
+
+function Flags.forVersion(id)
+  local game = require("src.core.game3.constants").gameKey(id)
+  local t = versionTables[game]
+  if t then return t end
+  if game == "firered" then
+    t = {
+      game = game,
+      IDS = Flags.IDS,
+      VAR_IDS = Flags.VAR_IDS,
+      NAMES = Flags.NAMES,
+      VAR_NAMES = Flags.VAR_NAMES,
+      BADGES = Flags.BADGES,
+      TRAINER_FLAGS_START = Flags.TRAINER_FLAGS_START,
+      TRAINER_FLAGS_END = Flags.TRAINER_FLAGS_END,
+      FLAGS_COUNT = Flags.IDS.FLAGS_COUNT,
+    }
+  else
+    t = buildGenerated(game)
+  end
+  versionTables[game] = t
+  return t
+end
+
+function Flags.active(session)
+  return Flags.forVersion(require("src.core.game3.constants").versionOf(session))
 end
 
 --- Check if badge is obtained
@@ -120,7 +227,7 @@ end
 --- Count total badges obtained (0..8)
 function Flags.countBadges(store)
   local n = 0
-  for _, b in ipairs(Flags.BADGES) do
+  for _, b in ipairs((activeBadges())) do
     if Flags.getFlag(store, nil, b.flag) then
       n = n + 1
     end
@@ -131,7 +238,7 @@ end
 --- Get badges bitmask (bit 0 = badge 1, ..., bit 7 = badge 8)
 function Flags.getBadgesMask(store)
   local mask = 0
-  for _, b in ipairs(Flags.BADGES) do
+  for _, b in ipairs((activeBadges())) do
     if Flags.getFlag(store, nil, b.flag) then
       local bitVal = bit and bit.lshift(1, b.num - 1) or math.pow(2, b.num - 1)
       mask = mask + bitVal
@@ -143,7 +250,7 @@ end
 --- Set badges from bitmask
 function Flags.setBadgesMask(store, mask)
   mask = tonumber(mask) or 0
-  for _, b in ipairs(Flags.BADGES) do
+  for _, b in ipairs((activeBadges())) do
     local bitVal = bit and bit.lshift(1, b.num - 1) or math.pow(2, b.num - 1)
     local has = (bit and bit.band(mask, bitVal) ~= 0) or (math.floor(mask / bitVal) % 2 == 1)
     Flags.setFlag(store, nil, b.flag, has)
@@ -212,6 +319,12 @@ function Flags.repairSaveState(store)
   end
 end
 
+local function repairForGame(store)
+  local path = require("src.core.game3.profile").forSession(store).saveRules
+  local rules = type(path) == "string" and require(path) or nil
+  if rules and rules.repairSaveState then rules.repairSaveState(store) end
+end
+
 function Flags.newStore(seed)
   local store = {
     flags = {},
@@ -219,8 +332,9 @@ function Flags.newStore(seed)
   }
   -- First Sevii boot: Bill street intro onFrame wants MAP_SCENE == 2.
   -- Extracted scripts advance this (e.g. to 3 after door warp).
-  local seviiScene = Flags.VAR_IDS.MAP_SCENE_ONE_ISLAND_HARBOR or 0x4075
-  store.vars[seviiScene] = 2
+  local game = require("src.core.game3.profile").resolveId(nil)
+  local seviiScene = Flags.forVersion(game).VAR_IDS.MAP_SCENE_ONE_ISLAND_HARBOR
+  if seviiScene then store.vars[seviiScene] = 2 end
   return store
 end
 
@@ -235,7 +349,7 @@ function Flags.loadInto(store, saved)
       store.vars[id] = tonumber(v) or 0
     end
   end
-  Flags.repairSaveState(store)
+  repairForGame(store)
   return store
 end
 
@@ -326,7 +440,7 @@ function Flags.onMapLoad(store)
       Flags.setFlag(store, nil, fid, false)
     end
   end
-  Flags.repairSaveState(store)
+  repairForGame(store)
 end
 
 return Flags

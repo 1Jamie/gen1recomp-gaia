@@ -87,18 +87,24 @@ Sample.CRY_MODES = {
   [12] = { length = 20, release = 225, pitch = 15000, chorus = 0, reverse = false },
 }
 
-function Sample.cryParams(mode, volume)
+function Sample.cryParams(mode, volume, overrides)
   mode = tonumber(mode) or 0
   if not Sample.CRY_MODES[mode] then mode = 0 end
   local m = Sample.CRY_MODES[mode]
+  local o = type(overrides) == "table" and overrides[mode] or nil
+  if type(o) ~= "table" then o = nil end
+  local function pick(key)
+    if o and o[key] ~= nil then return o[key] end
+    return m[key]
+  end
   return {
     mode = mode,
-    length = m.length,
-    release = m.release,
-    pitch = m.pitch,
-    chorus = m.chorus,
-    reverse = m.reverse,
-    volume = m.volume or tonumber(volume) or Sample.CRY_VOLUME,
+    length = pick("length"),
+    release = pick("release"),
+    pitch = pick("pitch"),
+    chorus = pick("chorus"),
+    reverse = pick("reverse"),
+    volume = pick("volume") or tonumber(volume) or Sample.CRY_VOLUME,
   }
 end
 

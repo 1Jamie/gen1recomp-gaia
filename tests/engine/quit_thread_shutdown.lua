@@ -237,8 +237,10 @@ check(vetoAt ~= nil and osAt ~= nil and vetoAt < osAt,
       "the process exit runs only after love.quit declined to veto")
 check(androidAt ~= nil and androidAt < osAt,
       "the process exit is gated on Android")
+local driverExit = mainSrc:match('if os%.getenv%("POKEPORT_DRIVER"%) then%s+io%.stdout:write%("LUA ERROR: "[^\n]*\n[^\n]*\n%s*os%.exit%(3%)')
+check(driverExit ~= nil, "the driver-mode error exit is gated on POKEPORT_DRIVER")
 local exits = 0
 for _ in mainSrc:gmatch("os%.exit") do exits = exits + 1 end
-eq(exits, 1, "os.exit appears once, at the quit event")
+eq(exits, driverExit and 2 or 1, "os.exit appears only at the quit event and the driver-mode error exit")
 
 T.finish("quit thread shutdown")

@@ -33,7 +33,7 @@ local ACTIONS = { "USE", "GIVE", "EXIT" }
 -- src/list_menu.c:73 sMenuInfoIcons TYPE, POWER, ACCURACY, PP
 local INFO_LABEL_RECTS = { { 64, 80 }, { 0, 96 }, { 64, 96 }, { 0, 112 } }
 local INFO_LABEL_QUADS = {}
-
+local SE = require("src.core.game3.se_ids")
 
 local function se(id)
   pcall(function()
@@ -110,7 +110,7 @@ function TmCase.handleInput(input)
   end
   if TmCase.mode == "message" then
     if input:wasPressed("a") or input:wasPressed("b") or input:wasPressed("start") then
-      se(5)
+      se(SE.SE_SELECT)
       TmCase.mode = "list"
       TmCase.messageText = nil
       clamp_cursor()
@@ -121,12 +121,12 @@ function TmCase.handleInput(input)
   if TmCase.mode == "action" then
     if input:wasPressed("up") then
       TmCase.actionCursor = ((TmCase.actionCursor - 2) % #ACTIONS) + 1
-      se(5)
+      se(SE.SE_SELECT)
     elseif input:wasPressed("down") then
       TmCase.actionCursor = (TmCase.actionCursor % #ACTIONS) + 1
-      se(5)
+      se(SE.SE_SELECT)
     elseif input:wasPressed("a") then
-      se(5)
+      se(SE.SE_SELECT)
       local act = ACTIONS[TmCase.actionCursor]
       local rows = clamp_cursor()
       local row = rows[TmCase.cursor]
@@ -156,7 +156,7 @@ function TmCase.handleInput(input)
         end
       end
     elseif input:wasPressed("b") then
-      se(5) -- pokefirered/src/tm_case.c:1006
+      se(SE.SE_SELECT) -- pokefirered/src/tm_case.c:1006
       TmCase.mode = "list"
     end
     return
@@ -170,35 +170,35 @@ function TmCase.handleInput(input)
     if total > 0 then
       TmCase.cursor = ((TmCase.cursor - 2) % total) + 1
       clamp_cursor()
-      se(5)
+      se(SE.SE_SELECT)
     end
   elseif input:wasPressed("down") then
     if total > 0 then
       TmCase.cursor = (TmCase.cursor % total) + 1
       clamp_cursor()
-      se(5)
+      se(SE.SE_SELECT)
     end
   elseif input:wasPressed("left") or input:wasPressed("l") then
     if total > 0 then
       TmCase.cursor = math.max(1, TmCase.cursor - VISIBLE)
       clamp_cursor()
-      se(5)
+      se(SE.SE_SELECT)
     end
   elseif input:wasPressed("right") or input:wasPressed("r") then
     if total > 0 then
       TmCase.cursor = math.min(total, TmCase.cursor + VISIBLE)
       clamp_cursor()
-      se(5)
+      se(SE.SE_SELECT)
     end
   elseif input:wasPressed("a") then
     if TmCase.cursor == total then
       -- Clicked CANCEL
-      se(5) -- pokefirered/src/tm_case.c:915
+      se(SE.SE_SELECT) -- pokefirered/src/tm_case.c:915
       TmCase.close()
     else
       local row = rows[TmCase.cursor]
       if row and TmCase._sellMode then
-        se(5)
+        se(SE.SE_SELECT)
         -- src/tm_case.c:1157 Task_SelectedTMHM_Sell
         TmCase.mode = "sell"
         TmCase._sell = require("src.ui.game3.sell_flow").start({
@@ -215,11 +215,11 @@ function TmCase.handleInput(input)
       elseif row then
         TmCase.mode = "action"
         TmCase.actionCursor = 1
-        se(5)
+        se(SE.SE_SELECT)
       end
     end
   elseif input:wasPressed("b") or input:wasPressed("start") then
-    se(5) -- pokefirered/src/tm_case.c:915
+    se(SE.SE_SELECT) -- pokefirered/src/tm_case.c:915
     TmCase.close()
   end
 end

@@ -142,6 +142,37 @@ function Prize.calc(trainerId, opts)
   return 4 * lastLevel * mult * doubleMult * value
 end
 
+-- pokeemerald/src/battle_script_commands.c:5578
+function Prize.calcRse(trainerId, opts)
+  opts = opts or {}
+  local pack = Trainers.pack()
+  local money = pack and pack.money
+  if type(money) ~= "table" or pack.moneyDefault == nil then
+    error("trainers.lua has no money table")
+  end
+  local row = Trainers.get(trainerId)
+  if not row then error("no trainer row " .. tostring(trainerId)) end
+  local lastMon = row.party[#row.party]
+  local lastLevel = tonumber(lastMon and lastMon.level) or 0
+  local value = tonumber(money[tonumber(row.class)]) or tonumber(pack.moneyDefault)
+  local mult = tonumber(opts.moneyMultiplier) or 1
+  -- pokeemerald/src/battle_script_commands.c:5624
+  if opts.double and not opts.twoOpponents then
+    return 4 * lastLevel * mult * 2 * value
+  end
+  return 4 * lastLevel * mult * value
+end
+
+-- pokeemerald/src/battle_script_commands.c:5635
+function Prize.rewardRse(trainerId, opts)
+  opts = opts or {}
+  local amount = Prize.calcRse(trainerId, opts)
+  if opts.twoOpponents and opts.trainerIdB then
+    amount = amount + Prize.calcRse(opts.trainerIdB, opts)
+  end
+  return amount
+end
+
 function Prize.apply(session, amount)
   amount = math.max(0, math.floor(tonumber(amount) or 0))
   if not session or amount <= 0 then return 0, tonumber(session and session.money) or 0 end
@@ -198,11 +229,72 @@ local function no_item(v)
   return v == nil or v == 0 or v == "" or v == "NONE"
 end
 
+Prize.RSE_DATA_REL = "data/generated/gba/pokemon/battle/rse_data.lua"
+Prize._rseData = nil
+
+function Prize.rseData()
+  if Prize._rseData then return Prize._rseData end
+  local cache = require("src.core.game3.dataset").cache()
+  local src = cache and cache.read and cache:read(Prize.RSE_DATA_REL)
+  if type(src) ~= "string" then error(Prize.RSE_DATA_REL .. " is missing from the cache") end
+  local data = assert(load(src, "@" .. Prize.RSE_DATA_REL, "t", {}))()
+  if type(data) ~= "table" or type(data.pickupItems) ~= "table" then
+    error(Prize.RSE_DATA_REL .. " has no pickup tables")
+  end
+  Prize._rseData = data
+  return data
+end
+
+-- pokeemerald/src/battle_script_commands.c:9707
+function Prize.pickupBanded(level, rand, data)
+  data = data or Prize.rseData()
+  local lvlDiv10 = math.floor(((tonumber(level) or 1) - 1) / 10)
+  if lvlDiv10 > 9 then lvlDiv10 = 9 end
+  if lvlDiv10 < 0 then lvlDiv10 = 0 end
+  local probs = data.pickupProbabilities
+  for j = 0, #probs - 1 do
+    if probs[j + 1] > rand then
+      return data.pickupItems[lvlDiv10 + j + 1].id
+    elseif rand == 99 or rand == 98 then
+      return data.rarePickupItems[lvlDiv10 + (99 - rand) + 1].id
+    end
+  end
+  return nil
+end
+
+local function pickup_banded(party, random)
+  local picked = {}
+  local Pokemon = require("src.core.game3.pokemon")
+  for i = 1, 6 do
+    local mon = party[i]
+    if type(mon) == "table" then
+      local species = Pokemon.speciesOf and Pokemon.speciesOf(mon) or tonumber(mon.species)
+      local ability = tonumber(mon.abilityId) or tonumber(mon.ability)
+      if not ability and species and Pokemon.abilityId then
+        ability = Pokemon.abilityId(species, mon.personality or 0)
+      end
+      if ability == Prize.ABILITY_PICKUP and species and species ~= 0
+        and not (mon.isEgg or mon.egg)
+        and no_item(mon.item) and no_item(mon.heldItem)
+        and random() % 10 == 0 then
+        local itemId = Prize.pickupBanded(mon.level, random() % 100)
+        if itemId then
+          mon.item = itemId
+          mon.heldItem = itemId
+          picked[#picked + 1] = { slot = i, item = itemId }
+        end
+      end
+    end
+  end
+  return picked
+end
+
 -- pokefirered/src/battle_script_commands.c:9261
-function Prize.pickup(party, random)
+function Prize.pickup(party, random, rules)
   local picked = {}
   if type(party) ~= "table" then return picked end
   random = random or require("src.core.game3.rng").Random
+  if rules and rules.pickup == "level_bands" then return pickup_banded(party, random) end
   local Pokemon = require("src.core.game3.pokemon")
   for i = 1, 6 do
     local mon = party[i]

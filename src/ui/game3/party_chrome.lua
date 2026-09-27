@@ -470,6 +470,13 @@ function PartyChrome.statusFrameFor(status)
   return 1
 end
 
+local function buttonText()
+  local ok, Profile = pcall(require, "src.core.game3.profile")
+  local row = ok and Profile.forSession(nil) or nil
+  local party = row and type(row.ui) == "table" and row.ui.party or nil
+  return party and party.buttons or nil
+end
+
 function PartyChrome.drawCancelButton(px, py, selected)
   px = px or 184
   py = py or 136
@@ -479,6 +486,14 @@ function PartyChrome.drawCancelButton(px, py, selected)
     love.graphics.draw(btn.image, px, py)
   end
   PartyChrome.drawBall(px - 2, py - 4, selected and 1 or 0)
+  local b = buttonText()
+  if b then
+    -- pokeemerald/src/party_menu.c:2131
+    local t = RomText.plain(b.cancel)
+    local w = FrlgFont.measure(t, { small = true })
+    FrlgFont.draw(t, px + 8 + math.floor((48 - w) / 2) + 3, py + 1, { colors = FrlgFont.COLOR.PARTY, small = true })
+    return
+  end
   -- pokefirered/src/party_menu.c:2154
   FrlgFont.draw(RomText.plain("gFameCheckerText_Cancel"), px + 20, py + 1, {
     colors = FrlgFont.COLOR.PARTY,
@@ -495,6 +510,14 @@ function PartyChrome.drawConfirmButton(px, py, selected)
     love.graphics.draw(btn.image, px, py)
   end
   PartyChrome.drawBall(px - 2, py - 4, selected and 1 or 0)
+  local b = buttonText()
+  if b then
+    -- pokeemerald/src/party_menu.c:2114
+    local t = RomText.plain(b.confirm)
+    local w = FrlgFont.measure(t, { small = true })
+    FrlgFont.draw(t, px + 8 + math.floor((48 - w) / 2), py + 1, { colors = FrlgFont.COLOR.PARTY, small = true })
+    return
+  end
   -- pokefirered/src/party_menu.c:2138
   FrlgFont.draw(RomText.plain("gText_PartyMenu_OK"), px + 25, py + 2, {
     colors = FrlgFont.COLOR.PARTY,

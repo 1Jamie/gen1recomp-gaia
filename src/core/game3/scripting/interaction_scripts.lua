@@ -23,7 +23,16 @@ I.CODE={
 local byBehavior={}
 for _,row in ipairs(I.FLAVOR) do byBehavior[row[1]]={'EventScript_'..row[2],row[3]} end
 for _,row in ipairs(I.CODE) do byBehavior[row[1]]={row[2],row[3]} end
-function I.scriptFor(behavior,facing)
+-- pokeemerald/src/field_control_avatar.c:367
+local function rseScriptFor(behavior,facing,sameElevation)
+  local row=behavior and I.interactions[behavior]
+  if not row then return nil end
+  if row.facing=='up' and facing~='up' and facing~=2 then return nil end
+  if row.sameElevation and sameElevation==false then return nil end
+  return row.script
+end
+function I.scriptFor(behavior,facing,sameElevation)
+  if I.interactions then return rseScriptFor(behavior,facing,sameElevation) end
   if behavior==0x83 then return 'EventScript_PC' end
   if behavior==0x85 then return 'EventScript_WallTownMap' end
   local row=byBehavior[behavior]
@@ -40,5 +49,9 @@ function I.backgroundMatches(event,x,y,elevation,direction)
 end
 function I.install(pack)
   I.behaviors=pack and pack.behaviors or {}
+  I.interactions=pack and pack.interactions or nil
+  if pack and pack.tileBits then
+    require("src.core.game3.scripting.collision_rse").setTileBits(pack.tileBits)
+  end
 end
 return I

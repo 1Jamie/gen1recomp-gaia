@@ -194,12 +194,250 @@ local function decode_door_sheet_rgba(rom, tiles_off, pal_nums, is_large, door_i
   return string.char(unpack(pixels)), W, H, frame_h
 end
 
+DoorAnimExtract.RSE_MANIFEST_VERSION = 1
+DoorAnimExtract.REQUIRED = { "doors/manifest.lua" }
+
+local SOUND_NAMES_RSE = { [0] = "normal", [1] = "sliding", [2] = "arena" }
+
+-- pokeemerald/src/field_door.c:24
+local function readFrames(rom, off)
+  local frames = {}
+  for i = 0, 15 do
+    local time = rom:get(off + i * 4)
+    if time == 0 then break end
+    frames[#frames + 1] = { time = time, offset = rom:u16(off + i * 4 + 2) }
+  end
+  return frames
+end
+
+local function tilesetInfo(rom, S, G, off, cacheT)
+  local t = cacheT[off]
+  if t then return t end
+  local name = G.symName(S, off, "gTileset_") or string.format("tileset_%X", off)
+  local attrs = G.ptr(rom, off + 16)
+  local attrSize = attrs and G.symSize(S, attrs)
+  t = {
+    off = off,
+    symbol = name,
+    key = G.snake(name:gsub("^gTileset_", "")),
+    secondary = rom:get(off + 1) ~= 0,
+    palettes = G.ptr(rom, off + 8),
+    attrs = attrs,
+    attrCount = attrSize and math.floor(attrSize / 2) or 0,
+  }
+  cacheT[off] = t
+  return t
+end
+
+-- pokeemerald/src/field_door.c:317
+local function doorIdx(rom, G, tilesOff, size, frameCount)
+  local perFrame = size == 2 and 16 or 8
+  local W = size == 2 and 32 or 16
+  local FH = 32
+  local pix, tiles = {}, {}
+  for f = 0, frameCount - 1 do
+    for t = 0, perFrame - 1 do
+      local tx, ty
+      if size == 2 then
+        local mt, sub = math.floor(t / 4), t % 4
+        tx = (mt >= 2 and 16 or 0) + (sub % 2) * 8
+        ty = (mt % 2) * 16 + math.floor(sub / 2) * 8
+      else
+        tx, ty = (t % 2) * 8, math.floor(t / 2) * 8
+      end
+      tiles[#tiles + 1] = { f = f, t = t, x = tx, y = f * FH + ty }
+      G.decodeTiles(rom, tilesOff + (f * perFrame + t) * 32, 8, 8, pix, 0, 8)
+      for y = 0, 7 do
+        for x = 0, 7 do
+          local v = pix[y * 8 + x + 1]
+          tiles[#tiles][y * 8 + x + 1] = v
+        end
+      end
+    end
+  end
+  local out = {}
+  local n = W * FH * frameCount
+  for i = 1, n do out[i] = 0 end
+  for _, tile in ipairs(tiles) do
+    for y = 0, 7 do
+      for x = 0, 7 do
+        out[(tile.y + y) * W + tile.x + x + 1] = tile[y * 8 + x + 1]
+      end
+    end
+  end
+  return out, tiles, W, FH
+end
+
+-- pokeemerald/src/field_door.c:297
+local function tilePalSlot(pals, size, t)
+  local sub = t % 4
+  local mt = math.floor(t / 4)
+  if size == 2 then return pals[(mt % 2) * 4 + sub + 1] end
+  return pals[mt * 4 + sub + 1]
+end
+
+local function doorRgba(rom, G, idx, tiles, W, H, pals, size, prim, sec, numPrimaryPals)
+  local out = {}
+  for i = 1, W * H do out[i] = "\0\0\0\0" end
+  local palCache = {}
+  for _, tile in ipairs(tiles) do
+    local slot = tilePalSlot(pals, size, tile.t)
+    local ts = slot < numPrimaryPals and prim or sec
+    local pal = palCache[slot]
+    if not pal then
+      pal = {}
+      local raw = G.readPalette(rom, ts.palettes + slot * 32)
+      for c = 1, 15 do
+        local r, g, b = G.rgb8(raw[c])
+        pal[c] = string.char(r, g, b, 255)
+      end
+      palCache[slot] = pal
+    end
+    for y = 0, 7 do
+      local row = (tile.y + y) * W + tile.x
+      for x = 0, 7 do
+        local v = idx[row + x + 1]
+        if v ~= 0 then out[row + x + 1] = pal[v] end
+      end
+    end
+  end
+  return table.concat(out)
+end
+
+function DoorAnimExtract.runRse(rom, cache, root)
+  local G = require("src.import.gba.rse.sprite_gfx")
+  local Constants = require("src.core.game3.constants")
+  local V = Versions
+  local S = V.SYMS
+  local MB = Constants.of(V.GAME).metatile_behaviors.byName
+  -- pokeemerald/src/metatile_behavior.c:228
+  local isDoor = { [MB.MB_PETALBURG_GYM_DOOR] = true, [MB.MB_ANIMATED_DOOR] = true }
+  local numPrimaryMetatiles = V.FIELDMAP.NUM_METATILES_IN_PRIMARY
+  local numPrimaryPals = V.FIELDMAP.NUM_PALS_IN_PRIMARY
+  local serialize = require("src.import.gba.extract_scripts").serialize_lua
+
+  local anim = {}
+  for k, off in pairs(V.DOOR_ANIM_FRAMES) do anim[k] = readFrames(rom, off) end
+
+  local pairsList, seenPair, tsCache = {}, {}, {}
+  for i = 0, V.NUM_MAP_LAYOUTS - 1 do
+    local layout = G.ptr(rom, V.G_MAP_LAYOUTS + i * 4)
+    if layout then
+      local p, s = G.ptr(rom, layout + 16), G.ptr(rom, layout + 20)
+      if p and s then
+        local key = p .. ":" .. s
+        if not seenPair[key] then
+          seenPair[key] = true
+          pairsList[#pairsList + 1] = {
+            prim = tilesetInfo(rom, S, G, p, tsCache),
+            sec = tilesetInfo(rom, S, G, s, tsCache),
+          }
+        end
+      end
+    end
+  end
+  table.sort(pairsList, function(a, b)
+    if a.prim.symbol ~= b.prim.symbol then return a.prim.symbol < b.prim.symbol end
+    return a.sec.symbol < b.sec.symbol
+  end)
+
+  local entries, doors, byMid, pairOut = {}, {}, {}, {}
+  local sheets = {}
+  local rgbaFiles = {}
+  for i = 0, V.DOOR_GRAPHICS_COUNT - 1 do
+    local base = V.DOOR_GRAPHICS_TABLE + i * 12
+    local tilesOff = G.ptr(rom, base + 4)
+    if not tilesOff then break end
+    local mid = rom:u16(base)
+    local sound = rom:get(base + 2)
+    local size = rom:get(base + 3)
+    local palsOff = G.ptr(rom, base + 8)
+    local pals = {}
+    for p = 0, 7 do pals[p + 1] = palsOff and rom:get(palsOff + p) or 0 end
+    local symbol = G.symName(S, tilesOff, "sDoorAnimTiles_") or string.format("door_%d", i)
+    local name = G.snake(symbol:gsub("^sDoorAnimTiles_", ""))
+    local frames = anim[size == 2 and "big_open" or "open"]
+    local maxOff = 0
+    for _, fr in ipairs(frames) do
+      if fr.offset ~= 0xFFFF and fr.offset > maxOff then maxOff = fr.offset end
+    end
+    local frameCount = math.floor(maxOff / ((size == 2 and 16 or 8) * 32)) + 1
+    local sheet = sheets[symbol]
+    if not sheet then
+      local idx, tiles, W, FH = doorIdx(rom, G, tilesOff, size, frameCount)
+      sheet = { idx = idx, tiles = tiles, W = W, FH = FH, frames = frameCount }
+      sheets[symbol] = sheet
+      cache:write(root .. "/" .. name .. ".idx", G.idxString(idx, W * FH * frameCount))
+      doors[name] = {
+        file = name .. ".idx", symbol = symbol, width = W, height = FH * frameCount,
+        frame_width = W, frame_height = FH, frames = frameCount,
+      }
+    end
+    local entry = {
+      index = i, mid = mid, tile = name, sound = SOUND_NAMES_RSE[sound] or "normal", sound_type = sound,
+      size = size == 2 and "2x2" or "1x2", size_type = size, pals = pals, pairs = {},
+    }
+    for _, pr in ipairs(pairsList) do
+      local ts, local_mid = pr.prim, mid
+      if mid >= numPrimaryMetatiles then ts, local_mid = pr.sec, mid - numPrimaryMetatiles end
+      if ts.attrs and local_mid < ts.attrCount then
+        local beh = rom:u16(ts.attrs + local_mid * 2) % 256
+        if isDoor[beh] then
+          local usesP, usesS = false, false
+          for _, slot in ipairs(pals) do
+            if slot < numPrimaryPals then usesP = true else usesS = true end
+          end
+          local fileKey = name .. (usesP and ("__" .. pr.prim.key) or "") .. (usesS and ("__" .. pr.sec.key) or "")
+          if not rgbaFiles[fileKey] then
+            rgbaFiles[fileKey] = true
+            cache:write(root .. "/" .. fileKey .. ".rgba", doorRgba(rom, G, sheet.idx, sheet.tiles, sheet.W,
+              sheet.FH * sheet.frames, pals, size, pr.prim, pr.sec, numPrimaryPals))
+          end
+          local pk = pr.prim.symbol .. "|" .. pr.sec.symbol
+          local po = pairOut[pk]
+          if not po then
+            po = { primary = pr.prim.symbol, secondary = pr.sec.symbol, doors = {} }
+            pairOut[pk] = po
+          end
+          if not po.doors[mid] then
+            po.doors[mid] = { index = i, tile = name, file = fileKey .. ".rgba", sound = entry.sound, size_type = size }
+            entry.pairs[#entry.pairs + 1] = pk
+          end
+        end
+      end
+    end
+    entries[#entries + 1] = entry
+    if byMid[mid] == nil then byMid[mid] = entry end
+  end
+
+  cache:write(root .. "/manifest.lua", "return " .. serialize({
+    version = DoorAnimExtract.RSE_MANIFEST_VERSION,
+    family = "rse",
+    count = #entries,
+    doors = doors,
+    entries = entries,
+    by_mid = byMid,
+    pairs = pairOut,
+    anim = anim,
+    num_pals_in_primary = numPrimaryPals,
+    num_metatiles_in_primary = numPrimaryMetatiles,
+  }) .. "\n")
+  local np = 0
+  for _ in pairs(pairOut) do np = np + 1 end
+  print(string.format("[door_extract] rse: %d entries, %d tileset pairs with doors", #entries, np))
+  return true
+end
+
 -- ────────────────────────────── Main extract ─────────────────────────────────
 
 function DoorAnimExtract.run(rom, cache, opts)
   opts = opts or {}
   local cacheRoot = opts.cacheRoot or "data/generated/gba"
   local root = cacheRoot .. "/" .. DoorAnimExtract.CACHE_SUB
+
+  if rom and Versions.FAMILY == "rse" then
+    return DoorAnimExtract.runRse(rom, cache, root)
+  end
 
   if not rom then
     print("[door_extract] no ROM handle; writing stub manifest")
@@ -319,6 +557,10 @@ function DoorAnimExtract.ready(cache, cacheRoot)
   if not chunk then return false end
   local ok, manifest = pcall(chunk)
   if not ok or type(manifest) ~= "table" then return false end
+  if Versions.FAMILY == "rse" then
+    return manifest.family == "rse" and manifest.version == DoorAnimExtract.RSE_MANIFEST_VERSION
+      and manifest.count == Versions.DOOR_GRAPHICS_COUNT - 1
+  end
   if manifest.version ~= DoorAnimExtract.MANIFEST_VERSION then return false end
   if type(manifest.by_mid) ~= "table" then return false end
   local n = 0

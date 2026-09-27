@@ -6035,7 +6035,8 @@ function RomImporter:_restoreActiveCarts(opts)
 end
 
 local CART_RAIL = { red = "railRed", blue = "railBlue", yellow = "railGold",
-                    gold = "railAmber", silver = "railSilver" }
+                    gold = "railAmber", silver = "railSilver",
+                    emerald = "railEmerald" }
 local CART_START_VERSION = "1.0.0"
 
 local function cartShellHex(version)

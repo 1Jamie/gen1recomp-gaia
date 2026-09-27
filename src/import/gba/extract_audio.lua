@@ -5,13 +5,18 @@ local Versions = require("src.import.gba.versions")
 
 local ExtractAudio = {}
 
-ExtractAudio.SONG_COUNT = Versions.AUDIO and Versions.AUDIO.song_count or 347
-ExtractAudio.SONG_TABLE = Versions.AUDIO and Versions.AUDIO.song_table or 0x4A32CC
-ExtractAudio.CRY_TABLE = Versions.AUDIO and Versions.AUDIO.cry_table or 0x48C914
-ExtractAudio.CRY_COUNT = Versions.AUDIO and Versions.AUDIO.cry_count or 388
+ExtractAudio.REQUIRED = {
+  "audio/index.lua",
+  "audio/songtable.bin",
+  "audio/crytable.bin",
+  "audio/samples.bin",
+  "audio/samples.lua",
+  "audio/cries.lua",
+  "audio/voicegroups.lua",
+}
 
 -- pret sound.c sFanfares[] — frame durations for waitfanfare.
-local FANFARES = {
+local FRLG_FANFARES = {
   [256] = { frames = 160, name = "MUS_HEAL" },
   [257] = { frames = 80, name = "MUS_LEVEL_UP" },
   [258] = { frames = 160, name = "MUS_OBTAIN_ITEM" },
@@ -28,16 +33,55 @@ local FANFARES = {
   [338] = { frames = 450, name = "MUS_POKE_FLUTE" },
 }
 
-local ROLES = {
-  battleWild = 298, battleTrainer = 297, battleGymLeader = 296, battleChampion = 299,
-  victoryWild = 311, victoryTrainer = 310, victoryGymLeader = 312,
-  encounterBoy = 285, encounterGirl = 284, encounterRival = 315, encounterRocket = 283,
-  encounterGymLeader = 342, pokeCenter = 303, heal = 256, surf = 305, cycling = 282,
-  caught = 322, caughtIntro = 319, evolution = 264, evolutionIntro = 263, evolved = 259,
-  levelUp = 257, obtainItem = 258, followMe = 272, title = 278,
+local ROLE_NAMES = {
+  battleWild = "MUS_VS_WILD", battleTrainer = "MUS_VS_TRAINER",
+  battleGymLeader = "MUS_VS_GYM_LEADER", battleChampion = "MUS_VS_CHAMPION",
+  victoryWild = "MUS_VICTORY_WILD", victoryTrainer = "MUS_VICTORY_TRAINER",
+  victoryGymLeader = "MUS_VICTORY_GYM_LEADER",
+  encounterBoy = "MUS_ENCOUNTER_BOY", encounterGirl = "MUS_ENCOUNTER_GIRL",
+  encounterRival = "MUS_ENCOUNTER_RIVAL", encounterRocket = "MUS_ENCOUNTER_ROCKET",
+  encounterGymLeader = "MUS_ENCOUNTER_GYM_LEADER", pokeCenter = "MUS_POKE_CENTER",
+  heal = "MUS_HEAL", surf = "MUS_SURF", cycling = "MUS_CYCLING",
+  caught = "MUS_CAUGHT", caughtIntro = "MUS_CAUGHT_INTRO", evolution = "MUS_EVOLUTION",
+  evolutionIntro = "MUS_EVOLUTION_INTRO", evolved = "MUS_EVOLVED",
+  levelUp = "MUS_LEVEL_UP", obtainItem = "MUS_OBTAIN_ITEM", followMe = "MUS_FOLLOW_ME",
+  title = "MUS_TITLE",
 }
 
 local PLAYERS = { [0] = "bgm", [1] = "se1", [2] = "se2", [3] = "cry" }
+
+local SONG_PREFIXES = { "MUS_", "SE_", "PH_" }
+
+local function game_id()
+  local id = Versions.active and Versions.active()
+  if type(id) ~= "string" then error("extract_audio: no active gen 3 game") end
+  return id
+end
+
+local function game_constants(id)
+  return require("src.core.game3.constants").of(id or game_id())
+end
+
+local function song_id(C, name)
+  local id = C.songs.byName[name]
+  if type(id) ~= "number" then return nil end
+  return id
+end
+
+local function song_name(C, id)
+  for _, prefix in ipairs(SONG_PREFIXES) do
+    local names = C.songs.byId[prefix]
+    if names and names[id] then return names[id] end
+  end
+  return nil
+end
+
+function ExtractAudio.resolveRoles(C, extra)
+  local out = {}
+  for role, name in pairs(ROLE_NAMES) do out[role] = song_id(C, name) end
+  for role, name in pairs(extra or {}) do out[role] = song_id(C, name) end
+  return out
+end
 
 local function write(cache, path, data)
   if cache and cache.write then
@@ -52,6 +96,7 @@ end
 local function rom_bytes(rom)
   if type(rom) == "string" then return rom end
   if rom and type(rom.data) == "string" then return rom.data end
+  if rom and rom.ensureBuffer then return rom:ensureBuffer() end
   return nil
 end
 
@@ -77,25 +122,30 @@ local function gba_off(ptr)
   return ptr - 0x08000000
 end
 
---- Locate gSongTable when Versions.AUDIO.song_table is wrong (structural scan).
-function ExtractAudio.findSongTable(data, count)
-  count = count or ExtractAudio.SONG_COUNT
-  local limit = #data - count * 8
-  for base = 0, limit, 4 do
-    local h0 = ru32(data, base)
-    if h0 and h0 >= 0x08000000 and h0 < 0x09000000
-        and ru16(data, base + 4) == 0 and ru16(data, base + 6) == 0 then
-      local e5 = base + 5 * 8
-      local h5 = ru32(data, e5)
-      if ru16(data, e5 + 4) == 2 and ru16(data, e5 + 6) == 2
-          and h5 and h5 >= 0x08000000 and h5 < 0x09000000
-          and ru16(data, base + 8 + 4) == 1 and ru16(data, base + 8 + 6) == 1 then
-        local e278 = base + 278 * 8
-        if e278 + 8 <= #data and ru16(data, e278 + 4) == 0 and ru16(data, e278 + 6) == 0 then
-          return base
-        end
-      end
-    end
+function ExtractAudio.isSongTable(data, base, count, titleId)
+  if not base or base < 0 or base + count * 8 > #data then return false end
+  if titleId + 1 > count then return false end
+  local h0 = ru32(data, base)
+  if not (h0 and h0 >= 0x08000000 and h0 < 0x09000000
+      and ru16(data, base + 4) == 0 and ru16(data, base + 6) == 0) then
+    return false
+  end
+  local e5 = base + 5 * 8
+  local h5 = ru32(data, e5)
+  if not (ru16(data, e5 + 4) == 2 and ru16(data, e5 + 6) == 2
+      and h5 and h5 >= 0x08000000 and h5 < 0x09000000
+      and ru16(data, base + 8 + 4) == 1 and ru16(data, base + 8 + 6) == 1) then
+    return false
+  end
+  local et = base + titleId * 8
+  return ru16(data, et + 4) == 0 and ru16(data, et + 6) == 0
+end
+
+function ExtractAudio.findSongTable(data, count, titleId, hint)
+  assert(type(count) == "number" and type(titleId) == "number", "findSongTable: count and title id required")
+  if hint and ExtractAudio.isSongTable(data, hint, count, titleId) then return hint end
+  for base = 0, #data - count * 8, 4 do
+    if ExtractAudio.isSongTable(data, base, count, titleId) then return base end
   end
   return nil
 end
@@ -473,10 +523,8 @@ local function dump_song_tracks(data, headerOff, songId, cache, root)
   return #blob, tracks, hasGoto
 end
 
-local function build_map_songs(rom, data)
+local function build_map_songs_frlg(rom, data)
   local mapSongs = {}
-  local ok, Versions = pcall(require, "src.import.gba.versions")
-  if not ok then return mapSongs end
   local headers = Versions.MAP_HEADERS
   if type(headers) ~= "table" then return mapSongs end
   local ExtractMapEvents = require("src.import.gba.extract_map_events")
@@ -496,7 +544,36 @@ local function build_map_songs(rom, data)
   return mapSongs
 end
 
-local function species_to_cry_index(species)
+-- pokeemerald/include/global.fieldmap.h:177
+function ExtractAudio.buildMapSongsRse(data, C, mapIdFor)
+  local groupsOff = Versions.G_MAP_GROUPS
+  local numGroups = Versions.NUM_MAP_GROUPS
+  local names = {}
+  for _, row in pairs(C.map_groups.byName) do
+    names[row.group .. ":" .. row.num] = row.name
+  end
+  local mapSongs, none = {}, song_id(C, "MUS_NONE")
+  for g, info in ipairs(C.map_groups.groups) do
+    local group = g - 1
+    if group >= numGroups then break end
+    local listOff = gba_off(ru32(data, groupsOff + group * 4))
+    if not listOff then error(("extract_audio: bad gMapGroups[%d] pointer"):format(group)) end
+    for num = 0, info.count - 1 do
+      local headerOff = gba_off(ru32(data, listOff + num * 4))
+      local name = names[group .. ":" .. num]
+      if not (headerOff and name) then
+        error(("extract_audio: map %d.%d has no header"):format(group, num))
+      end
+      local music = ru16(data, headerOff + 16)
+      if music and music ~= none then
+        mapSongs[mapIdFor(name, group, num)] = music
+      end
+    end
+  end
+  return mapSongs
+end
+
+local function species_to_cry_index_frlg(species, cryCount)
   species = tonumber(species) or 0
   -- Audible mapping: Bulbasaur (1) → gCryTable[0]. pret SpeciesToCryId(1)=1 indexes
   -- the next slot; we store cryIds for playCry to use directly into cries[].
@@ -511,14 +588,88 @@ local function species_to_cry_index(species)
   -- Full sHoennSpeciesIdToCryId is large; use contiguous gCryTable indices 251+.
   local idx = 251 + (species - 277)
   if idx < 0 then idx = 0 end
-  if idx >= ExtractAudio.CRY_COUNT then idx = ExtractAudio.CRY_COUNT - 1 end
+  if idx >= cryCount then idx = cryCount - 1 end
   return idx
+end
+
+-- pokeemerald/src/pokemon.c:5701
+function ExtractAudio.cryIdsFromTable(data, tableOff, tableCount, species, numSpecies)
+  local celebi = species.SPECIES_CELEBI
+  local treecko = species.SPECIES_TREECKO
+  local unown = species.SPECIES_UNOWN
+  local out = {}
+  for sp = 1, numSpecies - 1 do
+    local s = sp - 1
+    if s <= celebi - 1 then
+      out[sp] = s
+    elseif s < treecko - 1 then
+      out[sp] = unown - 1
+    else
+      local i = s - (treecko - 1)
+      if i >= tableCount then error(("extract_audio: species %d past gSpeciesIdToCryId"):format(sp)) end
+      out[sp] = ru16(data, tableOff + i * 2)
+    end
+  end
+  return out
+end
+
+function ExtractAudio.readFanfares(data, off, count, C)
+  local out = {}
+  for i = 0, count - 1 do
+    local song = ru16(data, off + i * 4)
+    local frames = ru16(data, off + i * 4 + 2)
+    out[song] = { frames = frames, name = song_name(C, song) }
+  end
+  return out
+end
+
+local function read_cries(data, tableOff, count, sampleMap, sampleParts, sampleCursor)
+  local cries = {}
+  for i = 0, count - 1 do
+    local toneOff = tableOff + i * 12
+    local sample = read_tone_sample(data, toneOff, sampleMap, sampleParts, sampleCursor)
+    cries[i] = {
+      sampleId = sample and sample.id or nil,
+      key = ru8(data, toneOff + 1) or 60,
+      attack = ru8(data, toneOff + 8) or 0xFF,
+      decay = ru8(data, toneOff + 9) or 0,
+      sustain = ru8(data, toneOff + 10) or 0xFF,
+      release = ru8(data, toneOff + 11) or 0,
+      basePitch = sample and sample.freq or 0,
+    }
+  end
+  return cries
+end
+
+local function audio_params()
+  local A = Versions.AUDIO
+  if type(A) ~= "table" or not (A.song_table and A.song_count and A.cry_table and A.cry_count) then
+    error("extract_audio: " .. game_id() .. " has no AUDIO table")
+  end
+  return A
+end
+
+function ExtractAudio.ready(cache, cacheRoot)
+  local root = (cacheRoot or "data/generated/gba") .. "/audio"
+  local meta = cache:read(root .. "/meta.json")
+  if type(meta) ~= "string" or meta:find('"stub"%s*:%s*true') then return false end
+  local v = tonumber(meta:match('"version"%s*:%s*(%d+)'))
+  if v ~= (Versions.AUDIO_VERSION or 1) then return false end
+  return cache:exists(root .. "/index.lua") and true or false
 end
 
 function ExtractAudio.run(rom, cache, opts)
   opts = opts or {}
-  local root = opts.root or "data/generated/gba/audio"
+  local root = opts.root or ((opts.cacheRoot or "data/generated/gba") .. "/audio")
   local data = rom_bytes(rom)
+  if not data then error("extract_audio: no ROM bytes") end
+  local A = audio_params()
+  local game = game_id()
+  local C = game_constants(game)
+  local rse = Versions.FAMILY == "rse"
+  local sha1 = opts.sha1 or (rse and type(rom) == "table" and rom.md5) or ""
+  local FANFARES = rse and ExtractAudio.readFanfares(data, A.fanfares, A.fanfare_count, C) or FRLG_FANFARES
+  local ROLES = ExtractAudio.resolveRoles(C, A.roles)
   local songs = {}
   local cries = {}
   local cryIds = {}
@@ -529,12 +680,10 @@ function ExtractAudio.run(rom, cache, opts)
   local vgMap = {}       -- vgOff → id
   local voicegroups = {} -- id → tones[0..127]
 
-  local songTable = Versions.AUDIO.song_table
-  local songCount = ExtractAudio.SONG_COUNT
-  if data then
-    local found = ExtractAudio.findSongTable(data, songCount)
-    if found then songTable = found end
-  end
+  local songCount = A.song_count
+  local titleId = song_id(C, "MUS_TITLE")
+  local songTable = ExtractAudio.findSongTable(data, songCount, titleId, A.song_table)
+  if not songTable then error("extract_audio: gSongTable not found in " .. game .. " ROM") end
 
   -- Song table binary + per-song metadata / track dumps / primary samples.
   local songtableParts = {}
@@ -584,32 +733,30 @@ function ExtractAudio.run(rom, cache, opts)
   end
 
   -- Cry table → samples
-  local cryTable = Versions.AUDIO.cry_table
-  local cryCount = ExtractAudio.CRY_COUNT
-  if data and cryTable + cryCount * 12 <= #data then
+  local cryTable = A.cry_table
+  local cryCount = A.cry_count
+  if cryTable + cryCount * 12 <= #data then
     write(cache, root .. "/crytable.bin", data:sub(cryTable + 1, cryTable + cryCount * 12))
-    for i = 0, cryCount - 1 do
-      local toneOff = cryTable + i * 12
-      local sample = read_tone_sample(data, toneOff, sampleMap, sampleParts, sampleCursor)
-      local key = ru8(data, toneOff + 1) or 60
-      local attack = ru8(data, toneOff + 8) or 0xFF
-      local decay = ru8(data, toneOff + 9) or 0
-      local sustain = ru8(data, toneOff + 10) or 0xFF
-      local release = ru8(data, toneOff + 11) or 0
-      cries[i] = {
-        sampleId = sample and sample.id or nil,
-        key = key,
-        attack = attack,
-        decay = decay,
-        sustain = sustain,
-        release = release,
-        basePitch = sample and sample.freq or 0,
-      }
-    end
+    cries = read_cries(data, cryTable, cryCount, sampleMap, sampleParts, sampleCursor)
+  elseif rse then
+    error("extract_audio: gCryTable out of range")
   end
 
-  for species = 1, 411 do
-    cryIds[species] = species_to_cry_index(species)
+  local criesReverse, cryTableReverse
+  if A.cry_table_reverse then
+    cryTableReverse = A.cry_table_reverse
+    local n = A.cry_table_reverse_count or cryCount
+    write(cache, root .. "/crytable_reverse.bin", data:sub(cryTableReverse + 1, cryTableReverse + n * 12))
+    criesReverse = read_cries(data, cryTableReverse, n, sampleMap, sampleParts, sampleCursor)
+  end
+
+  if A.cry_id_table then
+    cryIds = ExtractAudio.cryIdsFromTable(data, A.cry_id_table, A.cry_id_count, C.species.byName,
+      Versions.NUM_SPECIES)
+  else
+    for species = 1, 411 do
+      cryIds[species] = species_to_cry_index_frlg(species, cryCount)
+    end
   end
 
   -- Flatten sampleMap → sampleIndex by id
@@ -631,11 +778,19 @@ function ExtractAudio.run(rom, cache, opts)
   write(cache, root .. "/cries.lua", "return " .. encode_lua_table(cries) .. "\n")
   write(cache, root .. "/voicegroups.lua", "return " .. encode_lua_table(voicegroups) .. "\n")
 
-  local mapSongs = build_map_songs(rom, data)
+  local mapSongs
+  if rse then
+    local MapCatalog = require("src.import.gba.map_catalog")
+    mapSongs = ExtractAudio.buildMapSongsRse(data, C, function(name, group, num)
+      return MapCatalog.mapIdFor(group, num) or MapCatalog.pretToEngine(name)
+    end)
+  else
+    mapSongs = build_map_songs_frlg(rom, data)
+  end
 
   local index = {
     version = Versions.AUDIO_VERSION or 1,
-    romSha1 = opts.sha1 or "",
+    romSha1 = sha1,
     songCount = songCount,
     songTable = songTable,
     cryTable = cryTable,
@@ -644,6 +799,8 @@ function ExtractAudio.run(rom, cache, opts)
     songs = songs,
     cries = cries,
     cryIds = cryIds,
+    cryTableReverse = cryTableReverse,
+    criesReverse = criesReverse,
     samples = sampleIndex,
     voicegroups = voicegroups,
     mapSongs = mapSongs,
@@ -655,7 +812,7 @@ function ExtractAudio.run(rom, cache, opts)
   write(cache, root .. "/index.lua", "return " .. encode_lua_table(index) .. "\n")
   write(cache, root .. "/meta.json", string.format(
     '{"version":%d,"sha1":"%s","song_count":%d,"cry_count":%d,"sample_count":%d,"has_pcm":true}\n',
-    index.version, tostring(opts.sha1 or ""), songCount, cryCount,
+    index.version, tostring(sha1), songCount, cryCount,
     (function()
       local n = 0
       for _ in pairs(sampleIndex) do n = n + 1 end

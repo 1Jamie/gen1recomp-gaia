@@ -43,7 +43,7 @@ do
     "and each of them names itself")
   eq(table.concat(ModTargets.expand("crystal"), ","), "crystal",
     "Crystal included, the day its VERSIONS row landed")
-  eq(table.concat(ModTargets.expand("gen3"), ","), "firered,leafgreen",
+  eq(table.concat(ModTargets.expand("gen3"), ","), "firered,leafgreen,emerald",
     "gen3 is every Gen 3 game")
   eq(table.concat(ModTargets.expand("FireRed"), ","), "firered",
     "and FireRed names itself, case-insensitive")
@@ -140,8 +140,8 @@ do
     "FireRed alone is only part of Gen 3")
   eq(ModTargets.label(mf({ games = { "leafgreen" } })), "LeafGreen",
     "LeafGreen alone is only part of Gen 3")
-  eq(ModTargets.label(mf({ games = { "firered", "leafgreen" } })), "Gen 3",
-    "both Gen 3 games read as the generation")
+  eq(ModTargets.label(mf({ games = { "firered", "leafgreen", "emerald" } })), "Gen 3",
+    "every Gen 3 game reads as the generation")
   eq(ModTargets.label(mf({ games = { "gen1", "gen3" } })), "Gen 1+3",
     "generations need not be contiguous")
   eq(ModTargets.detail(mf({}), "firered"), "For Gen 1, not FireRed",

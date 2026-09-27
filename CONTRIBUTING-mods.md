@@ -183,6 +183,20 @@ manifest with neither key still covers every Gen 1 game, so nothing written
 before the key existed changes behavior; list both generations or say `"all"`
 when you mean everywhere.
 
+Gen 3 is FireRed, LeafGreen and Emerald, and `"gen3"` covers all three. That
+includes Emerald on purpose: a manifest that said `"gen3"` before Emerald was
+added now loads there too, the same way `"gen2"` picked up Crystal. If your mod
+names Kanto maps, Kanto flags or FireRed-only items, narrow it with a family
+token: `"frlg"` is FireRed and LeafGreen, `"rse"` is the Hoenn games (Emerald
+today). Both families share one `src/battle/game3` and `src/world/game3` API,
+so a mod written against `mod.game` and `mod.world` usually runs on either.
+The Gen 1 adapter layer for Gen 3 (`src/mods/Gen3Compat.lua`, which answers a
+Gen 1 `require` on a Gen 3 boot) runs on FireRed and LeafGreen only, because
+its map bridge turns Gen 1 map ids into Kanto `FR_` ids that Emerald does not
+have; on Emerald those requires are reported like any other name with no
+adapter. `python3 tools/modkit.py gen3check` reads `"frlg"` and `"rse"` as a
+Gen 3 claim.
+
 `docs/mod-api-gen2-compat.md` is the compatibility matrix: what works on Gold,
 Silver and Crystal today (40 of the 46 registries, 40 event and 44 hook names
 shared with Gen 1, and 24 Gen 2-only ones), which registries have no Gen 2 home

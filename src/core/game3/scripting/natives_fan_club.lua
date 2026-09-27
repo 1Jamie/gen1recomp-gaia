@@ -35,9 +35,9 @@ local function setResult(ctx, value)
   flagsMod().setVar(scriptStore(ctx), ctx, VAR_RESULT, tonumber(value) or 0)
 end
 
-FanClub.HANDLERS = {
+FanClub.BY_NAME = {
   -- pokefirered/src/trainer_fan_club.c:223 Script_IsFanClubMemberFanOfPlayer
-  [Std.SPECIAL.Script_IsFanClubMemberFanOfPlayer] = function(ctx)
+  Script_IsFanClubMemberFanOfPlayer = function(ctx)
     local memberId = varGet(ctx, VAR_0x8004)
     local isFan = TrainerFanClub.isFanClubMemberFanOfPlayer(sessionOf(ctx), ctx, memberId)
     setResult(ctx, isFan and 1 or 0)
@@ -45,50 +45,51 @@ FanClub.HANDLERS = {
   end,
 
   -- pokefirered/src/trainer_fan_club.c:170 Script_GetNumFansOfPlayerInTrainerFanClub
-  [Std.SPECIAL.Script_GetNumFansOfPlayerInTrainerFanClub] = function(ctx)
+  Script_GetNumFansOfPlayerInTrainerFanClub = function(ctx)
     local count = TrainerFanClub.getNumFansOfPlayerInTrainerFanClub(sessionOf(ctx), ctx)
     setResult(ctx, count)
     return false
   end,
 
   -- pokefirered/src/trainer_fan_club.c:240 Script_BufferFanClubTrainerName
-  [Std.SPECIAL.Script_BufferFanClubTrainerName] = function(ctx, adapters)
+  Script_BufferFanClubTrainerName = function(ctx, adapters)
     local memberId = varGet(ctx, VAR_0x8004)
     TrainerFanClub.bufferFanClubTrainerName(sessionOf(ctx), ctx, adapters, memberId)
     return false
   end,
 
   -- pokefirered/src/trainer_fan_club.c:40 Script_TryLoseFansFromPlayTimeAfterLinkBattle
-  [Std.SPECIAL.Script_TryLoseFansFromPlayTimeAfterLinkBattle] = function(ctx)
+  Script_TryLoseFansFromPlayTimeAfterLinkBattle = function(ctx)
     TrainerFanClub.tryLoseFansFromPlayTimeAfterLinkBattle(sessionOf(ctx), ctx)
     return false
   end,
 
   -- pokefirered/src/trainer_fan_club.c:189 Script_TryLoseFansFromPlayTime
-  [Std.SPECIAL.Script_TryLoseFansFromPlayTime] = function(ctx)
+  Script_TryLoseFansFromPlayTime = function(ctx)
     TrainerFanClub.tryLoseFansFromPlayTime(sessionOf(ctx), ctx)
     return false
   end,
 
   -- pokefirered/src/trainer_fan_club.c:334 Script_SetPlayerGotFirstFans
-  [Std.SPECIAL.Script_SetPlayerGotFirstFans] = function(ctx)
+  Script_SetPlayerGotFirstFans = function(ctx)
     TrainerFanClub.setPlayerGotFirstFans(sessionOf(ctx), ctx)
     return false
   end,
 
   -- pokefirered/src/trainer_fan_club.c:54 Script_UpdateTrainerFanClubGameClear
-  [Std.SPECIAL.Script_UpdateTrainerFanClubGameClear] = function(ctx)
+  Script_UpdateTrainerFanClubGameClear = function(ctx)
     TrainerFanClub.updateTrainerFanClubGameClear(sessionOf(ctx), ctx)
     return false
   end,
 
   -- pokefirered/src/trainer_fan_club.c:344 Script_TryGainNewFanFromCounter
-  [Std.SPECIAL.Script_TryGainNewFanFromCounter] = function(ctx)
+  Script_TryGainNewFanFromCounter = function(ctx)
     local counterIdx = varGet(ctx, VAR_0x8004)
     local timer = TrainerFanClub.tryGainNewFanFromCounter(sessionOf(ctx), ctx, counterIdx)
     setResult(ctx, timer)
     return false
   end,
 }
+Std.legacyHandlers(FanClub)
 
 return FanClub

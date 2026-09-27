@@ -5,6 +5,7 @@
 local MapIds = require("src.core.game3.map_ids")
 local ModRuntime = require("src.mods.Runtime")
 local Connections = require("src.core.game3.connections")
+local FieldModules = require("src.core.game3.field_modules")
 local Map = {}
 
 Map.current = nil
@@ -274,7 +275,12 @@ function Map.load(mod, game, mapId, opts)
       local session = okRt and Runtime and Runtime.getSession and Runtime.getSession()
       if session and session.roamer and session.roamer.active then
         local fromMapId = Map._announced
-        if fromMapId ~= nil and fromMapId ~= mapId then
+        if require("src.core.game3.profile").family(session) == "rse" then
+          if fromMapId ~= nil then
+            -- pokeemerald/src/overworld.c:816
+            Roamer.move(session, opts.seamless and "connection" or "warp", mapId)
+          end
+        elseif fromMapId ~= nil and fromMapId ~= mapId then
           local moveReason = (opts.teleport or opts.fly or opts.whiteout) and "warp_random" or "map_transition"
           Roamer.move(session, moveReason)
         elseif opts.teleport or opts.fly or opts.whiteout then
@@ -305,6 +311,21 @@ function Map.load(mod, game, mapId, opts)
     end
   end
   Map.ensureMidLayout(game, mapId, def)
+  do
+    local Rt = package.loaded["src.core.game3.runtime"]
+    local sess = (Rt and Rt.getSession and Rt.getSession()) or (game and game.session)
+    if def and sess and require("src.core.game3.profile").family(sess) == "rse" then
+      local FV = package.loaded["src.core.game3.field_view"]
+      if FV and FV._bgPalOverride then FV.setBgPaletteOverride(FV._bgPalOverride.slot, nil) end
+      -- pokeemerald/src/field_effect.c:1546
+      if FV and not opts.seamless then FV.setCameraPanning(0, 0) end
+      local R = require("src.core.game3.rse.init")
+      -- pokeemerald/src/fieldmap.c:82
+      R.call("pyramid", "onMapLoad", nil, nil, nil, mapId, def, opts)
+      -- pokeemerald/src/fieldmap.c:88
+      R.call("trainerHill", "onMapLoad", nil, nil, nil, mapId, def, opts)
+    end
+  end
   Map._def = def
   Map._currentDef = def
   if opts.depth1Connections ~= false then
@@ -351,6 +372,11 @@ function Map.load(mod, game, mapId, opts)
     end
   end
 
+  local isRse = session ~= nil and require("src.core.game3.profile").family(session) == "rse"
+  if isRse and not opts.seamless and session.map then
+    -- pokeemerald/src/overworld.c:542
+    session.lastUsedWarp = { map = session.map, x = session.x, y = session.y }
+  end
   if session then
     session.map = mapId
     session.x = x
@@ -387,6 +413,14 @@ function Map.load(mod, game, mapId, opts)
 
   local okFv, FieldView = pcall(require, "src.core.game3.field_view")
   if okFv and FieldView then FieldView._nativeDirty = true end
+  -- pokeemerald/src/overworld.c:529, pokeemerald/src/overworld.c:815
+  do
+    local TilesetAnim = package.loaded["src.core.game3.tileset_anim"]
+    local pair = def and (def.pair or (def.midLayout and def.midLayout.pair))
+    if TilesetAnim and TilesetAnim._rse and TilesetAnim.enterMap and type(pair) == "string" then
+      TilesetAnim.enterMap(pair, opts.seamless == true)
+    end
+  end
 
   -- Scripts/events before spawn so Objects.loadMap sees mapDef.objects.
   local Space = package.loaded["src.core.game3.scripting.space"]
@@ -435,10 +469,20 @@ function Map.load(mod, game, mapId, opts)
 
   local Objects = require("src.core.game3.objects")
   -- pokefirered/src/overworld.c:800
-  if fromMapId and (fromMapId ~= mapId or opts.heal) then
+  if fromMapId and (fromMapId ~= mapId or opts.heal) and FieldModules.enabled("vsSeeker", session) then
     require("src.core.game3.vs_seeker").mapReset(session)
   end
-  if Space and Space.activate then
+  if isRse and require("src.core.game3.capabilities").gate(session, "match_call") then
+    -- pokeemerald/src/overworld.c:801
+    require("src.core.game3.rse.rematch").tryUpdateRandomTrainerRematchesForMap(session, mapId)
+  end
+  -- pokeemerald/src/overworld.c:802
+  if session and require("src.core.game3.rtc").enabled(session) then
+    require("src.core.game3.time_events").run(session)
+  end
+  if opts.keepScript and Space and Space.retarget then
+    Space.retarget(mod or Runtime._mod, mapId, game, world)
+  elseif Space and Space.activate then
     Space.activate(mod or Runtime._mod, mapId, game, world)
   end
 
@@ -454,17 +498,27 @@ function Map.load(mod, game, mapId, opts)
 
   if def then
     Objects.loadMap(game, mapId, def)
+    if opts.carry then Objects.carryIn(opts.carry) end
     Ghosts.adopt(mapId)
   end
   -- pokefirered/src/overworld.c:771 / :808 TryRegenerateRenewableHiddenItems
-  local okRen, Renewable = pcall(require, "src.core.game3.renewable_hidden_items")
+  local okRen, Renewable = false, nil
+  if FieldModules.enabled("renewableHiddenItems", session) then
+    okRen, Renewable = pcall(require, "src.core.game3.renewable_hidden_items")
+  end
   if okRen and Renewable and Renewable.tryRegenerate then
     Renewable.tryRegenerate(session, def and (def.group or (def.pair and def.pair[1])), def and (def.num or (def.pair and def.pair[2])), mapId)
   end
   -- pokefirered/src/overworld.c:809 SetCurrentAndNextWeather
   if def and def.weather ~= nil then
     local Weather = require("src.core.game3.weather")
-    Weather.apply(def.weather)
+    Weather.apply(def.weather, { seamless = opts.seamless })
+  end
+  if isRse and not opts.seamless and def and require("src.core.game3.dataset").isOutdoorMapType(def.mapType) then
+    -- pokeemerald/src/overworld.c:857
+    local Flags = require("src.core.game3.scripting.flags")
+    local flash = require("src.core.game3.field_semantics").flag(session, "flashActive")
+    if flash and Space.store then Flags.setFlag(Space.store, nil, flash, false) end
   end
   -- pokefirered/src/overworld.c:769
   -- pokefirered/src/overworld.c:806
@@ -485,9 +539,14 @@ function Map.load(mod, game, mapId, opts)
   Map._nextEnterVia = nil
   if Space and Space.runEnterScripts then
     Space.runEnterScripts(mod or Runtime._mod, mapId, game, world,
-      { seamless = opts.seamless, enterVia = enterVia })
+      { seamless = opts.seamless, enterVia = enterVia, keepScript = opts.keepScript })
   elseif Space and Space.onMapEnter then
     Space.onMapEnter(mod or Runtime._mod, mapId, game, world)
+  end
+  -- pokeemerald/src/overworld.c:870
+  if session and not opts.seamless and require("src.core.game3.capabilities").has(session, "tv")
+      and def and require("src.core.game3.dataset").isIndoorMapType(def.mapType) then
+    require("src.core.game3.scripting.natives_tv").updateScreensOnMap(session)
   end
 
   -- Map BGM from extract index / header music.
@@ -504,7 +563,11 @@ function Map.load(mod, game, mapId, opts)
     elseif Map.disableMusicChange == Map.MUSIC_DISABLE_KEEP then
       music = nil
     end
-    if music and music ~= 0xFFFF then
+    if music and music ~= 0xFFFF and Audio.mapMusicPolicy() == "rse" then
+      -- pokeemerald/src/overworld.c:1170
+      Audio.mapLoadMusic({ mapId = mapId, fromMapId = fromMapId, seamless = opts.seamless, music = music,
+        x = Player.cellX, y = Player.cellY })
+    elseif music and music ~= 0xFFFF then
       local id
       if opts.seamless then
         -- pokefirered/src/overworld.c:1075
@@ -535,7 +598,7 @@ function Map.load(mod, game, mapId, opts)
     local showFlag = def and (def.showMapName or def.show_map_name)
     local previewed = false
 
-    if currSec and not opts.seamless and lastSec ~= currSec then
+    if currSec and not opts.seamless and lastSec ~= currSec and FieldModules.enabled("mapPreview", session) then
       local okPreview, MapPreviewScreen = pcall(require, "src.ui.game3.map_preview_screen")
       if okPreview and MapPreviewScreen then
         MapPreviewScreen.dismiss()
@@ -543,12 +606,18 @@ function Map.load(mod, game, mapId, opts)
       end
     end
 
-    local okPop, MapNamePopup = pcall(require, "src.ui.game3.map_name_popup")
+    local okPop, MapNamePopup = false, nil
+    if FieldModules.enabled("mapNamePopup", session) then
+      okPop, MapNamePopup = pcall(require, "src.ui.game3.map_name_popup")
+    end
     if okPop and MapNamePopup then
       if previewed then
         MapNamePopup.dismiss()
       elseif showFlag == 0 or showFlag == false then
         MapNamePopup.dismiss()
+      elseif isRse and opts.seamless then
+        -- pokeemerald/src/overworld.c:824
+        MapNamePopup.show(def)
       elseif showFlag == 1 or showFlag == true then
         if lastSec == nil or lastSec ~= currSec or not opts.seamless then
           MapNamePopup.show(def)

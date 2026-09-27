@@ -7,7 +7,7 @@ Printer.__index = Printer
 -- pokefirered/src/berry_crush.c:1138
 Printer.SPEEDS = { [0] = 8, [1] = 4, [2] = 1 }
 -- pokefirered/include/constants/songs.h:9
-Printer.SE_SELECT = 5
+require("src.core.game3.song_fields")(Printer)
 -- pokefirered/src/text.c:721
 Printer.EXT_PLAY_BGM = 0x0B
 -- pokefirered/src/text.c:751

@@ -19,9 +19,6 @@ local ICEFALL_CAVE_ICE_COORDS = {
 local METATILE_SEAFOAM_CRACKED_ICE = 0x35A
 local METATILE_SEAFOAM_ICE_HOLE = 0x35B
 
--- pokefirered/include/constants/songs.h:290
-local MUS_CYCLING = 282
-
 -- pokefirered/include/save_location.h:9
 local CHAMPION_SAVEWARP = 0x80
 
@@ -74,15 +71,15 @@ Events.ICEFALL_CAVE_ICE_COORDS = ICEFALL_CAVE_ICE_COORDS
 Events.METATILE_SEAFOAM_CRACKED_ICE = METATILE_SEAFOAM_CRACKED_ICE
 Events.METATILE_SEAFOAM_ICE_HOLE = METATILE_SEAFOAM_ICE_HOLE
 
-Events.HANDLERS = {
+Events.BY_NAME = {
   -- pokefirered/src/field_camera.c:93
-  [Std.SPECIAL.DrawWholeMapView] = function()
+  DrawWholeMapView = function()
     local FieldView = package.loaded["src.core.game3.field_view"]
     if FieldView then FieldView._nativeDirty = true end
     return false
   end,
   -- pokefirered/src/pokemon.c:6215
-  [Std.SPECIAL.CreateEnemyEventMon] = function(ctx)
+  CreateEnemyEventMon = function(ctx)
     local okE, Enc = pcall(require, "src.core.game3.encounters")
     if not (okE and Enc and Enc.setWildBattle) then return false end
     local item = varGet(ctx, VAR_0x8006)
@@ -94,17 +91,17 @@ Events.HANDLERS = {
     return false
   end,
   -- pokefirered/src/safari_zone.c:27
-  [Std.SPECIAL.EnterSafariMode] = function()
+  EnterSafariMode = function()
     pcall(function() require("src.core.game3.safari").enter() end)
     return false
   end,
   -- pokefirered/src/safari_zone.c:35
-  [Std.SPECIAL.ExitSafariMode] = function()
+  ExitSafariMode = function()
     pcall(function() require("src.core.game3.safari").exit() end)
     return false
   end,
   -- pokefirered/src/field_tasks.c:152
-  [Std.SPECIAL.SetIcefallCaveCrackedIceMetatiles] = function(ctx)
+  SetIcefallCaveCrackedIceMetatiles = function(ctx)
     local okF, Field = pcall(require, "src.core.game3.field")
     if not (okF and Field and Field.setMetatile) then return false end
     local Flags = flagsMod()
@@ -118,7 +115,7 @@ Events.HANDLERS = {
     return false
   end,
   -- pokefirered/src/field_specials.c:97
-  [Std.SPECIAL.ForcePlayerOntoBike] = function()
+  ForcePlayerOntoBike = function()
     local okP, Player = pcall(require, "src.core.game3.player")
     if okP and Player and not Player.surfing then
       Player.biking = true
@@ -130,7 +127,7 @@ Events.HANDLERS = {
     return false
   end,
   -- pokefirered/src/field_specials.c:1513
-  [Std.SPECIAL.ForcePlayerToStartSurfing] = function()
+  ForcePlayerToStartSurfing = function()
     local okP, Player = pcall(require, "src.core.game3.player")
     if okP and Player then
       Player.surfing = true
@@ -142,7 +139,7 @@ Events.HANDLERS = {
     return false
   end,
   -- pokefirered/src/wild_encounter.c:446
-  [Std.SPECIAL.RockSmashWildEncounter] = function(ctx, adapters)
+  RockSmashWildEncounter = function(ctx, adapters)
     local okE, Enc = pcall(require, "src.core.game3.encounters")
     local foe
     if okE and Enc and type(Enc.rollRocks) == "function" then
@@ -164,7 +161,7 @@ Events.HANDLERS = {
     end)
   end,
   -- pokefirered/src/save_location.c:105
-  [Std.SPECIAL.SetPostgameFlags] = function(ctx)
+  SetPostgameFlags = function(ctx)
     local session = sessionOf(ctx)
     if not session then return false end
     local Bit = require("bit")
@@ -174,7 +171,7 @@ Events.HANDLERS = {
     return false
   end,
   -- pokefirered/src/field_specials.c:120 ShowFieldMessageStringVar4
-  [Std.SPECIAL.ShowFieldMessageStringVar4] = function(ctx, adapters)
+  ShowFieldMessageStringVar4 = function(ctx, adapters)
     local text = (ctx and ctx.stringVars and ctx.stringVars[4]) or ""
     if ctx then ctx.messageOpen = true end
     local openStay = adapters and (adapters.openMessageStay or adapters.openMessageAsync)
@@ -186,7 +183,7 @@ Events.HANDLERS = {
     return false
   end,
   -- pokefirered/src/script.c:260 SetWalkingIntoSignVars
-  [Std.SPECIAL.SetWalkingIntoSignVars] = function(ctx)
+  SetWalkingIntoSignVars = function(ctx)
     if ctx then
       ctx.walkAwayFromSignInhibitTimer = 6
       ctx.msgBoxIsCancelable = true
@@ -200,7 +197,7 @@ Events.HANDLERS = {
     return false
   end,
   -- pokefirered/src/field_specials.c:1733 StickerManGetBragFlags
-  [Std.SPECIAL.StickerManGetBragFlags] = function(ctx)
+  StickerManGetBragFlags = function(ctx)
     local session = sessionOf(ctx)
     local Flags = flagsMod()
     local store = scriptStore(ctx)
@@ -237,7 +234,7 @@ Events.HANDLERS = {
     return false, result
   end,
   -- pokefirered/src/field_specials.c:1710 UpdateTrainerCardPhotoIcons
-  [Std.SPECIAL.UpdateTrainerCardPhotoIcons] = function(ctx)
+  UpdateTrainerCardPhotoIcons = function(ctx)
     local party, session = partyOf(ctx)
     local Flags = flagsMod()
     local store = scriptStore(ctx)
@@ -264,7 +261,7 @@ Events.HANDLERS = {
     return false
   end,
   -- pokefirered/src/field_player_avatar.c:1603 SeafoamIslandsB4F_CurrentDumpsPlayerOnLand
-  [Std.SPECIAL.SeafoamIslandsB4F_CurrentDumpsPlayerOnLand] = function(ctx, adapters)
+  SeafoamIslandsB4F_CurrentDumpsPlayerOnLand = function(ctx, adapters)
     local function finishDismount()
       local session = sessionOf(ctx)
       if session then
@@ -315,7 +312,7 @@ Events.HANDLERS = {
     end
   end,
   -- pokefirered/src/start_menu.c:620 Field_AskSaveTheGame
-  [Std.SPECIAL.Field_AskSaveTheGame] = function(ctx, adapters)
+  Field_AskSaveTheGame = function(ctx, adapters)
     local okL, Link = pcall(require, "src.core.game3.link.init")
     if okL and Link and Link.askSaveTheGame then
       return Link.askSaveTheGame(ctx, adapters)
@@ -324,7 +321,7 @@ Events.HANDLERS = {
     return false
   end,
   -- pokefirered/src/load_save.c:208 LoadPlayerBag
-  [Std.SPECIAL.LoadPlayerBag] = function()
+  LoadPlayerBag = function()
     local okL, Link = pcall(require, "src.core.game3.link.init")
     if okL and Link and Link.loadPlayerBag then
       Link.loadPlayerBag()
@@ -333,7 +330,7 @@ Events.HANDLERS = {
   end,
   -- pokefirered/src/field_specials.c:461
   -- src/field_specials.c:461-493, include/constants/songs.h:212
-  [Std.SPECIAL.ShakeScreen] = function(ctx)
+  ShakeScreen = function(ctx)
     local x = varGet(ctx, VAR_0x8005)
     local y = varGet(ctx, VAR_0x8004)
     local iters = varGet(ctx, VAR_0x8006)
@@ -342,7 +339,7 @@ Events.HANDLERS = {
     local FieldView = package.loaded["src.core.game3.field_view"]
     local okT, Task = pcall(require, "src.core.game3.task")
     if not (okT and Task and Task.spawn) then return false end
-    pcall(function() require("src.core.game3.audio").playSe(207) end)
+    pcall(function() require("src.core.game3.audio").playSe("SE_M_STRENGTH") end)
     local frame, left, cx, cy = 0, iters, x, y
     Task.spawn(function()
       frame = frame + 1
@@ -366,7 +363,7 @@ Events.HANDLERS = {
     return false
   end,
   -- src/roamer.c:120
-  [Std.SPECIAL.InitRoamer] = function(ctx)
+  InitRoamer = function(ctx)
     local session = sessionOf(ctx)
     local VAR_STARTER_MON = 0x4031 -- pokefirered/include/constants/vars.h:98
     local starter = varGet(ctx, VAR_STARTER_MON)
@@ -377,7 +374,7 @@ Events.HANDLERS = {
     return false
   end,
   -- src/field_specials.c:679-690
-  [Std.SPECIAL.SampleResortGorgeousMonAndReward] = function(ctx, adapters)
+  SampleResortGorgeousMonAndReward = function(ctx, adapters)
     local session = sessionOf(ctx)
     if not session then return false end
     local VAR_REQ = 0x4036 -- include/constants/vars.h:104
@@ -420,7 +417,7 @@ Events.HANDLERS = {
     return false
   end,
   -- pokefirered/src/script.c:245
-  [Std.SPECIAL.DisableMsgBoxWalkaway] = function(ctx)
+  DisableMsgBoxWalkaway = function(ctx)
     if ctx then
       ctx.canWalkAway = false
     end
@@ -431,7 +428,7 @@ Events.HANDLERS = {
     return false
   end,
   -- pokefirered/src/field_specials.c:2319
-  [Std.SPECIAL.DoDeoxysTriangleInteraction] = function(ctx)
+  DoDeoxysTriangleInteraction = function(ctx)
     local session = sessionOf()
     if not session then return false end
     local Deoxys = require("src.core.game3.deoxys")
@@ -441,7 +438,7 @@ Events.HANDLERS = {
     return false
   end,
   -- pokefirered/src/field_specials.c:2451
-  [Std.SPECIAL.SetDeoxysTrianglePalette] = function(ctx)
+  SetDeoxysTrianglePalette = function(ctx)
     local session = sessionOf()
     local Deoxys = require("src.core.game3.deoxys")
     local num = session and Deoxys.getVar(session, Deoxys.VAR_DEOXYS_INTERACTION_NUM)
@@ -451,7 +448,7 @@ Events.HANDLERS = {
   end,
   -- pokefirered/src/field_specials.c:2512
   -- src/field_specials.c:2512-2531, game_stat.h:14
-  [Std.SPECIAL.UpdateLoreleiDollCollection] = function(ctx)
+  UpdateLoreleiDollCollection = function(ctx)
     local session = sessionOf(ctx)
     local stats = session and (session.gameStats or session.stats) or {}
     local n = tonumber(stats[10]) or 0
@@ -473,9 +470,7 @@ Events.HANDLERS = {
     return false
   end,
 }
-
-Events.HANDLERS[Std.SPECIAL.SetPostgameFlagsUnusedSlot] =
-  Events.HANDLERS[Std.SPECIAL.SetPostgameFlags]
+Std.legacyHandlers(Events)
 
 -- pokefirered/include/constants/global.h
 local DIR_BY_NAME = { down = 1, up = 2, left = 3, right = 4 }

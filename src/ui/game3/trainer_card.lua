@@ -540,13 +540,75 @@ local function back_texts_cached(c)
   return texts_cache.back
 end
 
+local function cardType(session)
+  local ok, Profile = pcall(require, "src.core.game3.profile")
+  local row = ok and Profile.forSession(session) or nil
+  local tc = row and type(row.ui) == "table" and row.ui.trainerCard or nil
+  return tc and tc.cardType or "frlg"
+end
+
+local function gatherRse(session)
+  session = session or {}
+  local Flags = require("src.core.game3.scripting.flags")
+  local ids = require("src.ui.game3.screens").flags(session)
+  local c = gather(session)
+  local store = script_store()
+  local function flag(name)
+    local id = ids.IDS[name]
+    if not id then return false end
+    if store then return Flags.getFlag(store, nil, id) == true end
+    return get_flag(session, id, "FLAG_" .. name)
+  end
+  -- pokeemerald/src/trainer_card.c:1507
+  c.badges = {}
+  for i = 1, 8 do c.badges[i] = flag(string.format("BADGE0%d_GET", i)) end
+  c.hasPokedex = flag("SYS_POKEDEX_GET")
+  local Dex = require("src.core.game3.dex")
+  local save = { version = session.version, dex = session.dex, flags = store and store.flags or session.flags,
+    vars = store and store.vars or session.vars }
+  c.caughtMonsCount = Dex.summaryCount(save)
+  -- pokeemerald/src/trainer_card.c:719
+  local hoennMax = Dex.regionalMax(session.version)
+  local allHoenn = hoennMax > 0
+  for n = 1, hoennMax do
+    local nat = nil
+    for sp, on in pairs(type(session.dex) == "table" and (session.dex.caught or session.dex.owned) or {}) do
+      if on and Dex.regionalNumber(tonumber(sp) or 0, session.version) == n then nat = sp break end
+    end
+    if not nat then allHoenn = false break end
+  end
+  c.pokeblocksWithFriends = capped_stat(session, 34, "pokeblocksWithFriends", 0xFFFF)
+  c.contestsWithFriends = capped_stat(session, 35, "contestsWithFriends", 999)
+  local frontier = type(session.frontier) == "table" and session.frontier or {}
+  c.frontierBP = tonumber(frontier.cardBattlePoints) or 0
+  -- pokeemerald/src/trainer_card.c:652
+  local symbols = true
+  for i = 0, 6 do
+    local silver = ids.IDS.SYS_TOWER_SILVER
+    local gold = ids.IDS.SYS_TOWER_GOLD
+    if not (silver and gold and store and Flags.getFlag(store, nil, silver + 2 * i) and Flags.getFlag(store, nil, gold + 2 * i)) then
+      symbols = false
+    end
+  end
+  -- pokeemerald/src/trainer_card.c:679
+  local stars = 0
+  if c.hasHofResult then stars = stars + 1 end
+  if allHoenn then stars = stars + 1 end
+  if session.hasAllPaintings then stars = stars + 1 end
+  if symbols then stars = stars + 1 end
+  c.stars = math.min(4, stars)
+  c.cardType = "emerald"
+  return c
+end
+
 function TrainerCard.show(opts)
   opts = opts or {}
   TrainerCard.open = true
   TrainerCard.side = "front"
   TrainerCard._flip = nil
   TrainerCard._session = opts.session
-  TrainerCard._card = gather(opts.session)
+  TrainerCard._rse = cardType(opts.session) == "emerald"
+  TrainerCard._card = TrainerCard._rse and gatherRse(opts.session) or gather(opts.session)
   texts_cache.c, texts_cache.colon, texts_cache.front, texts_cache.back = false, false, nil, nil
   TrainerCard._onClose = opts.onClose
   ensureAssets()
@@ -815,8 +877,133 @@ local function draw_back(c)
   end
 end
 
+-- pokeemerald/src/trainer_card.c:1003
+function TrainerCard.frontTextsRse(c, colonInvisible)
+  local t = {}
+  local function add(text, x, y, stat)
+    t[#t + 1] = { text = text, x = WIN_X + x, y = WIN_Y + y, stat = stat or false }
+  end
+  add(RomText.plain("gText_TrainerCardName") .. c.playerName, 16, 33)
+  local id = RomText.plain("gText_TrainerCardIDNo") .. leading_zeros(c.trainerId, 5)
+  add(id, math.floor((96 - FrlgFont.measure(id)) / 2) + 120, 9)
+  add(RomText.plain("gText_TrainerCardMoney"), 16, 57)
+  local money = RomText.plain("gText_PokedollarVar1", { stringVars = { tostring(c.money) } })
+  add(money, 128 - FrlgFont.measure(money), 57)
+  if c.hasPokedex then
+    add(RomText.plain("gText_TrainerCardPokedex"), 16, 73)
+    local dex = tostring(c.caughtMonsCount)
+    add(dex, 128 - FrlgFont.measure(dex), 73)
+  end
+  add(RomText.plain("gText_TrainerCardTime"), 16, 89)
+  -- pokeemerald/src/trainer_card.c:1098
+  local colonW = FrlgFont.measure(RomText.plain("gText_Colon2"))
+  local x = 128 - (colonW + 30)
+  local hours = tostring(math.min(999, c.playTimeHours))
+  add(hours, x + 18 - FrlgFont.measure(hours), 89)
+  if not colonInvisible then add(RomText.plain("gText_Colon2"), x + 18, 89) end
+  add(leading_zeros(c.playTimeMinutes, 2), x + 18 + colonW, 89)
+  return t
+end
+
+-- pokeemerald/src/trainer_card.c:1175
+function TrainerCard.backTextsRse(c)
+  local t = {}
+  local function add(text, x, y, stat)
+    t[#t + 1] = { text = text, x = WIN_X + x, y = WIN_Y + y, stat = stat or false }
+  end
+  local title = RomText.plain("gText_Var1sTrainerCard", { stringVars = { c.playerName } })
+  add(title, 216 - FrlgFont.measure(title), 9)
+  local function row(top, labelKey, value, stat)
+    add(RomText.plain(labelKey), 16, top * 16 + 33)
+    add(value, 216 - FrlgFont.measure(value), top * 16 + 33, stat)
+  end
+  if c.hasHofResult then
+    row(0, "gText_HallOfFameDebut", string.format("%d:%02d:%02d", c.hofDebutHours, c.hofDebutMinutes, c.hofDebutSeconds), true)
+  end
+  if c.hasLinkResults then
+    row(1, "gText_LinkBattles", RomText.plain("gText_WinsLosses", { stringVars = { tostring(c.linkBattleWins), tostring(c.linkBattleLosses) } }))
+  end
+  if c.hasTrades then row(2, "gText_PokemonTrades", tostring(c.pokemonTrades), true) end
+  if c.pokeblocksWithFriends ~= 0 then
+    row(3, "gText_PokeblocksWithFriends", RomText.plain("gText_NumPokeblocks", { stringVars = { tostring(c.pokeblocksWithFriends) } }), true)
+  end
+  if c.contestsWithFriends ~= 0 then row(4, "gText_WonContestsWFriends", tostring(c.contestsWithFriends), true) end
+  if c.frontierBP ~= 0 then
+    row(5, "gText_BattlePtsWon", RomText.plain("gText_NumBP", { stringVars = { tostring(c.frontierBP) } }), true)
+  end
+  return t
+end
+
+local function drawRse(c)
+  local Kit = require("src.ui.game3.rse.scene_kit")
+  local m = Kit.manifest("rse/trainer_card")
+  if not m then return end
+  local colonOn = true
+  if love and love.timer and love.timer.getTime then
+    colonOn = (math.floor(love.timer.getTime() * 60 / 61) % 2 == 0)
+  end
+  local side = TrainerCard.side
+  local stars = math.max(0, math.min(4, c.stars or 0))
+  local function layer(key)
+    local e = m.layers[string.format("%s_%d", key, stars)]
+    if not e then return nil end
+    return Kit.image(c.female and e.variants and e.variants.female or e.png)
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+  local screen = layer("screen")
+  if screen then love.graphics.draw(screen, 0, 0) end
+  local f = TrainerCard._flip
+  if f then
+    local scale = math.max(0, (160 - 2 * f.top) / 160)
+    love.graphics.push()
+    love.graphics.translate(0, 80)
+    love.graphics.scale(1, scale)
+    love.graphics.translate(0, -80)
+  end
+  local card = layer(side)
+  if card then love.graphics.draw(card, 0, 0) end
+  if side == "back" then
+    draw_texts(TrainerCard.backTextsRse(c))
+  else
+    -- pokeemerald/src/trainer_card.c:1895
+    local picId = require("src.core.game3.constants").of("emerald"):require("trainer_classes",
+      c.female and "TRAINER_PIC_MAY" or "TRAINER_PIC_BRENDAN")
+    local pic = load_rgba_image({ string.format("data/generated/gba/trainers/front/%d.rgba", picId) }, 64, 64)
+    if pic then
+      love.graphics.draw(pic, (19 + m.picOffset[1]) * 8, (5 + m.picOffset[2]) * 8)
+    end
+    draw_texts(TrainerCard.frontTextsRse(c, not colonOn))
+    -- pokeemerald/src/trainer_card.c:1499
+    local star = Kit.image(m.star.png)
+    if star then
+      for i = 0, stars - 1 do love.graphics.draw(star, (15 + i) * 8, 7 * 8) end
+    end
+    local badges = Kit.image(m.badges.png)
+    if badges then
+      local bw, bh = badges:getDimensions()
+      for i = 1, 8 do
+        if c.badges[i] then
+          love.graphics.draw(badges, love.graphics.newQuad((i - 1) * 16, 0, 16, 16, bw, bh), (4 + (i - 1) * 3) * 8, 15 * 8)
+        end
+      end
+    end
+  end
+  if f then
+    love.graphics.pop()
+    local blendY = math.floor((f.top + 40) / 10)
+    if blendY > 4 then
+      love.graphics.setColor(0, 0, 0, math.min(1, blendY / 16))
+      love.graphics.rectangle("fill", 0, 0, 240, 160)
+    end
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
 function TrainerCard.draw()
   if not TrainerCard.open then return end
+  if TrainerCard._rse then
+    return drawRse(TrainerCard._card or gatherRse(TrainerCard._session))
+  end
   ensureAssets()
   local c = TrainerCard._card or gather(TrainerCard._session)
 

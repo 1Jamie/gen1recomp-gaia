@@ -159,6 +159,8 @@ end
 -- pokefirered/src/battle_ai_script_commands.c:1713
 function Rules.safari.fleeRate(sf)
   if not sf then return 0 end
+  -- pokeemerald/src/battle_ai_script_commands.c:2031
+  if sf.rse then return (sf.escapeFactor or 0) * 5 end
   local rate
   if (sf.rockCounter or 0) ~= 0 then
     rate = math.min(20, (sf.escapeFactor or 0) * 2)
@@ -173,6 +175,77 @@ end
 -- pokefirered/src/battle_script_commands.c:9497
 function Rules.safari.ballCatchRate(sf)
   return math.floor(((sf and sf.catchFactor) or 0) * 1275 / 100)
+end
+
+Rules.safari._rseTables = {}
+
+function Rules.safari.rseTables(cfg)
+  local rel = cfg and cfg.tables
+  if not rel then error("battle profile safari row has no tables path") end
+  local hit = Rules.safari._rseTables[rel]
+  if hit then return hit end
+  local src = require("src.core.game3.dataset").cache():read(rel)
+  if type(src) ~= "string" then error(rel .. " is missing from the cache") end
+  local t = assert(load(src, "@" .. rel, "t", {}))()
+  Rules.safari._rseTables[rel] = t
+  return t
+end
+
+-- pokeemerald/src/battle_main.c:3113
+function Rules.safari.newStateRse(catchRate, cfg)
+  return {
+    rse = true,
+    balls = cfg.balls,
+    catchFactor = Rules.safari.catchFactor(catchRate),
+    escapeFactor = cfg.escapeFactor,
+    baseCatchRate = tonumber(catchRate) or 0,
+    goNearCounter = 0,
+    pkblThrowCounter = 0,
+    pokeblockThrows = 0,
+  }
+end
+
+-- pokeemerald/src/battle_util.c:589
+function Rules.safari.goNear(sf, tables)
+  local n = sf.goNearCounter or 0
+  sf.catchFactor = math.min(20, (sf.catchFactor or 0) + tables.goNearCounterToCatchFactor[n + 1])
+  sf.escapeFactor = math.min(20, (sf.escapeFactor or 0) + tables.goNearCounterToEscapeFactor[n + 1])
+  if n < 3 then
+    sf.goNearCounter = n + 1
+    return "STRINGID_CREPTCLOSER"
+  end
+  return "STRINGID_CANTGETCLOSER"
+end
+
+-- pokeemerald/src/pokeblock.c:1407
+function Rules.safari.pokeblockGain(tables, nature, flavors)
+  local total = 0
+  for f = 1, 5 do
+    local v = tonumber(flavors and flavors[f]) or 0
+    if v > 0 then total = total + v * (tables.flavorCompatibility[(tonumber(nature) or 0) * 5 + f - 1] or 0) end
+  end
+  return total
+end
+
+-- pokeemerald/src/battle_message.c:1191
+Rules.safari.POKEBLOCK_RESULT = { [0] = "STRINGID_PKMNCURIOUSABOUTX", "STRINGID_PKMNENTHRALLEDBYX",
+  "STRINGID_PKMNIGNOREDX" }
+
+-- pokeemerald/src/battle_util.c:561
+function Rules.safari.throwPokeblock(sf, tables, gain)
+  local result = (gain == 0) and 0 or ((gain > 0) and 1 or 2)
+  sf.pokeblockThrows = math.min(255, (sf.pokeblockThrows or 0) + 1)
+  if (sf.pkblThrowCounter or 0) < 3 then sf.pkblThrowCounter = (sf.pkblThrowCounter or 0) + 1 end
+  if (sf.escapeFactor or 0) > 1 then
+    local d = tables.pkblToEscapeFactor[sf.pkblThrowCounter][result + 1]
+    -- pokeemerald/src/battle_util.c:579
+    if sf.escapeFactor < d then
+      sf.escapeFactor = 1
+    else
+      sf.escapeFactor = sf.escapeFactor - d
+    end
+  end
+  return result
 end
 
 Rules.weather = {}
@@ -266,6 +339,8 @@ end
 function Rules.crit.roll(attacker, moveOrId, highCrit, rng, st)
   -- pokefirered/src/battle_script_commands.c:1200
   if Oak.active(st) and not Oak.testFlag(st, Oak.FLAG_INFLICT_DMG) then return false end
+  -- pokeemerald/src/battle_script_commands.c:1281
+  if st and st.kinds and require("src.core.game3.battle.kinds").noCrit(st) then return false end
   local stage = Rules.crit.stage(attacker, moveOrId, highCrit)
   local den = Rules.crit.CHANCE[stage] or 2
   local hit = rollZeroTo(rng, den) == 0

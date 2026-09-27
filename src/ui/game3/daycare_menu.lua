@@ -7,7 +7,7 @@ local DaycareMenu = {}
 
 local DAYCARE_MON_COUNT = 2 -- pokefirered/include/constants/global.h:34
 local DAYCARE_LEVEL_MENU_EXIT = 5 -- pokefirered/include/constants/daycare.h:20
-local SE_SELECT = 5 -- pokefirered/include/constants/songs.h:9
+local SE = require("src.core.game3.se_ids") -- pokefirered/include/constants/songs.h:9
 local STACK_ID = "daycare_level_menu"
 
 -- pokefirered/src/daycare.c:86 sDaycareLevelMenuWindowTemplate
@@ -172,7 +172,7 @@ function DaycareMenu.move(delta)
   local want = DaycareMenu.cursor + delta
   if want < 1 or want > DaycareMenu.ROW_COUNT then return end
   DaycareMenu.cursor = want
-  se(SE_SELECT)
+  se(SE.SE_SELECT)
 end
 
 -- pokefirered/src/daycare.c:1504

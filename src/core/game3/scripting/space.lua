@@ -8,6 +8,7 @@ local Adapters = require("src.core.game3.scripting.adapters")
 local ExtractScripts = require("src.import.gba.extract_scripts")
 local GfxIds = require("src.core.game3.scripting.gfx_ids")
 local ItemsData = require("src.core.game3.items_data")
+local Profile = require("src.core.game3.profile")
 
 local Space = {}
 
@@ -68,7 +69,7 @@ local function load_sidecar(mod, game)
     })
     Flags.ensurePalletOakHidden(Space.store)
     local Bag = require("src.core.game3.bag")
-    if session.bag and Bag.has(session.bag, ItemsData.ITEM_BERRY_POUCH, 1) then
+    if Profile.has(session, "berryPouch") and session.bag and Bag.has(session.bag, ItemsData.ITEM_BERRY_POUCH, 1) then
       Flags.setFlag(Space.store, nil, Bag.FLAG_SYS_GOT_BERRY_POUCH, true) -- src/item.c:249
     end
     return
@@ -114,6 +115,7 @@ function Space.ensureBundle(mod)
   local cache = (mod and mod.cache) or love_cache()
   local bundle = ExtractScripts.loadBundle(cache, root, { allowIncomplete = true })
   Space.bundle = bundle
+  Space.installLabels(bundle, cache, root)
   local nEv = 0
   if bundle and bundle.events then
     for _ in pairs(bundle.events) do nEv = nEv + 1 end
@@ -121,6 +123,35 @@ function Space.ensureBundle(mod)
   print(string.format("[game3/space] script bundle events=%d fromCache=%s",
     nEv, tostring(bundle and bundle.fromCache)))
   return Space.bundle
+end
+
+function Space.installLabels(bundle, cache, root)
+  if not (bundle and type(bundle.scripts) == "table") then return nil end
+  local rel = (root or "data/generated/gba") .. "/" .. ExtractScripts.CACHE_SUB .. "/labels.lua"
+  local src = cache and cache:read(rel)
+  local chunk = src and load(src, "@" .. rel, "t", {})
+  local okL, labels = false, nil
+  if chunk then okL, labels = pcall(chunk) end
+  if not okL or type(labels) ~= "table" then return nil end
+  bundle.labels = labels
+  local scripts = bundle.scripts
+  setmetatable(scripts, {
+    __index = function(t, k)
+      local key = labels[k]
+      if key ~= nil and key ~= k then return rawget(t, key) end
+      return nil
+    end,
+  })
+  return labels
+end
+
+function Space.scriptKey(name)
+  local bundle = Space.bundle
+  if type(name) ~= "string" or not (bundle and bundle.scripts) then return nil end
+  if rawget(bundle.scripts, name) ~= nil then return name end
+  local key = bundle.labels and bundle.labels[name]
+  if key and rawget(bundle.scripts, key) ~= nil then return key end
+  return nil
 end
 
 --- Copy extracted objects / signs / coords onto map defs (Objects + Field read these).
@@ -160,6 +191,18 @@ function Space.attachEventsToMaps(maps, bundle)
   return n
 end
 
+-- pokeemerald/src/event_data.c:16
+local function share_specials(vm, sess)
+  if not (vm and sess and Profile.family(sess) == "rse") then return end
+  local shared = Space._specials
+  if not shared or shared.session ~= sess then
+    shared = { session = sess, vars = vm.ctx.specialVars }
+    Space._specials = shared
+  end
+  vm.ctx.specialVars = shared.vars
+  vm.ctx.persistentSpecials = true
+end
+
 function Space.activate(mod, mapId, game, world)
   if Space.active and Space.mapId == mapId then
     return Space.vm
@@ -184,10 +227,18 @@ function Space.activate(mod, mapId, game, world)
     adapters = adapters,
   })
   Space.vm._mod = mod
+  share_specials(Space.vm, resolve_session(mod, game))
   Space.active = true
   Space.mapId = mapId
   Space._mod = mod
   if adapters.clearMovements then adapters.clearMovements() end
+  return Space.vm
+end
+
+-- pokeemerald/src/overworld.c:784 LoadMapFromCameraTransition
+function Space.retarget(mod, mapId, game, world)
+  if not (Space.active and Space.vm) then return Space.activate(mod, mapId, game, world) end
+  Space.mapId = mapId
   return Space.vm
 end
 
@@ -257,6 +308,10 @@ local function immediate_vm()
     })
     iv._mod = main._mod
     iv._host = main
+    if main.ctx.persistentSpecials then
+      iv.ctx.specialVars = main.ctx.specialVars
+      iv.ctx.persistentSpecials = true
+    end
     Space._immediateVm = iv
   end
   iv.store = Space.store
@@ -285,6 +340,10 @@ local function run_immediately(key)
   return true
 end
 
+function Space.runImmediately(nameOrKey)
+  return run_immediately(Space.scriptKey(nameOrKey) or nameOrKey)
+end
+
 -- pokefirered/src/script.c:448
 function Space.runOnResume(mapId)
   if not Space.vm then return false end
@@ -299,7 +358,8 @@ function Space.runOnWarpIntoMap(mapId)
   local key = check_script_table(ms and ms.onWarpIntoMap)
   if not key then return false end
   local ran = run_immediately(key)
-  if ran then Space.refreshObjectGraphics() end
+  -- pokeemerald/src/overworld.c:2176
+  if ran and Profile.family(resolve_session(Space._mod, nil)) ~= "rse" then Space.refreshObjectGraphics() end
   return ran
 end
 
@@ -308,6 +368,13 @@ function Space.runOnReturnToField(mapId)
   if not Space.vm then return false end
   local ms = map_scripts(mapId)
   return run_immediately(ms and ms.onReturnToField)
+end
+
+-- pokeemerald/src/script.c:348
+function Space.runOnDiveWarp(mapId)
+  if not Space.vm then return false end
+  local ms = map_scripts(mapId)
+  return run_immediately(ms and ms.onDiveWarp)
 end
 
 -- pokefirered/src/fieldmap.c:93
@@ -331,12 +398,28 @@ end
 -- pokefirered/src/event_data.c:56
 Space.TEMP_FIELD_EVENT_FLAGS = { 0x807, 0x842 }
 
+-- pokeemerald/src/event_data.c:39
+function Space.tempFieldEventFlags(session)
+  local names = Profile.forSession(session).map
+  names = names and names.tempFieldEventFlags
+  if not names then return Space.TEMP_FIELD_EVENT_FLAGS end
+  local ids = Flags.active(session).IDS
+  local out = {}
+  for _, name in ipairs(names) do
+    local id = ids[name]
+    if not id then error("space: unknown temp field flag " .. tostring(name), 2) end
+    out[#out + 1] = id
+  end
+  return out
+end
+
 -- pokefirered/src/overworld.c:762
 -- pokefirered/src/overworld.c:797
 function Space.clearTempFieldEventFlags(mod, game)
   local session = resolve_session(mod or Space._mod, game)
-  for i = 1, #Space.TEMP_FIELD_EVENT_FLAGS do
-    local id = Space.TEMP_FIELD_EVENT_FLAGS[i]
+  local list = Space.tempFieldEventFlags(session)
+  for i = 1, #list do
+    local id = list[i]
     if Space.store then Flags.setFlag(Space.store, nil, id, false) end
     if session and session.flags then session.flags[id] = nil end
   end
@@ -355,6 +438,25 @@ function Space.runEnterScripts(mod, mapId, game, world, opts)
   if not ev then return Space.vm end
   local vm = Space.vm
   local ms = ev.mapScripts or {}
+  if opts.keepScript and vm:isRunning() then
+    -- pokeemerald/src/overworld.c:807
+    Space._inTransition = true
+    local ok, err = pcall(function()
+      if run_immediately(ms.onTransition) then Space.refreshObjectGraphics() end
+      -- pokeemerald/src/fieldmap.c:62
+      if Profile.family(resolve_session(mod, game)) == "rse" then
+        require("src.core.game3.rse.init").call("secretBase", "onMapLoad", nil, nil, resolve_session(mod, game), nil,
+          opts.enterVia)
+      end
+      local key = ms.onLoad
+      if type(key) == "string" then run_immediately(key) end
+    end)
+    Space._inTransition = false
+    if not ok then error(err, 0) end
+    Space.runOnResume(mapId)
+    Space._pendingOnFrame = true
+    return vm
+  end
   -- pokefirered/src/overworld.c:807
   -- pokefirered/src/event_object_movement.c:1813
   Space._inTransition = true
@@ -368,6 +470,11 @@ function Space.runEnterScripts(mod, mapId, game, world, opts)
       end
       -- VAR_OBJ_GFX_ID_* / setobjectxyperm applied — refresh NPC sprites.
       Space.refreshObjectGraphics()
+    end
+    -- pokeemerald/src/fieldmap.c:62
+    if Profile.family(resolve_session(mod, game)) == "rse" then
+      require("src.core.game3.rse.init").call("secretBase", "onMapLoad", nil, nil, resolve_session(mod, game), nil,
+        opts.enterVia)
     end
     -- pokefirered/src/fieldmap.c:93
     Space.runOnLoad(mapId)
@@ -440,6 +547,14 @@ function Space.resolveObjectGraphicsId(obj, neighbor)
     if neighbor and store.vars[varId] == nil then return nil end
     -- src/event_object_movement.c:2043
     graphics = (tonumber(Flags.getVar(store, ctx, varId)) or 0) % 256
+  end
+  local okP, P = pcall(function() return require("src.core.game3.profile").forSession(nil) end)
+  local invalid = okP and P and P.field and P.field.invalidGfx
+  if invalid then
+    local E = require("src.core.game3.constants").of(P.id).event_objects.byName
+    -- pokeemerald/src/event_object_movement.c:1927
+    if graphics and graphics >= E.NUM_OBJ_EVENT_GFX then graphics = E[invalid] end
+    return graphics
   end
   -- src/event_object_movement.c:2045
   if graphics and graphics >= 152 then graphics = 16 end

@@ -4,6 +4,7 @@
 local Versions = require("src.import.gba.versions")
 local Extract = require("src.import.gba.extract_island1")
 local MapIds = require("src.core.game3.map_ids")
+local Profile = require("src.core.game3.profile")
 
 local Dataset = {}
 
@@ -125,9 +126,11 @@ function Dataset.buildMaps(warps)
   local Json = nil
   pcall(function() Json = require("src.link.Json") end)
   local maps = {}
+  local mapBlock = Profile.active().map or {}
+  local registry = Versions.MAPS or {}
 
   local function add(mapId, info)
-    local spec = Versions.MAPS[mapId] or {}
+    local spec = registry[mapId] or {}
     local pair = (info and info.pair) or spec.pair
     local tileset = pair and Versions.PAIR_TILESET and Versions.PAIR_TILESET[pair]
 
@@ -209,14 +212,18 @@ function Dataset.buildMaps(warps)
     if showMapName == nil then
       showMapName = 0
     end
+    local kind, environment = spec.kind, spec.environment
+    if mapBlock.kindsFromMapType and kind == nil then
+      kind, environment = Dataset.kindOfMapType(mapType)
+    end
 
     maps[mapId] = {
       id = mapId,
       name = mapId,
       width = (info and info.width) or spec.width or 20,
       height = (info and info.height) or spec.height or 18,
-      kind = spec.kind or "town",
-      environment = spec.environment or "TOWN",
+      kind = kind or "town",
+      environment = environment or "TOWN",
       pair = pair,
       tileset = tileset,
       warps = warps[mapId] or {},
@@ -236,6 +243,7 @@ function Dataset.buildMaps(warps)
       borderHeight = tonumber(borderHeight),
       native = true,
     }
+    Dataset.bindUnderwater(maps[mapId])
   end
 
   if manifest.layouts then
@@ -249,6 +257,9 @@ function Dataset.buildMaps(warps)
     end
   end
 
+  if not next(connections) and mapBlock.strictConnections then
+    error("game3 dataset: connections.lua missing from the " .. tostring(Profile.active().id) .. " cache", 0)
+  end
   -- Fallback corridor edges if connections.lua missing (pre-v82 caches).
   if not next(connections) then
     if maps.FR_PALLET_TOWN and maps.FR_ROUTE_1 then
@@ -280,6 +291,45 @@ function Dataset.buildMaps(warps)
   end
 
   return maps
+end
+
+-- pokeemerald/include/constants/map_types.h:4
+local MAP_TYPE_KIND = {
+  [3] = { "route", "ROUTE" },
+  [4] = { "indoor", "INDOOR" },
+  [5] = { "route", "UNDERWATER" },
+  [6] = { "route", "ROUTE" },
+  [8] = { "indoor", "INDOOR" },
+  [9] = { "indoor", "INDOOR" },
+}
+
+function Dataset.kindOfMapType(mapType)
+  local row = MAP_TYPE_KIND[tonumber(mapType) or 0]
+  if row then return row[1], row[2] end
+  return "town", "TOWN"
+end
+
+-- pokeemerald/src/overworld.c:1354
+function Dataset.isOutdoorMapType(mapType)
+  mapType = tonumber(mapType)
+  return mapType == 1 or mapType == 2 or mapType == 3 or mapType == 5 or mapType == 6
+end
+
+-- pokeemerald/src/overworld.c:1377
+function Dataset.isIndoorMapType(mapType)
+  mapType = tonumber(mapType)
+  return mapType == 8 or mapType == 9
+end
+
+-- pokeemerald/src/overworld.c:756 SetDiveWarp
+function Dataset.bindUnderwater(def)
+  if type(def) ~= "table" or type(def.connections) ~= "table" then return def end
+  for _, c in ipairs(def.connections) do
+    if type(c) == "table" and (c.dir == "dive" or c.dir == "emerge") and type(c.map) == "string" then
+      def[c.dir] = { map = c.map, offset = tonumber(c.offset) or 0 }
+    end
+  end
+  return def
 end
 
 --- Point extract roots at the engine firered cache and install native tilesets.
@@ -345,7 +395,9 @@ function Dataset.hydrate(game)
     Space.ensureBundle(nil)
     nEvents = Space.attachEventsToMaps(game.data.maps, Space.bundle) or 0
   end
-  require("src.core.game3.link.union_plaza_map").ensure(game)
+  if require("src.core.game3.field_modules").enabled("unionPlaza") then
+    require("src.core.game3.link.union_plaza_map").ensure(game)
+  end
 
   local NativeTileset = require("src.core.game3.tileset_native")
   if NativeTileset.install then
@@ -405,7 +457,7 @@ function Dataset.hydrate(game)
   for _ in pairs(game.data.maps) do nMaps = nMaps + 1 end
   print(string.format(
     "[game3/dataset] hydrated %d maps midLayouts=%d eventMaps=%d (start=%s)",
-    nMaps, nLayouts, nEvents, tostring(MapIds.NEW_GAME_START.map)))
+    nMaps, nLayouts, nEvents, tostring(MapIds.newGameStart().map)))
 
   return true
 end

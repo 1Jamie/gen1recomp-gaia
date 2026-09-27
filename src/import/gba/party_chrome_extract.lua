@@ -337,16 +337,46 @@ end
 
 PartyChromeExtract.bakeHoldIcons = bake_hold_icons
 
+PartyChromeExtract.REQUIRED = {
+  "pokemon/party/manifest.lua", "pokemon/party/bg.rgba", "pokemon/party/slot_main.rgba",
+  "pokemon/party/slot_wide.rgba", "pokemon/party/slot_wide_empty.rgba", "pokemon/party/cancel_button.rgba",
+  "pokemon/party/confirm_button.rgba", "pokemon/party/status_balls.rgba", "pokemon/party/hold_icons.rgba",
+  "pokemon/party/status_icons.rgba",
+}
+
+-- pokeemerald/src/data/party_menu.h:565
+function PartyChromeExtract.keysFor(game)
+  local S = require("src.import.gba.syms").of(game)
+  return {
+    PARTY_MENU_BG_GFX = S.off("gPartyMenuBg_Gfx"),
+    PARTY_MENU_BG_PAL = S.off("gPartyMenuBg_Pal"),
+    PARTY_MENU_BG_TILEMAP = S.off("gPartyMenuBg_Tilemap"),
+    PARTY_MENU_BALL_GFX = S.off("gPartyMenuPokeball_Gfx"),
+    PARTY_MENU_BALL_PAL = S.off("gPartyMenuPokeball_Pal"),
+    PARTY_MENU_HOLD_ICONS_GFX = S.off("sHeldItemGfx"),
+    PARTY_MENU_HOLD_ICONS_PAL = S.off("sHeldItemPalette"),
+    PARTY_MENU_CONFIRM_BUTTON_TILEMAP = S.off("sConfirmButton_Tilemap"),
+    PARTY_MENU_CANCEL_BUTTON_TILEMAP = S.off("sCancelButton_Tilemap"),
+    PARTY_MENU_SLOT_MAIN_TILEMAP = S.off("sSlotTilemap_Main"),
+    PARTY_MENU_SLOT_WIDE_TILEMAP = S.off("sSlotTilemap_Wide"),
+    PARTY_MENU_SLOT_WIDE_EMPTY_TILEMAP = S.off("sSlotTilemap_WideEmpty"),
+    SUMMARY_STATUS_ICONS_GFX = S.off("gStatusGfx_Icons"),
+    SUMMARY_STATUS_ICONS_PAL = S.off("gStatusPal_Icons"),
+    SUMMARY_STATUS_ICONS_PAL_LZ = true,
+  }
+end
+
 function PartyChromeExtract.run(rom, cache, opts)
   opts = opts or {}
+  local K = opts.keys or (opts.game and PartyChromeExtract.keysFor(opts.game)) or Versions
   local root = (opts.cacheRoot or default_cache_root()) .. "/" .. PartyChromeExtract.CACHE_SUB
   local W = opts.width or 240
   local H = opts.height or 160
 
   local function get(i) return rom:get(i) end
-  local gfx = Lz77.decompress(get, Versions.PARTY_MENU_BG_GFX)
-  local pal = Lz77.decompress(get, Versions.PARTY_MENU_BG_PAL)
-  local map = Lz77.decompress(get, Versions.PARTY_MENU_BG_TILEMAP)
+  local gfx = Lz77.decompress(get, K.PARTY_MENU_BG_GFX)
+  local pal = Lz77.decompress(get, K.PARTY_MENU_BG_PAL)
+  local map = Lz77.decompress(get, K.PARTY_MENU_BG_TILEMAP)
   cache:write(root .. "/bg.rgba", bake_bg_rgba(gfx, pal, map, W, H))
 
   local palUnsel = build_party_box_pal(pal, false)
@@ -359,9 +389,9 @@ function PartyChromeExtract.run(rom, cache, opts)
     for i = 1, len do t[i] = string.char(get(off + i - 1)) end
     return table.concat(t)
   end
-  local mainBin = raw(Versions.PARTY_MENU_SLOT_MAIN_TILEMAP, 70)
-  local wideBin = raw(Versions.PARTY_MENU_SLOT_WIDE_TILEMAP, 54)
-  local emptyBin = raw(Versions.PARTY_MENU_SLOT_WIDE_EMPTY_TILEMAP, 54)
+  local mainBin = raw(K.PARTY_MENU_SLOT_MAIN_TILEMAP, 70)
+  local wideBin = raw(K.PARTY_MENU_SLOT_WIDE_TILEMAP, 54)
+  local emptyBin = raw(K.PARTY_MENU_SLOT_WIDE_EMPTY_TILEMAP, 54)
   do
     local rgba = bake_slot_rgba(gfx, pal, mainBin, 10, 7, palUnsel)
     cache:write(root .. "/slot_main.rgba", rgba)
@@ -383,7 +413,7 @@ function PartyChromeExtract.run(rom, cache, opts)
     cache:write(root .. "/slot_wide_empty.rgba", rgba)
   end
 
-  local cancelBin = raw(Versions.PARTY_MENU_CANCEL_BUTTON_TILEMAP, 28)
+  local cancelBin = raw(K.PARTY_MENU_CANCEL_BUTTON_TILEMAP, 28)
   do
     local cancelRgba = bake_button_rgba(gfx, pal, cancelBin, 7, 2, 1)
     cache:write(root .. "/cancel_button.rgba", cancelRgba)
@@ -391,7 +421,7 @@ function PartyChromeExtract.run(rom, cache, opts)
     cache:write(root .. "/cancel_button_selected.rgba", cancelRgbaSel)
   end
 
-  local confirmBin = raw(Versions.PARTY_MENU_CONFIRM_BUTTON_TILEMAP, 28)
+  local confirmBin = raw(K.PARTY_MENU_CONFIRM_BUTTON_TILEMAP, 28)
   do
     local confirmRgba = bake_button_rgba(gfx, pal, confirmBin, 7, 2, 1)
     cache:write(root .. "/confirm_button.rgba", confirmRgba)
@@ -399,26 +429,27 @@ function PartyChromeExtract.run(rom, cache, opts)
     cache:write(root .. "/confirm_button_selected.rgba", confirmRgbaSel)
   end
 
-  local ballGfx = Lz77.decompress(get, Versions.PARTY_MENU_BALL_GFX)
-  local ballPal = Lz77.decompress(get, Versions.PARTY_MENU_BALL_PAL)
+  local ballGfx = Lz77.decompress(get, K.PARTY_MENU_BALL_GFX)
+  local ballPal = Lz77.decompress(get, K.PARTY_MENU_BALL_PAL)
   local ballRgba, bw, bh, frames = bake_ball_sheet(ballGfx, ballPal)
   cache:write(root .. "/status_balls.rgba", ballRgba)
 
   -- src/data/party_menu.h:664
   local holdGfx, holdPal = {}, {}
-  for i = 1, 64 do holdGfx[i] = get(Versions.PARTY_MENU_HOLD_ICONS_GFX + i - 1) end
-  for i = 1, 32 do holdPal[i] = get(Versions.PARTY_MENU_HOLD_ICONS_PAL + i - 1) end
+  for i = 1, 64 do holdGfx[i] = get(K.PARTY_MENU_HOLD_ICONS_GFX + i - 1) end
+  for i = 1, 32 do holdPal[i] = get(K.PARTY_MENU_HOLD_ICONS_PAL + i - 1) end
   local holdRgba, holdW, holdH, holdFrames = bake_hold_icons(holdGfx, holdPal)
   cache:write(root .. "/hold_icons.rgba", holdRgba)
 
-  if Versions.SUMMARY_STATUS_ICONS_GFX and Versions.SUMMARY_STATUS_ICONS_PAL then
-    local statusGfx = Lz77.decompress(get, Versions.SUMMARY_STATUS_ICONS_GFX)
+  if K.SUMMARY_STATUS_ICONS_GFX and K.SUMMARY_STATUS_ICONS_PAL then
+    local statusGfx = Lz77.decompress(get, K.SUMMARY_STATUS_ICONS_GFX)
     local function read_pal_bytes(off, len)
       local t = {}
       for i = 1, len do t[i] = get(off + i - 1) end
       return t
     end
-    local statusPal = read_pal_bytes(Versions.SUMMARY_STATUS_ICONS_PAL, 32)
+    local statusPal = K.SUMMARY_STATUS_ICONS_PAL_LZ and Lz77.decompress(get, K.SUMMARY_STATUS_ICONS_PAL)
+      or read_pal_bytes(K.SUMMARY_STATUS_ICONS_PAL, 32)
     if statusGfx and statusPal then
       local statusRgba = bake_status_icons_rgba(statusGfx, statusPal)
       cache:write(root .. "/status_icons.rgba", statusRgba)
@@ -429,7 +460,7 @@ function PartyChromeExtract.run(rom, cache, opts)
 
   local manifest = string.format(
     "return {\n  width = %d, height = %d,\n  ballW = %d, ballSheetH = %d, ballFrames = %d,\n  slotMainW = 80, slotMainH = 56,\n  slotWideW = 144, slotWideH = 24,\n  cancelButtonW = 56, cancelButtonH = 16,\n  holdIconW = %d, holdIconSheetH = %d, holdIconFrames = %d,\n  pokemonVersion = %d,\n}\n",
-    W, H, bw, bh, frames or 2, holdW, holdH, holdFrames, Versions.POKEMON_VERSION or 1)
+    W, H, bw, bh, frames or 2, holdW, holdH, holdFrames, K.POKEMON_VERSION or 1)
   cache:write(root .. "/manifest.lua", manifest)
 
   return {

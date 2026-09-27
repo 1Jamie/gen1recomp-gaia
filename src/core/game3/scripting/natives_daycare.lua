@@ -137,9 +137,9 @@ function Daycare.levelMenuRows(dc)
   return rows
 end
 
-Daycare.HANDLERS = {
+Daycare.BY_NAME = {
   -- pokefirered/src/daycare.c:1227 GetDaycareState
-  [Std.SPECIAL.GetDaycareState] = function(ctx)
+  GetDaycareState = function(ctx)
     local dc = Daycare.stateOf()
     local state = DAYCARE_NO_MONS
     if dc then
@@ -155,21 +155,21 @@ Daycare.HANDLERS = {
     return false, state
   end,
   -- pokefirered/src/daycare.c:1575
-  [Std.SPECIAL.IsThereMonInRoute5Daycare] = function(ctx)
+  IsThereMonInRoute5Daycare = function(ctx)
     local r5 = Daycare.route5Of()
     return boolReturn(speciesOf(r5 and r5.mon) ~= SPECIES_NONE)
   end,
   -- pokefirered/src/daycare.c:1244
-  [Std.SPECIAL.GetDaycarePokemonCount] = function()
+  GetDaycarePokemonCount = function()
     return false, Daycare.count(Daycare.stateOf())
   end,
   -- pokefirered/src/daycare.c:1555 ChooseSendDaycareMon
-  [Std.SPECIAL.ChooseSendDaycareMon] = function(ctx, adapters)
+  ChooseSendDaycareMon = function(ctx, adapters)
     local Natives = require("src.core.game3.scripting.natives")
     return Natives.choosePartyMon(ctx, adapters, PARTY_MENU_TYPE_DAYCARE)
   end,
   -- pokefirered/src/daycare.c:455 StoreSelectedPokemonInDaycare
-  [Std.SPECIAL.StoreSelectedPokemonInDaycare] = function(ctx)
+  StoreSelectedPokemonInDaycare = function(ctx)
     local session = sessionOf()
     if not session then return false end
     local selected = varGet(ctx, VAR_0x8004)
@@ -178,7 +178,7 @@ Daycare.HANDLERS = {
     return false
   end,
   -- pokefirered/src/daycare.c:1563 PutMonInRoute5Daycare
-  [Std.SPECIAL.PutMonInRoute5Daycare] = function(ctx)
+  PutMonInRoute5Daycare = function(ctx)
     local session = sessionOf()
     if not session then return false end
     local selected = varGet(ctx, VAR_0x8004)
@@ -187,7 +187,7 @@ Daycare.HANDLERS = {
     return false
   end,
   -- pokefirered/src/daycare.c:546 TakePokemonFromDaycare
-  [Std.SPECIAL.TakePokemonFromDaycare] = function(ctx, adapters)
+  TakePokemonFromDaycare = function(ctx, adapters)
     local session = sessionOf()
     -- data/maps/FourIsland_PokemonDayCare/scripts.inc:86-88
     if partyIsFull(session) then
@@ -205,7 +205,7 @@ Daycare.HANDLERS = {
     return false, Model.take(session, index)
   end,
   -- pokefirered/src/daycare.c:1588 TakePokemonFromRoute5Daycare
-  [Std.SPECIAL.TakePokemonFromRoute5Daycare] = function(ctx, adapters)
+  TakePokemonFromRoute5Daycare = function(ctx, adapters)
     local session = sessionOf()
     -- data/scripts/day_care.inc:79-81
     if partyIsFull(session) then
@@ -222,7 +222,7 @@ Daycare.HANDLERS = {
     return false, Model.takeRoute5(session)
   end,
   -- pokefirered/src/daycare.c:594 GetDaycareCost
-  [Std.SPECIAL.GetDaycareCost] = function(ctx, adapters)
+  GetDaycareCost = function(ctx, adapters)
     local dc = Daycare.stateOf()
     local index = varGet(ctx, VAR_0x8004) + 1
     local mon = slotMon(dc, index)
@@ -233,7 +233,7 @@ Daycare.HANDLERS = {
     return false
   end,
   -- pokefirered/src/daycare.c:1569 GetCostToWithdrawRoute5DaycareMon
-  [Std.SPECIAL.GetCostToWithdrawRoute5DaycareMon] = function(ctx, adapters)
+  GetCostToWithdrawRoute5DaycareMon = function(ctx, adapters)
     local r5 = Daycare.route5Of()
     local mon = r5 and r5.mon
     setStringVar(ctx, adapters, 1, nicknameOf(mon))
@@ -243,7 +243,7 @@ Daycare.HANDLERS = {
     return false
   end,
   -- pokefirered/src/daycare.c:606 GetNumLevelsGainedFromDaycare
-  [Std.SPECIAL.GetNumLevelsGainedFromDaycare] = function(ctx, adapters)
+  GetNumLevelsGainedFromDaycare = function(ctx, adapters)
     local dc = Daycare.stateOf()
     local index = varGet(ctx, VAR_0x8004) + 1
     local mon = slotMon(dc, index)
@@ -254,7 +254,7 @@ Daycare.HANDLERS = {
     return false, gained
   end,
   -- pokefirered/src/daycare.c:1583 GetNumLevelsGainedForRoute5DaycareMon
-  [Std.SPECIAL.GetNumLevelsGainedForRoute5DaycareMon] = function(ctx, adapters)
+  GetNumLevelsGainedForRoute5DaycareMon = function(ctx, adapters)
     local r5 = Daycare.route5Of()
     local mon = r5 and r5.mon
     if not mon then return false, 0 end
@@ -264,7 +264,7 @@ Daycare.HANDLERS = {
     return false, gained
   end,
   -- pokefirered/src/daycare.c:1200 _GetDaycareMonNicknames
-  [Std.SPECIAL.GetDaycareMonNicknames] = function(ctx, adapters)
+  GetDaycareMonNicknames = function(ctx, adapters)
     local dc = Daycare.stateOf()
     local first = slotMon(dc, 1)
     if first then
@@ -276,13 +276,13 @@ Daycare.HANDLERS = {
     return false
   end,
   -- pokefirered/src/daycare.c:1338 SetDaycareCompatibilityString
-  [Std.SPECIAL.SetDaycareCompatibilityString] = function(ctx, adapters)
+  SetDaycareCompatibilityString = function(ctx, adapters)
     local text = Daycare.compatibilityText(Daycare.compatibility(Daycare.stateOf()))
     setStringVar(ctx, adapters, 4, text)
     return false
   end,
   -- pokefirered/src/daycare.c:1531 ShowDaycareLevelMenu
-  [Std.SPECIAL.ShowDaycareLevelMenu] = function(ctx)
+  ShowDaycareLevelMenu = function(ctx)
     local Natives = require("src.core.game3.scripting.natives")
     local Menu = levelMenu()
     local done = false
@@ -303,12 +303,12 @@ Daycare.HANDLERS = {
     return false
   end,
   -- pokefirered/src/daycare.c:982 RejectEggFromDayCare
-  [Std.SPECIAL.RejectEggFromDayCare] = function()
+  RejectEggFromDayCare = function()
     Breeding.removeEgg(Daycare.stateOf())
     return false
   end,
   -- pokefirered/src/daycare.c:1133 GiveEggFromDaycare
-  [Std.SPECIAL.GiveEggFromDaycare] = function()
+  GiveEggFromDaycare = function()
     local dc = Daycare.stateOf()
     if not eggPending(dc) then return false end
     local session = sessionOf()
@@ -317,7 +317,38 @@ Daycare.HANDLERS = {
     Breeding.giveEggFromDaycare(session)
     return false
   end,
+  -- pokeemerald/src/daycare.c:329 GetDaycareCostAndPrepareString
+  GetDaycareCostAndPrepareString = function(ctx, adapters)
+    local dc = Daycare.stateOf()
+    local index = varGet(ctx, VAR_0x8004) + 1
+    local mon = slotMon(dc, index)
+    setStringVar(ctx, adapters, 1, nicknameOf(mon))
+    local cost = mon and Daycare.cost(mon, dc.steps[index]) or 0
+    setStringVar(ctx, adapters, 2, tostring(cost))
+    varSet(ctx, VAR_0x8005, cost)
+    return false
+  end,
+  -- pokeemerald/src/egg_hatch.c:400 _CheckDaycareMonReceivedMail
+  CheckDaycareMonReceivedMail = function(ctx, adapters)
+    local Mail = require("src.core.game3.mail")
+    local session = sessionOf()
+    local dc = Daycare.stateOf(session)
+    local index = varGet(ctx, VAR_0x8004) + 1
+    local mon = slotMon(dc, index)
+    local mail = dc and dc.mail and dc.mail[index]
+    if not (mon and type(mail) == "table" and not Mail.isEmpty(mail.message)) then return boolReturn(false) end
+    local nick = nicknameOf(mon)
+    local player = tostring(session and (session.name or session.playerName) or "")
+    if nick ~= mail.monName or player ~= mail.otName then
+      setStringVar(ctx, adapters, 1, nick)
+      setStringVar(ctx, adapters, 2, mail.otName)
+      setStringVar(ctx, adapters, 3, mail.monName)
+      return boolReturn(true)
+    end
+    return boolReturn(false)
+  end,
 }
+Std.legacyHandlers(Daycare)
 
 Daycare.DAYCARE_NO_MONS = DAYCARE_NO_MONS
 Daycare.DAYCARE_EGG_WAITING = DAYCARE_EGG_WAITING

@@ -19,29 +19,36 @@ local function u32(bytes, i)
   return a + b * 256 + c * 65536 + d * 16777216, i + 4
 end
 
+local TRAINER_BATTLE_PTRS = {
+  SINGLE = { "introText", "defeatText" },
+  REMATCH = { "introText", "defeatText" },
+  CONTINUE_SCRIPT = { "introText", "defeatText", "eventScript" },
+  CONTINUE_SCRIPT_NO_MUSIC = { "introText", "defeatText", "eventScript" },
+  SINGLE_NO_INTRO_TEXT = { "defeatText" },
+  DOUBLE = { "introText", "defeatText", "notEnoughText" },
+  REMATCH_DOUBLE = { "introText", "defeatText", "notEnoughText" },
+  CONTINUE_SCRIPT_DOUBLE = { "introText", "defeatText", "notEnoughText", "eventScript" },
+  CONTINUE_SCRIPT_DOUBLE_NO_MUSIC = { "introText", "defeatText", "notEnoughText", "eventScript" },
+  EARLY_RIVAL = { "defeatText", "victoryText" },
+  PYRAMID = { "introText", "defeatText" },
+  SET_TRAINER_A = { "introText", "defeatText" },
+  SET_TRAINER_B = { "introText", "defeatText" },
+  HILL = { "introText", "defeatText" },
+}
+Disasm.TRAINER_BATTLE_PTRS = TRAINER_BATTLE_PTRS
+
 --- Decode one command at offset. Returns row, nextIndex (1-based).
-function Disasm.decodeOne(bytes, i)
+function Disasm.decodeOne(bytes, i, set)
+  set = set or Opcodes.active()
   local opb
   opb, i = u8(bytes, i)
-  local def = Opcodes.get(opb)
+  local def = set:get(opb)
   if not def then
     return { op = "unknown", byte = opb }, i
   end
   local row = { op = def.name, opcode = opb }
   if def.name == "trainerbattle" then
-    -- Variable-length (pret asm/macros/event.inc trainerbattle).
-    -- Layout: type u8, trainer u16, local_id/flags u16, then type-dependent ptrs.
-    local TRAINER_BATTLE_SINGLE = 0
-    local TRAINER_BATTLE_CONTINUE_SCRIPT_NO_MUSIC = 1
-    local TRAINER_BATTLE_CONTINUE_SCRIPT = 2
-    local TRAINER_BATTLE_SINGLE_NO_INTRO_TEXT = 3
-    local TRAINER_BATTLE_DOUBLE = 4
-    local TRAINER_BATTLE_REMATCH = 5
-    local TRAINER_BATTLE_CONTINUE_SCRIPT_DOUBLE = 6
-    local TRAINER_BATTLE_REMATCH_DOUBLE = 7
-    local TRAINER_BATTLE_CONTINUE_SCRIPT_DOUBLE_NO_MUSIC = 8
-    local TRAINER_BATTLE_EARLY_RIVAL = 9
-
+    -- pokeemerald/asm/macros/event.inc:730
     local typ
     typ, i = u8(bytes, i)
     local trainer
@@ -54,39 +61,16 @@ function Disasm.decodeOne(bytes, i)
     row[1] = trainer
     row[2] = localId
 
-    local function read_ptr()
-      local v
-      v, i = u32(bytes, i)
-      return v
-    end
-
-    if typ == TRAINER_BATTLE_SINGLE or typ == TRAINER_BATTLE_REMATCH then
-      row.introText = read_ptr()
-      row.defeatText = read_ptr()
-    elseif typ == TRAINER_BATTLE_CONTINUE_SCRIPT
-        or typ == TRAINER_BATTLE_CONTINUE_SCRIPT_NO_MUSIC then
-      row.introText = read_ptr()
-      row.defeatText = read_ptr()
-      row.eventScript = read_ptr()
-    elseif typ == TRAINER_BATTLE_SINGLE_NO_INTRO_TEXT then
-      row.defeatText = read_ptr()
-    elseif typ == TRAINER_BATTLE_DOUBLE or typ == TRAINER_BATTLE_REMATCH_DOUBLE then
-      row.introText = read_ptr()
-      row.defeatText = read_ptr()
-      row.notEnoughText = read_ptr()
-    elseif typ == TRAINER_BATTLE_CONTINUE_SCRIPT_DOUBLE
-        or typ == TRAINER_BATTLE_CONTINUE_SCRIPT_DOUBLE_NO_MUSIC then
-      row.introText = read_ptr()
-      row.defeatText = read_ptr()
-      row.notEnoughText = read_ptr()
-      row.eventScript = read_ptr()
-    elseif typ == TRAINER_BATTLE_EARLY_RIVAL then
-      -- localId slot is rival flags; texts are defeat then victory.
-      row.flags = localId
-      row.defeatText = read_ptr()
-      row.victoryText = read_ptr()
+    local kind = set:trainerBattleType(typ)
+    local ptrs = kind and TRAINER_BATTLE_PTRS[kind]
+    if ptrs then
+      if kind == "EARLY_RIVAL" then row.flags = localId end
+      for _, field in ipairs(ptrs) do
+        local v
+        v, i = u32(bytes, i)
+        row[field] = v
+      end
     else
-      -- Unknown type: don't consume further; mark opaque so extract can stop.
       row.opaque = true
     end
     return row, i
@@ -141,7 +125,7 @@ function Disasm.decodeOne(bytes, i)
 end
 
 --- Linear disasm until `end`/`return` or maxBytes.
-function Disasm.decode(bytes, start, maxBytes)
+function Disasm.decode(bytes, start, maxBytes, set)
   start = start or 1
   maxBytes = maxBytes or #bytes
   local rows = {}
@@ -149,7 +133,7 @@ function Disasm.decode(bytes, start, maxBytes)
   local limit = math.min(#bytes + 1, start + maxBytes)
   while i < limit do
     local row
-    row, i = Disasm.decodeOne(bytes, i)
+    row, i = Disasm.decodeOne(bytes, i, set)
     rows[#rows + 1] = row
     if row.op == "end" or row.op == "return" or row.op == "unknown" then
       break

@@ -9,6 +9,10 @@ local AnimPal = require("src.core.game3.battle.anim_pal")
 local AnimCoords = require("src.core.game3.battle.anim_coords")
 local SE = require("src.core.game3.se_ids")
 
+local function fallback_prefix()
+  return require("src.core.game3.battle.profile").get().animCacheFallback or nil
+end
+
 local Anim = {}
 
 Anim.Z = AnimVm.Z
@@ -660,7 +664,7 @@ local function hydrate_tag_images(pack)
       local rel = root .. info.file
       if cache and cache.read then
         bytes = cache:read(rel)
-        if not bytes then bytes = cache:read("firered/" .. rel) end
+        if not bytes and fallback_prefix() then bytes = cache:read(fallback_prefix() .. rel) end
       end
       if type(bytes) == "string" and #bytes > 0 then
         local okFd, fileData = pcall(love.filesystem.newFileData, bytes, info.file)
@@ -675,7 +679,8 @@ local function hydrate_tag_images(pack)
               info.w = image:getWidth()
               info.h = image:getHeight()
               AnimPal.hydrateIndex(info, tag, image, function(f)
-                return cache and cache.read and (cache:read(root .. f) or cache:read("firered/" .. root .. f))
+                return cache and cache.read and (cache:read(root .. f)
+                  or (fallback_prefix() and cache:read(fallback_prefix() .. root .. f)))
               end)
             end
           end
@@ -691,10 +696,10 @@ local function load_pack()
   local chunk
   local ok, Dataset = pcall(require, "src.core.game3.dataset")
   local cache = ok and Dataset.cache and Dataset.cache() or nil
-  local rels = {
-    "data/generated/gba/pokemon/battle_anims/pack.lua",
-    "firered/data/generated/gba/pokemon/battle_anims/pack.lua",
-  }
+  local rels = { "data/generated/gba/pokemon/battle_anims/pack.lua" }
+  if fallback_prefix() then
+    rels[2] = fallback_prefix() .. "data/generated/gba/pokemon/battle_anims/pack.lua"
+  end
   if cache and cache.read then
     for _, rel in ipairs(rels) do
       local src = cache:read(rel)
@@ -712,6 +717,9 @@ local function load_pack()
         end
       end
     end
+  end
+  if not chunk and not fallback_prefix() and cache and cache.read then
+    error("battle anims: data/generated/gba/pokemon/battle_anims/pack.lua is missing from the cache")
   end
   if not chunk then
     local okR, mod = pcall(require, "src.core.game3.battle.anim_pack_fallback")
@@ -1011,7 +1019,8 @@ function Anim.statMaskImage(tilemap, pal)
   local ok, Dataset = pcall(require, "src.core.game3.dataset")
   local cache = ok and Dataset.cache and Dataset.cache() or nil
   local path = "data/generated/gba/pokemon/battle_anims/" .. rel
-  local bytes = cache and cache.read and (cache:read(path) or cache:read("firered/" .. path))
+  local bytes = cache and cache.read and (cache:read(path)
+    or (fallback_prefix() and cache:read(fallback_prefix() .. path)))
   if type(bytes) ~= "string" or #bytes == 0 then return nil end
   local okD, data = pcall(function()
     return love.image.newImageData(love.filesystem.newFileData(bytes, rel))

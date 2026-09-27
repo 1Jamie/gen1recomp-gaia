@@ -69,7 +69,14 @@ end
 -- caller meant before Gen 2 had a codec.
 function SaveConvert.mainChecksumValid(bytes, gameVersion)
   if isGen3(gameVersion) then return nil end
-  if SaveConvert.looksLikeGen3Flash(bytes) then return nil, SaveConvert.GEN3_FLASH_MISMATCH end
+  if SaveConvert.looksLikeGen3Flash(bytes) then
+    local _, name = Gen3Save.sniffMessage(bytes)
+    if name and name ~= "FireRed/LeafGreen" then
+      local article = name:match("^[AEIOU]") and "an" or "a"
+      return nil, ("That is %s %s (Game Boy Advance) save, not a save for this game."):format(article, name)
+    end
+    return nil, SaveConvert.GEN3_FLASH_MISMATCH
+  end
   local L = gameVersion and Gen2Save.layoutFor(gameVersion)
   if L then return Gen2Save.checksumValid(bytes, L) end
   return GenSave.mainChecksumValid(bytes)
@@ -336,7 +343,14 @@ function SaveConvert.importSav(bytes, version, gameVersion)
   end
   local supported, unsupportedWhy = SaveConvert.importSupported(gameVersion)
   if not supported then return nil, unsupportedWhy end
-  if isGen3(gameVersion) then return Gen3Save.importPort(bytes, gameVersion) end
+  if isGen3(gameVersion) then
+    local codec = Gen3Save.forVersion(gameVersion)
+    local save, err, note = codec.importPort(bytes, gameVersion)
+    if save and codec.port and codec.port.finishImport then
+      codec.port.finishImport(save, { national = SaveConvert.gen3CacheTable(gameVersion, "pokemon/national.lua") })
+    end
+    return save, err, note
+  end
   -- Gen 2 is a different SRAM entirely: different bank map, different party
   -- struct, its own check values. Gen2Save owns it, and it needs no crosswalk
   -- tables because it decodes ids the engine already speaks.
@@ -397,8 +411,10 @@ local function gen3CacheTable(gameVersion, rel)
   return ok and type(t) == "table" and t or nil
 end
 
+SaveConvert.gen3CacheTable = gen3CacheTable
+
 local function gen3ExportOpts(gameVersion, cartImage)
-  local L3 = require("src.save_convert.Gen3Layout")
+  local L3 = require("src.save_convert.Gen3Layout").forVersion(gameVersion)
   local national = gen3CacheTable(gameVersion, "pokemon/national.lua")
   local names = gen3CacheTable(gameVersion, "pokemon/names.lua")
   local fly = gen3CacheTable(gameVersion, "region_map/fly_destinations.lua")
@@ -407,7 +423,8 @@ local function gen3ExportOpts(gameVersion, cartImage)
   local opts = {
     template = cartImage,
     version = gameVersion,
-    metGame = gameVersion == "leafgreen" and L3.VERSION_LEAF_GREEN or L3.VERSION_FIRE_RED,
+    metGame = require("src.core.GameVersion").gameCode(gameVersion)
+      or (gameVersion == "leafgreen" and L3.VERSION_LEAF_GREEN or L3.VERSION_FIRE_RED),
     itemId = function(id)
       return tonumber(id) or (okI and ItemsData.toNumericId(id)) or nil
     end,
@@ -448,7 +465,7 @@ local function gen3ExportOpts(gameVersion, cartImage)
       end
       for _, dest in pairs(dests) do
         if type(dest) == "table" and dest.healLocation == id then
-          return Gen3Save.cartWarp({ map = dest.map, warpId = -1, x = dest.x, y = dest.y })
+          return Gen3Save.forVersion(gameVersion).cartWarp({ map = dest.map, warpId = -1, x = dest.x, y = dest.y })
         end
       end
       return nil
@@ -470,7 +487,7 @@ function SaveConvert.exportSav(saveTable, gameVersion, cartImage)
   local supported, unsupportedWhy = SaveConvert.exportSupported(gameVersion)
   if not supported then return nil, unsupportedWhy end
   if isGen3(gameVersion) then
-    local ok, bytes, err = pcall(Gen3Save.exportPort, saveTable, gen3ExportOpts(gameVersion, cartImage))
+    local ok, bytes, err = pcall(Gen3Save.forVersion(gameVersion).exportPort, saveTable, gen3ExportOpts(gameVersion, cartImage))
     if not ok then return nil, "encode failed: " .. tostring(bytes) end
     return bytes, err
   end

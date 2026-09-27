@@ -7,7 +7,7 @@ Countdown.DIR = "link"
 Countdown.NUMBERS = "minigame_countdown_numbers"
 Countdown.START = "minigame_countdown_start"
 -- pokefirered/include/constants/songs.h:54
-Countdown.SE_BALL_BOUNCE_2 = 50
+require("src.core.game3.song_fields")(Countdown)
 -- pokefirered/src/minigame_countdown.c:83
 Countdown.ANCHOR_Y = 26
 

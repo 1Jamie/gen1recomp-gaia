@@ -3,10 +3,6 @@ local RomText = require("src.core.game3.rom_text")
 
 local TradeScene = {}
 
--- pokefirered/include/constants/songs.h:271
-local MUS_EVOLUTION = 264
--- pokefirered/include/constants/songs.h:266
-local MUS_EVOLVED = 259
 -- pokefirered/include/constants/species.h:421
 local SPECIES_EGG = 412
 
@@ -294,7 +290,7 @@ phase("start", function(s)
   -- pokefirered/src/trade_scene.c:1348
   s.cachedMapMusic = currentMapMusic()
   -- pokefirered/src/trade_scene.c:1349
-  playNewMapMusic(s, MUS_EVOLUTION)
+  playNewMapMusic(s, require("src.core.game3.song_ids").MUS_EVOLUTION)
   return true
 end)
 
@@ -745,7 +741,7 @@ end)
 -- pokefirered/src/trade_scene.c:1749
 phase("take_care_of_mon", function(s)
   s.timer = s.timer + 1
-  if s.timer == FANFARE_AT then playFanfare(s, MUS_EVOLVED) end
+  if s.timer == FANFARE_AT then playFanfare(s, require("src.core.game3.song_ids").MUS_EVOLVED) end
   if s.timer ~= TAKE_CARE_AT then return false end
   setText(s, tradeText(s, "gText_TakeGoodCareOfX"))
   s.timer = 0

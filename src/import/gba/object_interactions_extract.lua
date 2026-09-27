@@ -55,7 +55,107 @@ function E.readScripts(rom)
   for alias,key in pairs(aliases) do pack.scripts[alias]=assert(pack.scripts[key]) end
   return {version=1,scripts=pack.scripts,text=pack.text,movements=pack.movements}
 end
+-- pokeemerald/src/field_control_avatar.c:367
+E.RSE_INTERACTIONS={
+  {'TELEVISION','EventScript_TV','north'},
+  {'PC','EventScript_PC'},
+  {'CLOSED_SOOTOPOLIS_DOOR','EventScript_ClosedSootopolisDoor'},
+  {'SKY_PILLAR_CLOSED_DOOR','SkyPillar_Outside_EventScript_ClosedDoor'},
+  {'CABLE_BOX_RESULTS_1','EventScript_CableBoxResults'},
+  {'POKEBLOCK_FEEDER','EventScript_PokeBlockFeeder'},
+  {'TRICK_HOUSE_PUZZLE_DOOR','Route110_TrickHousePuzzle_EventScript_Door'},
+  {'REGION_MAP','EventScript_RegionMap'},
+  {'RUNNING_SHOES_INSTRUCTION','EventScript_RunningShoesManual'},
+  {'PICTURE_BOOK_SHELF','EventScript_PictureBookShelf'},
+  {'BOOKSHELF','EventScript_BookShelf'},
+  {'POKEMON_CENTER_BOOKSHELF','EventScript_PokemonCenterBookShelf'},
+  {'VASE','EventScript_Vase'},
+  {'TRASH_CAN','EventScript_EmptyTrashCan'},
+  {'SHOP_SHELF','EventScript_ShopShelf'},
+  {'BLUEPRINT','EventScript_Blueprint'},
+  {'WIRELESS_BOX_RESULTS','EventScript_WirelessBoxResults','north'},
+  {'CABLE_BOX_RESULTS_2','EventScript_CableBoxResults','north'},
+  {'QUESTIONNAIRE','EventScript_Questionnaire'},
+  {'TRAINER_HILL_TIMER','EventScript_TrainerHillTimer'},
+  {'SECRET_BASE_PC','SecretBase_EventScript_PC','elevation'},
+  {'SECRET_BASE_REGISTER_PC','SecretBase_EventScript_RecordMixingPC','elevation'},
+  {'SECRET_BASE_SAND_ORNAMENT','SecretBase_EventScript_SandOrnament','elevation'},
+  {'SECRET_BASE_TV_SHIELD','SecretBase_EventScript_ShieldOrToyTV','elevation'},
+}
+-- pokeemerald/src/field_control_avatar.c:448,463,508
+E.RSE_CODE_ROOTS={
+  'EventScript_UseSurf','EventScript_UseWaterfall','EventScript_CannotUseWaterfall',
+  'EventScript_UseDive','EventScript_FallDownHole',
+}
+function E.readScriptsRse(game)
+  local S=require('src.import.gba.syms').of(game)
+  local seeds,aliases={},{}
+  local function add(name)
+    if aliases[name] then return end
+    local ptr=0x08000000+S.off(name)
+    seeds[#seeds+1]=ptr;aliases[name]=Opcodes.key(ptr)
+  end
+  for _,row in ipairs(E.RSE_INTERACTIONS) do add(row[2]) end
+  for _,name in ipairs(E.RSE_CODE_ROOTS) do add(name) end
+  return seeds,aliases
+end
+function E.readRse(rom,version)
+  local Family=require('src.import.gba.family')
+  local MB=require('src.core.game3.mb')
+  local F=Family.active()
+  local Mb=assert(MB.translator(F.game),'no behavior translator for '..tostring(F.game))
+  local seeds,aliases=E.readScriptsRse(F.game)
+  local bfs=require('src.import.gba.extract_scripts').bfsFromSeeds(rom,seeds)
+  for alias,key in pairs(aliases) do bfs.scripts[alias]=assert(bfs.scripts[key],'unseeded interaction script '..alias) end
+  local pack={version=1,scripts=bfs.scripts,text=bfs.text,movements=bfs.movements}
+  pack.interactions={}
+  for _,row in ipairs(E.RSE_INTERACTIONS) do
+    pack.interactions[MB.require(row[1])]={script=row[2],facing=row[3]=='north' and 'up' or nil,
+      sameElevation=row[3]=='elevation' or nil}
+  end
+  local V=require('src.import.gba.versions')
+  local pairsTbl=version.tileset_pairs or V.TILESET_PAIRS
+  if not pairsTbl or next(pairsTbl)==nil then
+    local Catalog=require('src.import.gba.map_catalog')
+    local census=assert(require('src.import.gba.map_tree').walk(rom,version))
+    local order,entries=Catalog.allOrder(census)
+    Catalog.registerOrder(rom,version,order,entries)
+    pairsTbl=version.tileset_pairs or V.TILESET_PAIRS
+  end
+  local bits=Mb.tileBits(rom)
+  pack.tileBits=bits
+  pack.behaviors={}
+  pack.encounterTypes={}
+  local attrs={}
+  local function attributes(name)
+    if attrs[name] then return attrs[name] end
+    local spec=assert((version.tilesets or V.TILESETS)[name])
+    local out={}
+    for i=0,math.floor(spec.attr_bytes/F.attrBytes)-1 do out[i]=rom:u16(spec.attributes+i*2) end
+    attrs[name]=out;return out
+  end
+  -- pokeemerald/src/metatile_behavior.c:280
+  local function encounterType(beh)
+    local b=bits[beh] or 0
+    if b%2==0 then return nil end
+    return math.floor(b/2)%2==1 and 2 or 1
+  end
+  -- pokeemerald/src/fieldmap.c:375
+  for name,pair in pairs(pairsTbl) do
+    local out={};pack.behaviors[name]=out
+    local enc={};pack.encounterTypes[name]=enc
+    for _,part in ipairs({{pair.primary,0},{pair.secondary,F.numPrimaryMetatiles}}) do
+      for mid,w in pairs(attributes(part[1])) do
+        local beh=Mb.canon(F.behaviorOf(w))
+        out[mid+part[2]]=beh
+        enc[mid+part[2]]=encounterType(beh)
+      end
+    end
+  end
+  return pack
+end
 function E.read(rom,version)
+  if require('src.import.gba.family').active().name~='frlg' then return E.readRse(rom,version) end
   local pack=E.readScripts(rom)
   local V=require('src.import.gba.versions')
   local Catalog=require('src.import.gba.map_catalog')

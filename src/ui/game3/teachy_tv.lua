@@ -96,9 +96,7 @@ local GRASS_MAP = {
 }
 
 -- pokefirered/include/constants/songs.h:354 MUS_TEACHY_TV_MENU
-local MUS_TEACHY_TV_MENU = 346
--- pokefirered/include/constants/songs.h:280 MUS_FOLLOW_ME
-local MUS_FOLLOW_ME = 272
+local Song = require("src.core.game3.song_ids")
 
 local T = TeachyTv.TIMING
 
@@ -353,7 +351,7 @@ function Ui.show(session, bag, opts)
   Ui.closing = false
   Stack.push("teachy_tv", Ui, { hideBelow = true, fullscreen = true })
   -- pokefirered/src/teachy_tv.c:490 PlayNewMapMusic
-  song(MUS_TEACHY_TV_MENU)
+  song(Song.MUS_TEACHY_TV_MENU)
   -- pokefirered/src/teachy_tv.c:499 BeginNormalPaletteFade(PALETTES_ALL, 0, 0x10, 0, 0)
   local Fade = fade()
   Fade.begin(Fade.MODE.FROM_BLACK, 1)
@@ -426,7 +424,7 @@ STEP.transition_render_bg2 = function()
     Ui.static = nil
     Ui.title = true
     host(T.DUDE_X_START, T.DUDE_Y, "right", true)
-    song(MUS_FOLLOW_ME)
+    song(Song.MUS_FOLLOW_ME)
     step_advance()
   end
 end
@@ -571,7 +569,7 @@ end
 -- pokefirered/src/teachy_tv.c:1043 TTVcmd_End
 STEP["end"] = function()
   if Ui.frames == 1 then
-    song(MUS_TEACHY_TV_MENU)
+    song(Song.MUS_TEACHY_TV_MENU)
     Ui.hostVisible = false
   end
   -- pokefirered/src/teachy_tv.c:1048 TeachyTvBg2AnimController
@@ -670,12 +668,12 @@ function Ui.resumeFromDemonstration(outcome)
   Fade.begin(Fade.MODE.FROM_BLACK, 1)
   if mode == TeachyTv.MODE.RESUME_LIST then
     -- pokefirered/src/teachy_tv.c:490 PlayNewMapMusic
-    song(MUS_TEACHY_TV_MENU)
+    song(Song.MUS_TEACHY_TV_MENU)
     to_list()
     return
   end
   -- pokefirered/src/teachy_tv.c:1214 PlayNewMapMusic(MUS_FOLLOW_ME)
-  song(MUS_FOLLOW_ME)
+  song(Song.MUS_FOLLOW_ME)
   Ui.state = "lesson"
   Ui._pages = nil
   Ui.step = (TeachyTv.RESUME_STEP[script] or 0) + 1
@@ -981,13 +979,13 @@ function Ui.returnFromDemo()
     Ui._pages = nil
     Ui.step = (TeachyTv.RESUME_STEP[script] or 0) + 1
     Ui.frames = 0
-    song(MUS_FOLLOW_ME)
+    song(Song.MUS_FOLLOW_ME)
     -- pokefirered/src/teachy_tv.c:646 TeachyTvSetupPostBattleWindowAndObj
     host(T.DUDE_X_END, T.DUDE_Y, "down", false)
     return
   end
   -- pokefirered/src/teachy_tv.c:490 PlayNewMapMusic
-  song(MUS_TEACHY_TV_MENU)
+  song(Song.MUS_TEACHY_TV_MENU)
   to_list()
 end
 

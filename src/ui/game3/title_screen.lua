@@ -8,7 +8,7 @@ local Title = {}
 
 local GBA_HZ = 16777216 / 280896
 
-local MUS_TITLE = 278
+local Song = require("src.core.game3.song_ids")
 local SPECIES_CHARIZARD = 6
 
 local BG_LOGO = 0
@@ -655,7 +655,7 @@ local function initFrame(T, state)
     setScene(T, S.INIT)
     createTask(T, Task_TitleScreenMain, 4)
     createTask(T, Title.Task_TitleScreenTimer, 2)
-    Audio.playSong(MUS_TITLE, { restart = true })
+    Audio.playSong(Song.MUS_TITLE, { restart = true })
     T.running = true
   end
 end

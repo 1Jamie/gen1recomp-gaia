@@ -38,8 +38,26 @@ local function bgr555_to_rgb8(c)
     math.floor(b5 * 255 / 31 + 0.5)
 end
 
-local SPECIES_CASTFORM = 385
-local SPECIES_SPINDA = 308
+local function need(key)
+  local v = Versions[key]
+  if v == nil then
+    error("pokemon_extract: Versions." .. key .. " is not set for " .. tostring(Versions.active and Versions.active()))
+  end
+  return v
+end
+
+local function species_id(name)
+  local Constants = require("src.core.game3.constants")
+  return Constants.of(Versions.active and Versions.active() or "firered"):require("species", name)
+end
+
+local function pic_table(key, introKey)
+  local v = Versions[key] or (Versions.INTRO and Versions.INTRO[introKey])
+  if v == nil then
+    error("pokemon_extract: Versions." .. key .. " is not set for " .. tostring(Versions.active and Versions.active()))
+  end
+  return v
+end
 
 local function gba_off(ptr)
   return Versions.gbaToFile(ptr)
@@ -506,14 +524,14 @@ local function write_manifest(count, version)
     "return { magic = \"%s\", format = %d, pokemonVersion = %d, numSpecies = %d, iconW = %d, iconH = %d, iconSheetH = %d, iconFrames = %d, abilitiesCount = %d, movesCount = %d }\n",
     PokemonExtract.MAGIC,
     PokemonExtract.FORMAT_VERSION,
-    version or Versions.POKEMON_VERSION,
+    version or need("POKEMON_VERSION"),
     count,
-    Versions.MON_ICON_W or 32,
-    Versions.MON_ICON_H or 32,
+    need("MON_ICON_W"),
+    need("MON_ICON_H"),
     64,
     2,
-    Versions.ABILITIES_COUNT or 78,
-    Versions.MOVES_COUNT or 355)
+    need("ABILITIES_COUNT"),
+    need("MOVES_COUNT"))
 end
 
 local function write_move_names_lua(names)
@@ -521,7 +539,7 @@ local function write_move_names_lua(names)
     "-- Auto-generated FRLG gMoveNames.",
     "return {",
   }
-  local count = Versions.MOVES_COUNT or 355
+  local count = need("MOVES_COUNT")
   for id = 0, count - 1 do
     local n = names[id]
     if n and n ~= "" then
@@ -610,7 +628,7 @@ local function write_tmhm_lua(tmhm, tmMoves)
     "-- Auto-generated FRLG sTMHMLearnsets + sTMHMMoves.",
     "local M = { machines = {}, learnsets = {} }",
   }
-  for i = 0, (Versions.TMHM_COUNT or 58) - 1 do
+  for i = 0, need("TMHM_COUNT") - 1 do
     lines[#lines + 1] = string.format("M.machines[%d] = %d", i, tmMoves[i] or 0)
   end
   local ids = {}
@@ -661,12 +679,11 @@ end
 --- plausible move id ends the scan.  Species without egg moves are absent.
 local function extract_egg_moves(rom, num)
   local eggMoves = {}
-  local base = Versions.EGG_MOVES
-  if not base then return eggMoves end
-  local offset = Versions.EGG_MOVES_SPECIES_OFFSET or 20000
-  local terminator = Versions.EGG_MOVES_TERMINATOR or 0xFFFF
-  local maxMoves = Versions.EGG_MOVES_MAX or 16
-  local moveCount = Versions.MOVES_COUNT or 355
+  local base = need("EGG_MOVES")
+  local offset = need("EGG_MOVES_SPECIES_OFFSET")
+  local terminator = need("EGG_MOVES_TERMINATOR")
+  local maxMoves = need("EGG_MOVES_MAX")
+  local moveCount = need("MOVES_COUNT")
   local limit = math.min(rom.size or Versions.ROM_SIZE or base, base + 0x10000)
   local species
   local o = base
@@ -692,12 +709,12 @@ end
 
 -- gMonIconTable / gMonIconPaletteIndices entry for one species, both frames
 -- (32x64 RGBA); they run past NUM_SPECIES, so SPECIES_EGG has its own icon.
-local function icon_rgba(rom, sp, pals)
+local function icon_rgba(rom, sp, pals, opts)
   pals = pals or load_icon_pals(rom)
-  local w = Versions.MON_ICON_W or 32
-  local iconH = (Versions.MON_ICON_H or 32) * 2 -- 64 (2 frames)
-  local iconBytes = Versions.MON_ICON_BYTES or math.floor(w * iconH / 2) -- 1024 for 32x64
-  local off = gba_off(rom:u32(Versions.MON_ICON_TABLE + sp * 4))
+  local w = need("MON_ICON_W")
+  local iconH = need("MON_ICON_H") * 2 -- 64 (2 frames)
+  local iconBytes = need("MON_ICON_BYTES")
+  local off = gba_off(rom:u32(need("MON_ICON_TABLE") + sp * 4) + (opts and opts.byteOffset or 0))
   if not off then return string.rep(string.char(0, 0, 0, 0), w * iconH * 4) end
   local palIdx = rom:get(Versions.MON_ICON_PAL_INDICES + sp) or 0
   if palIdx >= Versions.MON_ICON_PAL_COUNT then palIdx = 0 end
@@ -711,6 +728,332 @@ PokemonExtract.writeEggMovesLua = write_egg_moves_lua
 -- src/import/gba/egg_extract.lua bakes the SPECIES_EGG icon with it.
 PokemonExtract.iconRgba = icon_rgba
 
+local function write_descriptions_lua(abils, mvs)
+  local lines = {
+    "-- Auto-generated FRLG Ability & Move Descriptions from ROM.",
+    "return {",
+    "  ABILITIES = {",
+  }
+  local a_keys = {}
+  for k in pairs(abils) do a_keys[#a_keys + 1] = k end
+  table.sort(a_keys)
+  for _, k in ipairs(a_keys) do
+    lines[#lines + 1] = string.format("    [%q] = %q,", k, abils[k])
+  end
+  lines[#lines + 1] = "  },"
+  lines[#lines + 1] = "  MOVES = {"
+  local m_keys = {}
+  for k in pairs(mvs) do m_keys[#m_keys + 1] = k end
+  table.sort(m_keys)
+  for _, k in ipairs(m_keys) do
+    lines[#lines + 1] = string.format("    [%q] = %q,", k, mvs[k])
+  end
+  lines[#lines + 1] = "  },"
+  lines[#lines + 1] = "}"
+  lines[#lines + 1] = ""
+  return table.concat(lines, "\n")
+end
+
+local function write_hoenn_lua(toHoenn)
+  local lines = { "local M = { toHoenn = {}, toSpecies = {} }" }
+  for sp = 1, #toHoenn do
+    local n = toHoenn[sp]
+    if n and n > 0 then
+      lines[#lines + 1] = string.format("M.toHoenn[%d] = %d", sp, n)
+      lines[#lines + 1] = string.format("M.toSpecies[%d] = %d", n, sp)
+    end
+  end
+  lines[#lines + 1] = "return M"
+  lines[#lines + 1] = ""
+  return table.concat(lines, "\n")
+end
+
+local function write_regional_dex_lua(region, count, order)
+  local lines = {
+    "return {",
+    string.format("  region = %q,", region),
+    string.format("  count = %d,", count),
+    "  order = {",
+  }
+  for i = 1, #order do
+    lines[#lines + 1] = string.format("    [%d] = %d,", i, order[i])
+  end
+  lines[#lines + 1] = "  },"
+  lines[#lines + 1] = "}"
+  lines[#lines + 1] = ""
+  return table.concat(lines, "\n")
+end
+
+local function write_type_names_lua(names)
+  local lines = { "return {" }
+  for id = 0, #names do
+    lines[#lines + 1] = string.format("  [%d] = \"%s\",", id, lua_escape(names[id] or ""))
+  end
+  lines[#lines + 1] = "}"
+  lines[#lines + 1] = ""
+  return table.concat(lines, "\n")
+end
+
+local function write_exp_table_lua(rows)
+  local lines = { "return {" }
+  for rate = 0, #rows do
+    lines[#lines + 1] = string.format("  [%d] = { [0] = %s },", rate, table.concat(rows[rate], ", "))
+  end
+  lines[#lines + 1] = "}"
+  lines[#lines + 1] = ""
+  return table.concat(lines, "\n")
+end
+
+local function extract_data(rom, cache, root, num, progress)
+  local names = {}
+  local types = {}
+  local stats = {}
+  local abilities = {}
+  local meta = {}
+  local toNat = {}
+  local nameBase = need("SPECIES_NAMES")
+  local nameLen = need("SPECIES_NAME_LENGTH")
+  local infoBase = need("SPECIES_INFO")
+  local infoSize = need("SPECIES_INFO_SIZE")
+  local natBase = need("SPECIES_TO_NATIONAL")
+  local deoxysStats = Versions.DEOXYS_BASE_STATS
+  local deoxys = deoxysStats and species_id("SPECIES_DEOXYS")
+
+  for sp = 0, num - 1 do
+    names[sp] = decode_name(rom, nameBase + sp * nameLen)
+    local ioff = infoBase + sp * infoSize
+    stats[sp] = {
+      hp = rom:get(ioff + 0),
+      atk = rom:get(ioff + 1),
+      def = rom:get(ioff + 2),
+      spe = rom:get(ioff + 3),
+      spa = rom:get(ioff + 4),
+      spd = rom:get(ioff + 5),
+    }
+    local linkStats
+    if sp == deoxys then
+      local r = stats[sp]
+      -- pokefirered/src/pokemon.c:6163
+      -- pokeemerald/src/pokemon.c:2704
+      linkStats = { r.hp, r.atk, r.def, r.spe, r.spa, r.spd }
+      for i, key in ipairs({ "hp", "atk", "def", "spe", "spa", "spd" }) do
+        stats[sp][key] = rom:u16(deoxysStats + (i - 1) * 2)
+      end
+    end
+    types[sp] = { rom:get(ioff + 6), rom:get(ioff + 7) }
+    abilities[sp] = { rom:get(ioff + 0x16), rom:get(ioff + 0x17) }
+    local evLo, evHi = rom:get(ioff + 0x0A), rom:get(ioff + 0x0B)
+    meta[sp] = {
+      catchRate = rom:get(ioff + 0x08),
+      expYield = rom:get(ioff + 0x09),
+      evHp = evLo % 4,
+      evAtk = math.floor(evLo / 4) % 4,
+      evDef = math.floor(evLo / 16) % 4,
+      evSpe = math.floor(evLo / 64) % 4,
+      evSpa = evHi % 4,
+      evSpd = math.floor(evHi / 4) % 4,
+      itemCommon = rom:u16(ioff + 0x0C),
+      itemRare = rom:u16(ioff + 0x0E),
+      genderRatio = rom:get(ioff + 0x10),
+      eggCycles = rom:get(ioff + 0x11),
+      friendship = rom:get(ioff + 0x12),
+      growthRate = rom:get(ioff + 0x13),
+      eggGroup1 = rom:get(ioff + 0x14),
+      eggGroup2 = rom:get(ioff + 0x15),
+      safariZoneFleeRate = rom:get(ioff + 0x18),
+      linkStats = linkStats,
+    }
+    toNat[sp] = (sp >= 1) and rom:u16(natBase + (sp - 1) * 2) or 0
+  end
+
+  local abilityNames = {}
+  local abilBase = need("ABILITY_NAMES")
+  local abilLen = need("ABILITY_NAME_LENGTH") + 1
+  local abilCount = need("ABILITIES_COUNT")
+  for id = 0, abilCount - 1 do
+    abilityNames[id] = decode_name(rom, abilBase + id * abilLen, abilLen)
+  end
+
+  local moveNames = {}
+  local moveNameBase = need("MOVE_NAMES")
+  local moveNameLen = need("MOVE_NAME_LENGTH") + 1
+  local moveCount = need("MOVES_COUNT")
+  for id = 0, moveCount - 1 do
+    moveNames[id] = decode_name(rom, moveNameBase + id * moveNameLen, moveNameLen)
+  end
+
+  local learnsets = {}
+  local learnPtrBase = need("LEVEL_UP_LEARNSETS")
+  for sp = 0, num - 1 do
+    if progress and sp % 80 == 0 then
+      progress("learnsets", sp, num)
+    end
+    local ptr = rom:u32(learnPtrBase + sp * 4)
+    local off = gba_off(ptr)
+    local list = {}
+    if off then
+      for i = 0, 39 do
+        local word = rom:u16(off + i * 2)
+        if word == 0xFFFF then break end
+        list[#list + 1] = {
+          move = word % 512,
+          level = math.floor(word / 512) % 128,
+        }
+      end
+    end
+    learnsets[sp] = list
+  end
+
+  local evolutions = {}
+  local evoBase = need("EVOLUTION_TABLE")
+  local evoPer = need("EVOS_PER_MON")
+  local evoSize = need("EVOLUTION_ENTRY_SIZE")
+  local evoStride = evoPer * evoSize
+  for sp = 0, num - 1 do
+    local list = {}
+    local base = evoBase + sp * evoStride
+    for slot = 0, evoPer - 1 do
+      local off = base + slot * evoSize
+      local method = rom:u16(off)
+      if method ~= 0 then
+        list[#list + 1] = {
+          method = method,
+          param = rom:u16(off + 2),
+          target = rom:u16(off + 4),
+        }
+      end
+    end
+    evolutions[sp] = list
+  end
+
+  local tmhm = {}
+  local tmMoves = {}
+  local tmBase = need("TMHM_LEARNSETS")
+  local tmMoveBase = need("TMHM_MOVES")
+  local tmCount = need("TMHM_COUNT")
+  for i = 0, tmCount - 1 do
+    tmMoves[i] = rom:u16(tmMoveBase + i * 2)
+  end
+  for sp = 0, num - 1 do
+    local off = tmBase + sp * 8
+    tmhm[sp] = {
+      lo = rom:u32(off),
+      hi = rom:u32(off + 4),
+    }
+  end
+
+  local eggMoves = extract_egg_moves(rom, num)
+
+  local dex = {}
+  local dexBase = need("POKEDEX_ENTRIES")
+  local dexSize = need("POKEDEX_ENTRY_SIZE")
+  local dexCount = need("NATIONAL_DEX_COUNT") + 1
+  for nat = 0, dexCount - 1 do
+    local off = dexBase + nat * dexSize
+    dex[nat] = {
+      category = decode_name(rom, off, 12),
+      height = rom:u16(off + 0x0C),
+      weight = rom:u16(off + 0x0E),
+    }
+  end
+
+  local abilityDescs = {}
+  local abilityDescBase = need("ABILITY_DESCRIPTIONS")
+  for i = 0, abilCount - 1 do
+    local ptr = rom:u32(abilityDescBase + i * 4)
+    local off = gba_off(ptr)
+    local name = abilityNames[i] or ("ABILITY_" .. i)
+    local desc = off and decode_text(rom, off, 256) or ""
+    local const = "ABILITY_" .. name:upper():gsub("%s+", "_"):gsub("[^%w_]", "")
+    abilityDescs[const] = desc
+  end
+
+  local moveDescs = {}
+  local moveDescBase = need("MOVE_DESCRIPTIONS")
+  for i = 0, moveCount - 2 do
+    local ptr = rom:u32(moveDescBase + i * 4)
+    local off = gba_off(ptr)
+    local name = moveNames[i + 1] or ("MOVE_" .. (i + 1))
+    local desc = off and decode_text(rom, off, 256) or ""
+    local const = "MOVE_" .. name:upper():gsub("%s+", "_"):gsub("[^%w_]", "")
+    moveDescs[const] = desc
+  end
+
+  put(cache, root .. "/names.lua", write_names_lua(names))
+  put(cache, root .. "/types.lua", write_types_lua(types))
+  put(cache, root .. "/stats.lua", write_stats_lua(stats))
+  put(cache, root .. "/abilities.lua", write_abilities_lua(abilities))
+  put(cache, root .. "/ability_names.lua", write_ability_names_lua(abilityNames))
+  put(cache, root .. "/descriptions.lua", write_descriptions_lua(abilityDescs, moveDescs))
+  put(cache, root .. "/meta.lua", write_species_meta_lua(meta))
+  put(cache, root .. "/national.lua", write_national_lua(toNat))
+  put(cache, root .. "/move_names.lua", write_move_names_lua(moveNames))
+  put(cache, root .. "/learnsets.lua", write_learnsets_lua(learnsets))
+  put(cache, root .. "/evolutions.lua", write_evolutions_lua(evolutions))
+  put(cache, root .. "/tmhm.lua", write_tmhm_lua(tmhm, tmMoves))
+  put(cache, root .. "/egg_moves.lua", write_egg_moves_lua(eggMoves))
+  put(cache, root .. "/dex.lua", write_dex_lua(dex))
+
+  local out = {
+    names = names,
+    types = types,
+    stats = stats,
+    abilities = abilities,
+    abilityNames = abilityNames,
+    moveNames = moveNames,
+    learnsets = learnsets,
+    eggMoves = eggMoves,
+    evolutions = evolutions,
+  }
+
+  -- pokeemerald/src/pokemon.c:5685
+  if Versions.SPECIES_TO_HOENN then
+    local toHoenn = {}
+    for sp = 1, num - 1 do
+      toHoenn[sp] = rom:u16(Versions.SPECIES_TO_HOENN + (sp - 1) * 2)
+    end
+    put(cache, root .. "/hoenn.lua", write_hoenn_lua(toHoenn))
+    out.toHoenn = toHoenn
+  end
+  -- pokeemerald/src/pokemon.c:5693
+  if Versions.HOENN_TO_NATIONAL then
+    local order = {}
+    for i = 1, num - 1 do
+      local nat = rom:u16(Versions.HOENN_TO_NATIONAL + (i - 1) * 2)
+      if nat == 0 then break end
+      order[i] = nat
+    end
+    local count = species_id("HOENN_DEX_COUNT")
+    put(cache, root .. "/regional_dex.lua", write_regional_dex_lua("hoenn", count, order))
+    out.regionalOrder = order
+  end
+  if Versions.TYPE_NAMES then
+    local typeNames = {}
+    local stride = need("TYPE_NAME_LENGTH") + 1
+    for id = 0, need("TYPE_COUNT") - 1 do
+      typeNames[id] = decode_name(rom, Versions.TYPE_NAMES + id * stride, stride)
+    end
+    put(cache, root .. "/type_names.lua", write_type_names_lua(typeNames))
+    out.typeNames = typeNames
+  end
+  if Versions.EXPERIENCE_TABLES then
+    local rows = {}
+    local levels = need("EXPERIENCE_LEVELS")
+    for rate = 0, need("GROWTH_RATE_COUNT") - 1 do
+      local row = {}
+      for lv = 0, levels - 1 do
+        row[lv + 1] = tostring(rom:u32(Versions.EXPERIENCE_TABLES + (rate * levels + lv) * 4))
+      end
+      rows[rate] = row
+    end
+    put(cache, root .. "/exp_table.lua", write_exp_table_lua(rows))
+    out.expTable = rows
+  end
+
+  put(cache, root .. "/manifest.lua", write_manifest(num, need("POKEMON_VERSION")))
+  return out
+end
+
 --- Extract full pack into cache under {cacheRoot}/pokemon/.
 function PokemonExtract.run(rom, cache, opts)
   opts = opts or {}
@@ -722,19 +1065,16 @@ function PokemonExtract.run(rom, cache, opts)
   local onlySpeciesGfx = opts.onlySpeciesGfx == true
   local progress = opts.progress
 
-  local names = {}
-  local types = {}
-  local stats = {}
-  local abilities = {}
-  local meta = {}
-  local toNat = {}
-  local nameBase = Versions.SPECIES_NAMES
-  local infoBase = Versions.SPECIES_INFO
-  local natBase = Versions.SPECIES_TO_NATIONAL
+  if opts.part then
+    return PokemonExtract.runPart(rom, cache, opts)
+  end
+
   local pals = load_icon_pals(rom)
-  local frontPicTable = (Versions.INTRO and Versions.INTRO.mon_front_pic_table) or 0x2350AC
-  local backPicTable = Versions.MON_BACK_PIC_TABLE or 0x23654C
-  local palTable = (Versions.INTRO and Versions.INTRO.mon_palette_table) or 0x23730C
+  local frontPicTable = pic_table("MON_FRONT_PIC_TABLE", "mon_front_pic_table")
+  local backPicTable = need("MON_BACK_PIC_TABLE")
+  local palTable = pic_table("MON_PALETTE_TABLE", "mon_palette_table")
+  local SPECIES_CASTFORM = species_id("SPECIES_CASTFORM")
+  local SPECIES_SPINDA = species_id("SPECIES_SPINDA")
 
   local picsWritten = { icons = 0, front = 0, back = 0 }
   local picsMissing = {}
@@ -824,54 +1164,6 @@ function PokemonExtract.run(rom, cache, opts)
     }
   end
 
-  -- Full metadata pass for all species
-  for sp = 0, num - 1 do
-    names[sp] = decode_name(rom, nameBase + sp * Versions.SPECIES_NAME_LENGTH)
-    local ioff = infoBase + sp * Versions.SPECIES_INFO_SIZE
-    stats[sp] = {
-      hp = rom:get(ioff + 0),
-      atk = rom:get(ioff + 1),
-      def = rom:get(ioff + 2),
-      spe = rom:get(ioff + 3),
-      spa = rom:get(ioff + 4),
-      spd = rom:get(ioff + 5),
-    }
-    local linkStats
-    if sp == 410 then
-      local r = stats[sp]
-      -- pokefirered/src/pokemon.c:6163
-      linkStats = { r.hp, r.atk, r.def, r.spe, r.spa, r.spd }
-      local base = Versions.DEOXYS_BASE_STATS
-      for i, key in ipairs({ "hp", "atk", "def", "spe", "spa", "spd" }) do
-        stats[sp][key] = rom:u16(base + (i - 1) * 2)
-      end
-    end
-    types[sp] = { rom:get(ioff + 6), rom:get(ioff + 7) }
-    abilities[sp] = { rom:get(ioff + 0x16), rom:get(ioff + 0x17) }
-    local evLo, evHi = rom:get(ioff + 0x0A), rom:get(ioff + 0x0B)
-    meta[sp] = {
-      catchRate = rom:get(ioff + 0x08),
-      expYield = rom:get(ioff + 0x09),
-      evHp = evLo % 4,
-      evAtk = math.floor(evLo / 4) % 4,
-      evDef = math.floor(evLo / 16) % 4,
-      evSpe = math.floor(evLo / 64) % 4,
-      evSpa = evHi % 4,
-      evSpd = math.floor(evHi / 4) % 4,
-      itemCommon = rom:u16(ioff + 0x0C),
-      itemRare = rom:u16(ioff + 0x0E),
-      genderRatio = rom:get(ioff + 0x10),
-      eggCycles = rom:get(ioff + 0x11),
-      friendship = rom:get(ioff + 0x12),
-      growthRate = rom:get(ioff + 0x13),
-      eggGroup1 = rom:get(ioff + 0x14),
-      eggGroup2 = rom:get(ioff + 0x15),
-      safariZoneFleeRate = rom:get(ioff + 0x18),
-      linkStats = linkStats,
-    }
-    toNat[sp] = (sp >= 1) and rom:u16(natBase + (sp - 1) * 2) or 0
-  end
-
   if #picsMissing > 0 then
     local shown = {}
     for i = 1, math.min(8, #picsMissing) do shown[i] = picsMissing[i] end
@@ -896,170 +1188,7 @@ function PokemonExtract.run(rom, cache, opts)
     end
   end
 
-  local abilityNames = {}
-  local abilBase = Versions.ABILITY_NAMES
-  local abilLen = (Versions.ABILITY_NAME_LENGTH or 12) + 1
-  local abilCount = Versions.ABILITIES_COUNT or 78
-  for id = 0, abilCount - 1 do
-    abilityNames[id] = decode_name(rom, abilBase + id * abilLen, abilLen)
-  end
-
-  -- Move names
-  local moveNames = {}
-  local moveNameBase = Versions.MOVE_NAMES or 0x247094
-  local moveNameLen = (Versions.MOVE_NAME_LENGTH or 12) + 1
-  local moveCount = Versions.MOVES_COUNT or 355
-  for id = 0, moveCount - 1 do
-    moveNames[id] = decode_name(rom, moveNameBase + id * moveNameLen, moveNameLen)
-  end
-
-  -- Level-up learnsets
-  local learnsets = {}
-  local learnPtrBase = Versions.LEVEL_UP_LEARNSETS or 0x25D7B4
-  for sp = 0, num - 1 do
-    if progress and sp % 80 == 0 then
-      progress("learnsets", sp, num)
-    end
-    local ptr = rom:u32(learnPtrBase + sp * 4)
-    local off = gba_off(ptr)
-    local list = {}
-    if off then
-      for i = 0, 39 do
-        local word = rom:u16(off + i * 2)
-        if word == 0xFFFF then break end
-        list[#list + 1] = {
-          move = word % 512,
-          level = math.floor(word / 512) % 128,
-        }
-      end
-    end
-    learnsets[sp] = list
-  end
-
-  -- Evolutions
-  local evolutions = {}
-  local evoBase = Versions.EVOLUTION_TABLE or 0x259754
-  local evoPer = Versions.EVOS_PER_MON or 5
-  local evoSize = Versions.EVOLUTION_ENTRY_SIZE or 8
-  local evoStride = evoPer * evoSize
-  for sp = 0, num - 1 do
-    local list = {}
-    local base = evoBase + sp * evoStride
-    for slot = 0, evoPer - 1 do
-      local off = base + slot * evoSize
-      local method = rom:u16(off)
-      if method ~= 0 then
-        list[#list + 1] = {
-          method = method,
-          param = rom:u16(off + 2),
-          target = rom:u16(off + 4),
-        }
-      end
-    end
-    evolutions[sp] = list
-  end
-
-  -- TM/HM learnsets + machine → move map
-  local tmhm = {}
-  local tmMoves = {}
-  local tmBase = Versions.TMHM_LEARNSETS or 0x252BC8
-  local tmMoveBase = Versions.TMHM_MOVES or 0x45A5A4
-  local tmCount = Versions.TMHM_COUNT or 58
-  for i = 0, tmCount - 1 do
-    tmMoves[i] = rom:u16(tmMoveBase + i * 2)
-  end
-  for sp = 0, num - 1 do
-    local off = tmBase + sp * 8
-    tmhm[sp] = {
-      lo = rom:u32(off),
-      hi = rom:u32(off + 4),
-    }
-  end
-
-  -- Egg moves (gEggMoves): sparse, so a species with no egg move is absent
-  -- rather than an empty list.
-  local eggMoves = extract_egg_moves(rom, num)
-
-  -- National dex entries (category / height / weight)
-  local dex = {}
-  local dexBase = Versions.POKEDEX_ENTRIES or 0x44E850
-  local dexSize = Versions.POKEDEX_ENTRY_SIZE or 36
-  local dexCount = (Versions.NATIONAL_DEX_COUNT or 386) + 1
-  for nat = 0, dexCount - 1 do
-    local off = dexBase + nat * dexSize
-    dex[nat] = {
-      category = decode_name(rom, off, 12),
-      height = rom:u16(off + 0x0C),
-      weight = rom:u16(off + 0x0E),
-    }
-  end
-
-  -- Ability and move descriptions extracted from ROM pointer tables
-  local abilityDescs = {}
-  local abilityDescBase = Versions.ABILITY_DESCRIPTIONS or 0x24FB08
-  local abilityCount = Versions.ABILITIES_COUNT or 78
-  for i = 0, abilityCount - 1 do
-    local ptr = rom:u32(abilityDescBase + i * 4)
-    local off = gba_off(ptr)
-    local name = abilityNames[i] or ("ABILITY_" .. i)
-    local desc = off and decode_text(rom, off, 256) or ""
-    local const = "ABILITY_" .. name:upper():gsub("%s+", "_"):gsub("[^%w_]", "")
-    abilityDescs[const] = desc
-  end
-
-  local moveDescs = {}
-  local moveDescBase = Versions.MOVE_DESCRIPTIONS or 0x4886E8
-  local moveDescCount = (Versions.MOVES_COUNT or 355) - 1
-  for i = 0, moveDescCount - 1 do
-    local ptr = rom:u32(moveDescBase + i * 4)
-    local off = gba_off(ptr)
-    local name = moveNames[i + 1] or ("MOVE_" .. (i + 1))
-    local desc = off and decode_text(rom, off, 256) or ""
-    local const = "MOVE_" .. name:upper():gsub("%s+", "_"):gsub("[^%w_]", "")
-    moveDescs[const] = desc
-  end
-
-  local function write_descriptions_lua(abils, mvs)
-    local lines = {
-      "-- Auto-generated FRLG Ability & Move Descriptions from ROM.",
-      "return {",
-      "  ABILITIES = {",
-    }
-    local a_keys = {}
-    for k in pairs(abils) do a_keys[#a_keys + 1] = k end
-    table.sort(a_keys)
-    for _, k in ipairs(a_keys) do
-      lines[#lines + 1] = string.format("    [%q] = %q,", k, abils[k])
-    end
-    lines[#lines + 1] = "  },"
-    lines[#lines + 1] = "  MOVES = {"
-    local m_keys = {}
-    for k in pairs(mvs) do m_keys[#m_keys + 1] = k end
-    table.sort(m_keys)
-    for _, k in ipairs(m_keys) do
-      lines[#lines + 1] = string.format("    [%q] = %q,", k, mvs[k])
-    end
-    lines[#lines + 1] = "  },"
-    lines[#lines + 1] = "}"
-    lines[#lines + 1] = ""
-    return table.concat(lines, "\n")
-  end
-
-  put(cache, root .. "/names.lua", write_names_lua(names))
-  put(cache, root .. "/types.lua", write_types_lua(types))
-  put(cache, root .. "/stats.lua", write_stats_lua(stats))
-  put(cache, root .. "/abilities.lua", write_abilities_lua(abilities))
-  put(cache, root .. "/ability_names.lua", write_ability_names_lua(abilityNames))
-  put(cache, root .. "/descriptions.lua", write_descriptions_lua(abilityDescs, moveDescs))
-  put(cache, root .. "/meta.lua", write_species_meta_lua(meta))
-  put(cache, root .. "/national.lua", write_national_lua(toNat))
-  put(cache, root .. "/move_names.lua", write_move_names_lua(moveNames))
-  put(cache, root .. "/learnsets.lua", write_learnsets_lua(learnsets))
-  put(cache, root .. "/evolutions.lua", write_evolutions_lua(evolutions))
-  put(cache, root .. "/tmhm.lua", write_tmhm_lua(tmhm, tmMoves))
-  put(cache, root .. "/egg_moves.lua", write_egg_moves_lua(eggMoves))
-  put(cache, root .. "/dex.lua", write_dex_lua(dex))
-  put(cache, root .. "/manifest.lua", write_manifest(num, Versions.POKEMON_VERSION))
+  local data = extract_data(rom, cache, root, num, progress)
 
   if progress then progress("battle_moves", 0, 1) end
   local BattleMovesExtract = require("src.import.gba.battle_moves_extract")
@@ -1148,15 +1277,15 @@ function PokemonExtract.run(rom, cache, opts)
     root = root,
     numSpecies = num,
     picsWritten = picsWritten,
-    names = names,
-    types = types,
-    stats = stats,
-    abilities = abilities,
-    abilityNames = abilityNames,
-    moveNames = moveNames,
-    learnsets = learnsets,
-    eggMoves = eggMoves,
-    evolutions = evolutions,
+    names = data.names,
+    types = data.types,
+    stats = data.stats,
+    abilities = data.abilities,
+    abilityNames = data.abilityNames,
+    moveNames = data.moveNames,
+    learnsets = data.learnsets,
+    eggMoves = data.eggMoves,
+    evolutions = data.evolutions,
     battleMoves = battle and battle.pack,
     partyChrome = chrome,
     battleChrome = battleChrome,
@@ -1164,6 +1293,273 @@ function PokemonExtract.run(rom, cache, opts)
     summaryChrome = summaryChrome,
   }
 end
+
+local PIC_BYTES = 2048
+
+local function as_string(t)
+  if t == nil or type(t) == "string" then return t end
+  return Lz77.toString(t)
+end
+
+local function lz_string(rom, off)
+  local ok, out = pcall(Lz77.decompressString, rom, off)
+  if ok and out then return out end
+  local ok2, out2 = pcall(Lz77.decompress, function(i) return rom:get(i) end, off)
+  if ok2 and out2 then return as_string(out2) end
+  return nil
+end
+
+local function stack_frames(tiles, palBytes, frames, bank)
+  local parts = {}
+  for i, f in ipairs(frames) do parts[i] = decode_pic_sheet(tiles, palBytes, f, bank) end
+  return table.concat(parts)
+end
+
+local function pic_writer(rom, cache, root)
+  local frontTable = pic_table("MON_FRONT_PIC_TABLE", "mon_front_pic_table")
+  local backTable = need("MON_BACK_PIC_TABLE")
+  local stillTable = Versions.MON_STILL_FRONT_PIC_TABLE
+  local palTable = pic_table("MON_PALETTE_TABLE", "mon_palette_table")
+  local shinyTable = need("MON_SHINY_PALETTE_TABLE")
+  local castform = species_id("SPECIES_CASTFORM")
+  local spinda = species_id("SPECIES_SPINDA")
+  local deoxys = Versions.MON_PIC_DUPLICATE_DEOXYS and species_id("SPECIES_DEOXYS") or nil
+  local state = { written = { front = 0, back = 0, still = 0, anim = 0 }, missing = {} }
+
+  local function ptr(tableOff, sp) return gba_off(rom:u32(tableOff + sp * 8)) end
+
+  local function out(kind, sp, suffix, normal, shiny)
+    put(cache, root .. "/" .. kind .. "/" .. sp .. suffix .. ".rgba", normal)
+    put(cache, root .. "/" .. kind .. "_shiny/" .. sp .. suffix .. ".rgba", shiny)
+  end
+
+  function state.write(sp)
+    local palOff, shinyOff = ptr(palTable, sp), ptr(shinyTable, sp)
+    local pal = palOff and lz_string(rom, palOff)
+    local shiny = shinyOff and lz_string(rom, shinyOff)
+    local jobs = { { "front", frontTable }, { "back", backTable } }
+    if stillTable then jobs[#jobs + 1] = { "front_still", stillTable } end
+    for _, job in ipairs(jobs) do
+      local kind, picOff = job[1], ptr(job[2], sp)
+      if picOff and palOff then
+        local tiles = lz_string(rom, picOff)
+        local frames = tiles and math.floor(#tiles / PIC_BYTES) or 0
+        if not (tiles and pal and shiny and frames >= 1) then
+          state.missing[#state.missing + 1] = kind .. "/" .. sp
+        else
+          out(kind, sp, "", decode_pic_sheet(tiles, pal, 0, 0), decode_pic_sheet(tiles, shiny, 0, 0))
+          state.written[kind == "front_still" and "still" or kind] =
+            state.written[kind == "front_still" and "still" or kind] + 1
+          -- pokeemerald/src/data/pokemon_graphics/front_pic_anims.h:5194
+          if sp == castform then
+            for form = 1, frames - 1 do
+              out(kind, sp, "_" .. form, decode_pic_sheet(tiles, pal, form, form),
+                decode_pic_sheet(tiles, shiny, form, form))
+            end
+          elseif kind == "front" and frames == 2 then
+            out("front_anim", sp, "", stack_frames(tiles, pal, { 0, 1 }, 0),
+              stack_frames(tiles, shiny, { 0, 1 }, 0))
+            state.written.anim = state.written.anim + 1
+          end
+          -- pokeemerald/src/decompress.c:407
+          if sp == deoxys and kind ~= "front_still" and frames >= 2 then
+            out(kind, sp, "_handled", decode_pic_sheet(tiles, pal, 1, 0), decode_pic_sheet(tiles, shiny, 1, 0))
+            if kind == "front" then
+              out("front_anim", sp, "_handled", stack_frames(tiles, pal, { 1, 1 }, 0),
+                stack_frames(tiles, shiny, { 1, 1 }, 0))
+            end
+          end
+          -- pokeemerald/src/pokemon.c:5808
+          if sp == spinda and kind == "front" then
+            local spots = {}
+            for i = 0, 143 do spots[i + 1] = string.char(rom:get(need("SPINDA_SPOT_GRAPHICS") + i)) end
+            put(cache, root .. "/spinda/front.4bpp", tiles:sub(1, PIC_BYTES))
+            put(cache, root .. "/spinda/normal.gbapal", pal:sub(1, 32))
+            put(cache, root .. "/spinda/shiny.gbapal", shiny:sub(1, 32))
+            put(cache, root .. "/spinda/spots.bin", table.concat(spots))
+          end
+        end
+      end
+    end
+  end
+
+  function state.check(label)
+    if #state.missing > 0 then
+      local shown = {}
+      for i = 1, math.min(8, #state.missing) do shown[i] = state.missing[i] end
+      error(("pokemon_extract(%s): %d species sprites with valid ROM pointers produced no file (%s%s)")
+        :format(label, #state.missing, table.concat(shown, ", "), #state.missing > #shown and ", ..." or ""))
+    end
+  end
+
+  return state
+end
+
+local function write_icons_lua(pals, indices, count)
+  local lines = {
+    "return {",
+    string.format("  count = %d,", count),
+    "  palettes = {",
+  }
+  for i = 0, #pals do
+    local row = {}
+    for c = 0, 15 do row[c + 1] = tostring(pals[i][c] or 0) end
+    lines[#lines + 1] = string.format("    [%d] = { [0] = %s },", i, table.concat(row, ", "))
+  end
+  lines[#lines + 1] = "  },"
+  lines[#lines + 1] = "  palIndex = {"
+  for sp = 0, count - 1 do
+    lines[#lines + 1] = string.format("    [%d] = %d,", sp, indices[sp] or 0)
+  end
+  lines[#lines + 1] = "  },"
+  lines[#lines + 1] = "}"
+  lines[#lines + 1] = ""
+  return table.concat(lines, "\n")
+end
+
+local function write_pics_manifest(info)
+  local lines = {
+    "return {",
+    string.format("  format = %d,", 1),
+    string.format("  picBytes = %d,", PIC_BYTES),
+    string.format("  frontAnimFrames = %d,", info.animFrames),
+    string.format("  still = %s,", tostring(info.still)),
+    string.format("  forms = { [%d] = %d },", info.castform, info.castformForms),
+    string.format("  unown = { first = %d, last = %d },", info.unownFirst, info.unownLast),
+    string.format("  noFrontAnim = { [%d] = true },", info.castform),
+  }
+  if info.deoxys then
+    lines[#lines + 1] = string.format(
+      "  handled = { [%d] = { \"front\", \"front_anim\", \"back\", \"icons\" } },", info.deoxys)
+  end
+  lines[#lines + 1] = string.format("  footprint = { width = 16, height = 16, colorIndex = %d },",
+    info.footprintColor)
+  lines[#lines + 1] = "}"
+  lines[#lines + 1] = ""
+  return table.concat(lines, "\n")
+end
+
+-- pokeemerald/src/pokedex.c:4587
+local function bake_footprint(bytes)
+  local on, off = string.char(0, 0, 0, 255), string.char(0, 0, 0, 0)
+  local px = {}
+  for y = 0, 15 do
+    for x = 0, 15 do
+      local tile = math.floor(x / 8) + 2 * math.floor(y / 8)
+      local byte = bytes[tile * 8 + (y % 8) + 1] or 0
+      px[#px + 1] = (math.floor(byte / 2 ^ (x % 8)) % 2 == 1) and on or off
+    end
+  end
+  return table.concat(px)
+end
+
+function PokemonExtract.runPart(rom, cache, opts)
+  local cacheRoot = opts.cacheRoot or default_cache_root()
+  local root = cacheRoot .. "/" .. PokemonExtract.CACHE_SUB
+  local num = opts.numSpecies or need("NUM_SPECIES")
+  local progress = opts.progress
+  local part = opts.part
+
+  if part == "data" then
+    local data = extract_data(rom, cache, root, num, progress)
+    data.root = root
+    data.numSpecies = num
+    return data
+  end
+
+  local pals = load_icon_pals(rom)
+  local writer = pic_writer(rom, cache, root)
+
+  if part == "gfx" then
+    local spMin = opts.spMin or 0
+    local spMax = opts.spMax or (num - 1)
+    local icons = 0
+    for sp = spMin, spMax do
+      if progress and (sp - spMin) % 40 == 0 then progress("pokemon", sp - spMin, spMax - spMin + 1) end
+      put(cache, root .. "/icons/" .. sp .. ".rgba", icon_rgba(rom, sp, pals))
+      icons = icons + 1
+      writer.write(sp)
+    end
+    writer.check("gfx " .. spMin .. "-" .. spMax)
+    local w = writer.written
+    if icons < spMax - spMin + 1 or w.front < 1 or w.back < 1 then
+      error(("pokemon_extract: sprite pass wrote %d icons, %d front, %d back for species %d-%d")
+        :format(icons, w.front, w.back, spMin, spMax))
+    end
+    return { root = root, picsWritten = w, icons = icons }
+  end
+
+  if part == "forms" then
+    local first, last = need("SPECIES_UNOWN_B"), need("SPECIES_UNOWN_QMARK")
+    for sp = first, last do
+      put(cache, root .. "/icons/" .. sp .. ".rgba", icon_rgba(rom, sp, pals))
+      writer.write(sp)
+    end
+    writer.check("forms")
+
+    local deoxys = Versions.MON_PIC_DUPLICATE_DEOXYS and species_id("SPECIES_DEOXYS") or nil
+    if deoxys and Versions.MON_ICON_DEOXYS_OFFSET then
+      put(cache, root .. "/icons/" .. deoxys .. "_handled.rgba",
+        icon_rgba(rom, deoxys, pals, { byteOffset = Versions.MON_ICON_DEOXYS_OFFSET }))
+    end
+
+    local iconCount = need("MON_ICON_COUNT")
+    local indices = {}
+    for sp = 0, iconCount - 1 do indices[sp] = rom:get(need("MON_ICON_PAL_INDICES") + sp) end
+    put(cache, root .. "/icons.lua", write_icons_lua(pals, indices, iconCount))
+
+    local fpBase = need("MON_FOOTPRINT_TABLE")
+    local fpCount = need("MON_FOOTPRINT_COUNT")
+    local footprints = 0
+    for sp = 0, fpCount - 1 do
+      local off = gba_off(rom:u32(fpBase + sp * 4))
+      if off then
+        local bytes = {}
+        for i = 0, 31 do bytes[i + 1] = rom:get(off + i) end
+        put(cache, root .. "/footprints/" .. sp .. ".rgba", bake_footprint(bytes))
+        footprints = footprints + 1
+      end
+    end
+
+    local castform = species_id("SPECIES_CASTFORM")
+    local castTiles = lz_string(rom, gba_off(rom:u32(pic_table("MON_FRONT_PIC_TABLE", "mon_front_pic_table")
+      + castform * 8)))
+    put(cache, root .. "/pics.lua", write_pics_manifest({
+      animFrames = 2,
+      still = Versions.MON_STILL_FRONT_PIC_TABLE ~= nil,
+      castform = castform,
+      castformForms = castTiles and math.floor(#castTiles / PIC_BYTES) or 1,
+      unownFirst = first,
+      unownLast = last,
+      deoxys = deoxys,
+      footprintColor = need("MON_FOOTPRINT_COLOR_IDX"),
+    }))
+    return { root = root, picsWritten = writer.written, footprints = footprints }
+  end
+
+  error("pokemon_extract: unknown part " .. tostring(part))
+end
+
+local RSE_READY = {
+  { "manifest.lua", 20 }, { "names.lua", 20 }, { "stats.lua", 20 }, { "learnsets.lua", 20 },
+  { "egg_moves.lua", 20 }, { "move_names.lua", 20 }, { "hoenn.lua", 20 }, { "regional_dex.lua", 20 },
+  { "type_names.lua", 20 }, { "exp_table.lua", 20 }, { "pics.lua", 20 }, { "icons.lua", 20 },
+  { "footprints/1.rgba", 16 * 16 * 4 },
+}
+
+PokemonExtract.REQUIRED = {
+  "pokemon/manifest.lua", "pokemon/names.lua", "pokemon/types.lua", "pokemon/stats.lua",
+  "pokemon/abilities.lua", "pokemon/ability_names.lua", "pokemon/descriptions.lua", "pokemon/meta.lua",
+  "pokemon/national.lua", "pokemon/move_names.lua", "pokemon/learnsets.lua", "pokemon/evolutions.lua",
+  "pokemon/tmhm.lua", "pokemon/egg_moves.lua", "pokemon/dex.lua", "pokemon/hoenn.lua",
+  "pokemon/regional_dex.lua", "pokemon/type_names.lua", "pokemon/exp_table.lua", "pokemon/pics.lua",
+  "pokemon/icons.lua",
+  "pokemon/front/1.rgba", "pokemon/front/205.rgba", "pokemon/front/411.rgba", "pokemon/front/439.rgba",
+  "pokemon/front_anim/1.rgba", "pokemon/front_anim/411.rgba", "pokemon/front_still/1.rgba",
+  "pokemon/back/1.rgba", "pokemon/back/411.rgba", "pokemon/back/439.rgba",
+  "pokemon/icons/1.rgba", "pokemon/icons/411.rgba", "pokemon/icons/439.rgba",
+  "pokemon/footprints/1.rgba",
+}
 
 function PokemonExtract.ready(cache, cacheRoot)
   local baseRoot = cacheRoot or default_cache_root()
@@ -1228,6 +1624,23 @@ function PokemonExtract.ready(cache, cacheRoot)
     if format ~= PokemonExtract.FORMAT_VERSION then return false end
     local count = tonumber(manifest:match("numSpecies%s*=%s*(%d+)"))
     if count and count < (Versions.NUM_SPECIES or 412) then return false end
+  end
+
+  if Versions.MON_FRONT_PIC_ANIM then
+    for _, row in ipairs(RSE_READY) do
+      if not valid_file(root .. "/" .. row[1], row[2]) then return false end
+    end
+    local pic = 64 * 64 * 4
+    local unown = Versions.SPECIES_UNOWN_QMARK
+    for _, sp in ipairs({ 1, last, unown }) do
+      if not (valid_file(root .. "/front/" .. sp .. ".rgba", pic)
+          and valid_file(root .. "/front_anim/" .. sp .. ".rgba", pic * 2)
+          and valid_file(root .. "/back/" .. sp .. ".rgba", pic)
+          and valid_file(root .. "/icons/" .. sp .. ".rgba", iconBytes)) then
+        return false
+      end
+    end
+    return true
   end
 
   if valid_file(root .. "/manifest.lua", 20)

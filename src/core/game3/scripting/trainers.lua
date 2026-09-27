@@ -28,6 +28,7 @@ local function load_pack()
     if chunk then
       local ok, pack = pcall(chunk)
       if ok and type(pack) == "table" then
+        Trainers.mergeDialogs(pack, cache)
         Trainers._pack = pack
         return pack
       end
@@ -35,6 +36,32 @@ local function load_pack()
   end
   Trainers._pack = false
   return nil
+end
+
+Trainers.DIALOGS_REL = "data/generated/gba/trainers/dialogs.lua"
+
+local DIALOG_KEYS = { "scriptKey", "introTextKey", "defeatTextKey", "victoryTextKey", "notEnoughTextKey" }
+
+function Trainers.mergeDialogs(pack, cache)
+  if type(pack) ~= "table" or type(pack.trainers) ~= "table" then return 0 end
+  local src = cache and cache.read and cache:read(Trainers.DIALOGS_REL)
+  if type(src) ~= "string" or src == "" then return 0 end
+  local chunk = load(src, "@" .. Trainers.DIALOGS_REL, "t", {})
+  local ok, rows = false, nil
+  if chunk then ok, rows = pcall(chunk) end
+  if not ok or type(rows) ~= "table" then return 0 end
+  local n = 0
+  for id, d in pairs(rows) do
+    local row = pack.trainers[id]
+    if type(row) == "table" and type(d) == "table" and next(row.dialogs or {}) == nil then
+      row.dialogs = d.dialogs or {}
+      for _, k in ipairs(DIALOG_KEYS) do
+        if row[k] == nil then row[k] = d[k] end
+      end
+      n = n + 1
+    end
+  end
+  return n
 end
 
 local function decompose_ai_flags(flags)
@@ -90,6 +117,8 @@ function Trainers.get(trainerId)
       scriptKey = row.scriptKey,
       introTextKey = row.introTextKey,
       defeatTextKey = row.defeatTextKey,
+      victoryTextKey = row.victoryTextKey,
+      notEnoughTextKey = row.notEnoughTextKey,
     }
   end
 
@@ -259,6 +288,8 @@ end
 
 --- Resolve encounter BGM song ID for a trainer (pret PlayTrainerEncounterMusic / include/constants/trainers.h & songs.h).
 function Trainers.getEncounterMusic(trainerId)
+  local perGame = require("src.core.game3.trainer_sight").encounterMusic(trainerId)
+  if perGame then return perGame end
   local t = Trainers.get(trainerId)
   if not t then return 285 end -- MUS_ENCOUNTER_BOY
   local musicCode = (tonumber(t.encounterMusic) or 0) % 128

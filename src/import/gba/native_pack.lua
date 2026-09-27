@@ -343,7 +343,7 @@ NativePack.PC_ON_BY_OFF = {
 function NativePack.addDynamicMids(seen, pairName)
   local spec = Versions.TILESET_PAIRS and Versions.TILESET_PAIRS[pairName]
   if not spec then return seen end
-  for _, rule in ipairs(Versions.DYNAMIC_METATILES) do
+  for _, rule in ipairs(Versions.DYNAMIC_METATILES or {}) do
     for _, name in ipairs({ spec.primary, spec.secondary }) do
       local ts = Versions.TILESETS[name]
       if ts and ts.metatiles == rule.metatiles then
@@ -363,6 +363,29 @@ end
 
 -- pokefirered/include/fieldmap.h:9
 NativePack.NUM_METATILES_TOTAL = 1024
+
+NativePack.ATLAS_POLICY = { frlg = "used", rse = "full" }
+
+function NativePack.atlasPolicy(game)
+  local Family = require("src.import.gba.family")
+  local F = game and Family.of(game) or Family.active()
+  local okP, row = pcall(function() return require("src.core.game3.profile").of(F.game) end)
+  local fromProfile = okP and type(row) == "table" and type(row.map) == "table" and row.map.atlas or nil
+  return fromProfile or NativePack.ATLAS_POLICY[F.name] or "used"
+end
+
+-- pokeemerald/include/fieldmap.h:4
+function NativePack.fullMidsForPair(bundle)
+  local F = require("src.import.gba.family").active()
+  local list = {}
+  local nPri = math.min(bundle.primaryMt and bundle.primaryMt.count or 0, F.numPrimaryMetatiles)
+  for mid = 0, nPri - 1 do list[#list + 1] = mid end
+  local nSec = math.min(bundle.secondaryMt and bundle.secondaryMt.count or 0,
+    F.numMetatilesTotal - F.numPrimaryMetatiles)
+  for i = 0, nSec - 1 do list[#list + 1] = F.numPrimaryMetatiles + i end
+  if #list == 0 then list[1] = 0 end
+  return list
+end
 
 local function scriptTargets(v, out)
   if type(v) == "string" then
@@ -479,8 +502,9 @@ end
 -- grids: padded map grids; borders: mapId → { width, height, mids }
 -- midIndex: optional [pair][mid] = { coll, ... } for resolved COLL_* lookup
 -- CollisionFn: function(mid, rawColl, behavior, kind) → collByte
-function NativePack.writeExtract(cache, root, bundles, grids, borders, pairNames, midIndex, behaviorOf, fromCell, scriptMids, warpCells)
+function NativePack.writeExtract(cache, root, bundles, grids, borders, pairNames, midIndex, behaviorOf, fromCell, scriptMids, warpCells, opts)
   root = root or require("src.core.game3.cache_paths").CACHE_ROOT
+  local midLists = opts and opts.midLists
   local NativeRoot = root .. "/native"
   local manifest = {
     native_version = Versions.NATIVE_VERSION or 1,
@@ -491,7 +515,8 @@ function NativePack.writeExtract(cache, root, bundles, grids, borders, pairNames
   for _, pairName in ipairs(pairNames or {}) do
     local bundle = bundles[pairName]
     if bundle then
-      local midList = NativePack.collectMidsForPair(grids, borders, pairName, scriptMids)
+      local midList = midLists and midLists[pairName]
+        or NativePack.collectMidsForPair(grids, borders, pairName, scriptMids)
       local underTbl, overTbl = NativePack.buildLayeredIdx(bundle, midList)
       local palBlob = NativePack.encodePalettes(bundle.mapPals)
       local pairDir = NativeRoot .. "/" .. pairName

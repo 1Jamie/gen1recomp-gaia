@@ -40,6 +40,7 @@ local PAL = {
   railCrystal = { 132, 196, 228 }, -- Crystal cartridge (translucent ice blue)
   railLeafGreen = { 38, 162, 78 }, -- LeafGreen cartridge (vibrant deep forest green)
   railFireRed = { 220, 48, 48 },   -- FireRed cartridge (deeper red than Red)
+  railEmerald = { 31, 158, 110 },
 }
 -- Semantic aliases kept so ported call sites read the same as before.
 PAL.cardBorder = PAL.line
@@ -298,7 +299,7 @@ end
 
 local railColors = {
   PAL.railRed, PAL.railBlue, PAL.railGold, PAL.railAmber, PAL.railSilver,
-  PAL.railCrystal, PAL.railFireRed, PAL.railLeafGreen,
+  PAL.railCrystal, PAL.railFireRed, PAL.railLeafGreen, PAL.railEmerald,
 }
 
 -- One seamless sweep every 24 seconds. Pixel strips keep this in the same

@@ -3,24 +3,23 @@ local GameVersion = require("src.core.GameVersion")
 local VersionsGame = {}
 
 VersionsGame.GAMES = {
-  firered = "src.import.gba.versions",
-  leafgreen = "src.import.gba.versions",
+  firered = "src.import.gba.versions_frlg",
+  leafgreen = "src.import.gba.versions_frlg",
+  emerald = "src.import.gba.games.emerald",
 }
 
 VersionsGame.FALLBACK = "firered"
 
-local cache, warned = {}, {}
-
-local function log(msg)
-  print("[versions_game] " .. tostring(msg))
-end
+local cache = {}
 
 local function load(id)
   local path = VersionsGame.GAMES[id]
-  if type(path) ~= "string" or path == "" then return nil end
+  if type(path) ~= "string" or path == "" then
+    return nil, "no version table registered for '" .. tostring(id) .. "'"
+  end
   local ok, mod = pcall(require, path)
   if ok and type(mod) == "table" then return mod end
-  return nil
+  return nil, "version table '" .. path .. "' for '" .. tostring(id) .. "' does not load: " .. tostring(mod)
 end
 
 function VersionsGame.game(id)
@@ -31,19 +30,10 @@ function VersionsGame.game(id)
   end
   local row = cache[id]
   if row then return row end
-  local mod = load(id)
-  if mod then
-    cache[id] = mod
-    return mod
-  end
-  if id == VersionsGame.FALLBACK then
-    error("versions_game: fallback row '" .. VersionsGame.FALLBACK .. "' does not load")
-  end
-  if not warned[id] then
-    warned[id] = true
-    log("no version table for '" .. id .. "'; using " .. VersionsGame.FALLBACK)
-  end
-  return VersionsGame.game(VersionsGame.FALLBACK)
+  local mod, err = load(id)
+  if not mod then error("versions_game: " .. err, 2) end
+  cache[id] = mod
+  return mod
 end
 
 function VersionsGame.register(id, modulePath)
@@ -56,7 +46,6 @@ end
 
 function VersionsGame.reset()
   cache = {}
-  warned = {}
 end
 
 return VersionsGame

@@ -29,6 +29,14 @@ local function generations()
   return out
 end
 
+function ModTargets.familyVersions(family)
+  local out = {}
+  for _, id in ipairs(GameVersion.ORDER) do
+    if GameVersion.layout(id) == family then out[#out + 1] = id end
+  end
+  return out
+end
+
 -- one manifest token -> the version ids it covers, or nil when it names no
 -- game this engine knows: "red" | "gen1" | "all"
 function ModTargets.expand(token)
@@ -41,6 +49,8 @@ function ModTargets.expand(token)
     local list = ModTargets.generationVersions(tonumber(gen))
     if #list > 0 then return list end
   end
+  local family = ModTargets.familyVersions(key)
+  if #family > 0 then return family end
   return nil
 end
 

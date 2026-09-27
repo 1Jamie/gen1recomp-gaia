@@ -1604,14 +1604,14 @@ end
 
 
 def rom_text_caches(repo):
-    """FireRed / LeafGreen scripts/text.lua caches this machine has imported."""
+    """FireRed / LeafGreen / Emerald scripts/text.lua caches this machine has imported."""
     roots = [repo]
     user_root = _love_user_data_root()
     if user_root:
         roots.append(user_root)
     found = []
     for root in roots:
-        for version in ("firered", "leafgreen"):
+        for version in ("firered", "leafgreen", "emerald"):
             base = os.path.join(root, version, "data", "generated", "gba")
             text = os.path.join(base, "scripts", "text.lua")
             if os.path.isfile(text):
@@ -1620,7 +1620,7 @@ def rom_text_caches(repo):
 
 
 def harvest_rom_text(repo, caches=None):
-    """Every ROM text label of the imported FireRed / LeafGreen caches.
+    """Every ROM text label of the imported FireRed / LeafGreen / Emerald caches.
     Returns [(label_literal, english_literal, [(legacy_key_literal, suffix_literal)]), ...]."""
     rows = {}
     for text, words in (rom_text_caches(repo) if caches is None else caches):
@@ -2531,6 +2531,8 @@ def _probe(script, gen):
     return script.replace("src.mods.Gen2Compat", gen.compat)
 
 
+GEN_FAMILIES = {3: ("frlg", "rse")}
+
 GEN2 = Generation(2, "src.mods.Gen2Compat", "docs/mod-api-gen2-compat.md",
                   "gen2", legacy_flag="gen2compat", screen_prefix="Gen2")
 GEN3 = Generation(3, "src.mods.Gen3Compat", "docs/mod-api-gen3-compat.md",
@@ -3240,10 +3242,12 @@ def declares_generation(repo, manifest, gen):
     if not isinstance(games, list):
         return False
     ids = set(version_ids(repo, gen))
+    families = GEN_FAMILIES.get(gen.number, ())
     for token in games:
         if isinstance(token, str) and (
                 token.strip().lower() in ("gen%d" % gen.number, "all")
-                or token.strip().lower() in ids):
+                or token.strip().lower() in ids
+                or token.strip().lower() in families):
             return True
     return False
 
@@ -3274,6 +3278,7 @@ def check_compat_manifest(repo, mod_dir, manifest, named, gen):
                 g_list = [g_list]
             if isinstance(g_list, list) and not any(
                     g in ["gen%d" % gen.number, "all"] + version_ids(repo, gen)
+                    + list(GEN_FAMILIES.get(gen.number, ()))
                     for g in g_list):
                 continue
         found = named.get(dep_id) or find_mod_by_id(repo, mod_dir, dep_id)
@@ -3851,7 +3856,7 @@ def main(argv):
     p.add_argument("--experimental", action="store_true",
                    help="mark the mod experimental (off until confirmed)")
     p.add_argument("--games", default="gen1",
-                   help="games this mod is for: gen1, gen2, gen3, all, or a "
+                   help="games this mod is for: gen1, gen2, gen3, frlg, rse, all, or a "
                         "comma-separated list of version ids "
                         "(red,gold,firered,...)")
     p.add_argument("--dest")

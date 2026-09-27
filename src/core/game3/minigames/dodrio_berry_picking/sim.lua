@@ -5,16 +5,7 @@ Sim.__index = Sim
 
 Sim.DIR = "dodrio_berry_picking"
 -- pokefirered/include/constants/songs.h:9
-Sim.SE_SELECT = 5
-Sim.SE_BOO = 22
-Sim.SE_SUCCESS = 25
-Sim.SE_CLICK = 30
-Sim.SE_BALLOON_RED = 67
-Sim.SE_M_CHARM = 205
-Sim.MUS_LEVEL_UP = 257
-Sim.MUS_TOO_BAD = 271
-Sim.MUS_VICTORY_WILD = 311
-Sim.MUS_BERRY_PICK = 330
+require("src.core.game3.song_fields")(Sim)
 -- pokefirered/src/sound.c:61
 Sim.TOO_BAD_FRAMES = 160
 -- pokefirered/src/dodrio_berry_picking.c:3663

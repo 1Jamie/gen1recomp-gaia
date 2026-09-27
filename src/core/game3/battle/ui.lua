@@ -687,6 +687,17 @@ function Ui.openMenu(battlerId, opts)
     Ui._menuIndex = 1
   end
   Ui._pendingCommand = nil
+  Ui._wally = nil
+  local Wally = require("src.core.game3.battle.tutorial_wally")
+  if Wally.active(Ui._st) then
+    -- pokeemerald/src/battle_controller_wally.c:1203
+    if Ui._headless then
+      Ui._pendingCommand = Wally.take(Ui._st)
+      Ui._mode = "none"
+    else
+      Ui._wally = { timer = 0, sub = 0 }
+    end
+  end
   if Ui._st and Ui._st.oldManTutorial then
     Ui._oldManTimer = 0
     Ui._oldManSubstate = 0
@@ -953,6 +964,7 @@ local function open_move_menu()
   Ui._moveIndex = idx
   Ui._mode = "moves"
 end
+Ui._openMoveMenu = open_move_menu
 
 local MT = { SELECTED = 0, DEPENDS = 1, USER_OR_SELECTED = 2, RANDOM = 4, BOTH = 8, USER = 16, FOES_AND_ALLY = 32, OPPONENTS_FIELD = 64 }
 local MOVE_CURSE = 174
@@ -1251,6 +1263,9 @@ function Ui.tick()
         end
       end
     end
+    if Ui._wally and Ui._st and (m == "menu" or m == "moves") and not Ui._headless then
+      require("src.core.game3.battle.tutorial_wally").menuStep(Ui, Ui._st, play_select)
+    end
   elseif m ~= "bag" and m ~= "party" then
     end_all_bounces()
   end
@@ -1544,6 +1559,7 @@ function Ui.handleInput(input)
     -- Old Man tutorial script controls the actions automatically
     return true
   end
+  if Ui._wally then return true end
   if is_double() then return handle_double_input(input) end
   if Ui._mode == "menu" then
     local idx, moved = grid_nav(Ui._menuIndex, input, 4)
@@ -1912,6 +1928,10 @@ local function draw_mon_sprite(battler, base, back, id)
   if not entry then
     entry = Pokemon.frontPic and Pokemon.frontPic(picSp, form, shiny, personality)
   end
+  if not back and not ghost and not dollImg and pres and (tonumber(pres.monFrame) or 0) ~= 0 then
+    -- pokeemerald/src/sprite.c:917
+    entry = require("src.core.game3.mon_anim").framePic(picSp, pres.monFrame, shiny) or entry
+  end
   if entry and entry.image then
     local a = (pres and pres.alpha) or 1
     local flash = pres and (pres.flash or 0) or 0
@@ -2014,6 +2034,9 @@ local function menu_labels(key)
   for _, seg in ipairs(RomText.ir(key)) do
     if seg.t == "text" then
       buf[#buf + 1] = seg.s
+    elseif seg.t == "tag" and seg.tag then
+      -- pokeemerald/src/battle_message.c:1276
+      buf[#buf + 1] = seg.tag
     elseif seg.t == "nl" or (seg.t == "ext" and seg.cmd == 19) then
       flush()
     end
@@ -2024,7 +2047,8 @@ local function menu_labels(key)
 end
 
 local function action_prompt(st, ab)
-  local mode = (st and st.safari and "safari") or (st and st.oldManTutorial and "oldman") or "pkmn"
+  local mode = (st and st.safari and "safari") or (st and st.oldManTutorial and "oldman")
+    or (st and st.kinds and st.kinds.tutorial == "wally" and "wally") or "pkmn"
   local mon = ab and ab.mon
   local cached = Ui._promptFor
   if cached and cached.st == st and cached.mode == mode and cached.mon == mon and Ui._promptText then
@@ -2033,10 +2057,14 @@ local function action_prompt(st, ab)
   local text
   if mode == "safari" then
     -- pokefirered/src/battle_controller_safari.c:446
-    text = BattleText.get("gText_WhatWillPlayerThrow", { playerName = st.playerName })
+    text = BattleText.get(require("src.core.game3.battle.profile").of(st).strings.safariPrompt,
+      { playerName = st.playerName })
   elseif mode == "oldman" then
     -- pokefirered/src/battle_controller_oak_old_man.c:1825
     text = BattleText.get("gText_WhatWillOldManDo")
+  elseif mode == "wally" then
+    -- pokeemerald/src/battle_controller_wally.c:1214
+    text = BattleText.get("gText_WhatWillWallyDo")
   else
     -- pokefirered/src/battle_controller_player.c:2422
     text = BattleText.get("gText_WhatWillPkmnDo", { active = ab, trainer = st and not st.wild })
@@ -2046,7 +2074,103 @@ local function action_prompt(st, ab)
   return text
 end
 
+local function battle_font()
+  local P = require("src.core.game3.profile").forSession(Ui._session)
+  return require(P.font.module)
+end
+
+local function c5to8(x)
+  return (x * 8 + math.floor(x / 4)) / 255
+end
+
+local function bgr555_rgba(v)
+  v = tonumber(v) or 0
+  return { c5to8(v % 32), c5to8(math.floor(v / 32) % 32), c5to8(math.floor(v / 1024) % 32), 1 }
+end
+
+-- pokeemerald/src/battle_bg.c:748
+local function rse_window_colors(fgIdx, shadowIdx)
+  local pal = BattleChrome.manifest().windowTextPal or {}
+  return {
+    fg = bgr555_rgba(pal[(fgIdx or 13) + 1]),
+    shadow = bgr555_rgba(pal[(shadowIdx or 15) + 1]),
+    bg = { 0, 0, 0, 0 },
+  }
+end
+
+-- pokeemerald/src/battle_message.c:3033
+local function rse_pp_colors(pp, maxPp)
+  local pp2 = BattleChrome.manifest().ppTextPal or {}
+  local state = Ui.ppColorState(pp, maxPp)
+  local c = rse_window_colors(13, 15)
+  c.fg = bgr555_rgba(pp2[state * 2 + 1])
+  c.shadow = bgr555_rgba(pp2[state * 2 + 2])
+  return c
+end
+
+local function rse_text(win, text, dx, opts)
+  local x, y, _, narrow = BattleChrome.textOrigin(win)
+  opts = opts or {}
+  local F = battle_font()
+  local useNarrow = opts.narrow == nil and narrow or opts.narrow
+  F.draw(tostring(text or ""), x + (dx or 0), y, {
+    font = useNarrow and "narrow" or nil,
+    colors = opts.colors or rse_window_colors(),
+  })
+end
+
+-- pokeemerald/src/battle_controller_player.c:1530
+local function draw_action_menu_rse(st)
+  local W = BattleChrome.WIN
+  local ab = st and (is_double(st) and active_battler(st) or st.player)
+  local labels = menu_labels((st and st.safari) and "gText_SafariZoneMenu" or "gText_BattleMenu")
+  local px, py = BattleChrome.textOrigin(W.ACTION_PROMPT)
+  battle_font().draw(tostring(action_prompt(st, ab) or ""), px, py, { colors = BattleChrome.textboxColors(1, 6) })
+  local mx, my = BattleChrome.textOrigin(W.ACTION_MENU)
+  local c = Ui._menuIndex - 1
+  local col, row = c % 2, math.floor(c / 2)
+  Window.cursorPx(8 * (7 * col + 16), my + 16 * row, { colors = rse_window_colors() })
+  for i = 1, 4 do
+    local cc, rr = (i - 1) % 2, math.floor((i - 1) / 2)
+    battle_font().draw(tostring(labels[i] or ""), mx + 56 * cc, my + 16 * rr, { colors = rse_window_colors() })
+  end
+end
+
+-- pokeemerald/src/battle_controller_player.c:1456
+local function draw_move_menu_rse(st)
+  local W = BattleChrome.WIN
+  local ab = st and (is_double(st) and active_battler(st) or st.player)
+  local mon = ab and ab.mon
+  local c = Ui._moveIndex - 1
+  local _, cy = BattleChrome.textOrigin(W.MOVE_NAME_1)
+  Window.cursorPx(8 * (9 * (c % 2) + 1), cy + 16 * math.floor(c / 2), { colors = rse_window_colors() })
+  for i = 1, 4 do
+    local mv = mon and mon.moves and mon.moves[i]
+    local label = "-"
+    if mv and mv ~= 0 and mv ~= "" then label = Moves.displayName(mv) end
+    rse_text(W.MOVE_NAME_1 + i - 1, label)
+  end
+  local slot = Ui._moveIndex
+  local mv = mon and mon.moves and mon.moves[slot]
+  if mv and mv ~= 0 and mv ~= "" then
+    local def = Moves.get(mv)
+    local pp = mon.pp and mon.pp[slot] or 0
+    local maxPp = mon.maxPp and mon.maxPp[slot] or (def and def.pp) or pp
+    -- pokeemerald/src/battle_controller_player.c:1473
+    rse_text(W.PP, RomText.plain("gText_MoveInterfacePP"), 0, { colors = rse_pp_colors(pp, maxPp) })
+    -- pokeemerald/src/battle_controller_player.c:1479
+    rse_text(W.PP_REMAINING, string.format("%2d/%2d", pp, maxPp), 0, { colors = rse_pp_colors(pp, maxPp) })
+    -- pokeemerald/src/battle_controller_player.c:1496
+    local typeLabel = RomText.plain("gText_MoveInterfaceType")
+    rse_text(W.MOVE_TYPE, typeLabel)
+    local F = battle_font()
+    local tw = F.measure(typeLabel, { font = "narrow" })
+    rse_text(W.MOVE_TYPE, Types.name(def.type), tw, { narrow = false })
+  end
+end
+
 local function draw_action_menu(st)
+  if BattleChrome.isRse() then return draw_action_menu_rse(st) end
   -- B_WIN_ACTION_PROMPT @ (1,15) after scroll → px (8,120); printer (2,2) → (10,122)
   -- B_WIN_ACTION_MENU @ (17,15) → (136,120); printer (0,2) → (136,122)
   -- ActionSelectionCreateCursorAt: tile (16+7*col, 35+row) → after scroll (128,120);
@@ -2071,6 +2195,7 @@ local function draw_action_menu(st)
 end
 
 local function draw_move_menu(st)
+  if BattleChrome.isRse() then return draw_move_menu_rse(st) end
   local ab = st and (is_double(st) and active_battler(st) or st.player)
   local mon = ab and ab.mon
   local positions = {
@@ -2418,6 +2543,7 @@ function Ui.draw(w, h)
     panelMode = "moves"
   end
   BattleChrome.drawPanel(panelMode)
+  BattleChrome.drawMenuFrames(panelMode)
 
   if Ui._mode == "menu" then
     draw_action_menu(st)
@@ -2443,7 +2569,7 @@ function Ui.draw(w, h)
     if ok then BagMenu = M end
   end
   if BagMenu and BagMenu.isOpen and BagMenu.isOpen() and BagMenu.draw then
-    BagMenu.draw()
+    require("src.ui.game3.screens").draw("bag", BagMenu)
   end
 
   if Choice and Choice.active and Choice.draw then
@@ -2463,6 +2589,8 @@ function Ui.draw(w, h)
   if Pokedex and Pokedex.isOpen and Pokedex.isOpen() and Pokedex.draw then
     Pokedex.draw()
   end
+  local RseDex = package.loaded["src.ui.game3.rse.pokedex"]
+  if RseDex and RseDex.active and RseDex.active() then RseDex.Host.draw() end
 
   local StatGrowth = package.loaded["src.ui.game3.stat_growth"]
   if StatGrowth and StatGrowth.isOpen and StatGrowth.isOpen() and StatGrowth.draw

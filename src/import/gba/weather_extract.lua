@@ -105,9 +105,94 @@ local function default_cache_root()
   return "data/generated/gba"
 end
 
+WeatherExtract.RSE_FORMAT = 1
+WeatherExtract.REQUIRED = {
+  "weather/manifest.lua",
+  "weather/fog_horizontal.rgba",
+  "weather/rain.rgba",
+  "weather/drought_colors.bin",
+}
+
+function WeatherExtract.runRse(rom, cache, root)
+  local G = require("src.import.gba.rse.sprite_gfx")
+  local W = Versions.WEATHER_GFX
+  local S = Versions.SYMS
+  local serialize = require("src.import.gba.extract_scripts").serialize_lua
+  local pals, palFiles = {}, {}
+  for key, off in pairs(W.palettes) do
+    pals[key] = G.readPalette(rom, off)
+    local file = key == "fog" and "default.gbapal" or (key .. ".gbapal")
+    write_cache(cache, root .. "/" .. file, G.palBytes(pals[key]))
+    palFiles[key] = { file = file, symbol = G.symName(S, off), colors = {} }
+    for i = 0, 15 do palFiles[key].colors[i + 1] = pals[key][i] end
+  end
+  local out = {
+    format = WeatherExtract.RSE_FORMAT,
+    family = "rse",
+    palettes = palFiles,
+    blobs = {},
+  }
+  for _, blob in ipairs(W.blobs) do
+    local t = G.readTemplate(rom, S, blob.template)
+    local fw = t.oam.w
+    local tiles = blob.size / 32
+    local cols = fw / 8
+    local rows = math.ceil(tiles / cols)
+    local w, h = fw, rows * 8
+    local tile, sheet = {}, {}
+    for i = 1, w * h do sheet[i] = 0 end
+    for i = 0, tiles - 1 do
+      G.decodeTiles(rom, blob.tiles + i * 32, 8, 8, tile, 0, 8)
+      local tx, ty = (i % cols) * 8, math.floor(i / cols) * 8
+      for y = 0, 7 do
+        for x = 0, 7 do
+          sheet[(ty + y) * w + tx + x + 1] = tile[y * 8 + x + 1]
+        end
+      end
+    end
+    write_cache(cache, root .. "/" .. blob.file .. ".4bpp", rom:readString(blob.tiles, blob.size))
+    write_cache(cache, root .. "/" .. blob.file .. ".idx", G.idxString(sheet, w * h))
+    write_cache(cache, root .. "/" .. blob.file .. ".rgba", G.rgbaString(sheet, w * h, pals[blob.pal]))
+    out.blobs[blob.key] = {
+      file = blob.file .. ".rgba",
+      idx = blob.file .. ".idx",
+      raw = blob.file .. ".4bpp",
+      symbol = G.symName(S, blob.tiles),
+      w = w,
+      h = h,
+      tiles = tiles,
+      frame_w = t.oam.w,
+      frame_h = t.oam.h,
+      palette = blob.pal,
+      paletteTag = t.paletteTag,
+    }
+  end
+  out.fog_h = { file = out.blobs.fog_h.file, w = out.blobs.fog_h.w, h = out.blobs.fog_h.h }
+  out.rain = { file = out.blobs.rain.file, w = out.blobs.rain.w, h = out.blobs.rain.h }
+  local types = {}
+  for i = 0, W.color_map_types_size - 1 do types[i + 1] = rom:get(W.color_map_types + i) end
+  out.color_map_types = types
+  write_cache(cache, root .. "/drought_colors.bin", rom:readString(W.drought_colors, W.drought_colors_size))
+  out.drought = { file = "drought_colors.bin", tables = W.drought_colors_size / 0x2000, entries = 0x1000 }
+  out.cycles = {}
+  for name, c in pairs(W.cycles) do
+    local list = {}
+    for i = 0, c.count - 1 do list[i + 1] = rom:get(c.off + i) end
+    out.cycles[name] = list
+  end
+  write_cache(cache, root .. "/manifest.lua", "return " .. serialize(out) .. "\n")
+  return { format = WeatherExtract.RSE_FORMAT, blobs = #W.blobs }
+end
+
 function WeatherExtract.ready(cache, cacheRoot)
   local root = (cacheRoot or default_cache_root()) .. "/" .. WeatherExtract.CACHE_SUB
   if not (cache and cache.read) then return false end
+  if Versions.FAMILY == "rse" then
+    local body = cache:read(root .. "/manifest.lua")
+    if type(body) ~= "string" or #body == 0 then return false end
+    local ok, m = pcall(load(body, "=weather", "t", {}) or error)
+    return ok and type(m) == "table" and m.family == "rse" and m.format == WeatherExtract.RSE_FORMAT
+  end
   local fog = cache:read(root .. "/fog_horizontal.rgba")
   return type(fog) == "string" and #fog == 64 * 64 * 4
 end
@@ -115,6 +200,7 @@ end
 function WeatherExtract.run(rom, cache, opts)
   opts = opts or {}
   local root = (opts.cacheRoot or default_cache_root()) .. "/" .. WeatherExtract.CACHE_SUB
+  if Versions.FAMILY == "rse" then return WeatherExtract.runRse(rom, cache, root) end
   local cfg = opts.offsets or {}
   local blobs = WeatherExtract.readBlobs(rom, cfg)
 

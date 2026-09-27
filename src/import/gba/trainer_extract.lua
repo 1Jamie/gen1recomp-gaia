@@ -5,11 +5,14 @@
 local Versions = require("src.import.gba.versions")
 local TextIR = require("src.core.game3.scripting.text_ir")
 local Lz77 = require("src.import.gba.lz77")
+local Layouts = require("src.import.gba.layouts.registry")
 
 local TrainerExtract = {}
 
 TrainerExtract.FORMAT_VERSION = 5
 TrainerExtract.CACHE_SUB = "trainers"
+TrainerExtract.REQUIRED = { "trainers.lua", "trainers/manifest.lua" }
+TrainerExtract.DIALOGS_FILE = "dialogs.lua"
 
 -- Party mon strides (ARM EABI sizes used by FRLG gTrainers parties).
 local PARTY_STRIDE = {
@@ -238,12 +241,37 @@ local function pack_to_lua(pack)
       if t.defeatTextKey then
         lines[#lines + 1] = string.format("      defeatTextKey = %s,", lua_quote(t.defeatTextKey))
       end
+      if pack.extras then
+        lines[#lines + 1] = string.format("      encounterMusic = %d,", t.encounterMusic or 0)
+      end
       lines[#lines + 1] = "      party = " .. party_to_lua(t.party) .. ","
       lines[#lines + 1] = "      dialogs = " .. dialogs_to_lua(t.dialogs) .. ","
       lines[#lines + 1] = "    },"
     end
   end
   lines[#lines + 1] = "  },"
+  local x = pack.extras
+  if x then
+    lines[#lines + 1] = string.format("  backPicCount = %d,", x.backPicCount or 0)
+    lines[#lines + 1] = string.format("  moneyDefault = %d,", x.moneyDefault or 0)
+    lines[#lines + 1] = "  money = {"
+    for _, row in ipairs(x.money) do
+      lines[#lines + 1] = string.format("    [%d] = %d,", row[1], row[2])
+    end
+    lines[#lines + 1] = "  },"
+    for _, key in ipairs({ "facilityClassToPic", "facilityClassToTrainerClass", "unionRoomFacilityClasses" }) do
+      local list = x[key]
+      if list then
+        lines[#lines + 1] = string.format("  %s = { [0] = %s },", key, table.concat(list, ", "))
+      end
+    end
+    lines[#lines + 1] = "  rematches = {"
+    for i, r in ipairs(x.rematches) do
+      lines[#lines + 1] = string.format("    [%d] = { trainers = {%s}, mapGroup = %d, mapNum = %d },",
+        i - 1, table.concat(r.trainers, ","), r.mapGroup, r.mapNum)
+    end
+    lines[#lines + 1] = "  },"
+  end
   lines[#lines + 1] = "}"
   lines[#lines + 1] = ""
   return table.concat(lines, "\n")
@@ -298,8 +326,8 @@ end
 
 local function bake_back_pic(rom, gender)
   gender = tonumber(gender) or 0
-  local picTable = Versions.TRAINER_BACK_PIC_TABLE or 0x239FA4
-  local palTable = Versions.TRAINER_BACK_PIC_PAL_TABLE or 0x239FD4
+  local picTable = assert(Versions.TRAINER_BACK_PIC_TABLE, "trainer_extract: no TRAINER_BACK_PIC_TABLE key")
+  local palTable = assert(Versions.TRAINER_BACK_PIC_PAL_TABLE, "trainer_extract: no TRAINER_BACK_PIC_PAL_TABLE key")
   local sheetOff = picTable + gender * 8
   local palOff = palTable + gender * 8
   local function get(i) return rom:get(i) end
@@ -332,8 +360,8 @@ end
 local function bake_front_pic(rom, picId)
   picId = tonumber(picId)
   if not picId or picId < 0 then return nil end
-  local picTable = Versions.TRAINER_FRONT_PIC_TABLE or 0x23957C
-  local palTable = Versions.TRAINER_FRONT_PIC_PAL_TABLE or 0x239A1C
+  local picTable = assert(Versions.TRAINER_FRONT_PIC_TABLE, "trainer_extract: no TRAINER_FRONT_PIC_TABLE key")
+  local palTable = assert(Versions.TRAINER_FRONT_PIC_PAL_TABLE, "trainer_extract: no TRAINER_FRONT_PIC_PAL_TABLE key")
   local sheetOff = picTable + picId * 8
   local palOff = palTable + picId * 8
   local function get(i) return rom:get(i) end
@@ -430,12 +458,14 @@ end
 
 function TrainerExtract.extract(rom, opts)
   opts = opts or {}
-  local classBase = Versions.TRAINER_CLASS_NAMES or 0x23E558
-  local classStride = Versions.TRAINER_CLASS_NAME_STRIDE or 13
-  local classCount = Versions.TRAINER_CLASS_COUNT or 107
-  local trainersBase = Versions.TRAINERS_TABLE or 0x23EAC8
-  local stride = Versions.TRAINER_STRIDE or 0x28
-  local trainerCount = Versions.TRAINERS_COUNT or 743
+  local layout = opts.layout or Layouts.active()
+  local classBase = assert(Versions.TRAINER_CLASS_NAMES, "trainer_extract: no TRAINER_CLASS_NAMES key")
+  local classStride = assert(Versions.TRAINER_CLASS_NAME_STRIDE, "trainer_extract: no TRAINER_CLASS_NAME_STRIDE key")
+  local classCount = assert(Versions.TRAINER_CLASS_COUNT, "trainer_extract: no TRAINER_CLASS_COUNT key")
+  local trainersBase = assert(Versions.TRAINERS_TABLE, "trainer_extract: no TRAINERS_TABLE key")
+  local stride = assert(Versions.TRAINER_STRIDE, "trainer_extract: no TRAINER_STRIDE key")
+  local trainerCount = assert(Versions.TRAINERS_COUNT, "trainer_extract: no TRAINERS_COUNT key")
+  local nameLen = layout.trainerNameLen
 
   local classNames = {}
   for id = 0, classCount - 1 do
@@ -443,7 +473,7 @@ function TrainerExtract.extract(rom, opts)
   end
 
   local dialogsByTrainer = {}
-  if opts.scripts and opts.text then
+  if layout.inlineTrainerDialogs and opts.scripts and opts.text then
     dialogsByTrainer = TrainerExtract.extractDialogs(opts.scripts, opts.text)
   end
 
@@ -456,7 +486,7 @@ function TrainerExtract.extract(rom, opts)
     local gender = (encGender >= 128) and 1 or 0
     local encounterMusic = encGender % 128
     local pic = rom:get(off + 3) or 0
-    local name = decode_name(rom, off + 4, 12)
+    local name = decode_name(rom, off + 4, nameLen)
     local items = read_items(rom, off)
     local doubleBattle = (rom:get(off + 0x18) ~= 0)
     local aiFlags = rom:u32(off + 0x1C) or 0
@@ -501,7 +531,81 @@ function TrainerExtract.extract(rom, opts)
     trainerCount = trainerCount,
     classNames = classNames,
     trainers = trainers,
+    extras = layout.trainerExtras and TrainerExtract.extractExtras(rom) or nil,
   }
+end
+
+local function byte_list(rom, off, count)
+  local out = {}
+  for i = 0, count - 1 do out[#out + 1] = rom:get(off + i) end
+  return out
+end
+
+function TrainerExtract.backPicCount()
+  return Versions.TRAINER_BACK_PIC_COUNT or Layouts.active().trainerBackPicCount
+end
+
+-- pokeemerald/src/battle_main.c:474, pokeemerald/src/battle_setup.c:260
+function TrainerExtract.extractExtras(rom)
+  local x = { backPicCount = TrainerExtract.backPicCount(), money = {} }
+  for i = 0, Versions.TRAINER_MONEY_COUNT - 1 do
+    local off = Versions.TRAINER_MONEY_TABLE + i * Versions.TRAINER_MONEY_STRIDE
+    local classId, value = rom:get(off), rom:get(off + 1)
+    if classId == 0xFF then
+      x.moneyDefault = value
+      break
+    end
+    x.money[#x.money + 1] = { classId, value }
+  end
+  x.facilityClassToPic = byte_list(rom, Versions.FACILITY_CLASS_TO_PIC, Versions.FACILITY_CLASS_COUNT)
+  x.facilityClassToTrainerClass = byte_list(rom, Versions.FACILITY_CLASS_TO_TRAINER_CLASS,
+    Versions.FACILITY_CLASS_COUNT)
+  if Versions.UNION_ROOM_FACILITY_CLASSES then
+    x.unionRoomFacilityClasses = {}
+    for i = 0, Versions.UNION_ROOM_FACILITY_CLASS_COUNT - 1 do
+      x.unionRoomFacilityClasses[i + 1] = rom:u16(Versions.UNION_ROOM_FACILITY_CLASSES + i * 2)
+    end
+  end
+  x.rematches = {}
+  for i = 0, (Versions.REMATCH_COUNT or 0) - 1 do
+    local off = Versions.REMATCH_TABLE + i * Versions.REMATCH_STRIDE
+    local ids = {}
+    for t = 0, 4 do ids[t + 1] = rom:u16(off + t * 2) end
+    x.rematches[i + 1] = { trainers = ids, mapGroup = rom:u16(off + 10), mapNum = rom:u16(off + 12) }
+  end
+  return x
+end
+
+local function dialogs_pack_to_lua(byTrainer)
+  local ids = {}
+  for id in pairs(byTrainer) do ids[#ids + 1] = id end
+  table.sort(ids)
+  local lines = { "return {" }
+  local function field(k, v)
+    if v ~= nil then lines[#lines + 1] = string.format("    %s = %s,", k, lua_quote(v)) end
+  end
+  for _, id in ipairs(ids) do
+    local d = byTrainer[id]
+    lines[#lines + 1] = string.format("  [%d] = {", id)
+    field("scriptKey", d.scriptKey)
+    field("introTextKey", d.introKey)
+    field("defeatTextKey", d.defeatKey)
+    field("victoryTextKey", d.victoryKey)
+    field("notEnoughTextKey", d.notEnoughKey)
+    lines[#lines + 1] = "    dialogs = " .. dialogs_to_lua(d) .. ","
+    lines[#lines + 1] = "  },"
+  end
+  lines[#lines + 1] = "}"
+  lines[#lines + 1] = ""
+  return table.concat(lines, "\n")
+end
+
+function TrainerExtract.writeDialogs(cache, cacheRoot, scripts, text)
+  cacheRoot = cacheRoot or default_cache_root()
+  local byTrainer = TrainerExtract.extractDialogs(scripts, text)
+  local rel = cacheRoot .. "/" .. TrainerExtract.CACHE_SUB .. "/" .. TrainerExtract.DIALOGS_FILE
+  cache:write(rel, dialogs_pack_to_lua(byTrainer))
+  return rel, byTrainer
 end
 
 function TrainerExtract.run(rom, cache, opts)
@@ -509,8 +613,11 @@ function TrainerExtract.run(rom, cache, opts)
   local cacheRoot = opts.cacheRoot or default_cache_root()
   local root = cacheRoot .. "/" .. TrainerExtract.CACHE_SUB
 
+  local layout = Layouts.active()
+  opts.layout = layout
+
   -- If script/text tables exist in cache or opts, load them for dialog cross-indexing
-  if not opts.scripts or not opts.text then
+  if layout.inlineTrainerDialogs and (not opts.scripts or not opts.text) then
     local scriptsSub = cacheRoot .. "/scripts"
     local function loadLua(rel)
       local src = cache:read(rel)
@@ -530,14 +637,14 @@ function TrainerExtract.run(rom, cache, opts)
     "return { version = %d, trainerCount = %d, classCount = %d }\n",
     pack.version, pack.trainerCount, pack.classCount))
 
-  for gender = 0, 5 do
+  for gender = 0, TrainerExtract.backPicCount() - 1 do
     local rgba = bake_back_pic(rom, gender)
     if rgba then
       cache:write(root .. "/back_" .. gender .. ".rgba", rgba)
     end
   end
 
-  local picCount = Versions.TRAINER_PIC_COUNT or 148
+  local picCount = assert(Versions.TRAINER_PIC_COUNT, "trainer_extract: no TRAINER_PIC_COUNT key")
   local baked = 0
   for picId = 0, picCount - 1 do
     local rgba = bake_front_pic(rom, picId)

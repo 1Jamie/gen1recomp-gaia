@@ -11,7 +11,7 @@ local Diploma = {}
 Diploma.ID = "diploma"
 
 -- pokefirered/include/constants/songs.h:267
-local MUS_OBTAIN_BADGE = 260
+local Song = require("src.core.game3.song_ids")
 -- pokefirered/src/diploma.c:58
 -- pokefirered/src/diploma.c:97
 local TEXT_COLORS = { fg = FrlgFont.STDPAL[2], shadow = FrlgFont.STDPAL[3], bg = { 0, 0, 0, 0 } }
@@ -46,9 +46,8 @@ end
 
 -- pokefirered/src/pokedex.c:123
 local function has_all_mons()
-  local Std = require("src.core.game3.scripting.stdscripts")
   local Queries = require("src.core.game3.scripting.natives_queries")
-  local _, v = Queries.HANDLERS[Std.SPECIAL.HasAllMons](nil)
+  local _, v = Queries.BY_NAME.HasAllMons(nil)
   return v == 1
 end
 
@@ -97,7 +96,7 @@ function Diploma.show(opts)
     if Diploma._phase ~= "in" then return end
     Diploma._phase = "fanfare"
     -- pokefirered/src/diploma.c:158
-    require("src.core.game3.audio").playFanfare(MUS_OBTAIN_BADGE)
+    require("src.core.game3.audio").playFanfare(Song.MUS_OBTAIN_BADGE)
   end)
   return true
 end

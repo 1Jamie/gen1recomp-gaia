@@ -182,9 +182,12 @@ local function unique_mids_by_pair(grids, scriptMids)
 end
 
 function Extract.findImport(imports)
-  for _, id in ipairs({ "firered", "leafgreen" }) do
-    local info = imports:info(id)
-    if info then return id, info end
+  local GameVersion = require("src.core.GameVersion")
+  for _, id in ipairs(GameVersion.ORDER) do
+    if GameVersion.generation(id) == 3 then
+      local info = imports:info(id)
+      if info then return id, info end
+    end
   end
   return nil, nil
 end

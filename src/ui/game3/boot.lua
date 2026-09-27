@@ -4,6 +4,7 @@
 local Display = require("src.core.game3.display")
 local Window = require("src.ui.game3.window")
 local Audio = require("src.core.game3.audio")
+local SE = require("src.core.game3.se_ids")
 local NewGameScene = require("src.ui.game3.new_game_scene")
 local NamingChrome = require("src.ui.game3.naming_chrome")
 local Pal = require("src.core.game3.pal_fade")
@@ -15,6 +16,7 @@ local RomText = require("src.core.game3.rom_text")
 local MysteryGift = require("src.core.game3.mystery_gift")
 local MysteryGiftUi = require("src.ui.game3.mystery_gift")
 local ListMenu = require("src.ui.game3.list_menu")
+local BootModules = require("src.ui.game3.boot_modules")
 
 local Boot = {}
 
@@ -55,6 +57,8 @@ local function loadImage(rel)
 end
 
 function Boot.new()
+  local mods = BootModules.resolve(require("src.core.game3.profile").active())
+  if mods.custom then return BootModules.newState(Boot, mods) end
   local index = loadIntroIndex()
   local base = INTRO_FALLBACK
   local function path(key, file)
@@ -161,15 +165,16 @@ function Boot.continueInfoFromSave(save)
     or type(save.playtime) == "table" and save.playtime or {}
   local n = require("src.core.game3.dex").summaryCount(save)
   local name = tostring(save.name or save.playerName or "")
+  local ids = (type(save.version) == "string" and Flags.forVersion(save.version) or Flags).IDS
   return {
     name = FrlgFont.truncate(name, 7),
     gender = tonumber(save.gender) or 0,
     hours = tonumber(pt.hours) or 0,
     minutes = tonumber(pt.minutes) or 0,
-    hasDex = Flags.getFlag(store, nil, Flags.IDS.SYS_POKEDEX_GET) == true,
+    hasDex = Flags.getFlag(store, nil, ids.SYS_POKEDEX_GET) == true,
     -- pokefirered/src/main_menu.c:236 IsMysteryGiftEnabled
     mysteryGift = Flags.getFlag(store, nil,
-      Flags.IDS.SYS_MYSTERY_GIFT_ENABLED or 0x839) == true,
+      ids.SYS_MYSTERY_GIFT_ENABLED or ids.FLAG_SYS_MYSTERY_GIFT_ENABLE or 0x839) == true,
     dexCount = n,
     badges = Flags.countBadges(store),
     frameType = tonumber(type(save.options) == "table"
@@ -260,6 +265,11 @@ local function enterTitle(state)
   TitleScreen.enter(state)
 end
 
+function Boot.enterTitle(state)
+  if state.custom then return BootModules.enterTitle(Boot, state) end
+  enterTitle(state)
+end
+
 local function leaveTitle(state)
   if state._titleActive then
     TitleScreen.leave(state)
@@ -300,7 +310,7 @@ local function tickSaveError(state, pressed)
       e.arrowDelay = 8 -- pokefirered/src/text.c:516
     end
     if pressed("a") or pressed("b") then -- pokefirered/src/text.c:560
-      Audio.playSe(5)
+      Audio.playSe(SE.SE_SELECT)
       e.page = e.page + 1
       e.revealed = 0
       e.total = FrlgFont.countChars(e.pages[e.page]) + 1
@@ -329,6 +339,7 @@ local function tickSaveError(state, pressed)
 end
 
 function Boot.update(state, input, dt)
+  if state.custom then return BootModules.update(Boot, state, input, dt) end
   dt = dt or (1 / 60)
   state.timer = (state.timer or 0) + dt
   state.blink = (state.blink or 0) + dt
@@ -432,7 +443,7 @@ function Boot.update(state, input, dt)
       return tickSaveError(state, pressed)
     end
     if pressed("a") then -- pokefirered/src/main_menu.c:570
-      Audio.playSe(5)
+      Audio.playSe(SE.SE_SELECT)
       local choice = items[state.menuIndex]
       local fadeAction = (choice == "CONTINUE") and "continue"
         or (choice == "NEW GAME") and "new_game"
@@ -441,7 +452,7 @@ function Boot.update(state, input, dt)
         or "exit"
       beginMenuFade(state, "black", 0, 16, fadeAction)
     elseif pressed("b") then -- pokefirered/src/main_menu.c:577
-      Audio.playSe(5)
+      Audio.playSe(SE.SE_SELECT)
       beginMenuFade(state, "black", 0, 16, "title")
     elseif up() and state.menuIndex > 1 then
       state.menuIndex = state.menuIndex - 1
@@ -586,6 +597,7 @@ local function drawSaveError(state, W, H)
 end
 
 function Boot.draw(state)
+  if state.custom then return BootModules.draw(Boot, state) end
   local W, H = Display.W, Display.H
   love.graphics.clear(0, 0, 0, 1)
 

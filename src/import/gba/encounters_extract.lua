@@ -2,6 +2,9 @@
 -- FireRed USA 1.0: pret wild_encounter.h layout — not curated JSON.
 
 local Versions = require("src.import.gba.versions")
+local GameVersion = require("src.core.GameVersion")
+local Profile = require("src.core.game3.profile")
+local Family = require("src.import.gba.family")
 
 local EncountersExtract = {}
 
@@ -79,6 +82,11 @@ end
 function EncountersExtract.parseRom(rom, version)
   version = version or {}
   local headersOff = version.wild_mon_headers or Versions.WILD_MON_HEADERS
+  return EncountersExtract.parseHeaders(rom, headersOff, version, 512)
+end
+
+function EncountersExtract.parseHeaders(rom, headersOff, version, limit)
+  version = version or {}
   local hdrSize = version.wild_mon_header_size or Versions.WILD_MON_HEADER_SIZE
   local landN = version.land_wild_count or Versions.LAND_WILD_COUNT
   local waterN = version.water_wild_count or Versions.WATER_WILD_COUNT
@@ -88,7 +96,7 @@ function EncountersExtract.parseRom(rom, version)
   local out = {}
   local off = headersOff
   local guard = 0
-  while guard < 512 do
+  while guard < limit do
     guard = guard + 1
     local mapGroup = rom:get(off)
     local mapNum = rom:get(off + 1)
@@ -113,8 +121,37 @@ function EncountersExtract.parseRom(rom, version)
   return out
 end
 
+local function map_prefixes()
+  local map = Profile.of(GameVersion.get()).map
+  return map.prefixes or {}, map.enginePrefix
+end
+
+local function add_aliases(tables, alias, packed, prefixes, enginePrefix)
+  tables[alias] = packed
+  for _, prefix in ipairs(prefixes) do
+    if alias:sub(1, #prefix) == prefix then
+      local bare = alias:sub(#prefix + 1)
+      tables[bare] = packed
+      local routeNum = prefix == enginePrefix and bare:match("^ROUTE_(%d+)$")
+      if routeNum then
+        tables["ROUTE" .. routeNum] = packed
+        tables[enginePrefix .. "ROUTE" .. routeNum] = packed
+      end
+      return
+    end
+  end
+end
+
+local function is_alias(key, prefixes)
+  for _, prefix in ipairs(prefixes) do
+    if key:sub(1, #prefix) == prefix then return true end
+  end
+  return false
+end
+
 local function build_tables(entries)
   local tables = {}
+  local prefixes, enginePrefix = map_prefixes()
   for _, e in ipairs(entries) do
     local gn = string.format("%d:%d", e.mapGroup, e.mapNum)
     local packed = {
@@ -135,29 +172,24 @@ local function build_tables(entries)
       goto continue
     end
     tables[gn] = packed
-    local alias = Versions.frMapFor(e.mapGroup, e.mapNum)
+    local alias = Versions.mapIdFor(e.mapGroup, e.mapNum)
     if alias then
-      tables[alias] = packed
-      if alias:sub(1, 3) == "FR_" then
-        local noFr = alias:sub(4)
-        tables[noFr] = packed
-        local routeNum = noFr:match("^ROUTE_(%d+)$")
-        if routeNum then
-          tables["ROUTE" .. routeNum] = packed
-          tables["FR_ROUTE" .. routeNum] = packed
-        end
-      elseif alias:sub(1, 6) == "SEVII_" then
-        tables[alias:sub(7)] = packed
-      end
+      add_aliases(tables, alias, packed, prefixes, enginePrefix)
     end
     ::continue::
   end
   return tables
 end
 
+local function source_label()
+  local F = Family.active()
+  if F.aliases then return "FireRed" end
+  return Profile.of(F.game).label
+end
+
 local function encode_lua(tables, headerCount)
   local lines = {
-    "-- Auto-extracted from ROM gWildMonHeaders (FireRed).\n",
+    "-- Auto-extracted from ROM gWildMonHeaders (" .. source_label() .. ").\n",
     string.format("-- format_version=%d headers=%d\n", EncountersExtract.FORMAT_VERSION, headerCount),
     "return {\n",
   }
@@ -189,8 +221,9 @@ function EncountersExtract.writeExtract(rom, cache, root, version)
   cache:write(root .. "/encounters.lua", blob)
 
   local aliased = 0
+  local prefixes = map_prefixes()
   for k in pairs(tables) do
-    if k:sub(1, 3) == "FR_" or k:sub(1, 6) == "SEVII_" then
+    if is_alias(k, prefixes) then
       aliased = aliased + 1
     end
   end
@@ -201,6 +234,108 @@ function EncountersExtract.writeExtract(rom, cache, root, version)
     aliases = aliased,
     path = root .. "/encounters.lua",
   }
+end
+
+EncountersExtract.EXTRA_REL = "wild_extra.lua"
+
+local function hasExtra()
+  return Versions.WILD_EXTRA_HEADERS ~= nil
+end
+
+function EncountersExtract.parseExtra(rom)
+  local out = { headerSets = {} }
+  local names = {}
+  for name in pairs(Versions.WILD_EXTRA_HEADERS) do names[#names + 1] = name end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    local set = Versions.WILD_EXTRA_HEADERS[name]
+    out.headerSets[name] = EncountersExtract.parseHeaders(rom, set.off, nil, set.count)
+  end
+  -- pokeemerald/src/wild_encounter.c:67
+  local fo = Versions.FEEBAS_WILD_MON
+  out.feebas = {
+    mon = { minLevel = rom:get(fo), maxLevel = rom:get(fo + 1), species = rom:u16(fo + 2) },
+    sections = {},
+  }
+  for i = 0, Versions.FEEBAS_TILE_DATA_COUNT - 1 do
+    local o = Versions.FEEBAS_TILE_DATA + i * 6
+    out.feebas.sections[i + 1] = { yMin = rom:u16(o), yMax = rom:u16(o + 2), spotBase = rom:u16(o + 4) }
+  end
+  -- pokeemerald/src/pokemon.c:2114
+  out.alteringCaveHeldItems = {}
+  for i = 0, Versions.ALTERING_CAVE_HELD_ITEM_COUNT - 1 do
+    local o = Versions.ALTERING_CAVE_HELD_ITEMS + i * 4
+    out.alteringCaveHeldItems[i + 1] = { species = rom:u16(o), item = rom:u16(o + 2) }
+  end
+  return out
+end
+
+local function encode_extra(extra)
+  local lines = {
+    string.format("-- format_version=%d\n", EncountersExtract.FORMAT_VERSION),
+    "return {\n",
+    "  headerSets = {\n",
+  }
+  local names = {}
+  for name in pairs(extra.headerSets) do names[#names + 1] = name end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    lines[#lines + 1] = string.format("    %s = {\n", name)
+    for _, e in ipairs(extra.headerSets[name]) do
+      lines[#lines + 1] = "    {\n"
+      lines[#lines + 1] = string.format("    mapGroup = %d,\n", e.mapGroup)
+      lines[#lines + 1] = string.format("    mapNum = %d,\n", e.mapNum)
+      serialize_areas(lines, e)
+      lines[#lines + 1] = "    },\n"
+    end
+    lines[#lines + 1] = "    },\n"
+  end
+  lines[#lines + 1] = "  },\n"
+  local m = extra.feebas.mon
+  lines[#lines + 1] = "  feebas = {\n"
+  lines[#lines + 1] = string.format("    mon = { species = %d, minLevel = %d, maxLevel = %d },\n",
+    m.species, m.minLevel, m.maxLevel)
+  lines[#lines + 1] = "    sections = {\n"
+  for _, s in ipairs(extra.feebas.sections) do
+    lines[#lines + 1] = string.format("      { yMin = %d, yMax = %d, spotBase = %d },\n",
+      s.yMin, s.yMax, s.spotBase)
+  end
+  lines[#lines + 1] = "    },\n  },\n"
+  lines[#lines + 1] = "  alteringCaveHeldItems = {\n"
+  for _, r in ipairs(extra.alteringCaveHeldItems) do
+    lines[#lines + 1] = string.format("    { species = %d, item = %d },\n", r.species, r.item)
+  end
+  lines[#lines + 1] = "  },\n}\n"
+  return table.concat(lines)
+end
+
+function EncountersExtract.writeExtra(rom, cache, root)
+  local extra = EncountersExtract.parseExtra(rom)
+  cache:write(root .. "/" .. EncountersExtract.EXTRA_REL, encode_extra(extra))
+  return extra
+end
+
+EncountersExtract.REQUIRED = { "encounters.lua", EncountersExtract.EXTRA_REL }
+
+function EncountersExtract.ready(cache, cacheRoot)
+  if not (cache and cache.exists) then return false end
+  local root = cacheRoot or "data/generated/gba"
+  if not cache:exists(root .. "/encounters.lua") then return false end
+  return not hasExtra() or cache:exists(root .. "/" .. EncountersExtract.EXTRA_REL)
+end
+
+function EncountersExtract.run(rom, cache, opts)
+  opts = opts or {}
+  local root = opts.cacheRoot or "data/generated/gba"
+  local detail, err = EncountersExtract.writeExtract(rom, cache, root, opts.version)
+  if not detail then error("encounters: " .. tostring(err)) end
+  if hasExtra() then
+    local extra = EncountersExtract.writeExtra(rom, cache, root)
+    local n = 0
+    for _, set in pairs(extra.headerSets) do n = n + #set end
+    detail.extraHeaders = n
+  end
+  return detail
 end
 
 return EncountersExtract

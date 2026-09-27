@@ -13,9 +13,6 @@ local BattleChrome = require("src.ui.game3.battle_chrome")
 local EggHatch = {}
 
 local STACK_ID = "egg_hatch"
-local MUS_EVOLUTION_INTRO = 263 -- pokefirered/include/constants/songs.h:270
-local MUS_EVOLUTION = 264 -- pokefirered/include/constants/songs.h:271
-local MUS_EVOLVED = 259 -- pokefirered/include/constants/songs.h:266
 
 EggHatch.open = false
 EggHatch._mon = nil
@@ -189,6 +186,7 @@ function EggHatch.start(mon, opts)
   EggHatch._fade = 1
   EggHatch._shards = {}
   EggHatch._shardVelocityId = 0
+  EggHatch._monAnim = nil
   EggHatch.open = true
   if Oam and Oam.destroyAll then Oam.destroyAll() end
   if not BattleChrome._installed then BattleChrome.install(nil) end
@@ -205,9 +203,9 @@ local function bgm_tick()
   if t == 0 then
     song(0)
   elseif t == 1 then
-    song(MUS_EVOLUTION_INTRO, { loop = false })
+    song(require("src.core.game3.song_ids").MUS_EVOLUTION_INTRO, { loop = false })
   elseif t == 61 then
-    song(MUS_EVOLUTION, { restart = true, loop = true })
+    song(require("src.core.game3.song_ids").MUS_EVOLUTION, { restart = true, loop = true })
   end
   if t <= 61 then EggHatch._bgmTimer = t + 1 end
 end
@@ -256,7 +254,16 @@ local function shake_tick()
         se(SE.SE_EGG_HATCH or 106)
         EggHatch._state = "cry"
         EggHatch._timer = 0
-        pcall(Audio.playCry, EggHatch._species)
+        local MonAnim = require("src.core.game3.mon_anim")
+        if MonAnim.enabled() then
+          -- pokeemerald/src/egg_hatch.c:643
+          local sp = tonumber(EggHatch._species) or 0
+          EggHatch._monAnim = MonAnim.run(MonAnim.newSprite(sp, { data = { [2] = sp } }), { tasksFirst = true })
+          MonAnim.doFront(EggHatch._monAnim, sp, false, 1, {
+            cry = function(s, pan) pcall(Audio.playCry, s, 0, pan) end })
+        else
+          pcall(Audio.playCry, EggHatch._species)
+        end
       end
     end
     return
@@ -350,6 +357,8 @@ function EggHatch.update(dt)
     EggHatch._timer = EggHatch._timer + 1
     -- pokefirered/src/daycare.c:1920 IsCryFinished
     local done = Audio.isCryFinished and Audio.isCryFinished()
+    local MonAnim = require("src.core.game3.mon_anim")
+    if EggHatch._monAnim then done, EggHatch._timer = MonAnim.done(EggHatch._monAnim), 0 end
     if EggHatch._timer >= 40 or done then
       EggHatch._state = "hatched_msg"
       EggHatch._timer = 0
@@ -357,7 +366,7 @@ function EggHatch.update(dt)
       Message.show(RomText.box("gText_HatchedFromEgg", { stringVars = { EggHatch._name } }), { stay = true, frame = "battle" })
       if Message.skipReveal then Message.skipReveal() end
       -- pokefirered/src/daycare.c:1929 PlayFanfare(MUS_EVOLVED)
-      pcall(Audio.playFanfare, MUS_EVOLVED)
+      pcall(Audio.playFanfare, require("src.core.game3.song_ids").MUS_EVOLVED)
     end
 
   elseif st == "hatched_msg" then
@@ -423,7 +432,14 @@ function EggHatch.draw()
     end
   else
     local pic = hatched_pic()
-    if pic and pic.image then
+    local ma = EggHatch._monAnim
+    if ma and pic and pic.image then
+      local MonAnim = require("src.core.game3.mon_anim")
+      local mon = EggHatch._mon
+      local f = MonAnim.framePic(Pokemon.picSpecies(EggHatch._species, mon and mon.personality), ma.frame,
+        Pokemon.isShiny(mon)) or pic
+      MonAnim.draw(ma, f.image, MON_X, MON_Y)
+    elseif pic and pic.image then
       love.graphics.draw(pic.image, MON_X, MON_Y, 0, 1, 1, 32, 32)
     end
   end

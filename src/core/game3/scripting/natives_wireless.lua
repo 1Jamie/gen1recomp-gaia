@@ -8,7 +8,7 @@ local Wireless = {}
 local VAR_RESULT = 0x800D -- pokefirered/include/constants/vars.h:328
 local VAR_0x8004 = 0x8004 -- pokefirered/include/constants/vars.h:319
 local VAR_0x8005 = 0x8005 -- pokefirered/include/constants/vars.h:320
-local SE_FAILURE = 26 -- pokefirered/include/constants/songs.h:30
+local SE = require("src.core.game3.se_ids") -- pokefirered/include/constants/songs.h:30
 local VAR_OBJ_GFX_ID_0 = 0x4010 -- pokefirered/include/constants/vars.h:28
 local OBJ_EVENT_GFX_YOUNGSTER = 18 -- pokefirered/include/constants/event_objects.h:24
 local PARTY_SIZE = 6 -- pokefirered/include/constants/pokemon.h
@@ -125,7 +125,7 @@ function Wireless.chooseMonForMinigame(ctx)
     validate = function(slot)
       local mon = party[slot]
       if MG.eligible(mon, kind) then return nil end
-      pcall(function() require("src.core.game3.audio").playSe(SE_FAILURE) end)
+      pcall(function() require("src.core.game3.audio").playSe(SE.SE_FAILURE) end)
       return RomText.box("gText_PkmnCantParticipate", { maxWidth = 216 })
     end,
     onSelect = function(slot)
@@ -167,14 +167,14 @@ function Wireless.chooseMonForMinigame(ctx)
   return false
 end
 
-Wireless.HANDLERS = {
+Wireless.BY_NAME = {
   -- pokefirered/src/party_menu.c:5818, data/scripts/cable_club.inc:1181
-  [Std.SPECIAL.ChooseMonForWirelessMinigame] = function(ctx)
+  ChooseMonForWirelessMinigame = function(ctx)
     return Wireless.chooseMonForMinigame(ctx)
   end,
 
   -- pokefirered/src/pokemon_jump.c:2687, data/scripts/cable_club.inc:1177, pokemon_jump.c:766
-  [Std.SPECIAL.IsPokemonJumpSpeciesInParty] = function(ctx)
+  IsPokemonJumpSpeciesInParty = function(ctx)
     local session = sessionOf(ctx)
     local party = session and session.party or {}
     local MG = minigames()
@@ -191,41 +191,41 @@ Wireless.HANDLERS = {
   end,
 
   -- pokefirered/src/pokemon_jump.c:4487, data/scripts/cable_club.inc:1278
-  [Std.SPECIAL.ShowPokemonJumpRecords] = function(ctx)
+  ShowPokemonJumpRecords = function(ctx)
     return showRecords(ctx, "pokemon_jump")
   end,
 
   -- pokefirered/src/dodrio_berry_picking.c:2929, data/scripts/cable_club.inc:1286
-  [Std.SPECIAL.ShowDodrioBerryPickingRecords] = function(ctx)
+  ShowDodrioBerryPickingRecords = function(ctx)
     return showRecords(ctx, "dodrio")
   end,
 
   -- pokefirered/src/berry_crush.c:3189, data/maps/CeruleanCity_House5/scripts.inc:169
-  [Std.SPECIAL.ShowBerryCrushRankings] = function(ctx)
+  ShowBerryCrushRankings = function(ctx)
     return showRecords(ctx, "berry_crush")
   end,
 
   -- pokefirered/src/berry_powder.c:113
-  [Std.SPECIAL.DisplayBerryPowderVendorMenu] = function()
+  DisplayBerryPowderVendorMenu = function()
     if qlAvoidDisplay() then return false end
     require("src.ui.game3.berry_powder_box").show()
     return false
   end,
 
   -- pokefirered/src/berry_powder.c:128
-  [Std.SPECIAL.RemoveBerryPowderVendorMenu] = function()
+  RemoveBerryPowderVendorMenu = function()
     require("src.ui.game3.berry_powder_box").hide()
     return false
   end,
 
   -- pokefirered/src/berry_powder.c:108
-  [Std.SPECIAL.PrintPlayerBerryPowderAmount] = function()
+  PrintPlayerBerryPowderAmount = function()
     require("src.ui.game3.berry_powder_box").update()
     return false
   end,
 
   -- pokefirered/src/berry_powder.c:40
-  [Std.SPECIAL.Script_HasEnoughBerryPowder] = function(ctx)
+  Script_HasEnoughBerryPowder = function(ctx)
     local session = sessionOf(ctx)
     local powder = math.floor(tonumber(session and session.berryPowder) or 0)
     local cost = varGet(ctx, VAR_0x8004)
@@ -235,7 +235,7 @@ Wireless.HANDLERS = {
   end,
 
   -- pokefirered/src/berry_powder.c:77
-  [Std.SPECIAL.Script_TakeBerryPowder] = function(ctx)
+  Script_TakeBerryPowder = function(ctx)
     local session = sessionOf(ctx)
     local powder = math.floor(tonumber(session and session.berryPowder) or 0)
     local cost = varGet(ctx, VAR_0x8004)
@@ -250,7 +250,7 @@ Wireless.HANDLERS = {
   end,
 
   -- pokefirered/src/field_specials.c:331, battle_tower.c:1343, data/maps/SevenIsland_House_Room1/scripts.inc:88, text.inc:19
-  [Std.SPECIAL.BufferEReaderTrainerName] = function(ctx, adapters)
+  BufferEReaderTrainerName = function(ctx, adapters)
     local trainer = visitingEReaderTrainer(sessionOf(ctx))
     local name = trainer and trainer.name
     if type(name) ~= "string" or name == "" then name = Strings("TRAINER") end
@@ -259,7 +259,7 @@ Wireless.HANDLERS = {
   end,
 
   -- pokefirered/src/battle_tower.c:1401, data/maps/SevenIsland_House_Room2/scripts.inc:18
-  [Std.SPECIAL.BufferEReaderTrainerGreeting] = function(ctx, adapters)
+  BufferEReaderTrainerGreeting = function(ctx, adapters)
     local trainer = visitingEReaderTrainer(sessionOf(ctx))
     local greeting = trainer and trainer.greeting
     local text
@@ -274,10 +274,11 @@ Wireless.HANDLERS = {
   end,
 
   -- pokefirered/src/battle_tower.c:397, data/maps/SevenIsland_House_Room2/scripts.inc:7
-  [Std.SPECIAL.SetEReaderTrainerGfxId] = function(ctx)
+  SetEReaderTrainerGfxId = function(ctx)
     varSet(ctx, VAR_OBJ_GFX_ID_0, OBJ_EVENT_GFX_YOUNGSTER)
     return false
   end,
 }
+Std.legacyHandlers(Wireless)
 
 return Wireless

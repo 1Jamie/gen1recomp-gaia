@@ -2,7 +2,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ALL_VERSIONS="red blue yellow gold silver crystal firered leafgreen"
+ALL_VERSIONS="red blue yellow gold silver crystal firered leafgreen emerald"
 
 help_text() {
   cat <<EOF
@@ -73,6 +73,7 @@ rom_pattern() {
     crystal) echo "Pokemon - Crystal Version*.gbc" ;;
     firered) echo "Pokemon - Fire*Red Version*.gba" ;;
     leafgreen) echo "Pokemon - Leaf*Green Version*.gba" ;;
+    emerald) echo "Pokemon - Emerald Version*.gba" ;;
   esac
 }
 

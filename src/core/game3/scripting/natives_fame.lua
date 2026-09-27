@@ -1,3 +1,4 @@
+local Std = require("src.core.game3.scripting.stdscripts")
 local FameChecker = require("src.core.game3.fame_checker")
 
 local Fame = {}
@@ -35,9 +36,9 @@ local function varSet(ctx, id, value)
   flagsMod().setVar(scriptStore(), ctx, id, tonumber(value) or 0)
 end
 
-Fame.HANDLERS = {
+Fame.BY_NAME = {
   -- pokefirered/src/fame_checker.c:1222
-  [SPECIAL_SetFlavorTextFlagFromSpecialVars] = function(ctx)
+  SetFlavorTextFlagFromSpecialVars = function(ctx)
     local person = varGet(ctx, VAR_0x8004)
     local slot = varGet(ctx, VAR_0x8005)
     if FameChecker.setFlavorText(person, slot) then
@@ -46,10 +47,11 @@ Fame.HANDLERS = {
     return false
   end,
   -- pokefirered/src/fame_checker.c:1232
-  [SPECIAL_UpdatePickStateFromSpecialVar8005] = function(ctx)
+  UpdatePickStateFromSpecialVar8005 = function(ctx)
     FameChecker.updatePickState(varGet(ctx, VAR_0x8004), varGet(ctx, VAR_0x8005))
     return false
   end,
 }
+Std.legacyHandlers(Fame)
 
 return Fame

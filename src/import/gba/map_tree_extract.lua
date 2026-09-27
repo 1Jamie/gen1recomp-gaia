@@ -6,10 +6,13 @@
 local MapTree = require("src.import.gba.map_tree")
 local Lz77 = require("src.import.gba.lz77")
 local Canon = require("src.import.canonical_json")
+local Family = require("src.import.gba.family")
 
 local MapTreeExtract = {}
 
 MapTreeExtract.ROOT = "data/generated/gba/map_tree"
+
+MapTreeExtract.REQUIRED = { "map_tree/census.json" }
 
 local function bytes_to_string(bytes)
   if type(bytes) == "string" then return bytes end
@@ -75,6 +78,7 @@ local function simplify_events(ev)
       range = o.range,
       scriptKey = o.scriptKey,
       flag = o.flag,
+      berryTreeId = o.berryTreeId,
     }
   end
   local objects = {}
@@ -106,6 +110,7 @@ local function simplify_events(ev)
       quantity = b.quantity,
       underfoot = b.underfoot,
       flag = b.flag,
+      secretBaseId = b.secretBaseId,
     }
   end
   local coords = {}
@@ -136,8 +141,9 @@ local function pack_tileset(rom, cache, root, ts)
     tilesBlob = bytes_to_string(raw)
   elseif tilesOff then
     local palsOff = rom:ptrOffset(ts.palettesPtr)
-    if palsOff and palsOff > tilesOff then
-      tilesBlob = rom_blob(rom, ts.tilesPtr, palsOff - tilesOff)
+    local n = Family.active():uncompressedTileBytes(rom, tilesOff, palsOff, ts.secondary)
+    if n then
+      tilesBlob = rom_blob(rom, ts.tilesPtr, n)
     end
   else
     tilesBlob = nil
@@ -182,6 +188,7 @@ local function pack_map(rom, cache, root, entry)
     cave = h.cave,
     regionMapSectionId = h.regionMapSectionId,
     bikingAllowed = h.bikingAllowed,
+    allowCycling = h.allowCycling,
     allowEscaping = h.allowEscaping,
     allowRunning = h.allowRunning,
     showMapName = h.showMapName,
@@ -206,11 +213,25 @@ end
 
 --- Full procedural extract.
 -- @return ok, detail
+function MapTreeExtract.ready(cache, cacheRoot)
+  return cache:exists((cacheRoot or "data/generated/gba") .. "/map_tree/census.json")
+end
+
 function MapTreeExtract.run(rom, cache, opts)
   opts = opts or {}
-  local root = opts.root or MapTreeExtract.ROOT
+  local root = opts.root or (opts.cacheRoot and (opts.cacheRoot .. "/map_tree")) or MapTreeExtract.ROOT
   local census, err = MapTree.walk(rom, opts.version, opts)
-  if not census then return false, err end
+  if not census then
+    if opts.strict then error("map_tree: " .. tostring(err), 0) end
+    return false, err
+  end
+  if opts.strict then
+    local want = 0
+    for _, g in pairs(MapTree.loadGroups().groups or {}) do want = want + #(g.maps or {}) end
+    if census.map_count ~= want then
+      error(string.format("map_tree: census has %d of %d maps", census.map_count, want), 0)
+    end
+  end
 
   local tilesetIds = {}
   for ptr, ts in pairs(census.tilesets) do

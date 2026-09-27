@@ -1,71 +1,70 @@
--- Extractor for GBA FireRed Multichoice list strings and tables (gMultichoiceLists).
+-- Extractor for GBA Multichoice list strings and tables (gMultichoiceLists).
 
 local Versions = require("src.import.gba.versions")
 local TextIR = require("src.core.game3.scripting.text_ir")
 
 local MultichoiceExtract = {}
 
-local function u32(rom, off)
-  if rom.u32 then return rom:u32(off) end
-  return rom:get(off) + rom:get(off + 1) * 256 + rom:get(off + 2) * 65536 + rom:get(off + 3) * 16777216
-end
+local ROM_BASE, ROM_END = 0x08000000, 0x0A000000
+local MAX_LABEL_BYTES = 64
 
-local function get_byte(rom, off)
-  if rom.get then return rom:get(off) end
-  if rom.data then return rom.data:byte(off + 1) end
-  return 0
-end
-
-local function decode_gba_string(rom, off)
-  local chars = {}
-  local maxLen = 64
-  for _ = 1, maxLen do
-    local b = get_byte(rom, off)
+local function read_label_bytes(rom, off)
+  local bytes = {}
+  for i = 0, MAX_LABEL_BYTES - 1 do
+    local b = rom:get(off + i)
+    bytes[#bytes + 1] = b
     if b == 0xFF then break end
-    if b == 0xFC then
-      local sub = get_byte(rom, off + 1)
-      if sub == 0x13 then
-        off = off + 2
-        chars[#chars + 1] = "  "
-      else
-        off = off + 1
-      end
-    elseif b == 0xFD then
-      off = off + 1
-    elseif b == 0xFE or b == 0xFA or b == 0xFB then
-      chars[#chars + 1] = " "
-    elseif TextIR.CHARMAP[b] then
-      chars[#chars + 1] = TextIR.CHARMAP[b]
-    elseif b >= 0xBB and b <= 0xD4 then
-      chars[#chars + 1] = string.char(string.byte("A") + (b - 0xBB))
-    elseif b >= 0xD5 and b <= 0xEE then
-      chars[#chars + 1] = string.char(string.byte("a") + (b - 0xD5))
-    elseif b >= 0xA1 and b <= 0xAA then
-      chars[#chars + 1] = tostring(b - 0xA1)
-    end
-    off = off + 1
   end
-  local s = table.concat(chars):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
-  return s
+  return bytes
 end
 
-function MultichoiceExtract.extract(rom)
-  local base = Versions.MULTICHOICE_LISTS or 0x3E04B0
-  local totalCount = Versions.MULTICHOICE_COUNT or 65
+local SEG_TEXT = {
+  nl = " ", para = " ", scroll = " ",
+  player = "{PLAYER}", rival = "{RIVAL}",
+}
+
+function MultichoiceExtract.label(bytes, dialect)
+  local parts = {}
+  for _, seg in ipairs(TextIR.decode(bytes, { dialect = dialect })) do
+    if seg.t == "eos" then break end
+    if seg.t == "text" then
+      parts[#parts + 1] = seg.s
+    elseif seg.t == "tag" then
+      parts[#parts + 1] = seg.tag
+    elseif seg.t == "strvar" then
+      parts[#parts + 1] = "{STR_VAR_" .. seg.n .. "}"
+    elseif seg.t == "ext" and seg.cmd == 0x13 then
+      parts[#parts + 1] = "  "
+    elseif SEG_TEXT[seg.t] then
+      parts[#parts + 1] = SEG_TEXT[seg.t]
+    end
+  end
+  return (table.concat(parts):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function rom_off(ptr)
+  if ptr >= ROM_BASE and ptr < ROM_END then return ptr - ROM_BASE end
+  return nil
+end
+
+function MultichoiceExtract.extract(rom, opts)
+  opts = opts or {}
+  local base = assert(opts.base or Versions.MULTICHOICE_LISTS, "multichoice: no MULTICHOICE_LISTS for this ROM")
+  local totalCount = assert(opts.count or Versions.MULTICHOICE_COUNT, "multichoice: no MULTICHOICE_COUNT for this ROM")
+  local dialect = opts.dialect or TextIR.dialectOf()
 
   local lists = {}
   for i = 0, totalCount - 1 do
     local off = base + i * 8
-    local listPtr = u32(rom, off)
-    local count = get_byte(rom, off + 4)
+    local listOff = rom_off(rom:u32(off))
+    local count = rom:get(off + 4)
     local labels = {}
-    if listPtr >= 0x08000000 and listPtr < 0x09000000 and count > 0 and count <= 30 then
+    if listOff and count > 0 and count <= 30 then
       for a = 0, count - 1 do
-        local actOff = listPtr - 0x08000000 + a * 8
-        local textPtr = u32(rom, actOff)
+        local textOff = rom_off(rom:u32(listOff + a * 8))
         local s = ""
-        if textPtr >= 0x08000000 and textPtr < 0x09000000 then
-          s = decode_gba_string(rom, textPtr - 0x08000000)
+        if textOff then
+          s = MultichoiceExtract.label(read_label_bytes(rom, textOff), dialect)
         end
         table.insert(labels, s)
       end
@@ -75,9 +74,15 @@ function MultichoiceExtract.extract(rom)
   return lists
 end
 
+local function source_label()
+  local F = require("src.import.gba.family").active()
+  if F.aliases then return "FRLG" end
+  return require("src.core.game3.profile").of(F.game).label
+end
+
 function MultichoiceExtract.formatLua(lists)
   local lines = {
-    "-- Auto-generated FRLG Multichoice Lists from ROM gMultichoiceLists. DO NOT EDIT DIRECTLY.",
+    "-- Auto-generated " .. source_label() .. " Multichoice Lists from ROM gMultichoiceLists. DO NOT EDIT DIRECTLY.",
     "return {",
   }
   for i = 0, #lists do
@@ -96,6 +101,7 @@ function MultichoiceExtract.formatLua(lists)
 end
 
 MultichoiceExtract.CACHE_REL = "scripts/multichoice.lua"
+MultichoiceExtract.REQUIRED = { MultichoiceExtract.CACHE_REL }
 
 local function multichoice_path(cacheRoot)
   return (cacheRoot or "data/generated/gba") .. "/" .. MultichoiceExtract.CACHE_REL

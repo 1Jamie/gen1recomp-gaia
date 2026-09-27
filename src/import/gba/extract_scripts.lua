@@ -6,10 +6,23 @@ local Movement = require("src.core.game3.scripting.movement")
 local Versions = require("src.import.gba.versions")
 local Opcodes = require("src.core.game3.scripting.opcodes")
 local ExtractMapEvents = require("src.import.gba.extract_map_events")
+local GameVersion = require("src.core.GameVersion")
 
 local ExtractScripts = {}
 
 ExtractScripts.CACHE_SUB = "scripts"
+
+ExtractScripts.REQUIRED = {
+  "scripts/scripts.lua",
+  "scripts/text.lua",
+  "scripts/text_tables.lua",
+  "scripts/movements.lua",
+  "scripts/events.lua",
+  "scripts/meta.json",
+  "scripts/marts.lua",
+  "scripts/labels.lua",
+  "trainers/dialogs.lua",
+}
 
 local SCRIPT_CHUNK = 8192
 local TEXT_MAX = 1024
@@ -79,6 +92,14 @@ local function read_text_ir(rom, gbaPtr, opts)
   return TextIR.decode(bytes, opts)
 end
 
+local function text_opts(battle)
+  local dialect = TextIR.dialectOf(Opcodes.active().game)
+  if dialect == TextIR.DEFAULT_DIALECT then
+    return battle and { battle = true } or nil
+  end
+  return { battle = battle or nil, dialect = dialect }
+end
+
 local function table_key(name, i, inner)
   if inner then
     return string.format("%s[%d][%d]", name, math.floor(i / inner), i % inner)
@@ -89,7 +110,8 @@ end
 -- src/battle_message.c:517, include/constants/battle_string_ids.h:393
 local function extract_text_tables(rom, text)
   local counts = {}
-  local battle = { battle = true }
+  local battle = text_opts(true)
+  local plain = text_opts(false)
   for _, t in ipairs(Versions.TEXT_TABLES) do
     local slots = t.count * (t.inner or 1)
     for i = 0, slots - 1 do
@@ -101,13 +123,13 @@ local function extract_text_tables(rom, text)
       end
       local ir
       if t.inline then
-        ir = assert(read_text_ir(rom, 0x08000000 + t.addr + i * t.stride),
+        ir = assert(read_text_ir(rom, 0x08000000 + t.addr + i * t.stride, plain),
           "ROM text " .. key .. " is not readable")
       else
         local ptr = rom:u32(t.addr + i * t.stride)
         if ptr ~= 0 then
           assert(rom:ptrOffset(ptr), string.format("%s entry is not a ROM pointer (0x%08X)", key, ptr))
-          ir = read_text_ir(rom, ptr, t.battle and battle or nil)
+          ir = read_text_ir(rom, ptr, t.battle and battle or plain)
         end
       end
       text[key] = ir
@@ -156,9 +178,10 @@ local function decode_braille(bytes)
   return out
 end
 
-local function read_braille_ir(rom, gbaPtr)
+local function read_braille_ir(rom, gbaPtr, skip)
   local off = rom:ptrOffset(gbaPtr)
   if not off then return nil end
+  off = off + (skip or 0)
   local bytes = {}
   for i = 0, TEXT_MAX - 1 do
     local b = rom:get(off + i)
@@ -172,18 +195,51 @@ end
 ExtractScripts.BRAILLE_CHARMAP = BRAILLE_CHARMAP
 ExtractScripts.decodeBraille = decode_braille
 
-local function read_movement(rom, gbaPtr)
+local function read_movement(rom, gbaPtr, mv, unknownMoves)
   local off = rom:ptrOffset(gbaPtr)
   if not off then return nil end
   local bytes = rom:readBytes(off, MOVE_MAX)
-  return Disasm.decodeMovement(bytes, 1)
+  local out = Disasm.decodeMovement(bytes, 1)
+  if mv then
+    local unknown
+    out, unknown = mv.translate(out)
+    for _, b in ipairs(unknown or {}) do
+      unknownMoves[b] = (unknownMoves[b] or 0) + 1
+    end
+  end
+  return out
 end
+
+local function movement_table(game)
+  if GameVersion.layout(game) == "rse" then
+    return require("src.import.gba.movement_emerald").forGame(game)
+  end
+  return nil
+end
+
+local function data_label_stop(game)
+  if Versions.GAME ~= game or not Versions.SYMS then return nil end
+  local S = Versions.SYMS
+  return function(off)
+    local names = S.namesAt(off)
+    if #names == 0 then return false end
+    local data = false
+    for _, n in ipairs(names) do
+      if n:find("Script", 1, true) then return false end
+      if n:find("Movement", 1, true) or n:find("Text", 1, true) then data = true end
+    end
+    return data
+  end
+end
+
+ExtractScripts.movementTable = movement_table
 
 --- BFS disasm from seed GBA pointers → scripts / text / movements tables.
 -- Annotates IR so goto/call/message/applymovement use stable keys.
 function ExtractScripts.bfsFromSeeds(rom, seedPtrs)
   local scripts, text, movements, marts = {}, {}, {}, {}
   local opInventory, specialInventory = {}, {}
+  local unknownMoves, stoppedAtData = {}, 0
   local queue = {}
   local queued = {}
   local function enqueue(ptr)
@@ -194,6 +250,16 @@ function ExtractScripts.bfsFromSeeds(rom, seedPtrs)
     queue[#queue + 1] = ptr
   end
   for _, p in ipairs(seedPtrs or {}) do enqueue(p) end
+  local opset = Opcodes.active()
+  local mv = movement_table(opset.game)
+  local stopAt = data_label_stop(opset.game)
+  local textOpts = text_opts(false)
+  local function read_text(ptr)
+    return read_text_ir(rom, ptr, textOpts)
+  end
+  local function read_move(ptr)
+    return read_movement(rom, ptr, mv, unknownMoves)
+  end
 
   local processed = 0
   while #queue > 0 and processed < BFS_MAX do
@@ -209,8 +275,12 @@ function ExtractScripts.bfsFromSeeds(rom, seedPtrs)
     local guard = 0
     while i <= #bytes and guard < 4096 do
       guard = guard + 1
+      if i > 1 and stopAt and stopAt(off + i - 1) then
+        stoppedAtData = stoppedAtData + 1
+        break
+      end
       local row
-      row, i = Disasm.decodeOne(bytes, i)
+      row, i = Disasm.decodeOne(bytes, i, opset)
       opInventory[row.op] = (opInventory[row.op] or 0) + 1
       if row.op == "special" or row.op == "specialvar" then
         local id = row.id or row[1]
@@ -236,7 +306,7 @@ function ExtractScripts.bfsFromSeeds(rom, seedPtrs)
             if field == "eventScript" then
               enqueue(tp)
             elseif not text[tk] then
-              text[tk] = read_text_ir(rom, tp)
+              text[tk] = read_text(tp)
             end
             row[field] = tk
           end
@@ -250,17 +320,20 @@ function ExtractScripts.bfsFromSeeds(rom, seedPtrs)
         local tp = row.ptr or row[1]
         if is_rom_ptr(tp) then
           local tk = Opcodes.key(tp)
-          local ir = read_braille_ir(rom, tp)
+          -- pokeemerald/src/scrcmd.c:1494
+          local ir = read_braille_ir(rom, tp,
+            row.op == "braillemessage" and opset.brailleFormatSize or 0)
           if ir then text[tk] = ir end
           row.ptr = tk
           row[1] = tk
         end
       elseif row.op == "message" or row.op == "vmessage"
-          or row.op == "messageautoscroll" then
+          or row.op == "messageautoscroll" or row.op == "messageinstant"
+          or row.op == "pokenavcall" then
         local tp = row.ptr or row[1]
         if is_rom_ptr(tp) then
           local tk = Opcodes.key(tp)
-          if not text[tk] then text[tk] = read_text_ir(rom, tp) end
+          if not text[tk] then text[tk] = read_text(tp) end
           row.ptr = tk
           row[1] = tk
         end
@@ -268,7 +341,7 @@ function ExtractScripts.bfsFromSeeds(rom, seedPtrs)
         local val = row.value or row[2]
         if is_rom_ptr(val) then
           local tk = Opcodes.key(val)
-          if not text[tk] then text[tk] = read_text_ir(rom, val) end
+          if not text[tk] then text[tk] = read_text(val) end
           row.value = tk
           row[2] = tk
         end
@@ -276,7 +349,7 @@ function ExtractScripts.bfsFromSeeds(rom, seedPtrs)
         local sp = row.src or row[2]
         if is_rom_ptr(sp) then
           local tk = Opcodes.key(sp)
-          if not text[tk] then text[tk] = read_text_ir(rom, sp) end
+          if not text[tk] then text[tk] = read_text(sp) end
           row.src = tk
           row[2] = tk
         end
@@ -284,7 +357,7 @@ function ExtractScripts.bfsFromSeeds(rom, seedPtrs)
         local mp = row.movement or row[2]
         if is_rom_ptr(mp) then
           local mk = Opcodes.key(mp)
-          if not movements[mk] then movements[mk] = read_movement(rom, mp) end
+          if not movements[mk] then movements[mk] = read_move(mp) end
           row.movement = mk
           row[2] = mk
         end
@@ -303,6 +376,12 @@ function ExtractScripts.bfsFromSeeds(rom, seedPtrs)
   end
   assert(#queue == 0, "script BFS stopped at BFS_MAX with " .. #queue .. " scripts queued")
 
+  local unknownOps = (opInventory.unknown or 0)
+  for _, rows in pairs(scripts) do
+    local last = rows[#rows]
+    if last and last.op == "trainerbattle" and last.opaque then unknownOps = unknownOps + 1 end
+  end
+
   return {
     scripts = scripts,
     text = text,
@@ -311,6 +390,9 @@ function ExtractScripts.bfsFromSeeds(rom, seedPtrs)
     opInventory = opInventory,
     specialInventory = specialInventory,
     scriptCount = processed,
+    unknownOps = unknownOps,
+    unknownMoves = unknownMoves,
+    stoppedAtData = stoppedAtData,
   }
 end
 
@@ -325,10 +407,15 @@ function ExtractScripts.extractFromRom(rom, version)
     aliases["std:" .. i] = Opcodes.key(ptr)
   end
   -- data/scripts/pc.inc:1
-  for name, off in pairs(Versions.NAMED_SCRIPTS) do
+  for name, off in pairs(Versions.NAMED_SCRIPTS or {}) do
     local ptr = 0x08000000 + off
     seeds[#seeds + 1] = ptr
     aliases[name] = Opcodes.key(ptr)
+  end
+  local extraSeeds = Versions.SEED_SCRIPTS
+  if type(extraSeeds) == "function" then extraSeeds = extraSeeds() end
+  for _, off in ipairs(extraSeeds or {}) do
+    seeds[#seeds + 1] = 0x08000000 + off
   end
   local bfs = ExtractScripts.bfsFromSeeds(rom, seeds)
   local scripts = {}
@@ -339,21 +426,31 @@ function ExtractScripts.extractFromRom(rom, version)
   local text = {}
   for k, v in pairs(bfs.text) do text[k] = v end
   for name, off in pairs(Versions.NAMED_TEXTS) do
-    text[name] = assert(read_text_ir(rom, 0x08000000 + off), "ROM text " .. name .. " is not readable")
+    text[name] = assert(read_text_ir(rom, 0x08000000 + off, text_opts(false)),
+      "ROM text " .. name .. " is not readable")
   end
   for name, off in pairs(Versions.NAMED_BATTLE_TEXTS) do
-    text[name] = assert(read_text_ir(rom, 0x08000000 + off, { battle = true }),
+    text[name] = assert(read_text_ir(rom, 0x08000000 + off, text_opts(true)),
       "ROM text " .. name .. " is not readable")
   end
   local textTables = extract_text_tables(rom, text)
   -- src/script_menu.c:574
   for i = 0, Versions.STD_STRING_COUNT - 1 do
     local ptr = rom:u32(Versions.STD_STRING_PTRS + i * 4)
-    text["stdstring:" .. i] = assert(read_text_ir(rom, ptr), "gStdStringPtrs entry " .. i .. " is not a ROM pointer")
+    text["stdstring:" .. i] = assert(read_text_ir(rom, ptr, text_opts(false)), "gStdStringPtrs entry " .. i .. " is not a ROM pointer")
   end
   local movements = {}
   for k, v in pairs(bfs.movements) do movements[k] = v end
+  local labels
+  if type(Versions.SCRIPT_LABELS) == "function" then
+    labels = {}
+    for _, row in ipairs(Versions.SCRIPT_LABELS()) do
+      local key = Opcodes.key(0x08000000 + row.off)
+      if scripts[key] then labels[row.name] = key end
+    end
+  end
   return {
+    labels = labels,
     events = events,
     scripts = scripts,
     text = text,
@@ -364,20 +461,54 @@ function ExtractScripts.extractFromRom(rom, version)
     specialInventory = bfs.specialInventory,
     seedCount = #seeds,
     scriptCount = bfs.scriptCount,
+    unknownOps = bfs.unknownOps,
+    unknownMoves = bfs.unknownMoves,
+    stoppedAtData = bfs.stoppedAtData,
     fromRom = true,
   }
 end
 
+local CHUNK_ENTRIES = 256
+
+local function serialize_chunked(val)
+  local keys = {}
+  for k in pairs(val) do keys[#keys + 1] = k end
+  table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+  local parts = { "local T = {}\n" }
+  for i = 1, #keys, CHUNK_ENTRIES do
+    parts[#parts + 1] = "do (function(T)\n"
+    for j = i, math.min(i + CHUNK_ENTRIES - 1, #keys) do
+      local k = keys[j]
+      parts[#parts + 1] = "T[" .. serialize_lua(k) .. "] = " .. serialize_lua(val[k], 1) .. "\n"
+    end
+    parts[#parts + 1] = "end)(T) end\n"
+  end
+  parts[#parts + 1] = "return T\n"
+  return table.concat(parts)
+end
+
+ExtractScripts.serializeChunked = serialize_chunked
+
 local function write_tables(cache, root, scripts, text, movements, events, metaExtra)
   root = root or "data/generated/gba"
   local base = root .. "/" .. ExtractScripts.CACHE_SUB
-  cache:write(base .. "/scripts.lua", "return " .. serialize_lua(scripts) .. "\n")
-  cache:write(base .. "/text.lua", "return " .. serialize_lua(text) .. "\n")
+  local function put(name, val)
+    if metaExtra and metaExtra.chunked then
+      cache:write(base .. "/" .. name, serialize_chunked(val))
+    else
+      cache:write(base .. "/" .. name, "return " .. serialize_lua(val) .. "\n")
+    end
+  end
+  put("scripts.lua", scripts)
+  put("text.lua", text)
   if metaExtra and metaExtra.textTables then
     cache:write(base .. "/text_tables.lua", "return " .. serialize_lua(metaExtra.textTables) .. "\n")
   end
-  cache:write(base .. "/movements.lua", "return " .. serialize_lua(movements) .. "\n")
-  cache:write(base .. "/events.lua", "return " .. serialize_lua(events) .. "\n")
+  put("movements.lua", movements)
+  put("events.lua", events)
+  if metaExtra and metaExtra.labels then
+    put("labels.lua", metaExtra.labels)
+  end
   local meta = {
     cache_version = Versions.CACHE_VERSION,
     kind = "game3",
@@ -415,18 +546,24 @@ local function write_tables(cache, root, scripts, text, movements, events, metaE
     end
     parts[#parts + 1] = "]"
   end
+  if metaExtra and metaExtra.movement then
+    parts[#parts + 1] = string.format(',"movement":%q', metaExtra.movement)
+  end
   parts[#parts + 1] = "}\n"
   cache:write(base .. "/meta.json", table.concat(parts))
   return true
 end
 
 --- Primary write path: ROM MapEvents + BFS.
-function ExtractScripts.writeBundleFromRom(rom, cache, root, version, extracted)
+function ExtractScripts.writeBundleFromRom(rom, cache, root, version, extracted, opts)
   local bundle = extracted or ExtractScripts.extractFromRom(rom, version)
   write_tables(cache, root, bundle.scripts, bundle.text, bundle.movements, bundle.events, {
     source = "rom",
     opInventory = bundle.opInventory,
     textTables = assert(bundle.textTables, "ROM text tables were not extracted"),
+    labels = bundle.labels,
+    movement = opts and opts.movement,
+    chunked = opts and opts.chunked,
   })
   do
     local MartsExtract = require("src.import.gba.marts_extract")
@@ -445,11 +582,68 @@ function ExtractScripts.writeBundleFromRom(rom, cache, root, version, extracted)
     MartsExtract.write(cache, root, marts, { count = n })
     bundle.martListCount = n
   end
-  do
+  if not (opts and opts.skipFlags) then
     local FlagsExtract = require("src.import.gba.flags_extract")
     FlagsExtract.write(cache, root)
   end
   return bundle
+end
+
+function ExtractScripts.headersFromCensus(rom, version)
+  local MapTree = require("src.import.gba.map_tree")
+  local MapCatalog = require("src.import.gba.map_catalog")
+  local census, err = MapTree.walk(rom, version)
+  if not census then error("scripts: map census failed: " .. tostring(err), 0) end
+  local headers, n = {}, 0
+  for _, entry in ipairs(census.maps) do
+    local id = MapCatalog.mapIdFor(entry.group, entry.num) or MapCatalog.pretToEngine(entry.pretName)
+    if id and entry.header and entry.header.headerOff then
+      headers[id] = entry.header.headerOff
+      n = n + 1
+    end
+  end
+  return headers, n, census.map_count
+end
+
+function ExtractScripts.run(rom, cache, opts)
+  opts = opts or {}
+  local root = opts.cacheRoot or "data/generated/gba"
+  local headers, n, total = ExtractScripts.headersFromCensus(rom, opts.version)
+  if n ~= total then
+    error(string.format("scripts: %d of %d map headers resolved", n, total), 0)
+  end
+  local bundle = ExtractScripts.extractFromRom(rom, { map_headers = headers })
+  local badMoves = 0
+  for _, c in pairs(bundle.unknownMoves or {}) do badMoves = badMoves + c end
+  if opts.strict ~= false and (bundle.unknownOps > 0 or badMoves > 0) then
+    error(string.format("scripts: %d unknown opcodes, %d untranslated movement bytes",
+      bundle.unknownOps, badMoves), 0)
+  end
+  ExtractScripts.writeBundleFromRom(rom, cache, root, nil, bundle, {
+    skipFlags = true,
+    movement = "canonical",
+    chunked = true,
+  })
+  require("src.import.gba.trainer_extract").writeDialogs(cache, root, bundle.scripts, bundle.text)
+  return {
+    maps = n,
+    seedCount = bundle.seedCount,
+    scriptCount = bundle.scriptCount,
+    unknownOps = bundle.unknownOps,
+    unknownMoves = badMoves,
+    stoppedAtData = bundle.stoppedAtData,
+  }
+end
+
+function ExtractScripts.ready(cache, cacheRoot)
+  local root = cacheRoot or "data/generated/gba"
+  for _, rel in ipairs(ExtractScripts.REQUIRED) do
+    if not cache:exists(root .. "/" .. rel) then return false end
+  end
+  local meta = cache:read(root .. "/" .. ExtractScripts.CACHE_SUB .. "/meta.json")
+  return type(meta) == "string"
+    and tonumber(meta:match('"cache_version":(%d+)')) == Versions.CACHE_VERSION
+    and meta:find('"movement":"canonical"', 1, true) ~= nil
 end
 
 --- Cache contract: ready extract has events+scripts+text.

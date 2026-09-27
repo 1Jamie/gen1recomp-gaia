@@ -31,38 +31,39 @@ local function setResult(ctx, value)
   flagsMod().setVar(scriptStore(ctx), ctx, VAR_RESULT, tonumber(value) or 0)
 end
 
-SizeRecordNatives.HANDLERS = {
+SizeRecordNatives.BY_NAME = {
   -- pokefirered/src/pokemon_size_record.c:160 GetHeracrossSizeRecordInfo
-  [Std.SPECIAL.GetHeracrossSizeRecordInfo] = function(ctx, adapters)
+  GetHeracrossSizeRecordInfo = function(ctx, adapters)
     SizeRecord.getMonSizeRecordInfo(sessionOf(ctx), ctx, adapters, SizeRecord.SPECIES_HERACROSS, SizeRecord.VAR_HERACROSS_SIZE_RECORD)
     return false
   end,
 
   -- pokefirered/src/pokemon_size_record.c:167 CompareHeracrossSize
-  [Std.SPECIAL.CompareHeracrossSize] = function(ctx, adapters)
+  CompareHeracrossSize = function(ctx, adapters)
     local code = SizeRecord.compareMonSize(sessionOf(ctx), ctx, adapters, SizeRecord.SPECIES_HERACROSS, SizeRecord.VAR_HERACROSS_SIZE_RECORD)
     setResult(ctx, code)
     return false
   end,
 
   -- pokefirered/src/pokemon_size_record.c:179 GetMagikarpSizeRecordInfo
-  [Std.SPECIAL.GetMagikarpSizeRecordInfo] = function(ctx, adapters)
+  GetMagikarpSizeRecordInfo = function(ctx, adapters)
     SizeRecord.getMonSizeRecordInfo(sessionOf(ctx), ctx, adapters, SizeRecord.SPECIES_MAGIKARP, SizeRecord.VAR_MAGIKARP_SIZE_RECORD)
     return false
   end,
 
   -- pokefirered/src/pokemon_size_record.c:186 CompareMagikarpSize
-  [Std.SPECIAL.CompareMagikarpSize] = function(ctx, adapters)
+  CompareMagikarpSize = function(ctx, adapters)
     local code = SizeRecord.compareMonSize(sessionOf(ctx), ctx, adapters, SizeRecord.SPECIES_MAGIKARP, SizeRecord.VAR_MAGIKARP_SIZE_RECORD)
     setResult(ctx, code)
     return false
   end,
 
   -- pokefirered/src/prof_pc.c:106 GetProfOaksRatingMessage
-  [Std.SPECIAL.GetProfOaksRatingMessage] = function(ctx, adapters)
+  GetProfOaksRatingMessage = function(ctx, adapters)
     PokedexRating.getProfOaksRatingMessage(sessionOf(ctx), ctx, adapters)
     return false
   end,
 }
+Std.legacyHandlers(SizeRecordNatives)
 
 return SizeRecordNatives

@@ -3,11 +3,13 @@
 
 local Versions = require("src.import.gba.versions")
 local TextIR = require("src.core.game3.scripting.text_ir")
+local Layouts = require("src.import.gba.layouts.registry")
 
 local ItemsExtract = {}
 
 ItemsExtract.CACHE_SUB = "items"
 ItemsExtract.FORMAT_VERSION = 1
+ItemsExtract.REQUIRED = { "items/pack.lua" }
 
 local function default_cache_root()
   local ok, Extract = pcall(require, "src.import.gba.extract_island1")
@@ -16,14 +18,6 @@ local function default_cache_root()
   end
   return "data/generated/gba"
 end
-
-local POCKET_NAMES = {
-  [1] = "ITEMS",
-  [2] = "KEY_ITEMS",
-  [3] = "POKE_BALLS",
-  [4] = "TM_CASE",
-  [5] = "BERRY_POUCH",
-}
 
 local function get_byte(rom, off)
   if rom.get then
@@ -54,11 +48,15 @@ end
 local function decode_name(rom, off, maxLen)
   maxLen = maxLen or 14
   local chars = {}
+  local extra = TextIR.dialect().CHARMAP_EXTRA
   for i = 0, maxLen - 1 do
     local b = get_byte(rom, off + i)
     if b == 0xFF then break end
     if TextIR.CHARMAP[b] then
       chars[#chars + 1] = TextIR.CHARMAP[b]
+    elseif extra and extra[b] then
+      -- pokeemerald/charmap.txt:45
+      chars[#chars + 1] = extra[b]
     elseif b >= 0xBB and b <= 0xD4 then
       chars[#chars + 1] = string.char(string.byte("A") + (b - 0xBB))
     elseif b >= 0xD5 and b <= 0xEE then
@@ -75,6 +73,7 @@ local function decode_text(rom, gbaPtr, maxLen)
   local off = gbaPtr - 0x08000000
   maxLen = maxLen or 256
   local chars = {}
+  local extra = TextIR.dialect().CHARMAP_EXTRA
   for i = 0, maxLen - 1 do
     local b = get_byte(rom, off + i)
     if b == 0xFF then break end
@@ -82,6 +81,9 @@ local function decode_text(rom, gbaPtr, maxLen)
       chars[#chars + 1] = "\n"
     elseif TextIR.CHARMAP[b] then
       chars[#chars + 1] = TextIR.CHARMAP[b]
+    elseif extra and extra[b] then
+      -- pokeemerald/charmap.txt:45
+      chars[#chars + 1] = extra[b]
     elseif b >= 0xBB and b <= 0xD4 then
       chars[#chars + 1] = string.char(string.byte("A") + (b - 0xBB))
     elseif b >= 0xD5 and b <= 0xEE then
@@ -131,11 +133,11 @@ end
 
 local function determine_field_use(pocket, battleUsage, fieldUseFunc, effect)
   if pocket == "KEY_ITEMS" then return "key" end
-  if pocket == "TM_CASE" then return "tm" end
+  if pocket == "TM_CASE" or pocket == "TM_HM" then return "tm" end
   if pocket == "POKE_BALLS" then return "battle" end
   local F = Versions.FIELD_USE_FUNCS
   local fn = fieldUseFunc - 0x08000001
-  if fn == F.medicine then return medicine_kind(effect) end
+  if fn == F.medicine or (F.reduce_ev and fn == F.reduce_ev) then return medicine_kind(effect) end
   if fn == F.ether or fn == F.pp_up then return "pp" end
   if fn == F.rare_candy then return "level" end
   if fn == F.evo_item then return "evo" end
@@ -174,12 +176,15 @@ function ItemsExtract.run(rom, cache, opts)
   local outRel = cacheRoot .. "/" .. ItemsExtract.CACHE_SUB .. "/pack.lua"
 
   if not opts.force and ItemsExtract.ready(cache, cacheRoot) then
-    return { ok = true, count = Versions.ITEMS_COUNT or 375, path = outRel, skipped = true }
+    return { ok = true, count = Versions.ITEMS_COUNT, path = outRel, skipped = true }
   end
 
-  local itemBase = Versions.ITEMS or 0x3DB028
-  local itemCount = Versions.ITEMS_COUNT or 375
-  local itemStride = Versions.ITEM_STRIDE or 44
+  local itemBase = assert(Versions.ITEMS, "items_extract: no ITEMS key")
+  local itemCount = assert(Versions.ITEMS_COUNT, "items_extract: no ITEMS_COUNT key")
+  local itemStride = assert(Versions.ITEM_STRIDE, "items_extract: no ITEM_STRIDE key")
+  local layout = Layouts.active()
+  local pocketNames = Layouts.pockets(layout)
+  local syms = rawget(Versions.module(), "SYMS")
 
   local lines = {
     "-- Auto-generated from GBA ROM gItems table. DO NOT EDIT DIRECTLY.",
@@ -207,7 +212,7 @@ function ItemsExtract.run(rom, cache, opts)
     local secondaryId = get_byte(rom, off + 40)
 
     local desc = decode_text(rom, descPtr, 256)
-    local pocket = POCKET_NAMES[pocketId] or "ITEMS"
+    local pocket = pocketNames[pocketId] or "ITEMS"
     local effect = read_effect(rom, id)
     local fieldUse = determine_field_use(pocket, battleUsage, fieldUseFunc, effect)
 
@@ -234,6 +239,15 @@ function ItemsExtract.run(rom, cache, opts)
       effect and ("{" .. table.concat(effect, ",") .. "}") or "nil",
       escape_lua(desc)
     )
+    if syms then
+      local fieldName = fieldUseFunc ~= 0 and syms.funcAt(fieldUseFunc) or nil
+      local battleName = battleUseFunc ~= 0 and syms.funcAt(battleUseFunc) or nil
+      lines[#lines] = lines[#lines]:sub(1, -4) .. string.format(
+        ', pocketId=%d, fieldUseName=%s, battleUseName=%s },',
+        pocketId,
+        fieldName and ('"' .. fieldName .. '"') or "nil",
+        battleName and ('"' .. battleName .. '"') or "nil")
+    end
   end
 
   lines[#lines + 1] = "  },"

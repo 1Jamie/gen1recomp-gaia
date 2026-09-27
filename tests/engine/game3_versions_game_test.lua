@@ -6,26 +6,27 @@ local check, eq = T.check, T.eq
 local GameVersion = require("src.core.GameVersion")
 local VersionsGame = require("src.import.gba.versions_game")
 local Versions = require("src.import.gba.versions")
+local Frlg = require("src.import.gba.versions_frlg")
 
 local prevVersion = GameVersion.get()
 
 VersionsGame.reset()
 GameVersion.set("firered")
 
-check(VersionsGame.game("firered") == Versions,
-  "firered resolves the existing monolith")
-check(VersionsGame.game("leafgreen") == Versions,
+check(VersionsGame.game("firered") == Frlg,
+  "firered resolves the FRLG table")
+check(VersionsGame.game("leafgreen") == Frlg,
   "leafgreen shares the FireRed tables")
-check(VersionsGame.game(nil) == Versions,
+check(VersionsGame.game(nil) == Frlg,
   "nil resolves the active game's table")
-check(VersionsGame.game("") == Versions, "an empty id resolves the active game")
-check(VersionsGame.game("ruby") == Versions,
-  "an unregistered RSE id falls back to FireRed's table")
+check(VersionsGame.game("") == Frlg, "an empty id resolves the active game")
+check(not pcall(VersionsGame.game, "ruby"),
+  "an unregistered id raises instead of reading FireRed offsets")
 
 VersionsGame.reset()
 GameVersion.set("red")
-check(VersionsGame.game(nil) == Versions,
-  "a non-Gen3 process fails closed to FireRed's table")
+check(VersionsGame.game(nil) == Frlg,
+  "a non-Gen3 process resolves nil to FireRed's table")
 
 VersionsGame.reset()
 GameVersion.set("firered")
@@ -49,11 +50,18 @@ check(VersionsGame.register("", "tests.versions_game_probe") == false,
 check(VersionsGame.register("testgame", 7) == false, "register rejects a non-string path")
 
 check(VersionsGame.register("busted", "no.such.module") == true, "register a broken row")
-check(VersionsGame.game("busted") == Versions, "a broken row falls back to FireRed")
+check(not pcall(VersionsGame.game, "busted"), "a broken row raises")
 
 VersionsGame.reset()
 check(VersionsGame.game("testgame") == probe, "registrations survive reset")
-check(VersionsGame.game("firered") == Versions, "resolutions re-resolve after reset")
+check(VersionsGame.game("firered") == Frlg, "resolutions re-resolve after reset")
+check(Versions.forGame("firered") == Frlg, "the facade hands out the FRLG table")
+check(Versions.active() == "firered", "the facade defaults to firered")
+check(Versions.NUM_SPECIES == Frlg.NUM_SPECIES, "the facade forwards reads")
+check(not pcall(Versions.select, "0000000000000000000000000000000000000000"),
+  "an unknown sha1 raises")
+check(not pcall(Versions.select, "red"), "a non gen 3 id raises")
+eq(Versions.active(), "firered", "a failed select leaves the active game")
 
 VersionsGame.GAMES["testgame"] = nil
 VersionsGame.GAMES["busted"] = nil

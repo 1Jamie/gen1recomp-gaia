@@ -6,8 +6,22 @@ local function convert(packed)
   return (w / 8) * 16 + h / 8
 end
 
-local OUT = { front = {}, back = {} }
-for sp, packed in pairs(sizes.front or {}) do OUT.front[sp] = convert(packed) end
-for sp, packed in pairs(sizes.back or {}) do OUT.back[sp] = convert(packed) end
+local built = setmetatable({}, { __mode = "k" })
 
-return OUT
+local function active()
+  local src = sizes.active()
+  local out = built[src]
+  if out then return out end
+  out = { front = {}, back = {} }
+  for sp, packed in pairs(src.front or {}) do out.front[sp] = convert(packed) end
+  for sp, packed in pairs(src.back or {}) do out.back[sp] = convert(packed) end
+  built[src] = out
+  return out
+end
+
+return setmetatable({}, {
+  __index = function(_, k)
+    if k == "front" or k == "back" then return active()[k] end
+    return nil
+  end,
+})

@@ -40,6 +40,7 @@ BerryPouch.wobbleTimer = 0
 local VISIBLE = 7
 local ACTIONS = { "USE", "GIVE", "TOSS", "EXIT" }
 local ACTION_TEXT = { USE = 0, TOSS = 1, GIVE = 2, EXIT = 3 }
+local SE = require("src.core.game3.se_ids")
 
 local function se(id)
   pcall(function()
@@ -177,20 +178,20 @@ function BerryPouch.handleInput(input)
       else
         BerryPouch.tossQty = 1 -- wrap around to 1
       end
-      se(5)
+      se(SE.SE_SELECT)
     elseif input:wasPressed("down") or input:wasPressed("left") then
       if BerryPouch.tossQty > 1 then
         BerryPouch.tossQty = BerryPouch.tossQty - 1
       else
         BerryPouch.tossQty = maxQ -- wrap around to max
       end
-      se(5)
+      se(SE.SE_SELECT)
     elseif input:wasPressed("a") then
-      se(5)
+      se(SE.SE_SELECT)
       BerryPouch.mode = "toss_confirm"
       BerryPouch.yesNoCursor = 1
     elseif input:wasPressed("b") then
-      se(5) -- pokefirered/src/berry_pouch.c:1142
+      se(SE.SE_SELECT) -- pokefirered/src/berry_pouch.c:1142
       BerryPouch.mode = "list"
     end
     return
@@ -200,14 +201,14 @@ function BerryPouch.handleInput(input)
   if BerryPouch.mode == "toss_confirm" then
     if input:wasPressed("up") or input:wasPressed("down") then
       BerryPouch.yesNoCursor = (BerryPouch.yesNoCursor == 1) and 2 or 1
-      se(5)
+      se(SE.SE_SELECT)
     elseif input:wasPressed("b") then
-      se(5) -- pokefirered/src/menu_helpers.c:57
+      se(SE.SE_SELECT) -- pokefirered/src/menu_helpers.c:57
       BerryPouch.mode = "list"
     elseif input:wasPressed("a") then
       if BerryPouch.yesNoCursor == 1 then
         -- YES: Toss items
-        se(5)
+        se(SE.SE_SELECT)
         if row then
           local bName = row.name or ItemsData.displayName(row.id)
           Bag.remove(BerryPouch._bag, row.id, BerryPouch.tossQty)
@@ -221,7 +222,7 @@ function BerryPouch.handleInput(input)
         end
       else
         -- NO: Cancel toss
-        se(5) -- pokefirered/src/menu_helpers.c:57
+        se(SE.SE_SELECT) -- pokefirered/src/menu_helpers.c:57
         BerryPouch.mode = "list"
       end
     end
@@ -231,7 +232,7 @@ function BerryPouch.handleInput(input)
   -- 3. Message Mode
   if BerryPouch.mode == "message" then
     if input:wasPressed("a") or input:wasPressed("b") or input:wasPressed("start") then
-      se(5)
+      se(SE.SE_SELECT)
       BerryPouch.mode = "list"
       BerryPouch.messageText = nil
       clamp_cursor()
@@ -243,12 +244,12 @@ function BerryPouch.handleInput(input)
   if BerryPouch.mode == "action" then
     if input:wasPressed("up") then
       BerryPouch.actionCursor = ((BerryPouch.actionCursor - 2) % #ACTIONS) + 1
-      se(5)
+      se(SE.SE_SELECT)
     elseif input:wasPressed("down") then
       BerryPouch.actionCursor = (BerryPouch.actionCursor % #ACTIONS) + 1
-      se(5)
+      se(SE.SE_SELECT)
     elseif input:wasPressed("a") then
-      se(5)
+      se(SE.SE_SELECT)
       local act = ACTIONS[BerryPouch.actionCursor]
       local party = PartyView.live(BerryPouch._session)
       if act == "EXIT" or not row then
@@ -303,7 +304,7 @@ function BerryPouch.handleInput(input)
         end
       end
     elseif input:wasPressed("b") then
-      se(5) -- pokefirered/src/berry_pouch.c:1052
+      se(SE.SE_SELECT) -- pokefirered/src/berry_pouch.c:1052
       BerryPouch.mode = "list"
     end
     return
@@ -315,36 +316,36 @@ function BerryPouch.handleInput(input)
       BerryPouch.cursor = ((BerryPouch.cursor - 2) % total) + 1
       BerryPouch.wobbleTimer = 0.25
       clamp_cursor()
-      se(5)
+      se(SE.SE_SELECT)
     end
   elseif input:wasPressed("down") then
     if total > 0 then
       BerryPouch.cursor = (BerryPouch.cursor % total) + 1
       BerryPouch.wobbleTimer = 0.25
       clamp_cursor()
-      se(5)
+      se(SE.SE_SELECT)
     end
   elseif input:wasPressed("left") or input:wasPressed("l") then
     if total > 0 then
       BerryPouch.cursor = math.max(1, BerryPouch.cursor - VISIBLE)
       BerryPouch.wobbleTimer = 0.25
       clamp_cursor()
-      se(5)
+      se(SE.SE_SELECT)
     end
   elseif input:wasPressed("right") or input:wasPressed("r") then
     if total > 0 then
       BerryPouch.cursor = math.min(total, BerryPouch.cursor + VISIBLE)
       BerryPouch.wobbleTimer = 0.25
       clamp_cursor()
-      se(5)
+      se(SE.SE_SELECT)
     end
   elseif input:wasPressed("a") then
     if BerryPouch.cursor == total then
       -- CLOSE option selected
-      se(5) -- pokefirered/src/berry_pouch.c:963
+      se(SE.SE_SELECT) -- pokefirered/src/berry_pouch.c:963
       BerryPouch.close()
     elseif row and BerryPouch._sellMode then
-      se(5)
+      se(SE.SE_SELECT)
       -- src/berry_pouch.c:1266 Task_ContextMenu_Sell
       BerryPouch.mode = "sell"
       BerryPouch._sell = require("src.ui.game3.sell_flow").start({
@@ -362,10 +363,10 @@ function BerryPouch.handleInput(input)
       -- Berry selected
       BerryPouch.mode = "action"
       BerryPouch.actionCursor = 1
-      se(5)
+      se(SE.SE_SELECT)
     end
   elseif input:wasPressed("b") or input:wasPressed("start") then
-    se(5) -- pokefirered/src/berry_pouch.c:957
+    se(SE.SE_SELECT) -- pokefirered/src/berry_pouch.c:957
     BerryPouch.close()
   end
 end

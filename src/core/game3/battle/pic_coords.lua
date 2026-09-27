@@ -1,6 +1,6 @@
 -- Auto-derived from pret gMonFront/BackPicCoords + gEnemyMonElevation (FRLG).
 -- y_offset per internal SPECIES id. Do not edit by hand.
-local PicCoords = {
+local FRLG = {
   front = {
     [0] = 0,
     [1] = 16,
@@ -894,6 +894,58 @@ local PicCoords = {
     [411] = 12,
   },
 }
+
+local PicCoords = {}
+PicCoords.FRLG = FRLG
+PicCoords.PACK = "data/generated/gba/pokemon/pic_coords.lua"
+
+local packs = {}
+
+function PicCoords.fromPack(pack)
+  if type(pack) ~= "table" or type(pack.front) ~= "table" or type(pack.back) ~= "table"
+    or type(pack.elevation) ~= "table" then
+    error("pic_coords: pack is missing front/back/elevation")
+  end
+  local out = { front = {}, back = {}, elev = {} }
+  for sp, row in pairs(pack.front) do out.front[sp] = row.y end
+  for sp, row in pairs(pack.back) do out.back[sp] = row.y end
+  for sp, n in pairs(pack.elevation) do
+    if n ~= 0 then out.elev[sp] = n end
+  end
+  return out
+end
+
+local function loadPack()
+  local GameVersion = require("src.core.GameVersion")
+  local key = GameVersion.get() .. ":" .. tostring(GameVersion.cachePrefix())
+  local hit = packs[key]
+  if hit then return hit end
+  local src = require("src.core.game3.dataset").cache():read(PicCoords.PACK)
+  if type(src) ~= "string" then
+    error("pic_coords: " .. PicCoords.PACK .. " missing from the " .. GameVersion.get() .. " cache")
+  end
+  local chunk, err = load(src, "@" .. PicCoords.PACK, "t", {})
+  if not chunk then error("pic_coords: " .. tostring(err)) end
+  hit = PicCoords.fromPack(chunk())
+  packs[key] = hit
+  return hit
+end
+
+function PicCoords.active()
+  if require("src.core.game3.profile").family() == "frlg" then return FRLG end
+  return loadPack()
+end
+
+function PicCoords.reset()
+  packs = {}
+end
+
+setmetatable(PicCoords, {
+  __index = function(_, k)
+    if k == "front" or k == "back" or k == "elev" then return PicCoords.active()[k] end
+    return nil
+  end,
+})
 
 local AnimCoords = require("src.core.game3.battle.anim_coords")
 

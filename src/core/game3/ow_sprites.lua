@@ -20,6 +20,14 @@ local RUN_BASE = { down = 9, up = 12, left = 15, right = 15 }
 local RUN_A = { down = 10, up = 13, left = 16, right = 16 }
 local RUN_B = { down = 11, up = 14, left = 17, right = 17 }
 
+local EMPTY = {}
+
+local function fieldBlock()
+  local Profile = package.loaded["src.core.game3.profile"] or require("src.core.game3.profile")
+  local ok, row = pcall(Profile.forSession)
+  return ok and row and row.field or EMPTY
+end
+
 local function owRoot()
   -- Must follow Dataset.mountExtractRoots() — do not bake CACHE_ROOT at require.
   return (Extract.CACHE_ROOT or "data/generated/gba") .. "/ow"
@@ -372,6 +380,13 @@ function OwSprites.pose(spr, facing, walkPhase, stepFlip, opts)
   end
 
   if opts and opts.running ~= nil and spr.frameCount >= 18 then
+    local runFrames = fieldBlock().runFrames
+    if runFrames then
+      local phase = runFrames[opts.running == 1 and 2 or 1]
+      local set = phase and (stepFlip and phase.a or phase.b)
+      local f = set and set[facing]
+      if f then return f, flip end
+    end
     if opts.running == 1 then
       return (stepFlip and RUN_A[facing] or RUN_B[facing]) or RUN_BASE[facing] or 9, flip
     end
@@ -427,6 +442,40 @@ function OwSprites.draw(graphicsId, px, py, camX, camY, facing, walkPhase, stepF
   return true
 end
 
+function OwSprites.avatars()
+  if not OwSprites._manifest and OwSprites._cache then
+    OwSprites.install(OwSprites._cache)
+  end
+  local m = OwSprites._manifest
+  return m and m.avatars or nil
+end
+
+-- pokeemerald/src/field_player_avatar.c:1256
+function OwSprites.avatarState(P)
+  if not P then return "NORMAL" end
+  if P.fieldMoveAnim and P.fieldMoveAnim > 0 then return "FIELD_MOVE" end
+  if P.underwater then return "UNDERWATER" end
+  if (P.surfing and not P.dismounting) or P.flyRide then return "SURFING" end
+  if P.biking then return P.bikeType == "acro" and "ACRO_BIKE" or "MACH_BIKE" end
+  if P.fishing then return "FISHING" end
+  if P.watering then return "WATERING" end
+  return "NORMAL"
+end
+
+-- pokeemerald/src/field_player_avatar.c:1241
+function OwSprites.avatarGraphicsId(state, isFemale, avatars, who)
+  avatars = avatars or OwSprites.avatars()
+  local rows = avatars and avatars[who or "player"]
+  if type(rows) ~= "table" then return nil end
+  local key = isFemale and "female" or "male"
+  local normal
+  for _, row in ipairs(rows) do
+    if row.state == state then return row[key] end
+    if row.state == "NORMAL" then normal = row[key] end
+  end
+  return normal
+end
+
 function OwSprites.playerGraphicsId(game)
   local P = package.loaded["src.core.game3.player"]
   local save = game and game.save
@@ -434,6 +483,11 @@ function OwSprites.playerGraphicsId(game)
   local gender = (session and session.gender)
     or (save and (save.gender or (save.player and save.player.gender)))
   local isFemale = (gender == "female" or gender == "F" or gender == 1)
+
+  local avatars = OwSprites.avatars()
+  if avatars then
+    return OwSprites.avatarGraphicsId(OwSprites.avatarState(P), isFemale, avatars)
+  end
 
   if P then
     if P.fieldMoveAnim and P.fieldMoveAnim > 0 then

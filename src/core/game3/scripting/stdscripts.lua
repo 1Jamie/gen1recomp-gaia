@@ -86,6 +86,7 @@ Std.SPECIAL = {
   GetPCBoxToSendMon = 0x18A, -- pokefirered/data/specials.inc:405
   HasAtLeastOneBerry = 0x19B, -- pokefirered/data/specials.inc:422
   GetPlayerFacingDirection = 0x1AA, -- pokefirered/data/specials.inc:437
+  GetPlayerFacingDirectionUnusedSlot = 0x11F, -- pokefirered/data/specials.inc:298
   DoDeoxysTriangleInteraction = 0x1AB, -- pokefirered/data/specials.inc:438
   ValidateSavedWonderCard = 0x180, -- pokefirered/data/specials.inc:395
   GetMysteryGiftCardStat = 0x186, -- pokefirered/data/specials.inc:401
@@ -213,15 +214,51 @@ Std.SPECIAL = {
 Std.SPECIAL_ALIASES = {
   FieldShowRegionMap = "ShowTownMap", -- pokefirered/data/specials.inc:262
   SetPostgameFlagsUnusedSlot = "SetPostgameFlags", -- pokefirered/data/specials.inc:352
+  GetPlayerFacingDirectionUnusedSlot = "GetPlayerFacingDirection", -- pokefirered/data/specials.inc:298
 }
 
 Std.SPECIAL_ENGINE_BASE = 0xF000
 
 Std.SPECIAL_NAME_BY_ID = {}
+Std.ENGINE_SPECIALS = {}
 for name, id in pairs(Std.SPECIAL) do
   if id < Std.SPECIAL_ENGINE_BASE then
     Std.SPECIAL_NAME_BY_ID[id] = Std.SPECIAL_ALIASES[name] or name
+  else
+    Std.ENGINE_SPECIALS[id] = name
   end
+end
+
+local function specialsOf(game)
+  return require("src.core.game3.constants").of(game or "firered").specials
+end
+
+function Std.specialIds(game)
+  local ids = {}
+  for id, name in pairs(specialsOf(game).byId) do ids[id] = name end
+  for id, name in pairs(Std.ENGINE_SPECIALS) do ids[id] = name end
+  return ids
+end
+
+function Std.specialName(game, id)
+  id = tonumber(id)
+  if not id then return nil end
+  return Std.ENGINE_SPECIALS[id] or specialsOf(game).byId[id]
+end
+
+function Std.bindById(byName, game, out)
+  out = out or {}
+  for id in pairs(out) do out[id] = nil end
+  for id, name in pairs(Std.specialIds(game)) do
+    local fn = byName[name]
+    if fn ~= nil then out[id] = fn end
+  end
+  return out
+end
+
+function Std.legacyHandlers(mod)
+  mod.HANDLERS = Std.bindById(mod.BY_NAME or {}, "firered", mod.HANDLERS)
+  return mod.HANDLERS
 end
 
 return Std

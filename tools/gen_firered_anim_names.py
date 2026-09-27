@@ -8,7 +8,7 @@ import sys
 ROM_BASE = 0x08000000
 DEFAULT_PRET = os.path.expanduser("~/Documents/development/pokefirered")
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VERSIONS = os.path.join(REPO, "src", "import", "gba", "versions.lua")
+VERSIONS = os.path.join(REPO, "src", "import", "gba", "versions_frlg.lua")
 MOVES_TABLE = 0x1C68F4
 
 OPCODES = {
@@ -470,7 +470,7 @@ def main():
                 break
         end_mark = "\n-- Wild encounters (FireRed USA 1.0)"
         end = src.find(end_mark)
-        assert start >= 0 and end > start, "versions.lua anchors not found"
+        assert start >= 0 and end > start, "versions_frlg.lua anchors not found"
         assert src.count(end_mark) == 1
         new = src[:start] + block + src[end:]
         with open(VERSIONS, "w") as f:

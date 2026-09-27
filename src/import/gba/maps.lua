@@ -36,7 +36,7 @@ function Maps.loadIsland1(rom, version)
   return out
 end
 
---- Read FRLG MapLayout border block (pret map.json border).
+--- Read MapLayout border block (pret map.json border).
 -- @return { width, height, mids } or 1×1 mid-0 fallback
 function Maps.loadBorder(rom, version, mapId)
   local Versions = require("src.import.gba.versions")
@@ -51,10 +51,9 @@ function Maps.loadBorder(rom, version, mapId)
   if not layoutOff then
     return { width = 1, height = 1, mids = { 0 } }
   end
-  -- MapLayout: +8 border ptr, +24 borderWidth, +25 borderHeight
   local borderPtr = rom:u32(layoutOff + 8)
-  local bw = rom:get(layoutOff + 24) or 0
-  local bh = rom:get(layoutOff + 25) or 0
+  local bw, bh = require("src.import.gba.family").active():borderDims(rom, layoutOff)
+  bw, bh = bw or 0, bh or 0
   local borderOff = Versions.gbaToFile(borderPtr)
   if not borderOff or bw < 1 or bh < 1 or bw > 16 or bh > 16 then
     return { width = 1, height = 1, mids = { 0 } }

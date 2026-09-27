@@ -197,7 +197,8 @@ end
 function Adapters.resolveNpcColor(ctx, store)
   local Ctx = require("src.core.game3.scripting.ctx")
   local sv = ctx and ctx.specialVars or {}
-  local tc = sv[Ctx.VAR_TEXT_COLOR]
+  local layout = ctx and ctx.specialLayout or Ctx.specialLayout()
+  local tc = layout.textColor and sv[layout.textColor] or nil
   if tc == nil then tc = Ctx.TEXT_COLOR_DEFAULT end
   -- src/field_specials.c:1548
   if tc ~= Ctx.TEXT_COLOR_DEFAULT then return tc end
@@ -741,6 +742,7 @@ function Adapters.host(mod, game, world)
           session = Runtime.getSession(),
           onClose = finish,
           startMode = startMode,
+          bedroom = bedroom,
           closeOnExit = bedroom or mode == "storage" or mode == "player",
           silentClose = mode ~= nil,
           prompt = prompt,
@@ -1004,7 +1006,8 @@ function Adapters.host(mod, game, world)
           local tmOk, TownMap = pcall(require, "src.core.game3.town_map_stub")
           if tmOk and TownMap.unlockSeviiMap then TownMap.unlockSeviiMap(mod) end
         end
-        if ok and ItemsData.pocketOf(storeId)=="KEY_ITEMS" then
+        if ok and ItemsData.pocketOf(storeId)=="KEY_ITEMS"
+          and require("src.core.game3.field_modules").enabled("questLog", session) then
           local Q=require("src.core.game3.quest_log_recorder")
           Q.event(session,"ObtainedItemInLocation",{Q.location(resolveGame(),session),ItemsData.displayName(storeId)})
         end
@@ -1203,8 +1206,12 @@ function Adapters.host(mod, game, world)
     warp = function(group, num, warpId, x, y, done, kind)
       local Versions = require("src.import.gba.versions")
       -- Prefer FR standalone ids; fall back to Sevii ferry maps.
-      local mapId = (Versions.frMapFor and Versions.frMapFor(group, num))
-        or Versions.seviiMapFor(group, num)
+      local mapId
+      if Versions.frMapFor then
+        mapId = Versions.frMapFor(group, num) or Versions.seviiMapFor(group, num)
+      else
+        mapId = warp_map_id(group, num)
+      end
       local w = resolveWorld()
       local finish = function()
         moveTracks = {}

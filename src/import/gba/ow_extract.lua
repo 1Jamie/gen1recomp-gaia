@@ -10,6 +10,8 @@ local OwExtract = {}
 OwExtract.MAGIC = "SVOW"
 OwExtract.FORMAT_VERSION = 1
 
+OwExtract.REQUIRED = { "ow/manifest.lua" }
+
 local function u8(n)
   return string.char((tonumber(n) or 0) % 256)
 end
@@ -134,6 +136,18 @@ local function pic_table_len(rom, imagesOff, frameBytes, starts)
   return n
 end
 
+local function sym_frame_count(imagesOff)
+  local S = Versions.SYMS
+  if not S or not imagesOff then return nil end
+  for _, n in ipairs(S.namesAt(imagesOff)) do
+    if n:find("PicTable", 1, true) then
+      local ok, size = pcall(S.size, n)
+      if ok and size and size > 0 and size % 8 == 0 then return size / 8 end
+    end
+  end
+  return nil
+end
+
 --- Decode one 4bpp sprite frame (tile order: L→R, T→B 8×8) → indexed [w*h].
 local function decode_frame_4bpp(raw, width, height)
   local pixels = {}
@@ -218,8 +232,13 @@ function OwExtract.extractOne(rom, graphicsId, palsByTag, version)
     return nil, "bad dimensions"
   end
   local imagesOff0 = gba_off(info.imagesPtr)
-  local starts = pic_table_starts(rom, pointers, num)
-  local frameCount = imagesOff0 and pic_table_len(rom, imagesOff0, math.floor(w * h / 2), starts) or 0
+  local rawBytes = math.floor(w * h / 2)
+  local exactFrames = sym_frame_count(imagesOff0)
+  local frameCount = exactFrames
+  if not frameCount then
+    local starts = pic_table_starts(rom, pointers, num)
+    frameCount = imagesOff0 and pic_table_len(rom, imagesOff0, rawBytes, starts) or 0
+  end
   if frameCount < 1 then frameCount = 1 end
 
   -- For Town Map (OBJ_EVENT_GFX_TOWN_MAP = 93) or 16x16 inanimate objects with 32x16 OAM allocation:
@@ -236,9 +255,10 @@ function OwExtract.extractOne(rom, graphicsId, palsByTag, version)
   for i = 0, frameCount - 1 do
     local dataPtr = rom:u32(imagesOff + i * 8)
     local frameSize = rom:u16(imagesOff + i * 8 + 4)
+    local foreign = exactFrames and frameSize ~= rawBytes
     if frameSize < 1 then frameSize = expected end
     if frameSize > expected * 4 then frameSize = expected end
-    local bytes = load_frame_bytes(rom, dataPtr, math.max(frameSize, expected))
+    local bytes = not foreign and load_frame_bytes(rom, dataPtr, math.max(frameSize, expected))
     if not bytes or #bytes < expected then
       -- pad / blank
       frames[i + 1] = {}
@@ -362,6 +382,62 @@ function OwExtract.collectIsland1Ids(rom, version)
   return list
 end
 
+-- pokeemerald/src/field_player_avatar.c:234
+function OwExtract.readAvatars(rom, spec)
+  spec = spec or Versions.PLAYER_AVATAR_GFX
+  if not spec then return nil end
+  local genders = spec.genders
+  local function pair(off)
+    return { male = rom:get(off), female = rom:get(off + 1) }
+  end
+  local function states(off, n)
+    local out = {}
+    for s = 0, n - 1 do
+      out[s + 1] = pair(off + s * genders)
+      out[s + 1].state = spec.stateNames[s + 1] or tostring(s)
+    end
+    return out
+  end
+  local flags = { male = {}, female = {} }
+  for g, key in ipairs({ "male", "female" }) do
+    local base = spec.state_flags + (g - 1) * spec.state_flag_count * 2
+    for i = 0, spec.state_flag_count - 1 do
+      flags[key][i + 1] = { gfx = rom:get(base + i * 2), flag = rom:get(base + i * 2 + 1) }
+    end
+  end
+  return {
+    player = states(spec.player, spec.player_states),
+    rival = states(spec.rival, spec.rival_states),
+    linkFrlg = pair(spec.link_frlg),
+    linkRs = pair(spec.link_rs),
+    stateFlags = flags,
+  }
+end
+
+local function avatar_lines(av)
+  local out = { "  avatars = {\n" }
+  for _, key in ipairs({ "player", "rival" }) do
+    out[#out + 1] = ("    %s = {\n"):format(key)
+    for _, r in ipairs(av[key]) do
+      out[#out + 1] = ("      { state = %q, male = %d, female = %d },\n"):format(r.state, r.male, r.female)
+    end
+    out[#out + 1] = "    },\n"
+  end
+  for _, key in ipairs({ "linkFrlg", "linkRs" }) do
+    out[#out + 1] = ("    %s = { male = %d, female = %d },\n"):format(key, av[key].male, av[key].female)
+  end
+  out[#out + 1] = "    stateFlags = {\n"
+  for _, g in ipairs({ "male", "female" }) do
+    out[#out + 1] = ("      %s = {\n"):format(g)
+    for _, r in ipairs(av.stateFlags[g]) do
+      out[#out + 1] = ("        { gfx = %d, flag = %d },\n"):format(r.gfx, r.flag)
+    end
+    out[#out + 1] = "      },\n"
+  end
+  out[#out + 1] = "    },\n  },\n"
+  return table.concat(out)
+end
+
 --- Write ow/* sheets. opts.all=true extracts every OBJ_EVENT_GFX (firered default).
 function OwExtract.writeExtract(rom, cache, root, version, opts)
   root = root or "data/generated/gba"
@@ -417,10 +493,27 @@ function OwExtract.writeExtract(rom, cache, root, version, opts)
         s.inanimate and "true" or "false", s.atlasW, s.atlasH)
     end
   end
-  lines[#lines + 1] = "  },\n}\n"
+  lines[#lines + 1] = "  },\n"
+  local avatars = OwExtract.readAvatars(rom)
+  if avatars then
+    manifest.avatars = avatars
+    lines[#lines + 1] = avatar_lines(avatars)
+  end
+  lines[#lines + 1] = "}\n"
   cache:write(owRoot .. "/manifest.lua", table.concat(lines))
   print(string.format("[ow] extracted %d / %d object graphics → %s", okCount, #ids, owRoot))
+  manifest.count = okCount
+  manifest.total = #ids
   return manifest
+end
+
+function OwExtract.run(rom, cache, opts)
+  opts = opts or {}
+  local manifest = OwExtract.writeExtract(rom, cache, opts.cacheRoot, opts.version, { all = opts.all ~= false })
+  if opts.strict ~= false and manifest.count ~= manifest.total then
+    error(string.format("ow: extracted %d of %d object graphics", manifest.count, manifest.total), 0)
+  end
+  return { count = manifest.count, total = manifest.total, avatars = manifest.avatars ~= nil }
 end
 
 function OwExtract.ready(cache, root)

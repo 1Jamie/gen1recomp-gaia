@@ -74,8 +74,24 @@ function BerryPowderBox.amountText(amount)
   return string.format("%5d", clamp(amount))
 end
 
+local function layout()
+  local ok, Profile = pcall(require, "src.core.game3.profile")
+  local row = ok and Profile.forSession() or nil
+  return row and type(row.ui) == "table" and row.ui.berryPowderBox or nil
+end
+
 function BerryPowderBox.draw()
   if not BerryPowderBox.visible then return end
+  local L = layout()
+  if L then
+    local t = Window.template(L.left, L.top, L.width, L.height)
+    local x, y = t.tilemapLeft * 8, t.tilemapTop * 8
+    Window.stdFrame(t)
+    FrlgFont.draw(RomText.plain(L.title), x + L.titleX, y + L.titleY, { colors = FrlgFont.COLOR.NORMAL })
+    FrlgFont.draw(BerryPowderBox.amountText(BerryPowderBox._amount), x + L.amountX, y + L.amountY,
+      { colors = FrlgFont.COLOR.NORMAL })
+    return
+  end
   local px, py = TEMPLATE.tilemapLeft * 8, TEMPLATE.tilemapTop * 8
   Window.stdFrame(TEMPLATE)
   -- pokefirered/src/berry_powder.c:104

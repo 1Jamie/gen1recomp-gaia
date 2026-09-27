@@ -3,9 +3,7 @@ return function(K)
   local P, D, T = K.P, K.destroy, K.T
   local TK = {}
 
-  local SE_M_THUNDERBOLT = 111
-  local SE_M_HEADBUTT = 155
-  local SE_M_DIG = 168
+  local SE = require("src.core.game3.se_ids")
 
   local function play_se12(se, pan)
     local ok, Audio = pcall(require, "src.core.game3.audio")
@@ -298,7 +296,7 @@ return function(K)
     end
     if d[4] == 0 and d[5] > 0 then
       d[14] = d[14] + d[15]
-      play_se12(SE_M_THUNDERBOLT, d[14])
+      play_se12(SE.SE_M_THUNDERBOLT, d[14])
     end
     if (d[5] < 0 and d[7] <= d[8]) or (d[5] > 0 and d[7] >= d[8]) then
       d[2] = d[2] + 1
@@ -819,7 +817,7 @@ return function(K)
         d[11] = 20
         d[0] = d[0] + 1
       end
-      play_se12(SE_M_HEADBUTT, d[13])
+      play_se12(SE.SE_M_HEADBUTT, d[13])
     elseif st == 1 then
       d[11] = d[11] - 1
       if d[11] == 0 then d[0] = d[0] + 1 end
@@ -844,7 +842,7 @@ return function(K)
         d[9] = 0
         createRolloutDirt(t, vm)
         d[13] = d[13] + d[14]
-        play_se12(SE_M_DIG, d[13])
+        play_se12(SE.SE_M_DIG, d[13])
       end
       d[8] = d[8] - 1
       if d[8] == 0 then d[0] = d[0] + 1 end

@@ -103,7 +103,7 @@ function M.finishCartImport(save)
     if sp then dex.owned[sp], dex.caught[sp] = true, true end
   end
   ci.dexSeen, ci.dexOwned = nil, nil
-  local dc = save.modData.firered_daycare
+  local dc = save.modData[require("src.core.game3.daycare").saveKey(save)]
   if type(dc) == "table" then
     for _, mon in pairs(type(dc.daycare) == "table" and dc.daycare or {}) do
       if type(mon) == "table" and mon.cartImport then M.normalize(mon) end

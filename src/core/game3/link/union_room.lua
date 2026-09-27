@@ -44,18 +44,30 @@ Union.LINK_GROUP = {
   UNION_ROOM_INIT = 10,
 }
 
--- pokefirered/src/data/union_room.h:43
-Union.GROUP_ACTIVITY = {
-  [0] = { activity = Union.ACTIVITY.BATTLE_SINGLE, min = 0, max = 2 },
-  [1] = { activity = Union.ACTIVITY.BATTLE_DOUBLE, min = 0, max = 2 },
-  [2] = { activity = Union.ACTIVITY.BATTLE_MULTI, min = 0, max = 4 },
-  [3] = { activity = Union.ACTIVITY.TRADE, min = 0, max = 2 },
-  [4] = { activity = Union.ACTIVITY.POKEMON_JUMP, min = 2, max = 5 },
-  [5] = { activity = Union.ACTIVITY.BERRY_CRUSH, min = 2, max = 5 },
-  [6] = { activity = Union.ACTIVITY.BERRY_PICK, min = 3, max = 5 },
-  [7] = { activity = Union.ACTIVITY.SPIN_TRADE, min = 3, max = 5 },
-  [8] = { activity = Union.ACTIVITY.ITEM_TRADE, min = 3, max = 5 },
-}
+local Family = require("src.core.game3.link.family")
+
+Union.Family = Family
+
+local groupRows = {}
+
+-- pokeemerald/src/data/union_room.h:641
+Union.GROUP_ACTIVITY = setmetatable({}, {
+  __index = function(_, group)
+    local version = Family.activeVersion()
+    local key = version .. "|" .. tostring(group)
+    local row = groupRows[key]
+    if row == nil then
+      local g = Family.groupActivity(version, group)
+      row = g and { activity = g.activity, min = g.min, max = g.max, name = g.name } or false
+      groupRows[key] = row
+    end
+    return row or nil
+  end,
+})
+
+function Union.activities(version)
+  return Family.activity(version)
+end
 
 -- pokefirered/src/data/union_room.h:175
 Union.INVITE_ITEMS = {
@@ -105,7 +117,12 @@ end
 Union.INTERACT_ATTENDANT = 9
 Union.INTERACT_START_MENU = 10
 
-Union.MAP = "FR_UNION_ROOM"
+setmetatable(Union, {
+  __index = function(_, k)
+    if k == "MAP" then return Family.mapId(nil, "unionRoom") end
+    return nil
+  end,
+})
 
 Union.MSG = {
   HELLO = "game3_union_hello",
@@ -678,9 +695,17 @@ function Union.update(dt)
 end
 
 -- pokefirered/src/union_room.c:1832 WarpForCableClubActivity
-Union.COLOSSEUM_2P = { map = "FR_BATTLE_COLOSSEUM_2P", x = 6, y = 8 }
-Union.COLOSSEUM_4P = { map = "FR_BATTLE_COLOSSEUM_4P", x = 5, y = 8 }
-Union.TRADE_CENTER = { map = "FR_TRADE_CENTER", x = 5, y = 8 }
+local DEST_MT = {
+  __index = function(t, k)
+    if k == "map" then return Family.mapId(nil, rawget(t, "key")) end
+    return nil
+  end,
+}
+Union.COLOSSEUM_2P = setmetatable({ key = "colosseum2P", x = 6, y = 8 }, DEST_MT)
+Union.COLOSSEUM_4P = setmetatable({ key = "colosseum4P", x = 5, y = 8 }, DEST_MT)
+Union.TRADE_CENTER = setmetatable({ key = "tradeCenter", x = 5, y = 8 }, DEST_MT)
+-- pokeemerald/src/union_room.c:1705
+Union.RECORD_CORNER = setmetatable({ key = "recordCorner", x = 8, y = 9 }, DEST_MT)
 
 function Union.warpForCableClubActivity(dest, linkService, opts)
   opts = opts or {}
@@ -2402,8 +2427,18 @@ function Union.askedToJoinText(wire, name)
   return RomText.ascii(key, { stringVars = { name or "" } })
 end
 
-function Union.directModes(ctx, _row, done)
+Union.JOIN_OR_LEAD_LIST = {
+  frlg = 63,
+  -- pokeemerald/include/constants/script_menu.h:92
+  rse = 81,
+}
+
+function Union.directModes(ctx, row, done)
   local L = link()
+  local listId = type(row) == "table" and tonumber(row.listId or row[3]) or nil
+  if listId and listId ~= (Union.JOIN_OR_LEAD_LIST[Family.of()] or Union.MULTICHOICE_JOIN_OR_LEAD) then
+    return false
+  end
   local group = tonumber(L.getVar(ctx, L.VAR_0x8004)) or -1
   if group < Union.LINK_GROUP.SINGLE_BATTLE or group > Union.LINK_GROUP.TRADE then return false end
   if not L.adapterConnected() then return false end

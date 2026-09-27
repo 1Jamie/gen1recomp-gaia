@@ -2,9 +2,56 @@ local Sample = require("src.core.game3.m4a_sample")
 local Mix = require("src.core.game3.m4a_mix")
 local Player = require("src.core.game3.m4a_player")
 local SE = require("src.core.game3.se_ids")
+local Song = require("src.core.game3.song_ids")
 local ffiOk, ffi = pcall(require, "ffi")
 
 local Audio = {}
+
+local function audio_profile()
+  local ok, row = pcall(function()
+    return require("src.core.game3.profile").forSession(nil)
+  end)
+  if ok and type(row) == "table" then return row end
+  return nil
+end
+
+function Audio.config()
+  local row = audio_profile()
+  return row and row.audio or {}
+end
+
+function Audio.songs()
+  local row = audio_profile()
+  if row and row.id then
+    local ok, t = pcall(Song.forVersion, row.id)
+    if ok and t then return t end
+  end
+  return Song
+end
+
+function Audio.mapMusicPolicy()
+  return Audio.config().mapMusicPolicy or "frlg"
+end
+
+function Audio.questLogGating()
+  return Audio.config().questLogGating ~= false
+end
+
+local function rse_policy()
+  if Audio.mapMusicPolicy() ~= "rse" then return nil end
+  return require("src.core.game3.audio_policy_rse")
+end
+
+local RIDE_SONG_KEYS = { MUS_CYCLING = "cycling", MUS_SURF = "surf", MUS_UNDERWATER = "underwater" }
+
+setmetatable(Audio, {
+  __index = function(_, k)
+    local role = RIDE_SONG_KEYS[k]
+    if not role then return nil end
+    local names = Audio.config().rideSongs
+    return Audio.songs()[(names and names[role]) or k]
+  end,
+})
 
 Audio._pack = nil
 Audio._cache = nil
@@ -194,23 +241,44 @@ end
 -- internal species id, not the National Dex number. SPECIES_DEOXYS is 410
 -- (include/constants/species.h:419); 386 is SPECIES_VOLBEAT and must not match.
 Audio.LEGENDARY_BATTLE_SONGS = {
-  [150] = { "battleMewtwo", 340 }, -- SPECIES_MEWTWO
-  [410] = { "battleDeoxys", 339 }, -- SPECIES_DEOXYS
-  [144] = { "battleLegend", 341 }, -- SPECIES_ARTICUNO
-  [145] = { "battleLegend", 341 }, -- SPECIES_ZAPDOS
-  [146] = { "battleLegend", 341 }, -- SPECIES_MOLTRES
-  [243] = { "battleDeoxys", 339 }, -- SPECIES_RAIKOU
-  [244] = { "battleDeoxys", 339 }, -- SPECIES_ENTEI
-  [245] = { "battleDeoxys", 339 }, -- SPECIES_SUICUNE
-  [249] = { "battleLegend", 341 }, -- SPECIES_LUGIA
-  [250] = { "battleLegend", 341 }, -- SPECIES_HO_OH
+  SPECIES_MEWTWO = { "battleMewtwo", "MUS_VS_MEWTWO" },
+  SPECIES_DEOXYS = { "battleDeoxys", "MUS_VS_DEOXYS" },
+  SPECIES_ARTICUNO = { "battleLegend", "MUS_VS_LEGEND" },
+  SPECIES_ZAPDOS = { "battleLegend", "MUS_VS_LEGEND" },
+  SPECIES_MOLTRES = { "battleLegend", "MUS_VS_LEGEND" },
+  SPECIES_RAIKOU = { "battleDeoxys", "MUS_VS_DEOXYS" },
+  SPECIES_ENTEI = { "battleDeoxys", "MUS_VS_DEOXYS" },
+  SPECIES_SUICUNE = { "battleDeoxys", "MUS_VS_DEOXYS" },
+  SPECIES_LUGIA = { "battleLegend", "MUS_VS_LEGEND" },
+  SPECIES_HO_OH = { "battleLegend", "MUS_VS_LEGEND" },
 }
 
+local function species_name(species)
+  local row = audio_profile()
+  local ok, C = pcall(function()
+    return require("src.core.game3.constants").of(row and row.id or "firered")
+  end)
+  if not ok or not C then return nil end
+  local byId = C.species.byId
+  local rev = byId and (byId.SPECIES_ or byId)
+  return type(rev) == "table" and rev[species] or nil
+end
+
 -- Returns the legendary battle theme for a species, or nil for any other mon.
-function Audio.legendaryBattleSong(species)
-  local entry = Audio.LEGENDARY_BATTLE_SONGS[tonumber(species) or -1]
-  if not entry then return nil end
-  return Audio.role(entry[1]) or entry[2]
+function Audio.legendaryBattleSong(species, opts)
+  local cfg = Audio.config()
+  local tbl = cfg.legendaryBattleSongs or Audio.LEGENDARY_BATTLE_SONGS
+  local n = tonumber(species)
+  local entry = n and tbl[species_name(n)]
+  local songs = Audio.songs()
+  if not entry then
+    local def = type(opts) == "table" and opts.legendary and cfg.legendaryBattleDefault
+    return def and songs[def] or nil
+  end
+  if type(entry) == "table" then
+    return Audio.role(entry[1]) or songs[entry[2]]
+  end
+  return songs[entry]
 end
 
 function Audio.applyOptions(session)
@@ -342,9 +410,16 @@ local function stop_bgm_source()
   Audio._bgmBaseAt = 0
 end
 
+function Audio.resolveSong(id)
+  if type(id) == "string" and not tonumber(id) then
+    return Audio.songs()[id] or Song.resolve(id) or id
+  end
+  return tonumber(id) or id
+end
+
 function Audio.playSong(id, opts)
   opts = opts or {}
-  id = tonumber(id) or id
+  id = Audio.resolveSong(id)
   if id == nil or id == 0 or id == 0xFFFF then
     stop_bgm_source()
     Audio._currentSong = nil
@@ -412,9 +487,59 @@ function Audio.playSong(id, opts)
   return true
 end
 
+function Audio.currentMapMusic()
+  local pending = Audio._fadeOut and Audio._fadeOut.nextSong
+  return pending or (Audio._currentSong and Audio._currentSong.id) or 0
+end
+
+local function play_policy_song(id, fadeOut, fadeIn)
+  if id == nil then return true end
+  if Audio._fanfareActive then
+    Audio._fanfareDeferred = id
+    return true
+  end
+  if fadeOut then return Audio.fadeOutAndPlay(id, fadeOut, fadeIn) end
+  return Audio.playSong(id)
+end
+
+-- pokeemerald/src/overworld.c:1142
+function Audio.mapLoadMusic(info)
+  info = info or {}
+  local P = rse_policy()
+  if not P then
+    return Audio.playMapSong(info.song or info.music, { mapSong = info.music })
+  end
+  local after = P.live(Audio)
+  Audio._mapSong = P.currLocationDefaultMusic(after)
+  if info.seamless and info.fromMapId and info.mapId then
+    -- pokeemerald/src/overworld.c:792
+    local before = P.live(Audio, { locationMap = info.fromMapId })
+    local t = P.transitionMapMusic(before, before.at(info.mapId, info.x, info.y))
+    if t then return play_policy_song(t.song, t.fadeOut, t.fadeIn) end
+    return true
+  end
+  local id = P.playSpecialMapMusic(after)
+  if id then return play_policy_song(id) end
+  return true
+end
+
+-- pokeemerald/src/overworld.c:1216
+function Audio.tryFadeOutOldMapMusic(destMapId, x, y)
+  local P = rse_policy()
+  if not P then return nil end
+  local ctx = P.live(Audio)
+  local speed = P.tryFadeOutOldMapMusic(ctx, ctx.at(destMapId, x, y))
+  if not speed then return 0 end
+  Audio.fadeOutBgm(speed)
+  return 16 * speed
+end
+
 function Audio.playMapSong(id, opts)
   opts = opts or {}
-  id = tonumber(id) or id
+  id = Audio.resolveSong(id)
+  if opts.mapSong ~= nil and not opts.exact and rse_policy() then
+    return Audio.mapLoadMusic({ music = opts.mapSong })
+  end
   if id == nil or id == 0xFFFF then return true end
   Audio._mapSong = opts.mapSong or id
   if Audio._fanfareActive then
@@ -428,13 +553,14 @@ function Audio.playMapSong(id, opts)
 end
 
 function Audio.setMapSong(id)
+  local R = rse_policy()
+  if R then
+    Audio._mapSong = R.currLocationDefaultMusic(R.live(Audio))
+    return
+  end
   Audio._mapSong = tonumber(id) or id
 end
 
--- pokefirered/include/constants/songs.h:290
-Audio.MUS_CYCLING = 282
--- pokefirered/include/constants/songs.h:313
-Audio.MUS_SURF = 305
 -- pokefirered/include/constants/region_map_sections.h:106
 local NO_RIDE_MUSIC_SECTIONS = { [97] = true, [123] = true, [132] = true }
 
@@ -446,6 +572,7 @@ end
 
 -- pokefirered/src/overworld.c:1193
 function Audio.canOverrideMapMusic(song, sectionId)
+  if rse_policy() then return true end
   if song == Audio.MUS_CYCLING or song == Audio.MUS_SURF then
     if sectionId == nil then sectionId = current_section() end
     return not NO_RIDE_MUSIC_SECTIONS[tonumber(sectionId) or -1]
@@ -455,6 +582,8 @@ end
 
 -- pokefirered/src/overworld.c:1014
 function Audio.specialMapSong(sectionId)
+  local R = rse_policy()
+  if R then return R.specialMapMusic(R.live(Audio)) end
   if Audio._savedSong then return Audio._savedSong end
   local P = package.loaded["src.core.game3.player"]
   if P and (P.surfing or P.surfHopping) and not P.dismounting
@@ -475,8 +604,8 @@ function Audio.restoreMapSong(opts)
 end
 
 -- pokefirered/src/sound.c:152
-function Audio.fadeOutAndPlay(id, speed)
-  id = tonumber(id) or id
+function Audio.fadeOutAndPlay(id, speed, fadeInSpeed)
+  id = Audio.resolveSong(id)
   if Audio._fanfareActive then
     Audio._fanfareDeferred = id
     return true
@@ -485,13 +614,22 @@ function Audio.fadeOutAndPlay(id, speed)
     return Audio.playSong(id)
   end
   Audio.fadeOutBgm(speed)
-  if Audio._fadeOut then Audio._fadeOut.nextSong = id end
+  if Audio._fadeOut then
+    Audio._fadeOut.nextSong = id
+    Audio._fadeOut.fadeIn = fadeInSpeed
+  end
   return true
 end
 
 -- pokefirered/src/overworld.c:1096
 function Audio.changeMusicTo(id)
-  id = tonumber(id) or id
+  id = Audio.resolveSong(id)
+  local R = rse_policy()
+  if R then
+    local t = R.changeMusicTo(R.live(Audio), id)
+    if t then return Audio.fadeOutAndPlay(t.song, t.fadeOut) end
+    return true
+  end
   local cur = Audio._currentSong and Audio._currentSong.id
   local pending = Audio._fadeOut and Audio._fadeOut.nextSong
   if (pending or cur) == id then return true end
@@ -500,6 +638,12 @@ end
 
 -- pokefirered/src/overworld.c:1089
 function Audio.changeMusicToDefault()
+  local R = rse_policy()
+  if R then
+    local t = R.changeMusicToDefault(R.live(Audio))
+    if t then return Audio.fadeOutAndPlay(t.song, t.fadeOut) end
+    return true
+  end
   if Audio._mapSong then return Audio.changeMusicTo(Audio._mapSong) end
   return true
 end
@@ -535,13 +679,14 @@ end
 
 -- pokefirered/src/overworld.c:1048
 function Audio.setSavedSong(id)
-  id = tonumber(id) or id
+  id = Audio.resolveSong(id)
   if id == 0 or id == 0xFFFF then id = nil end
   Audio._savedSong = id
 end
 
 -- pokefirered/src/overworld.c:1089
 function Audio.fadeDefaultBgm(speed)
+  if rse_policy() then return Audio.changeMusicToDefault() end
   local id = Audio._mapSong
   if id and Audio._currentSong and Audio._currentSong.id == id then return true end
   Audio.fadeOutBgm(speed)
@@ -931,8 +1076,11 @@ end
 
 function Audio.isSePlaying(id)
   if id == nil then
+    local rse = rse_policy() ~= nil
     for _, src in ipairs(Audio._seSources) do
-      if src:isPlaying() then return true end
+      local meta = Audio._seMeta[src]
+      -- pokeemerald/src/sound.c:606
+      if src:isPlaying() and not (rse and meta and tonumber(meta.player) == 3) then return true end
     end
     return false
   end
@@ -1004,12 +1152,12 @@ end
 
 function Audio.playFanfare(id)
   local SE = require("src.core.game3.se_ids")
-  id = SE.resolve(id)
-  if id == nil then return false end
+  id = SE.resolve(id) or Audio.resolveSong(id)
+  if type(id) ~= "number" then return false end
   local entry, haveTable = fanfare_entry(id)
   if haveTable and not entry then
     -- pokefirered/src/sound.c:245
-    id = 257
+    id = Audio.songs()[Audio.config().fanfareFallback or "MUS_LEVEL_UP"]
     entry = fanfare_entry(id)
   end
   local info = Audio.songInfo(id) or {}
@@ -1070,7 +1218,7 @@ function Audio.playCry(species, mode, pan)
     noDuck = o.noDuck == true
   end
   mode = tonumber(mode) or 0
-  local params = Sample.cryParams(mode, volume)
+  local params = Sample.cryParams(mode, volume, Audio.config().cryModeOverrides)
   local doubles = params.mode == 1 or noDuck
   Audio._cryParams = params
   log(string.format("playCry species=%s mode=%d", tostring(species), params.mode))
@@ -1208,7 +1356,14 @@ function Audio.update(dt)
         Audio._currentSong = nil
       end
       Audio._fadeOut = nil
-      if stillSame and f.nextSong then Audio.playSong(f.nextSong) end
+      if stillSame and f.nextSong then
+        if f.fadeIn then
+          -- pokeemerald/src/sound.c:151
+          Audio.fadeInBgm(f.nextSong, f.fadeIn)
+        else
+          Audio.playSong(f.nextSong)
+        end
+      end
     end
   end
   if Audio._fadeIn and Audio._bgmSource then

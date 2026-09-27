@@ -17,6 +17,12 @@ StorageChromeExtract.WALLPAPER_NAMES = {
   "stars", "pokecenter", "tiles", "simple",
 }
 
+function StorageChromeExtract.wallpaperNames()
+  return Versions.STORAGE_WALLPAPER_NAMES or StorageChromeExtract.WALLPAPER_NAMES
+end
+
+StorageChromeExtract.FRIENDS_SUB = "wallpapers/friends"
+
 StorageChromeExtract.TEXTURE_FILES = {
   { key = "cursor", file = "cursor.png" },
   { key = "cursor_shadow", file = "cursor_shadow.png" },
@@ -264,8 +270,11 @@ function StorageChromeExtract.ready(cache, root)
   for _, tex in ipairs(StorageChromeExtract.TEXTURE_FILES) do
     if not valid_file(outDir .. "/" .. tex.file, 30) then return false end
   end
-  for _, wp in ipairs(StorageChromeExtract.WALLPAPER_NAMES) do
+  for _, wp in ipairs(StorageChromeExtract.wallpaperNames()) do
     if not valid_file(outDir .. "/wallpapers/" .. wp .. ".png", 50) then return false end
+  end
+  if Versions.STORAGE_FRIENDS and not valid_file(outDir .. "/" .. StorageChromeExtract.FRIENDS_SUB .. "/manifest.lua", 10) then
+    return false
   end
   return true
 end
@@ -383,7 +392,7 @@ function StorageChromeExtract.extract(rom, opts)
   local wpW = Versions.STORAGE_WALLPAPER_W or 20
   local wpH = Versions.STORAGE_WALLPAPER_H or 18
   if wpBase then
-    for i, name in ipairs(StorageChromeExtract.WALLPAPER_NAMES) do
+    for i, name in ipairs(StorageChromeExtract.wallpaperNames()) do
       local entry = wpBase + (i - 1) * 12
       local tilesOff = ptr_to_offset(get_u32(rom, entry))
       local mapPtr = ptr_to_offset(get_u32(rom, entry + 4))
@@ -416,12 +425,23 @@ function StorageChromeExtract.extract(rom, opts)
   end
   lines[#lines + 1] = "  },"
   lines[#lines + 1] = "  wallpapers = {"
-  for _, name in ipairs(StorageChromeExtract.WALLPAPER_NAMES) do
+  for _, name in ipairs(StorageChromeExtract.wallpaperNames()) do
     if manifestWallpapers[name] then
       lines[#lines + 1] = string.format("    %s = \"%s\",", name, manifestWallpapers[name])
     end
   end
   lines[#lines + 1] = "  },"
+  if Versions.STORAGE_WALLPAPER_NAMES then
+    lines[#lines + 1] = "  wallpaperOrder = {"
+    for _, name in ipairs(Versions.STORAGE_WALLPAPER_NAMES) do
+      lines[#lines + 1] = string.format("    \"%s\",", name)
+    end
+    lines[#lines + 1] = "  },"
+  end
+  if Versions.STORAGE_FRIENDS then
+    written = written + StorageChromeExtract.extractFriends(rom, cache, outDir)
+    lines[#lines + 1] = string.format("  friends = \"%s/manifest.lua\",", StorageChromeExtract.FRIENDS_SUB)
+  end
   lines[#lines + 1] = "}"
   lines[#lines + 1] = ""
 
@@ -429,5 +449,60 @@ function StorageChromeExtract.extract(rom, opts)
   print("[game3/storage_chrome_extract] storage chrome ready (" .. outDir .. ", " .. written .. " assets)")
   return { ok = written > 0, root = outDir, count = written }
 end
+
+local function raw_bytes(bytes, len)
+  local out = {}
+  for i = 1, len do out[i] = string.char(bytes[i] or 0) end
+  return table.concat(out)
+end
+
+local function palette_list(rom, off, count)
+  local out = {}
+  for i = 0, count - 1 do out[#out + 1] = string.format("0x%04X", get_u16(rom, off + i * 2)) end
+  return "{ " .. table.concat(out, ", ") .. " }"
+end
+
+-- pokeemerald/src/pokemon_storage_system.c:5390
+function StorageChromeExtract.extractFriends(rom, cache, outDir)
+  local F = Versions.STORAGE_FRIENDS
+  local dir = outDir .. "/" .. StorageChromeExtract.FRIENDS_SUB
+  ensure_dir(dir)
+  local written = 0
+  local lines = { "return {", "  patterns = {" }
+  for i = 0, F.patternCount - 1 do
+    local entry = F.patterns + i * 12
+    local tilesOff = ptr_to_offset(get_u32(rom, entry))
+    local mapOff = ptr_to_offset(get_u32(rom, entry + 4))
+    local palOff = ptr_to_offset(get_u32(rom, entry + 8))
+    local tiles, tlen = read_sheet(rom, { off = tilesOff, lz = true })
+    local map, mlen = read_sheet(rom, { off = mapOff, lz = true })
+    local tfile, mfile = string.format("pattern_%02d.4bpp", i), string.format("pattern_%02d.map", i)
+    write_file(cache, dir .. "/" .. tfile, raw_bytes(tiles, tlen))
+    write_file(cache, dir .. "/" .. mfile, raw_bytes(map, mlen))
+    written = written + 2
+    lines[#lines + 1] = string.format("    [%d] = { tiles = \"%s\", map = \"%s\", palette = %s },",
+      i, tfile, mfile, palette_list(rom, palOff, 32))
+  end
+  lines[#lines + 1] = "  },"
+  lines[#lines + 1] = "  icons = {"
+  for i = 0, F.iconCount - 1 do
+    local off = ptr_to_offset(get_u32(rom, F.icons + i * 4))
+    local tiles, tlen = read_sheet(rom, { off = off, lz = true })
+    local file = string.format("icon_%02d.4bpp", i)
+    write_file(cache, dir .. "/" .. file, raw_bytes(tiles, tlen))
+    written = written + 1
+    lines[#lines + 1] = string.format("    [%d] = \"%s\",", i, file)
+  end
+  lines[#lines + 1] = "  },"
+  lines[#lines + 1] = string.format("  width = %d,", Versions.STORAGE_WALLPAPER_W)
+  lines[#lines + 1] = string.format("  height = %d,", Versions.STORAGE_WALLPAPER_H)
+  lines[#lines + 1] = "  iconTileOffset = 0x800,"
+  lines[#lines + 1] = "}"
+  lines[#lines + 1] = ""
+  write_file(cache, dir .. "/manifest.lua", table.concat(lines, "\n"))
+  return written + 1
+end
+
+StorageChromeExtract.REQUIRED = { StorageChromeExtract.CACHE_SUB .. "/manifest.lua" }
 
 return StorageChromeExtract

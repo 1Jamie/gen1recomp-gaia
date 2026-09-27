@@ -80,13 +80,14 @@ local function normalize(row)
     map = map,
     x = tonumber(row.x) or 0,
     y = tonumber(row.y) or 0,
-    healerLocalId = tonumber(row.healerLocalId) or 1,
+    healerLocalId = tonumber(row.healerLocalId),
   }
 end
 
 -- pokefirered/src/data/heal_locations.h:129 sWhiteoutRespawnHealCenterMapIdxs
 function HealLocations.install(pack)
   HealLocations._baked = {}
+  HealLocations._model = type(pack) == "table" and pack.model or nil
   if type(pack) ~= "table" then return 0 end
   local rows = pack.whiteout
   if type(rows) ~= "table" then return 0 end
@@ -120,6 +121,20 @@ end
 function HealLocations.invalidate()
   HealLocations._baked = nil
   HealLocations._bakedRoot = nil
+  HealLocations._model = nil
+end
+
+-- pokeemerald/src/overworld.c:364 SetWarpDestinationToLastHealLocation
+function HealLocations.model()
+  if HealLocations._baked == nil then
+    HealLocations.load()
+  end
+  return HealLocations._model
+end
+
+local function sourceFallback()
+  local heal = require("src.core.game3.profile").active().heal
+  return type(heal) == "table" and heal.table == "firered"
 end
 
 function HealLocations.get(id)
@@ -129,6 +144,7 @@ function HealLocations.get(id)
   end
   local baked = HealLocations._baked and HealLocations._baked[id]
   if baked then return baked end
+  if not sourceFallback() then return nil end
   return HealLocations.BY_ID[id]
 end
 
@@ -146,7 +162,8 @@ end
 --- Migrate bad early defaults (bedroom 2F has no Mom).
 function HealLocations.normalizeSession(session)
   if not session then return end
-  if session.healMap == "FR_PLAYERS_HOUSE_2F" then
+  local start = require("src.core.game3.map_ids").newGameStart(session.version)
+  if start.healMap and session.healMap == start.map then
     HealLocations.applyToSession(session, 1)
   end
 end

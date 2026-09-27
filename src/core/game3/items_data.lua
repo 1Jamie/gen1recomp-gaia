@@ -3,49 +3,72 @@
 local RomText = require("src.core.game3.rom_text")
 local ItemsData = {}
 
-ItemsData.POCKET = {
-  ITEMS = "ITEMS",
-  KEY_ITEMS = "KEY_ITEMS",
-  POKE_BALLS = "POKE_BALLS",
-  TM_CASE = "TM_CASE",
-  BERRY_POUCH = "BERRY_POUCH",
-}
+ItemsData.POCKET = {}
+ItemsData.POCKET_ORDER = {}
+ItemsData.BAG_POCKET_ORDER = {}
+local LABEL_KEYS = {}
+ItemsData.POCKET_LABEL = RomText.lazy(LABEL_KEYS)
+ItemsData.POCKET_RESULT = {}
+ItemsData.CAPACITY = {}
+ItemsData.PACK_POCKET = {}
+ItemsData.CONTAINERS = {}
+ItemsData.BAG_MODEL = { slotMax = {}, splitSlots = {}, sortHmsFirst = {}, sortById = {} }
+ItemsData._bagModel = nil
 
-ItemsData.POCKET_ORDER = {
-  "ITEMS", "KEY_ITEMS", "POKE_BALLS", "TM_CASE", "BERRY_POUCH",
-}
+local function refill(dst, src)
+  for k in pairs(dst) do dst[k] = nil end
+  for k, v in pairs(src or {}) do dst[k] = v end
+  return dst
+end
 
--- Visible pockets in the main Bag UI (pret BAG_POCKETS_COUNT = 3).
--- TM Case and Berry Pouch are sub-containers accessed via Key Items.
-ItemsData.BAG_POCKET_ORDER = {
-  "ITEMS", "KEY_ITEMS", "POKE_BALLS",
-}
+function ItemsData.applyProfile(version)
+  local row = require("src.core.game3.profile").of(version)
+  local bag = row.bag
+  if type(bag) ~= "table" then
+    error("game3 profile '" .. tostring(row.id) .. "' has no bag block", 0)
+  end
+  refill(ItemsData.POCKET, {})
+  refill(ItemsData.POCKET_RESULT, {})
+  for i, name in ipairs(bag.pockets) do
+    ItemsData.POCKET[name] = name
+    ItemsData.POCKET_RESULT[name] = i
+  end
+  refill(ItemsData.POCKET_ORDER, bag.pockets)
+  refill(ItemsData.BAG_POCKET_ORDER, bag.visible)
+  refill(LABEL_KEYS, bag.labels)
+  refill(ItemsData.CAPACITY, bag.capacity)
+  refill(ItemsData.PACK_POCKET, bag.packPockets)
+  local C = require("src.core.game3.constants").of(row.id)
+  local containers = {}
+  for pocket, c in pairs(bag.containers or {}) do
+    containers[pocket] = { item = C:require("items", c.item), flag = c.flag }
+  end
+  refill(ItemsData.CONTAINERS, containers)
+  refill(ItemsData.BAG_MODEL.slotMax, bag.slotMax)
+  refill(ItemsData.BAG_MODEL.splitSlots, bag.splitSlots)
+  refill(ItemsData.BAG_MODEL.sortHmsFirst, bag.sortHmsFirst)
+  refill(ItemsData.BAG_MODEL.sortById, bag.sortById)
+  ItemsData.BAG_MODEL.pcSlotMax = bag.pcSlotMax
+  ItemsData.BAG_MODEL.pcItems = bag.pcItems
+  ItemsData._bagModel = bag
+  return bag
+end
 
--- src/item_menu.c:183 sPocketNames, src/strings.c:207, :213
-ItemsData.POCKET_LABEL = RomText.lazy({
-  ITEMS = "sPocketNames[0]",
-  KEY_ITEMS = "sPocketNames[1]",
-  POKE_BALLS = "sPocketNames[2]",
-  TM_CASE = "gText_TMCase",
-  BERRY_POUCH = "gText_BerryPouch",
-})
+function ItemsData.ensureModel()
+  local bag = require("src.core.game3.profile").active().bag
+  if bag ~= ItemsData._bagModel then
+    ItemsData._pack = nil
+    ItemsData._byId = nil
+    ItemsData._byName = nil
+    ItemsData._logged = false
+    ItemsData.applyProfile(nil)
+  end
+end
 
--- pret GetPocketByItemId returns 1..5
-ItemsData.POCKET_RESULT = {
-  ITEMS = 1,
-  KEY_ITEMS = 2,
-  POKE_BALLS = 3,
-  TM_CASE = 4,
-  BERRY_POUCH = 5,
-}
-
-ItemsData.CAPACITY = {
-  ITEMS = 42,
-  KEY_ITEMS = 30,
-  POKE_BALLS = 13,
-  TM_CASE = 58,
-  BERRY_POUCH = 43,
-}
+function ItemsData.slotMax(pocket)
+  local m = ItemsData.BAG_MODEL.slotMax
+  return m[pocket] or m.default
+end
 
 -- pokefirered/include/constants/items.h:272
 ItemsData.ITEM_ITEMFINDER = 261
@@ -61,6 +84,7 @@ ItemsData.LAST_HM = 346
 ItemsData._pack = nil
 ItemsData._byId = nil
 ItemsData._logged = false
+ItemsData.applyProfile(nil)
 
 -- Host string id → display / pocket (Sevii ferry).
 ItemsData.BY_HOST = {
@@ -192,6 +216,7 @@ function ItemsData.installPack(pack)
 end
 
 local function load_pack()
+  ItemsData.ensureModel()
   if ItemsData._byId then return ItemsData._byId end
   local src = read_bytes("data/generated/gba/items/pack.lua")
   if src then
@@ -221,6 +246,7 @@ function ItemsData.install(_cache)
   ItemsData._byId = nil
   ItemsData._byName = nil
   ItemsData._logged = false
+  ItemsData.applyProfile(nil)
   load_pack()
 end
 
@@ -262,7 +288,7 @@ function ItemsData.info(id)
     return {
       id = num,
       name = e.name,
-      pocket = e.pocket,
+      pocket = ItemsData.PACK_POCKET[e.pocket] or e.pocket,
       fieldUse = e.fieldUse or "none",
       price = e.price,
       holdEffect = e.holdEffect,
@@ -275,6 +301,9 @@ function ItemsData.info(id)
       importance = e.importance,
       secondaryId = e.secondaryId,
       effect = e.effect,
+      pocketId = e.pocketId,
+      fieldUseName = e.fieldUseName,
+      battleUseName = e.battleUseName,
     }
   end
   local s = tostring(id)

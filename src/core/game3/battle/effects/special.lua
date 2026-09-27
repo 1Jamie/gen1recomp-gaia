@@ -287,6 +287,10 @@ function Special.teleport(ctx)
   H.attackAnim(ctx)
   ad:sayText("STRINGID_PKMNFLEDFROMBATTLE", { atk = user })
   end_battle(ctx, "teleport")
+  -- pokeemerald/src/battle_script_commands.c:6487
+  if require("src.core.game3.battle.profile").rule(st, "teleportOutcome") == "side" then
+    st.result = (user.side == "player") and "player_teleported" or "mon_teleported"
+  end
 end
 
 -- pokefirered/src/battle_script_commands.c:8702

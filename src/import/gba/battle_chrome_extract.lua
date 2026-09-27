@@ -9,6 +9,12 @@ local BattleChromeExtract = {}
 
 BattleChromeExtract.FORMAT_VERSION = 7
 BattleChromeExtract.CACHE_SUB = "pokemon/battle"
+BattleChromeExtract.REQUIRED = {
+  "pokemon/battle/manifest.lua",
+  "pokemon/battle/textbox.rgba",
+  "pokemon/battle/healthbox_player.rgba",
+  "pokemon/battle/terrain_building.rgba",
+}
 
 -- src/battle_bg.c:439
 BattleChromeExtract.TERRAIN_TABLE = 0x24EE34
@@ -416,7 +422,7 @@ function BattleChromeExtract.terrainTable(get, cfg)
       + (get(off + 2) or 0) * 65536 + (get(off + 3) or 0) * 16777216
   end
   local out = {}
-  for id = 0, 19 do
+  for id = 0, (cfg.terrain_count or 20) - 1 do
     local key = BattleChromeExtract.TERRAIN_KEYS[id]
     local off = base + id * BattleChromeExtract.TERRAIN_ENTRY_SIZE
     local tiles = ptr_offset(u32(off))
@@ -444,11 +450,151 @@ function BattleChromeExtract.requireTerrainTable(get, cfg)
   return terrains
 end
 
+local function pal_list(rom, off, n)
+  local out = {}
+  for c = 0, (n or 16) - 1 do out[#out + 1] = tostring(rom:u16(off + c * 2)) end
+  return "{ " .. table.concat(out, ", ") .. " }"
+end
+
+local function window_rows(rom, off, n)
+  local rows = {}
+  for w = 0, n - 1 do
+    local b = off + w * 8
+    if rom:get(b) == 0xFF then break end
+    rows[#rows + 1] = string.format("{ bg = %d, left = %d, top = %d, w = %d, h = %d, pal = %d, baseBlock = %d }",
+      rom:get(b), rom:get(b + 1), rom:get(b + 2), rom:get(b + 3), rom:get(b + 4), rom:get(b + 5), rom:u16(b + 6))
+  end
+  return "{\n      " .. table.concat(rows, ",\n      ") .. ",\n    }"
+end
+
+local function bake_terrain(get, cache, root, key, tr)
+  local tGfx = Lz77.decompress(get, tr.tiles)
+  local tPal = Lz77.decompress(get, tr.pal)
+  local tMap = Lz77.decompress(get, tr.tilemap)
+  local rgba, trW, trH = bake_tilemap_rgba(tGfx, tPal, tMap, 32, 32, { transparent0 = false, bgPalBase = 2 })
+  cache:write(root .. "/terrain_" .. key .. ".rgba", rgba)
+  local bgRgba, enemyRgba, playerRgba = split_terrain_layers(rgba, tMap)
+  cache:write(root .. "/terrain_bg_" .. key .. ".rgba", bgRgba)
+  cache:write(root .. "/terrain_enemy_" .. key .. ".rgba", enemyRgba)
+  cache:write(root .. "/terrain_player_" .. key .. ".rgba", playerRgba)
+  return { w = trW, h = trH }
+end
+
+-- pokeemerald/src/battle_bg.c:859
+function BattleChromeExtract.runRse(rom, cache, opts, cfg)
+  local cacheRoot = opts.cacheRoot or default_cache_root()
+  local root = cacheRoot .. "/" .. BattleChromeExtract.CACHE_SUB
+  local function get(i) return rom:get(i) end
+
+  local tbGfx = Lz77.decompress(get, cfg.textbox_gfx)
+  local tbPal = Lz77.decompress(get, cfg.textbox_pal)
+  local tbMap = Lz77.decompress(get, cfg.textbox_tilemap)
+  local tbRows = math.floor(byte_len(tbMap) / 64)
+  local textboxRgba, tw, th = bake_tilemap_rgba(tbGfx, tbPal, tbMap, 32, tbRows)
+  cache:write(root .. "/textbox.rgba", textboxRgba)
+
+  local hbPal = load_pal(read_raw(rom, cfg.healthbox_pal, 32), 16)
+  local barPal = load_pal(read_raw(rom, cfg.healthbar_pal, 32), 16)
+  cache:write(root .. "/healthbox_player.rgba", bake_player_healthbox(Lz77.decompress(get, cfg.healthbox_player), hbPal))
+  cache:write(root .. "/healthbox_enemy.rgba", bake_enemy_healthbox(Lz77.decompress(get, cfg.healthbox_enemy), hbPal))
+  cache:write(root .. "/healthbox_safari.rgba", bake_player_healthbox(Lz77.decompress(get, cfg.healthbox_safari), hbPal))
+  if not BattleChromeExtract.runDoubles(rom, cache, { cacheRoot = cacheRoot, cfg = cfg }) then
+    error("battle_chrome_extract: doubles healthboxes did not bake")
+  end
+
+  -- pokeemerald/src/graphics.c:358
+  local elTiles = math.floor(cfg.healthbox_elements_size / 32)
+  local elGfx = read_raw(rom, cfg.healthbox_elements, cfg.healthbox_elements_size)
+  cache:write(root .. "/elements.rgba", bake_sheet_rgba(elGfx, barPal, 320, 24))
+  cache:write(root .. "/elements_exp.rgba", bake_sheet_rgba(elGfx, hbPal, 320, 24))
+
+  local terrains = BattleChromeExtract.requireTerrainTable(get, cfg)
+  local terrainMeta, terrainOrder = {}, {}
+  for _, t in ipairs(terrains) do
+    terrainMeta[t.key] = bake_terrain(get, cache, root, t.key, t.cfg)
+    terrainOrder[#terrainOrder + 1] = t.key
+  end
+  for _, sc in ipairs(cfg.scenes or {}) do
+    terrainMeta[sc.key] = bake_terrain(get, cache, root, sc.key, sc.cfg)
+    terrainOrder[#terrainOrder + 1] = sc.key
+  end
+  local terrainLines, sceneKeys = {}, {}
+  for _, key in ipairs(terrainOrder) do
+    local m = terrainMeta[key]
+    terrainLines[#terrainLines + 1] = string.format(
+      '    %s = { file = "terrain_%s.rgba", w = %d, h = %d },', key, key, m.w, m.h)
+  end
+  for _, sc in ipairs(cfg.scenes or {}) do sceneKeys[#sceneKeys + 1] = string.format("%q", sc.key) end
+  local envKeys = {}
+  for i = 0, (cfg.terrain_count or 10) - 1 do
+    envKeys[#envKeys + 1] = string.format("[%d] = %q", i, BattleChromeExtract.TERRAIN_KEYS[i])
+  end
+
+  cache:write(root .. "/party_summary_bar.rgba",
+    bake_sheet_rgba(Lz77.decompress(get, cfg.party_summary_bar), hbPal, 128, 8))
+
+  local winPal = load_pal(Lz77.decompress(get, cfg.window_text_pal), 16)
+  local winPalList = {}
+  for c = 0, 15 do winPalList[#winPalList + 1] = tostring(winPal[c] or 0) end
+  local tbPalBank = load_pal(tbPal, 16)
+  local tbPalList = {}
+  for c = 0, 15 do tbPalList[#tbPalList + 1] = tostring(tbPalBank[c] or 0) end
+
+  local wt, wc = cfg.window_templates, cfg.window_template_counts
+  local grass = terrainMeta.grass
+  local manifest = string.format([[return {
+  format = %d,
+  layout = "rse",
+  textboxW = %d, textboxH = %d,
+  terrainW = %d, terrainH = %d,
+  terrains = {
+%s
+  },
+  environments = { %s },
+  scenes = { %s },
+  elementsTiles = %d,
+  partySummaryBar = { file = "party_summary_bar.rgba", w = 128, h = 8 },
+  partyBarPlayer = { x = 136, y = 96 },
+  partyBarOpponent = { x = 104, y = 40 },
+  playerBox = { w = 128, h = 64, x = 158, y = 88 },
+  enemyBox = { w = 128, h = 32, x = 44, y = 30 },
+  doublesPlayerBox = { w = 128, h = 32, file = "healthbox_doubles_player.rgba" },
+  doublesOpponentBox = { w = 128, h = 32, file = "healthbox_doubles_opponent.rgba" },
+  safariBox = { w = 128, h = 64, x = 158, y = 88, file = "healthbox_safari.rgba" },
+  playerSprite = { x = 72, y = 80 },
+  enemySprite = { x = 176, y = 40 },
+  playerHpBar = { x = 32, y = 16, pixels = 48 },
+  enemyHpBar = { x = 24, y = 16, pixels = 48 },
+  playerExpBar = { x = 32, y = 32, pixels = 64 },
+  hpBarPixels = 48,
+  expBarPixels = 64,
+  msgY = 120,
+  panelH = 40,
+  healthboxPal = %s,
+  healthbarPal = %s,
+  windowTextPal = { %s },
+  textboxPal = { %s },
+  ppTextPal = %s,
+  windows = {
+    normal = %s,
+    arena = %s,
+  },
+}
+]], BattleChromeExtract.FORMAT_VERSION, tw, th, grass.w, grass.h,
+    table.concat(terrainLines, "\n"), table.concat(envKeys, ", "), table.concat(sceneKeys, ", "), elTiles,
+    pal_list(rom, cfg.healthbox_pal), pal_list(rom, cfg.healthbar_pal), table.concat(winPalList, ", "),
+    table.concat(tbPalList, ", "), pal_list(rom, cfg.pp_text_pal),
+    window_rows(rom, wt.normal, wc.normal), window_rows(rom, wt.arena, wc.arena))
+  cache:write(root .. "/manifest.lua", manifest)
+  return { root = root, textboxW = tw, textboxH = th, terrains = terrainOrder }
+end
+
 function BattleChromeExtract.run(rom, cache, opts)
   opts = opts or {}
   local cacheRoot = opts.cacheRoot or default_cache_root()
   local root = cacheRoot .. "/" .. BattleChromeExtract.CACHE_SUB
   local cfg = Versions.BATTLE_UI
+  if cfg.layout == "rse" then return BattleChromeExtract.runRse(rom, cache, opts, cfg) end
   local function get(i) return rom:get(i) end
 
   local tbGfx = Lz77.decompress(get, cfg.textbox_gfx)

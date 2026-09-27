@@ -1164,7 +1164,9 @@ function SaveData.slotSummary(save)
   local dexCount = 0
   if gen3 then
     local okD, Dex = pcall(require, "src.core.game3.dex")
-    dexCount = okD and Dex and Dex.summaryCount and Dex.summaryCount(save) or 0
+    local okC, n = false, nil
+    if okD and Dex and Dex.summaryCount then okC, n = pcall(Dex.summaryCount, save) end
+    dexCount = okC and tonumber(n) or 0
   elseif gen2 then
     for _, has in pairs((save.pokedex and save.pokedex.caught) or {}) do
       if has then dexCount = dexCount + 1 end
@@ -1193,9 +1195,27 @@ function SaveData.slotSummary(save)
   if gen3 then
     local okF, Flags = pcall(require, "src.core.game3.scripting.flags")
     badges = 0
-    if okF and Flags and Flags.BADGES then
-      for _, b in ipairs(Flags.BADGES) do
-        if Flags.getFlag(save, nil, b.flag) or Flags.getFlag(save, nil, b.name) then
+    local vt = okF and Flags or nil
+    if vt and type(save.version) == "string" and Flags.forVersion then
+      local okV, t = pcall(Flags.forVersion, save.version)
+      if okV and type(t) == "table" then vt = t end
+    end
+    local getFlag = okF and Flags and Flags.getFlag
+    if vt and vt.NAMES ~= Flags.NAMES then
+      getFlag = function(store, _, id)
+        if type(id) ~= "number" then id = vt.IDS[id] end
+        local f = store.flags
+        if not id or type(f) ~= "table" then return false end
+        if f[id] == true or f[tostring(id)] == true or f[string.format("0x%X", id)] == true then
+          return true
+        end
+        local n = vt.NAMES[id]
+        return n ~= nil and f[n] == true
+      end
+    end
+    if okF and Flags and vt and vt.BADGES then
+      for _, b in ipairs(vt.BADGES) do
+        if getFlag(save, nil, b.flag) or getFlag(save, nil, b.name) then
           badges = badges + 1
         end
       end

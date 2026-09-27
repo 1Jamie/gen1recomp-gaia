@@ -5,7 +5,7 @@ local Pouch = {}
 Pouch.ID = "berry_pouch"
 Pouch.VISIBLE = 7
 -- pokefirered/include/constants/songs.h:9
-Pouch.SE_SELECT = 5
+require("src.core.game3.song_fields")(Pouch)
 Pouch._state = nil
 
 local function clock()

@@ -17,6 +17,7 @@ local Help = require("src.ui.game3.help_system")
 
 local QuestLog = require("src.ui.game3.quest_log")
 local QuestRecorder = require("src.core.game3.quest_log_recorder")
+local FieldModules = require("src.core.game3.field_modules")
 local ModRuntime = require("src.mods.Runtime")
 
 local s9Warned = {}
@@ -57,7 +58,13 @@ function Game3:_hasContinueSave()
     and MapIds.isGame3Map(save.map, save.version)
 end
 
-function Game3:_enterField(session, reason)
+local FIELD_CALLBACKS = {
+  truck = "src.core.game3.truck_sequence", -- pokeemerald/src/overworld.c:1542
+}
+
+function Game3:_enterField(session, reason, opts)
+  opts = opts or {}
+  local fieldCallback = opts.fieldCallback and FIELD_CALLBACKS[opts.fieldCallback]
   self.session = session
   Options.bind(session, self.options)
   -- Continue restores stream; new_game already seeded inside Schema.newGame.
@@ -65,7 +72,8 @@ function Game3:_enterField(session, reason)
   if reason == "continue" then
     if not Rng.restoreFromSession(session) then
       -- Legacy saves without rng: soft-reset-ish reseed.
-      session.trainerId = Rng.seedNewGame()
+      local tid = Rng.seedNewGame()
+      if session.trainerId == nil then session.trainerId = tid end
       Rng.captureToSession(session)
     else
       -- On GBA FRLG, continuing from title screen seeds/perturbs gRngValue with timer TM0
@@ -86,9 +94,11 @@ function Game3:_enterField(session, reason)
   local okF, Fade = pcall(require, "src.ui.game3.fade")
   if okF and Fade then
     if Fade.clear then Fade.clear() end
-    -- Come out of Oak's black screen onto the bedroom.
-    if Fade.begin then Fade.begin(Fade.MODE.FROM_BLACK, 1) end
-    Fade.lockInput = true -- pokefirered/src/field_fadetransition.c:441
+    if not fieldCallback then
+      -- Come out of Oak's black screen onto the bedroom.
+      if Fade.begin then Fade.begin(Fade.MODE.FROM_BLACK, 1) end
+      Fade.lockInput = true -- pokefirered/src/field_fadetransition.c:441
+    end
   end
   session._questNewScene=true
   if reason == "continue" then session._questMap=session.map end
@@ -98,7 +108,12 @@ function Game3:_enterField(session, reason)
   -- pokefirered/src/fieldmap.c:100
   Runtime.start(nil, self, session, { reason = reason or "new_game" })
   Map._nextEnterVia = nil
+  if fieldCallback then require(fieldCallback).execute() end
   if reason == "continue" then
+    if require("src.core.game3.profile").family(session) == "rse" then
+      -- pokeemerald/src/overworld.c:1749
+      require("src.core.game3.rse.init").call("tv", "tryPutTodaysRivalTrainerOnAir", nil, nil)
+    end
     -- pokefirered/src/overworld.c:1717
     local okS, Space = pcall(require, "src.core.game3.scripting.space")
     if okS and Space and Space.runOnReturnToField then
@@ -108,7 +123,11 @@ function Game3:_enterField(session, reason)
 end
 
 function Game3:load(opts)
-  require("src.import.gba.versions").select(require("src.core.GameVersion").get())
+  local activeVersion = require("src.core.GameVersion").get()
+  require("src.import.gba.versions").select(activeVersion)
+  require("src.core.game3.se_ids").select(activeVersion)
+  require("src.core.game3.song_ids").select(activeVersion)
+  require("src.core.game3.items_data").ensureModel()
   opts = opts or {}
   self.onExit = opts.onExit or self.onExit
   Input:init()
@@ -466,7 +485,7 @@ function Game3:_handleBootAction(action)
       self:adoptSave(session, not self._modSaveAdopted)
       self._modSaveAdopted = true
       self.sessionStartedAt = os.time()
-      self.questPlayback = QuestLog.begin(session)
+      self.questPlayback = FieldModules.enabled("questLog", session) and QuestLog.begin(session) or nil
       if self.questPlayback then
         self.session=session
         self.phase="quest_log"
@@ -486,10 +505,11 @@ function Game3:_handleBootAction(action)
   end
   if action.action == "new_game" then
     local session = Schema.newGame({
-      name = action.name or "RED",
-      rivalName = action.rivalName or "BLUE",
+      name = action.name,
+      rivalName = action.rivalName,
       gender = action.gender or 0,
-      start = action.start,
+      start = action.start or MapIds.newGameStart(),
+      trainerIdLower = action.trainerIdLower,
     })
     self:adoptSave(session, not self._modSaveAdopted)
     self._modSaveAdopted = true
@@ -497,7 +517,7 @@ function Game3:_handleBootAction(action)
     if ModRuntime.wants("save.created") then
       ModRuntime.emit("save.created", { save = session })
     end
-    self:_enterField(session, "new_game")
+    self:_enterField(session, "new_game", { fieldCallback = action.fieldCallback })
     return
   end
   if action.action == "exit" then
@@ -545,7 +565,7 @@ function Game3:fixedUpdate(dt)
     end
     return
   end
-  if Help.update(self) then
+  if FieldModules.enabled("helpSystem") and Help.update(self) then
     -- Keep streaming BGM fed without advancing fanfare/script callbacks.
     Audio.pumpBgm()
     return
@@ -565,7 +585,7 @@ function Game3:fixedUpdate(dt)
     self:_handleRegisteredItem()
     if Runtime.isActive() then
       Runtime.update(dt)
-      QuestRecorder.update(self)
+      if FieldModules.enabled("questLog", self.session) then QuestRecorder.update(self) end
     end
   end
 end
@@ -906,7 +926,7 @@ function Game3:saveGame()
   pcall(function()
     require("src.core.game3.scripting.space").persistSession(nil, self)
   end)
-  QuestRecorder.save(self)
+  if FieldModules.enabled("questLog", self.session) then QuestRecorder.save(self) end
   local save = Schema.toSaveTable(self.session)
   if SaveData.buildMeta then
     save.meta = SaveData.buildMeta(
@@ -1093,6 +1113,7 @@ local SOFT_RESET = {
   { "src.core.game3.step_events", "flush" },
   { "src.core.game3.field_move_show_mon", "reset" },
   { "src.core.game3.pokecenter_heal", dropField("_fx") },
+  { "src.core.game3.field", dropField("_frameTasks") },
   { "src.core.game3.ss_anne_cutscene", "reset" },
   { "src.core.game3.itemfinder", "reset" },
   { "src.core.game3.special_field_anim", "stopEscalator" },
@@ -1150,6 +1171,50 @@ local SOFT_RESET = {
   { "src.ui.game3.release_seq", function(m) m.active = false; m.onComplete = nil end },
   { "src.ui.game3.naming", closeFlag("openFlag") },
   { "src.ui.game3.easy_chat", closeFlag("openFlag") },
+  { "src.ui.game3.rse.wall_clock", "reset" },
+  { "src.ui.game3.rse.starter_choose", "reset" },
+  { "src.core.game3.truck_sequence", "reset" },
+  { "src.core.game3.dive", "reset" },
+  { "src.core.game3.field_weather_rse", "stop" },
+  { "src.core.game3.rotating_gate", "reset" },
+  { "src.core.game3.rotating_tile_puzzle", "free" },
+  { "src.core.game3.special_scene_rse", "reset" },
+  { "src.core.game3.fldeff_misc", "reset" },
+  { "src.core.game3.rse.match_call", "reset" },
+  { "src.ui.game3.rse.pokedex", "reset" },
+  { "src.ui.game3.rse.region_map", "reset" },
+  { "src.ui.game3.rse.option_menu", "reset" },
+  { "src.ui.game3.rse.bag_menu", "reset" },
+  { "src.ui.game3.rse.summary_menu", "reset" },
+  { "src.ui.game3.rse.credits", "reset" },
+  { "src.ui.game3.rse.item_storage", "reset" },
+  { "src.ui.game3.rse.mail", "reset" },
+  { "src.ui.game3.rse.mailbox", "reset" },
+  { "src.ui.game3.rse.pokenav.init", "reset" },
+  { "src.ui.game3.rse.pokenav.call_window", "reset" },
+  { "src.ui.game3.rse.cable_car", "reset" },
+  { "src.ui.game3.rse.rayquaza_scene", "reset" },
+  { "src.ui.game3.rse.decoration", "reset" },
+  { "src.core.game3.rse.secret_base", "reset" },
+  { "src.ui.game3.rse.pokeblock_case", "reset" },
+  { "src.ui.game3.rse.use_pokeblock", "reset" },
+  { "src.ui.game3.rse.pokeblock_feed", "reset" },
+  { "src.ui.game3.rse.berry_tag", "reset" },
+  { "src.ui.game3.rse.berry_blender", "reset" },
+  { "src.ui.game3.rse.slot_machine", "reset" },
+  { "src.ui.game3.rse.roulette", "reset" },
+  { "src.ui.game3.rse.contest", "reset" },
+  { "src.ui.game3.rse.contest_results", "reset" },
+  { "src.ui.game3.rse.contest_painting", "reset" },
+  { "src.ui.game3.rse.contest_entry_pic", "reset" },
+  { "src.ui.game3.rse.frontier_pass", "reset" },
+  { "src.ui.game3.rse.frontier_records", "reset" },
+  { "src.ui.game3.rse.dome_tourney", "reset" },
+  { "src.ui.game3.rse.factory_select", "reset" },
+  { "src.ui.game3.rse.factory_swap", "reset" },
+  { "src.ui.game3.rse.pyramid_bag", "reset" },
+  { "src.ui.game3.rse.pyramid_retire", "reset" },
+  { "src.ui.game3.rse.trainer_hill_records", "reset" },
   { "src.ui.game3.fade", "clear" },
 }
 
@@ -1213,10 +1278,11 @@ function Game3:returnToTitle()
   end
   Boot.setSaveStatus(self.boot, saveStatus)
   Boot.setTextSpeed(self.boot, Options.block(self.options).textSpeed)
-  self.boot.phase = Boot.PHASE.TITLE
-  self.boot.timer = 0
-  local TitleScreen = require("src.ui.game3.title_screen")
-  TitleScreen.enter(self.boot)
+  if not self.boot.custom then
+    self.boot.phase = Boot.PHASE.TITLE
+    self.boot.timer = 0
+    Boot.enterTitle(self.boot)
+  end
 end
 
 function Game3:reset()

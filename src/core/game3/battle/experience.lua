@@ -227,9 +227,16 @@ end
 function Experience.recipientOpts(st, mon)
   local HeldItems = require("src.core.game3.battle.held_items")
   local Engine = require("src.core.game3.battle.engine")
+  local traded = Engine.isTradedMon(st, mon)
+  if traded and st and st.playerHalf then
+    -- pokeemerald/src/battle_script_commands.c:3384
+    for i, m in ipairs(st.playerParty or {}) do
+      if m == mon and i > st.playerHalf then traded = false end
+    end
+  end
   return {
     luckyEgg = HeldItems.effectOf(mon and (mon.item or mon.heldItem)) == HeldItems.HOLD.LUCKY_EGG,
-    traded = Engine.isTradedMon(st, mon),
+    traded = traded,
   }
 end
 

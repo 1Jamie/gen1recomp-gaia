@@ -5,7 +5,7 @@
 local SSAnneCutscene = {}
 
 -- Audio constants (pokefirered/include/constants/songs.h:249)
-local SE_SS_ANNE_HORN = 249
+local SE = require("src.core.game3.se_ids")
 
 -- Timing constants matching pokefirered/src/ss_anne.c
 local INIT_FRAMES = 50       -- Task_SSAnneInit countdown
@@ -83,7 +83,7 @@ function SSAnneCutscene.start(ctx, adapters)
   SSAnneCutscene._initTimer = INIT_FRAMES
 
   -- Initial horn sound
-  playSe(SE_SS_ANNE_HORN)
+  playSe(SE.SE_SS_ANNE_HORN)
 
   loadGfx()
 
@@ -171,7 +171,7 @@ function SSAnneCutscene.step()
     -- Exit check: when boat moves completely off-screen
     if SSAnneCutscene._boatOffset >= TRAVEL_DISTANCE then
       -- Final horn sound
-      playSe(SE_SS_ANNE_HORN)
+      playSe(SE.SE_SS_ANNE_HORN)
       SSAnneCutscene._phase = "finish"
       SSAnneCutscene._finishTimer = 0
     end

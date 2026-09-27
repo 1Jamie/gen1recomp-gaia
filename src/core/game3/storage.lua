@@ -15,9 +15,17 @@ Storage.TOTAL_BOX_MONS = 420
 Storage.PC_ITEMS_COUNT = 50
 Storage.MAX_ITEM_QTY = 999
 
-local VAR_PC_BOX_TO_SEND_MON = 0x4037 -- pokefirered/include/constants/vars.h:105
-local FLAG_SHOWN_BOX_WAS_FULL_MESSAGE = 0x843 -- pokefirered/include/constants/flags.h:1401
-local FLAG_SYS_NOT_SOMEONES_PC = 0x834 -- pokefirered/include/constants/flags.h:1386
+local function save_ids(session)
+  local row = require("src.core.game3.profile").forSession(session)
+  local names = row.save.storage
+  local C = require("src.core.game3.constants").of(row.id)
+  return C:require("vars", names.sendVar), C:require("flags", names.boxFullFlag),
+    C:require("flags", names.pcOwnerFlag)
+end
+
+function Storage.pcItemsCount(session)
+  return require("src.core.game3.profile").forSession(session).bag.pcItems
+end
 
 local function script_store(session)
   local Space = package.loaded["src.core.game3.scripting.space"]
@@ -311,6 +319,7 @@ function Storage.sendMonToPC(session, mon)
   local Flags = require("src.core.game3.scripting.flags")
   local Queries = require("src.core.game3.scripting.natives_queries")
   local store = script_store(session)
+  local VAR_PC_BOX_TO_SEND_MON, FLAG_SHOWN_BOX_WAS_FULL_MESSAGE = save_ids(session)
   Queries.setPCBoxToSendMon(Flags.getVar(store, nil, VAR_PC_BOX_TO_SEND_MON))
   local intended = tonumber(Queries.pcBoxToSendMon) or 0
 
@@ -337,8 +346,7 @@ end
 -- pokefirered/src/field_specials.c:1985
 local function should_show_box_was_full()
   local Queries = require("src.core.game3.scripting.natives_queries")
-  local Std = require("src.core.game3.scripting.stdscripts")
-  local handler = Queries.HANDLERS and Queries.HANDLERS[Std.SPECIAL.ShouldShowBoxWasFullMessage]
+  local handler = Queries.BY_NAME and Queries.BY_NAME.ShouldShowBoxWasFullMessage
   if not handler then return false end
   local _, v = handler(nil)
   return (tonumber(v) or 0) ~= 0
@@ -350,6 +358,7 @@ function Storage.isDestinationBoxFull(session)
   local Flags = require("src.core.game3.scripting.flags")
   local Queries = require("src.core.game3.scripting.natives_queries")
   local store = script_store(session)
+  local VAR_PC_BOX_TO_SEND_MON, FLAG_SHOWN_BOX_WAS_FULL_MESSAGE = save_ids(session)
   Queries.setPCBoxToSendMon(Flags.getVar(store, nil, VAR_PC_BOX_TO_SEND_MON))
   local bId = Storage.findOpenSlot(storage)
   if not bId then return false end
@@ -366,6 +375,7 @@ function Storage.pcTransferMessage(session, name, boxWasFull)
   local Flags = require("src.core.game3.scripting.flags")
   local Queries = require("src.core.game3.scripting.natives_queries")
   local store = script_store(session)
+  local VAR_PC_BOX_TO_SEND_MON, _, FLAG_SYS_NOT_SOMEONES_PC = save_ids(session)
   name = tostring(name or "")
   local sent = box_name(storage, Flags.getVar(store, nil, VAR_PC_BOX_TO_SEND_MON))
   local shown = boxWasFull
@@ -433,7 +443,7 @@ function Storage.addPcItem(session, itemId, qty)
     end
     storage.items[foundIdx].qty = curQty + qty
   else
-    if #storage.items >= Storage.PC_ITEMS_COUNT then
+    if #storage.items >= Storage.pcItemsCount(session) then
       return false, "pc_items_full"
     end
     storage.items[#storage.items + 1] = { id = itemId, qty = qty }

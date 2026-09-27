@@ -137,10 +137,12 @@ end
 
 --- Extract entries.lua from ROM gPokedexEntries table
 function PokedexChromeExtract.extractEntries(rom, cache, root)
-  local entriesBase = Versions.POKEDEX_ENTRIES or 0x44E850
-  local spToNatBase = Versions.SPECIES_TO_NATIONAL or 0x251FEE
-  local numSpecies = Versions.NUM_SPECIES or 412
-  local natDexCount = Versions.NATIONAL_DEX_COUNT or 386
+  local L = require("src.import.gba.layouts.registry").active()
+  local E = L.pokedexEntry
+  local entriesBase = assert(Versions.POKEDEX_ENTRIES, "pokedex entries: no POKEDEX_ENTRIES key")
+  local spToNatBase = assert(Versions.SPECIES_TO_NATIONAL, "pokedex entries: no SPECIES_TO_NATIONAL key")
+  local numSpecies = assert(Versions.NUM_SPECIES, "pokedex entries: no NUM_SPECIES key")
+  local natDexCount = assert(Versions.NATIONAL_DEX_COUNT, "pokedex entries: no NATIONAL_DEX_COUNT key")
 
   local natToSpecies = {}
   for sp = 1, numSpecies - 1 do
@@ -154,16 +156,16 @@ function PokedexChromeExtract.extractEntries(rom, cache, root)
   -- src/data/pokemon/pokedex_entries.h:3
   for nat = 0, natDexCount do
     local sp = natToSpecies[nat] or nat
-    local off = entriesBase + nat * (Versions.POKEDEX_ENTRY_SIZE or 36)
-    local category = decode_category(rom, off, 12)
-    local height = get_u16(rom, off + 12)
-    local weight = get_u16(rom, off + 14)
-    local descPtr1 = get_u32(rom, off + 16)
-    local descPtr2 = get_u32(rom, off + 20)
-    local pokemonScale = get_u16(rom, off + 26)
-    local pokemonOffset = get_s16(rom, off + 28)
-    local trainerScale = get_u16(rom, off + 30)
-    local trainerOffset = get_s16(rom, off + 32)
+    local off = entriesBase + nat * E.size
+    local category = decode_category(rom, off + E.category, E.categoryLen)
+    local height = get_u16(rom, off + E.height)
+    local weight = get_u16(rom, off + E.weight)
+    local descPtr1 = get_u32(rom, off + E.desc)
+    local descPtr2 = E.desc2 and get_u32(rom, off + E.desc2) or 0
+    local pokemonScale = get_u16(rom, off + E.pokemonScale)
+    local pokemonOffset = get_s16(rom, off + E.pokemonOffset)
+    local trainerScale = get_u16(rom, off + E.trainerScale)
+    local trainerOffset = get_s16(rom, off + E.trainerOffset)
 
     local desc1 = decode_text(rom, descPtr1, 256)
     local desc2 = (descPtr2 >= 0x08000000 and descPtr2 < 0x0A000000) and decode_text(rom, descPtr2, 256) or desc1
@@ -211,6 +213,36 @@ function PokedexChromeExtract.extractEntries(rom, cache, root)
 
   local text = table.concat(lines, "\n")
   write_file(cache, root .. "/entries.lua", text)
+
+  local R = L.regionalDex
+  if R then
+    local C = require("src.core.game3.constants").of(L.constantsGame)
+    local regionalCount = C:require("species", R.countConstant)
+    local toNational = assert(Versions.HOENN_TO_NATIONAL, "pokedex entries: no HOENN_TO_NATIONAL key")
+    local numerical, natToRegional = {}, {}
+    -- pokeemerald/src/pokemon.c:940
+    for i = 1, numSpecies - 1 do
+      local nat = get_u16(rom, toNational + (i - 1) * 2)
+      if nat >= 1 and nat <= natDexCount and not natToRegional[nat] then
+        natToRegional[nat] = i
+        if i <= regionalCount then numerical[#numerical + 1] = nat end
+      end
+    end
+    local natIds = {}
+    for nat in pairs(natToRegional) do natIds[#natIds + 1] = nat end
+    table.sort(natIds)
+    local map = {}
+    for _, nat in ipairs(natIds) do map[#map + 1] = string.format("[%d] = %d", nat, natToRegional[nat]) end
+    write_file(cache, root .. "/regional.lua", table.concat({
+      "return {",
+      string.format("  region = \"%s\",", R.name),
+      string.format("  count = %d,", regionalCount),
+      "  numerical = { " .. table.concat(numerical, ", ") .. " },",
+      "  nationalToRegional = { " .. table.concat(map, ", ") .. " },",
+      "}",
+      "",
+    }, "\n"))
+  end
   return true
 end
 
@@ -272,43 +304,67 @@ end
 
 --- Extract orders.lua from ROM gPokedexOrder_* tables
 function PokedexChromeExtract.extractOrders(rom, cache, root)
-  local natDexCount = Versions.NATIONAL_DEX_COUNT or 386
-  local numSpecies = Versions.NUM_SPECIES or 412
+  local natDexCount = assert(Versions.NATIONAL_DEX_COUNT, "pokedex orders: no NATIONAL_DEX_COUNT key")
+  local numSpecies = assert(Versions.NUM_SPECIES, "pokedex orders: no NUM_SPECIES key")
+  local ordersBase = assert(Versions.POKEDEX_ORDERS, "pokedex orders: no POKEDEX_ORDERS key")
+  local L = require("src.import.gba.layouts.registry").active()
+  local R = L.regionalDex
+  local regionalKey = R and ("numerical_" .. R.name) or "numerical_kanto"
   local orders = {
-    numerical_kanto = {},
+    [regionalKey] = {},
     numerical_national = {},
     atoz = {},
-    type = {},
     lightest = {},
     smallest = {},
   }
+  local keys = { regionalKey, "numerical_national", "atoz" }
+  if ordersBase.type then
+    orders.type = {}
+    keys[#keys + 1] = "type"
+  end
+  keys[#keys + 1] = "lightest"
+  keys[#keys + 1] = "smallest"
 
-  for i = 1, 151 do orders.numerical_kanto[i] = i end
+  if R then
+    local C = require("src.core.game3.constants").of(L.constantsGame)
+    local regionalCount = C:require("species", R.countConstant)
+    local toNational = assert(Versions.HOENN_TO_NATIONAL, "pokedex orders: no HOENN_TO_NATIONAL key")
+    local seen = {}
+    -- pokeemerald/src/pokemon.c:940
+    for i = 1, regionalCount do
+      local nat = get_u16(rom, toNational + (i - 1) * 2)
+      if nat >= 1 and nat <= natDexCount and not seen[nat] then
+        seen[nat] = true
+        orders[regionalKey][#orders[regionalKey] + 1] = nat
+      end
+    end
+  else
+    for i = 1, 151 do orders.numerical_kanto[i] = i end
+  end
   for i = 1, natDexCount do orders.numerical_national[i] = i end
 
-  local ordersBase = Versions.POKEDEX_ORDERS or {
-    alphabetical = 0x443FF2,
-    weight = 0x4442F6,
-    height = 0x4445FA,
-    type = 0x4448FE,
-  }
-
-  for i = 0, natDexCount - 1 do
+  -- pokeemerald/src/pokedex.c:2246
+  local alphaCount = R and (numSpecies - 1) or natDexCount
+  for i = 0, alphaCount - 1 do
     local idA = get_u16(rom, ordersBase.alphabetical + i * 2)
     if idA >= 1 and idA <= natDexCount then orders.atoz[#orders.atoz + 1] = idA end
+  end
+  for i = 0, natDexCount - 1 do
     local idW = get_u16(rom, ordersBase.weight + i * 2)
     if idW >= 1 and idW <= natDexCount then orders.lightest[#orders.lightest + 1] = idW end
     local idH = get_u16(rom, ordersBase.height + i * 2)
     if idH >= 1 and idH <= natDexCount then orders.smallest[#orders.smallest + 1] = idH end
-    local idT = get_u16(rom, ordersBase.type + i * 2)
-    if idT >= 1 and idT <= numSpecies - 1 then orders.type[#orders.type + 1] = idT end
+    if orders.type then
+      local idT = get_u16(rom, ordersBase.type + i * 2)
+      if idT >= 1 and idT <= numSpecies - 1 then orders.type[#orders.type + 1] = idT end
+    end
   end
 
   local lines = {
     "-- Auto-generated FRLG Pokédex Sorting Orders from ROM. DO NOT EDIT DIRECTLY.",
     "return {",
   }
-  for _, k in ipairs({ "numerical_kanto", "numerical_national", "atoz", "type", "lightest", "smallest" }) do
+  for _, k in ipairs(keys) do
     local list = orders[k] or {}
     lines[#lines + 1] = string.format("  [\"%s\"] = {", k)
     lines[#lines + 1] = "    " .. table.concat(list, ", ")

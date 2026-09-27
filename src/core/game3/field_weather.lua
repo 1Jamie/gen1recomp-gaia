@@ -66,11 +66,18 @@ function FieldWeather.setWeather(weatherId)
 end
 
 function FieldWeather.getWeather()
+  local E = Weather.rseEngine()
+  if E then return E.getCurrentWeather() end
   return FieldWeather._current
 end
 
 function FieldWeather.update(dt)
   if Weather.isSuspended() then return end
+  local E = Weather.rseEngine()
+  if E then
+    E.update()
+    return
+  end
   local w = FieldWeather._current
 
   -- pokefirered/src/field_weather_effects.c:1332 FogHorizontal_Main
@@ -117,8 +124,19 @@ function FieldWeather.update(dt)
 end
 
 --- Render weather atmospheric layer over the field (before UI/dialogues)
+function FieldWeather.drawBelow(camX, camY, canvasW, canvasH)
+  if Weather.isSuspended() then return end
+  local E = Weather.rseEngine()
+  if E then E.drawBelow(camX or 0, camY or 0, canvasW or W, canvasH or H) end
+end
+
 function FieldWeather.draw(camX, camY, canvasW, canvasH)
   if Weather.isSuspended() then return end
+  local E = Weather.rseEngine()
+  if E then
+    E.draw(camX or 0, camY or 0, canvasW or W, canvasH or H)
+    return
+  end
   local w = FieldWeather._current
   if w == Weather.NONE or w == Weather.SUNNY then return end
 

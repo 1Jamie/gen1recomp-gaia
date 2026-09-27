@@ -16,6 +16,8 @@ local Secondary = require("src.core.game3.battle.effects.secondary")
 local HeldItems = require("src.core.game3.battle.held_items")
 local Abilities = require("src.core.game3.battle.abilities")
 local Oak = require("src.core.game3.battle.oak_advice")
+local BattleProfile = require("src.core.game3.battle.profile")
+local Kinds = require("src.core.game3.battle.kinds")
 local ModRuntime = require("src.mods.Runtime")
 local BattleText = require("src.core.game3.battle.battle_text")
 local RomText = require("src.core.game3.rom_text")
@@ -168,6 +170,13 @@ function Engine.hasBadge(st, n)
   if type(b) == "number" then return math.floor(b / 2 ^ (n - 1)) % 2 == 1 end
   local Space = package.loaded["src.core.game3.scripting.space"]
   local Flags = package.loaded["src.core.game3.scripting.flags"]
+  local badgeFlags = BattleProfile.of(st).badgeFlags
+  if badgeFlags then
+    -- pokeemerald/src/battle_util.c:3930
+    local flag = badgeFlags[n]
+    if not (flag and Space and Space.store and Flags and Flags.getFlag) then return false end
+    return Flags.getFlag(Space.store, nil, flag) and true or false
+  end
   if Space and Space.store and Flags and Flags.hasBadge then
     local ok, v = pcall(Flags.hasBadge, Space.store, n)
     if not ok then
@@ -205,7 +214,10 @@ local function speed_of(battler, st, adapter)
   end
   local stage = battler and battler.stages and battler.stages.speed or 0
   spe = Damage.applyStage(spe * mul, stage)
-  if battler and battler.side == "player" and Engine.hasBadge(st, 3) then
+  local k = st and st.kinds or {}
+  -- pokeemerald/src/battle_main.c:4640
+  local noBoost = st and BattleProfile.isRse(st) and (k.frontier or k.recordedLink)
+  if battler and battler.side == "player" and not noBoost and Engine.hasBadge(st, 3) then
     spe = math.floor(spe * 110 / 100)
   end
   local he, param = HeldItems.of(battler)
@@ -1279,6 +1291,8 @@ local LOAF_TEXT = {
 local function disobedient(M)
   local ad, user, st = M.adapter, M.user, M.st
   if not st or st.link or st.pokedude or not user or user.side ~= "player" then return nil end
+  -- pokeemerald/src/battle_util.c:3922
+  if st.playerHalf and State.idOf(user) == 2 then return nil end
   local mon = State.partyMon(user) or user.mon or {}
   local species = tonumber(user.species)
   local ob = 0
@@ -1297,7 +1311,8 @@ local function disobedient(M)
     M:sayId("STRINGID_PKMNIGNORESASLEEP", { atk = user })
     return "stop"
   end
-  if math.floor((lvl + ob) * roll(ad, 0, 255) / 256) < ob and M.mnum ~= 264 then
+  if math.floor((lvl + ob) * roll(ad, 0, 255) / 256) < ob
+      and (M.mnum ~= 264 or not BattleProfile.rule(st, "obedienceFocusPunchExempt")) then
     local bad = Engine.moveLimitations(user, ad)
     if M.slot then bad[M.slot] = true end
     if bad[1] and bad[2] and bad[3] and bad[4] then
@@ -1810,6 +1825,8 @@ function Engine.mostSuitableMon(st, adapter, side)
     return mon and not mon.isEgg and (tonumber(mon.hp) or 0) > 0 and i ~= activeIdx and i ~= in2Idx
       and i ~= pending[id] and i ~= pending[in2]
       and (tonumber(mon.species or mon.speciesId) or 0) ~= 0
+      -- pokeemerald/src/battle_ai_switch_items.c:671
+      and ((st.foeHalf == nil and st.playerHalf == nil) or State.ownsSlot(st, id, i))
   end
   -- pokefirered/src/battle_ai_switch_items.c:404
   local function modulate(atk, d1, d2, v)
@@ -2085,6 +2102,10 @@ function Engine.canRun(st, adapter, battler)
   end
   if battler.expTrapped or battler.escapePrevention or (battler.expTrapTurns or 0) > 0 or battler.expIngrain then
     return false, State.text(st, "STRINGID_CANTESCAPE")
+  end
+  if Kinds.isBirchFirstBattle(st) then
+    -- pokeemerald/src/battle_main.c:4078
+    return false, State.text(st, BattleProfile.of(st).firstBattle.cantRun)
   end
   return true
 end
@@ -2627,7 +2648,15 @@ function Engine.checkEnd(st, adapter)
     if b3 and st.foeParty then State.syncBattlerToParty(b3, st.foeParty) end
   end
 
-  local playerAlive = Engine.hasLivingMons(st.playerParty)
+  local playerAlive
+  if st.playerHalf then
+    -- pokeemerald/src/battle_script_commands.c:3543
+    local own = {}
+    for i = 1, math.min(st.playerHalf, #(st.playerParty or {})) do own[i] = st.playerParty[i] end
+    playerAlive = Engine.hasLivingMons(own)
+  else
+    playerAlive = Engine.hasLivingMons(st.playerParty)
+  end
   if not playerAlive then
     st.over = true
     -- pokefirered/src/battle_script_commands.c:3413

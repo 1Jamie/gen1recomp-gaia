@@ -36,6 +36,7 @@ local WIN_LIST = Window.template(19, 1, 10, 12)
 local WIN_PROMPT = Window.template(2, 15, 26, 4)
 -- pokefirered/src/learn_move.c:329 sMoveRelearnerYesNoMenuTemplate
 local WIN_YESNO = Window.template(21, 8, 6, 4)
+local SE = require("src.core.game3.se_ids")
 
 local function se(id)
   pcall(function()
@@ -234,7 +235,7 @@ function MoveRelearner.handleInput(input)
 
   if MoveRelearner.state == "message" then
     if input:wasPressed("a") or input:wasPressed("b") then
-      se(5)
+      se(SE.SE_SELECT)
       local cb = MoveRelearner._messageCb
       MoveRelearner._messageCb = nil
       to_list()
@@ -246,16 +247,16 @@ function MoveRelearner.handleInput(input)
   if MoveRelearner.state == "yesno" then
     if input:wasPressed("up") or input:wasPressed("down") then
       MoveRelearner.yesNoCursor = MoveRelearner.yesNoCursor == 1 and 2 or 1
-      se(5)
+      se(SE.SE_SELECT)
     elseif input:wasPressed("a") then
-      se(5)
+      se(SE.SE_SELECT)
       local yes = MoveRelearner.yesNoCursor == 1
       local cb = MoveRelearner._yesNoCb
       MoveRelearner._yesNoCb = nil
       to_list()
       if cb then cb(yes) end
     elseif input:wasPressed("b") then
-      se(5)
+      se(SE.SE_SELECT)
       local cb = MoveRelearner._yesNoCb
       MoveRelearner._yesNoCb = nil
       to_list()
@@ -269,16 +270,16 @@ function MoveRelearner.handleInput(input)
     if MoveRelearner.cursor > 1 then
       MoveRelearner.cursor = MoveRelearner.cursor - 1
       clamp_cursor()
-      se(5)
+      se(SE.SE_SELECT)
     end
   elseif input:wasPressed("down") then
     if MoveRelearner.cursor < total then
       MoveRelearner.cursor = MoveRelearner.cursor + 1
       clamp_cursor()
-      se(5)
+      se(SE.SE_SELECT)
     end
   elseif input:wasPressed("a") then
-    se(5)
+    se(SE.SE_SELECT)
     local moveId = MoveRelearner.moves()[MoveRelearner.cursor]
     if moveId then
       -- pokefirered/src/learn_move.c:784
@@ -294,7 +295,7 @@ function MoveRelearner.handleInput(input)
       MoveRelearner.giveUpPrompt()
     end
   elseif input:wasPressed("b") then
-    se(5)
+    se(SE.SE_SELECT)
     MoveRelearner.giveUpPrompt()
   end
 end

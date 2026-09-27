@@ -1,3 +1,4 @@
+local Std = require("src.core.game3.scripting.stdscripts")
 local Corner = {}
 
 -- pokefirered/include/constants/vars.h:321
@@ -39,11 +40,12 @@ function Corner.checkAddCoins(current, toAdd)
   return 1
 end
 
-Corner.HANDLERS = {
+Corner.BY_NAME = {
   -- pokefirered/src/field_specials.c:719
-  [SPECIAL_CheckAddCoins] = function(ctx)
+  CheckAddCoins = function(ctx)
     return false, Corner.checkAddCoins(varGet(ctx, VAR_RESULT), varGet(ctx, VAR_0x8006))
   end,
 }
+Std.legacyHandlers(Corner)
 
 return Corner
