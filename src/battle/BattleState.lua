@@ -6374,8 +6374,7 @@ function BattleState:animSpriteColors(s, px, py)
   -- engine/battle/animations.asm:551 (.notSGB)
   if PaletteFX.usesSpriteObp() then
     -- engine/battle/init_battle_variables.asm:18
-    P = require("src.core.GameVersion").isBlue() and PaletteFX.GBC_OBJ_BLUE
-        or PaletteFX.GBC_OBJ
+    P = PaletteFX.ogObjBase()
     if key == "f0" then key = "e4" elseif key == "f0x" then key = "e4x" end
   else
     P = self:zoneColorsAt(px or (s.x - 8 + 4), py or (s.y - 16 + 4))

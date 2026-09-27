@@ -150,7 +150,7 @@ do
 end
 
 do
-  local O = PaletteFX.GBC_OBJ
+  local O = PaletteFX.ogObjBase()
   local r, b = drawSplash("ogred", "red", STAR_START + 5)
   eq(#r, 3, "ogred red: logo, text and big star are replayed over the zone pass")
   local logo, text, star = r[1] or {}, r[2] or {}, r[3] or {}
@@ -158,24 +158,24 @@ do
   eq(logo.y, 56, "logo replays at y 56")
   eq(text.x, 40, "text replays at x 40")
   eq(text.y, 80, "text replays at y 80")
-  local lb = bakeFor(b, LOGO, "gfobj" .. 0xF9)
+  local lb = bakeFor(b, LOGO, "gfobj_soft" .. 0xF9)
   check(lb and sameRamp(lb.colors, { O[1], O[3], O[4], O[4] }),
         "ogred red: the logo starts black through OBJ0")
-  eq(logo.image, SpriteRenderer.obpImage(LOGO, lb and lb.colors or O, "gfobj" .. 0xF9),
+  eq(logo.image, SpriteRenderer.obpImage(LOGO, lb and lb.colors or O, "gfobj_soft" .. 0xF9),
      "the replayed logo is the OBJ0 bake")
-  local sb = bakeFor(b, STAR, "gfobj1" .. 0xA4)
-  check(sb and sameRamp(sb.colors, ramp(PaletteFX.GBC_BG, 1, 2, 2)),
+  local sb = bakeFor(b, STAR, "gfobj1_soft" .. 0xA4)
+  check(sb and sameRamp(sb.colors, ramp(PaletteFX.OG_RED_SOFT_BG, 1, 2, 2)),
         "ogred red: the big star replays through OBJ1 = the BG ramp")
-  eq(star.image, SpriteRenderer.obpImage(STAR, sb and sb.colors or O, "gfobj1" .. 0xA4),
+  eq(star.image, SpriteRenderer.obpImage(STAR, sb and sb.colors or O, "gfobj1_soft" .. 0xA4),
      "the big star replays last so it stays over the logo")
 
   r, b = drawSplash("ogred", "red", WAVES_START + 10)
   eq(#r, 2, "ogred red: after the star, only logo and text replay")
-  lb = bakeFor(b, LOGO, "gfobj" .. 0xE7)
+  lb = bakeFor(b, LOGO, "gfobj_soft" .. 0xE7)
   check(lb and sameRamp(lb.colors, { O[1], O[2], O[3], O[4] }),
         "ogred red: $E7 leaves the logo dark green and the text black")
   _, b = drawSplash("ogred", "red", FLASH_START + 5)
-  lb = bakeFor(b, TEXT, "gfobj" .. 0x7E)
+  lb = bakeFor(b, TEXT, "gfobj_soft" .. 0x7E)
   check(lb and sameRamp(lb.colors, { O[1], O[4], O[4], O[2] }),
         "ogred red: the first flash turns the text light green")
 end
@@ -187,7 +187,7 @@ do
   local lb = bakeFor(b, LOGO, "gfobj_blue" .. 0xE7)
   check(lb and sameRamp(lb.colors, { OB[1], OB[2], OB[3], OB[4] }),
         "ogred blue: the logo bakes Blue's pink OBJ0 under its own group")
-  check(not bakeFor(b, LOGO, "gfobj" .. 0xE7), "ogred blue never bakes into the red group")
+  check(not bakeFor(b, LOGO, "gfobj_soft" .. 0xE7), "ogred blue never bakes into the red group")
 end
 
 do

@@ -1420,6 +1420,33 @@ function AnimCallbacks.SimpleFadeOut(sprite)
   if life >= 20 then destroy(sprite) end
 end
 
+-- pokefirered/src/battle_anim_special.c:2166-2177,
+function AnimCallbacks.ShinySparkleOrbit(sprite)
+  sprite.imageValue = sprite.data[2] or 0
+  local angle = sprite.data[1] or 0
+  local radians = (angle % 256) * 2 * math.pi / 256
+  sprite.ox = math.floor(math.sin(radians) * 24)
+  sprite.oy = math.floor(math.cos(radians) * 24)
+  sprite.data[1] = angle + 12
+  if sprite.data[1] > 255 then destroy(sprite) end
+end
+
+-- pokefirered/src/battle_anim_special.c:2120-2139,
+function AnimCallbacks.ShinySparkle(sprite)
+  sprite.imageValue = sprite.data[2] or 0
+  local step = (sprite.data[0] or 0) + 1
+  sprite.data[0] = step
+  if step <= 4 then
+    sprite.visible = false
+    return
+  end
+  sprite.visible = true
+  local n = step - 4
+  sprite.ox = -32 + n * 5
+  sprite.oy = 32 - n * 5
+  if sprite.ox > 32 then destroy(sprite) end
+end
+
 --- noGfx helpers are handled as visual tasks, not sprites.
 AnimCallbacks.HorizontalLunge = nil
 AnimCallbacks.VerticalDip = nil
@@ -1447,4 +1474,3 @@ function AnimCallbacks.get(name)
 end
 
 return AnimCallbacks
-

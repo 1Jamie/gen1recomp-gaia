@@ -263,7 +263,7 @@ return function(game)
   local ogShot = Probe.grab()
   c = countIn(ogShot, {
     bootGreen = BOOT.bootGreen, bootDarkGreen = BOOT.bootDarkGreen,
-    ogBgRed = PaletteFX.GBC_BG[3], ogBgPink = PaletteFX.GBC_BG[2],
+    ogBgRed = PaletteFX.OG_RED_SOFT_BG[3], ogBgPink = PaletteFX.OG_RED_SOFT_BG[2],
   })
   if c then
     check(c.bootGreen + c.bootDarkGreen > 0,

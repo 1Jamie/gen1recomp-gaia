@@ -25,6 +25,7 @@ local Oak = require("src.core.game3.battle.oak_advice")
 local Strings = require("src.core.Strings")
 local RomText = require("src.core.game3.rom_text")
 local BattleText = require("src.core.game3.battle.battle_text")
+local SummaryChrome = require("src.ui.game3.summary_chrome")
 local Anim = require("src.core.game3.battle.anim")
 local PicCoords = require("src.core.game3.battle.pic_coords")
 local TrainerPic = require("src.core.game3.trainer_pic")
@@ -1644,6 +1645,45 @@ local function draw_menu_text(text, x, y, opts)
   })
 end
 
+local PP_STATE_TO_COLOR_INDEX = {
+  [0] = 1,
+  [1] = 2,
+  [2] = 3,
+  [3] = 0,
+}
+
+function Ui.ppColorState(currentPp, maxPp)
+  currentPp = tonumber(currentPp) or 0
+  maxPp = tonumber(maxPp) or 0
+  if maxPp == currentPp then return 3 end
+  if maxPp <= 2 then
+    if currentPp > 1 then return 3 end
+    return 2 - currentPp
+  elseif maxPp <= 7 then
+    if currentPp > 2 then return 3 end
+    return 2 - currentPp
+  end
+  if currentPp == 0 then return 2 end
+  if currentPp <= math.floor(maxPp / 4) then return 1 end
+  if currentPp > math.floor(maxPp / 2) then return 3 end
+  return 0
+end
+
+function Ui.ppColorIndex(currentPp, maxPp)
+  return PP_STATE_TO_COLOR_INDEX[Ui.ppColorState(currentPp, maxPp)]
+end
+
+local function pp_text_colors(currentPp, maxPp)
+  local manifest = SummaryChrome.manifest and SummaryChrome.manifest()
+  local rows = manifest and manifest.moveTextColors
+  local row = rows and rows[Ui.ppColorIndex(currentPp, maxPp)]
+  if not row then return FrlgFont.COLOR.NORMAL end
+  local function rgb(c)
+    return { (c[1] or 0) / 255, (c[2] or 0) / 255, (c[3] or 0) / 255, 1 }
+  end
+  return { fg = rgb(row.fg), shadow = rgb(row.shadow), bg = FrlgFont.STDPAL[0] }
+end
+
 local function draw_prompt_text(text, x, y)
   FrlgFont.draw(tostring(text or ""), x, y, {
     colors = FrlgFont.COLOR.WHITE,
@@ -2059,10 +2099,12 @@ local function draw_move_menu(st)
     local def = Moves.get(mv)
     local pp = mon.pp and mon.pp[slot] or 0
     local maxPp = mon.maxPp and mon.maxPp[slot] or (def and def.pp) or pp
+    local ppColors = pp_text_colors(pp, maxPp)
     -- pokefirered/src/battle_controller_player.c:1387
-    draw_menu_text(RomText.plain("gText_MoveInterfacePP"), 168, 122, { small = true, colors = FrlgFont.COLOR.NORMAL })
+    draw_menu_text(RomText.plain("gText_MoveInterfacePP"), 168, 122,
+      { small = true, colors = FrlgFont.COLOR.NORMAL })
     -- pokefirered/src/battle_controller_player.c:1402
-    draw_menu_text(string.format("%2d/%2d", pp, maxPp), 202, 122, { small = false, colors = FrlgFont.COLOR.NORMAL })
+    draw_menu_text(string.format("%2d/%2d", pp, maxPp), 202, 122, { small = false, colors = ppColors })
     -- pokefirered/src/battle_controller_player.c:1413
     draw_menu_text(RomText.plain("gText_MoveInterfaceType") .. Types.name(def.type), 168, 138,
       { small = true, colors = FrlgFont.COLOR.NORMAL })

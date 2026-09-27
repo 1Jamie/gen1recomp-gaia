@@ -87,15 +87,17 @@ local function mansionFloor(switchCoords, textPrefix)
               or "Not quite yet!")
             return
           end
-          local f = game.save.flags
-          if f.EVENT_MANSION_SWITCH_ON then
-            f.EVENT_MANSION_SWITCH_ON = nil
-          else
-            f.EVENT_MANSION_SWITCH_ON = true
-          end
-          require("src.core.Sound").play(game.data, "Go_Inside")
-          applyMansionBlocks(game, ow)
-          push(game, t[textPrefix .. "SwitchPressedText"] or "Who wouldn't?")
+          push(game, t[textPrefix .. "SwitchPressedText"] or "Who wouldn't?",
+            function()
+              local f = game.save.flags
+              if f.EVENT_MANSION_SWITCH_ON then
+                f.EVENT_MANSION_SWITCH_ON = nil
+              else
+                f.EVENT_MANSION_SWITCH_ON = true
+              end
+              require("src.core.Sound").play(game.data, "Go_Inside")
+              applyMansionBlocks(game, ow)
+            end)
         end)
       return true
     end,

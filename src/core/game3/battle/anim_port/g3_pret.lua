@@ -784,6 +784,7 @@ function P.CreateSprite(vm, tmplName, x, y, sub, fn, opts)
   s._op = nil
   s._vm = vm
   s._baseW, s._baseH = T.w or 32, T.h or 32
+  if opts.counted then s._g4counted = true end
   setup(s, vm, tmplName)
   s.x, s.y = x, y
   s.sub = sub or 2

@@ -421,8 +421,8 @@ function IntroMovie:drawObp0(img, path, x, y, obp)
   if P.usesSpriteObp() then
     local blue = GameVersion.isBlue()
     P.markUiSpriteRedraw(SR.obpImage(path,
-      obpRamp(obp, blue and P.GBC_OBJ_BLUE or P.GBC_OBJ),
-      (blue and "gfobj_blue" or "gfobj") .. obp), nil, x, y)
+      obpRamp(obp, blue and P.GBC_OBJ_BLUE or P.ogObjBase()),
+      (blue and "gfobj_blue" or "gfobj_soft") .. obp), nil, x, y)
   end
 end
 
@@ -487,7 +487,7 @@ function IntroMovie:drawSplash()
         local blue = GameVersion.isBlue()
         P.markUiSpriteRedraw(SR.obpImage(self.bigStarPath,
           obpRamp(STAR_OBP1, P.ogBg()),
-          (blue and "gfobj1_blue" or "gfobj1") .. STAR_OBP1), nil, sx, sy)
+        (blue and "gfobj1_blue" or "gfobj1_soft") .. STAR_OBP1), nil, sx, sy)
       end
     elseif self.bigStar then
       love.graphics.draw(self.bigStar, sx, sy)
@@ -547,8 +547,8 @@ function IntroMovie:replayObjLayer(nido, gengar, fade)
   local SR = require("src.render.SpriteRenderer")
   local blue = GameVersion.isBlue()
   local opts = { clip = FIGHT_CLIP }
-  local objColors = blue and P.GBC_OBJ_BLUE or P.GBC_OBJ
-  local objGroup = blue and "gbcobj_blue" or "gbcobj"
+  local objColors = blue and P.GBC_OBJ_BLUE or P.ogObjBase()
+  local objGroup = blue and "gbcobj_blue" or "gbcobj_soft"
   local bgColors, bgGroup = P.ogBg(), blue and "ogbg_blue" or "ogbg"
   if fade then
     objColors, objGroup = obpRamp(fade.obp, objColors), objGroup .. fade.obp

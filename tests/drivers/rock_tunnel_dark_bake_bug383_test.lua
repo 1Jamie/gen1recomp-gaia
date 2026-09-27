@@ -82,8 +82,8 @@ return function(game)
   check(darkGroup ~= litGroup,
         "and its bake sits in its own cache group, not over the lit one")
   local ogDark = PaletteFX.ogObj()
-  check(samePal(ogDark, { PaletteFX.GBC_OBJ[3], PaletteFX.GBC_OBJ[4],
-                          PaletteFX.GBC_OBJ[4], PaletteFX.GBC_OBJ[4] }),
+  check(samePal(ogDark, { PaletteFX.OG_RED_SOFT_OBJ[3], PaletteFX.OG_RED_SOFT_OBJ[4],
+                          PaletteFX.OG_RED_SOFT_OBJ[4], PaletteFX.OG_RED_SOFT_OBJ[4] }),
         "OG RED's boot-ROM greens go with it (colours 1/2/3 all black)")
   PaletteFX.setDarkWorld(false)
   check(PaletteFX.dmgObj() == PaletteFX.OBP0_SHADES and PaletteFX.darkKey() == "",
@@ -277,7 +277,8 @@ return function(game)
     local top, total = Probe.top(shot, 5)
     U.log(("probe[OG RED dark] %d px: %s"):format(total, Probe.fmt(top)))
     spriteProbe("OG RED", shot,
-                { green = PaletteFX.GBC_OBJ[2], darkGreen = PaletteFX.GBC_OBJ[3] })
+                { green = PaletteFX.OG_RED_SOFT_OBJ[2],
+                  darkGreen = PaletteFX.OG_RED_SOFT_OBJ[3] })
   end
 
   -- ---- the shade-remapped modes, each in its own ramp --------------------

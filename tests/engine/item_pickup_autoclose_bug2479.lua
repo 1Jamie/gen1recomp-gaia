@@ -58,4 +58,26 @@ for _, version in ipairs({"red", "yellow"}) do
 end
 local opts=TB.soundOpts({data=Data},"Get_Item1")
 T.eq(opts.auto.wait,true,"ordinary soundOpts preserves button wait")
+
+-- pokered/engine/events/pick_up_item.asm
+Data.items.SECRET_KEY = { name = "SECRET KEY", keyItem = true }
+local keySave = require("src.core.SaveData").newGame()
+keySave.inventory = {}
+local keyGame = { data = Data, save = keySave,
+  input = { wasPressed = function() return false end,
+            isDown = function() return false end } }
+keyGame.stack = { push = function(s, b) s.box = b end,
+                  pop = function(s) s.box = nil end }
+set(OW.talkTo,"Game",keyGame)
+set(OW.talkTo,"TextBox",TB)
+local keyNpc = { id = "secret-key", def = { item = "SECRET_KEY", text = 99 } }
+local keyOw = setmetatable({ map = { id = "FIX_TOWN" }, npcs = { keyNpc },
+  entities = { keyNpc } }, { __index = OW })
+Version.set("red")
+played = nil
+keyOw:talkTo(keyNpc)
+local keyBox = keyGame.stack.box
+T.check(keyBox ~= nil, "Secret Key item ball opens textbox")
+keyBox.auto.sound()
+T.eq(played, "Get_Item1", "Secret Key item ball uses ordinary item jingle")
 T.finish("item_pickup_autoclose_bug2479")

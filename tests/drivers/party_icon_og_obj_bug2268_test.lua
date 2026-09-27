@@ -94,7 +94,8 @@ return function(game)
         #redraws == mirrored * 2 + (#party - mirrored))
   check("each mirrored icon replays its OAM_XFLIP half", flips == mirrored)
 
-  local objRamp = GameVersion.isBlue() and PaletteFX.GBC_OBJ_BLUE or PaletteFX.GBC_OBJ
+  local objRamp = GameVersion.isBlue() and PaletteFX.GBC_OBJ_BLUE
+                  or PaletteFX.OG_RED_SOFT_OBJ
   local bgRamp = PaletteFX.ogBg()
   local id = shotPixels(DIR .. "/2268_01_party_og_" .. tag .. ".png")
   check("OG party screenshot captured", id ~= nil)
@@ -113,7 +114,7 @@ return function(game)
   check("SGB party screenshot captured", sgb ~= nil)
   if sgb and not GameVersion.isBlue() then
     check("SGB icons never wear the boot-ROM OBJ green",
-          count(sgb, PaletteFX.GBC_OBJ[2]) == 0)
+          count(sgb, PaletteFX.OG_RED_SOFT_OBJ[2]) == 0)
   end
 
   return finish()

@@ -1020,8 +1020,10 @@ do
   -- short-circuits to the boot-ROM BG palette, and CLASSIC ignores its input
   -- entirely and returns the DMG pea-soup ramp.
   local og = clearColorFor("ogred")
-  check(og and og.r == 1 and og.g == 1 and og.b == 1,
-        "OG RED letterbox stays white (its paper really is white)")
+  local ogPaper = PaletteFX.OG_RED_SOFT_BG[1]
+  check(og and og.r == ogPaper[1] / 255 and og.g == ogPaper[2] / 255
+        and og.b == ogPaper[3] / 255,
+        "OG RED letterbox follows the softened paper shade")
 
   local classic = clearColorFor("classic")
   local cc = PaletteFX.CLASSIC[1]

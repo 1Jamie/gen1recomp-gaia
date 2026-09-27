@@ -64,9 +64,9 @@ end
 do
   GameVersion.set("red")
   local c, g = PaletteFX.ogObjNormal()
-  check(same(c and c[2], PaletteFX.GBC_OBJ[1]), "red: OBJ color 1 -> boot OBJ shade 0")
-  check(same(c and c[3], PaletteFX.GBC_OBJ[2]), "red: OBJ color 2 -> boot OBJ shade 1 (light green)")
-  check(same(c and c[4], PaletteFX.GBC_OBJ[4]), "red: OBJ color 3 -> boot OBJ shade 3")
+  check(same(c and c[2], PaletteFX.OG_RED_SOFT_OBJ[1]), "red: OBJ color 1 -> softened OBJ shade 0")
+  check(same(c and c[3], PaletteFX.OG_RED_SOFT_OBJ[2]), "red: OBJ color 2 -> softened OBJ shade 1 (light green)")
+  check(same(c and c[4], PaletteFX.OG_RED_SOFT_OBJ[4]), "red: OBJ color 3 -> OBJ shade 3")
   GameVersion.set("blue")
   local cb, gb = PaletteFX.ogObjNormal()
   check(same(cb and cb[3], PaletteFX.GBC_OBJ_BLUE[2]), "blue: OBJ color 2 -> pink OBJ shade 1")

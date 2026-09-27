@@ -120,6 +120,20 @@ PaletteFX.GBC_OBJ = {
   { 255, 255, 255 }, { 123, 255, 49 }, { 0, 132, 0 }, { 0, 0, 0 },
 }
 
+-- OG RED display correction.  The boot-ROM entries above are the canonical
+-- digital GBC ramp, but a raw 8-bit expansion is much harder and more neon
+-- than the LCD/reference captures people use for the original hardware.
+-- Keep the source ramp available for parity tests and tools; the OG RED
+-- presentation uses this softer, lower-saturation grade for both the red BG
+-- and green OBJ layers.  These are the four values from the Gambatte palette
+-- reference attached to issue #155, in lightest-to-darkest order.
+PaletteFX.OG_RED_SOFT_BG = {
+  { 248, 248, 248 }, { 225, 128, 150 }, { 127, 56, 72 }, { 0, 0, 0 },
+}
+PaletteFX.OG_RED_SOFT_OBJ = {
+  { 248, 248, 248 }, { 131, 198, 86 }, { 16, 96, 16 }, { 0, 0, 0 },
+}
+
 -- OG BLUE: Pokemon Blue's Game Boy Color boot-ROM auto-palette.  Same
 -- one-global-pair scheme as OG RED (Blue also ships no CGB code), but the boot
 -- ROM gives Blue its OWN entry rather than a recolored Red: a light-blue/blue
@@ -134,8 +148,10 @@ PaletteFX.GBC_OBJ = {
 PaletteFX.GBC_BG_BLUE = {
   { 255, 255, 255 }, { 99, 165, 255 }, { 0, 0, 255 }, { 0, 0, 0 },
 }
--- Blue's OBJ palette (OBP0) is the red/pink ramp -- the very same colors OG
--- RED uses for its BACKGROUND (GBC_BG), just applied to objects instead.
+-- Blue's OBJ palette (OBP0) is the canonical red/pink ramp -- the same raw
+-- colors as Red's source BG table, just applied to objects instead.  OG RED's
+-- display path uses the softer LCD grade above; Blue remains on the canonical
+-- boot-ROM ramp.
 PaletteFX.GBC_OBJ_BLUE = {
   { 255, 255, 255 }, { 255, 132, 132 }, { 148, 58, 58 }, { 0, 0, 0 },
 }
@@ -150,7 +166,15 @@ function PaletteFX.ogBg()
     local route = y and y.cgbBase and y.cgbBase.ROUTE
     if route then return route end
   end
-  return PaletteFX.GBC_BG
+  return PaletteFX.OG_RED_SOFT_BG
+end
+
+-- The base display ramp before transient dark-world/fade register permutations.
+-- Callers that need to emulate a battle/intro register write should use ogObj()
+-- instead, which applies those stateful permutations and returns its cache key.
+function PaletteFX.ogObjBase()
+  if GameVersion.isBlue() then return PaletteFX.GBC_OBJ_BLUE end
+  return PaletteFX.OG_RED_SOFT_OBJ
 end
 
 -- The active game's OG boot-ROM object palette (OBP0): Blue's pink ramp for a
@@ -164,11 +188,11 @@ function PaletteFX.ogObj()
   if GameVersion.isBlue() then
     return PaletteFX.fadeObp(PaletteFX.darkObp(PaletteFX.GBC_OBJ_BLUE, "gbcobj_blue"))
   end
-  return PaletteFX.fadeObp(PaletteFX.darkObp(PaletteFX.GBC_OBJ, "gbcobj"))
+  return PaletteFX.fadeObp(PaletteFX.darkObp(PaletteFX.OG_RED_SOFT_OBJ, "gbcobj_soft"))
 end
 
 local function obp3100(c) return { c[1], c[1], c[2], c[4] } end
-local OG_OBJ_NORMAL = obp3100(PaletteFX.GBC_OBJ)
+local OG_OBJ_NORMAL = obp3100(PaletteFX.OG_RED_SOFT_OBJ)
 local OG_OBJ_NORMAL_BLUE = obp3100(PaletteFX.GBC_OBJ_BLUE)
 
 -- home/palettes.asm:24
@@ -176,7 +200,7 @@ function PaletteFX.ogObjNormal()
   if GameVersion.isBlue() then
     return OG_OBJ_NORMAL_BLUE, "gbcobjnormal_blue"
   end
-  return OG_OBJ_NORMAL, "gbcobjnormal"
+  return OG_OBJ_NORMAL, "gbcobjnormal_soft"
 end
 
 -- The DMG object ramp every mode except OG RED bakes onto overworld sprites,

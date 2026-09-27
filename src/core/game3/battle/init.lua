@@ -471,6 +471,7 @@ function Battle.start(opts)
   -- pokefirered/src/battle_main.c:2584
   SwitchSeq.stampSwitchIn(st)
   D.reset()
+  Battle._leveledUp = {}
   -- pokefirered/src/cable_club.c:664 BATTLE_TYPE_LINK
   st.link = linkBattle
   st.spectate = (linkBattle and opts.spectate) and true or false
@@ -1277,6 +1278,16 @@ local function choice_hooks()
 end
 Battle._choiceHooksForTests = choice_hooks
 
+local function merge_leveled_set(set)
+  Battle._leveledUp = Battle._leveledUp or {}
+  for partyIndex, leveled in pairs(set or {}) do
+    if leveled then Battle._leveledUp[partyIndex] = true end
+  end
+  return Battle._leveledUp
+end
+
+Battle._mergeLeveledSet = merge_leveled_set
+
 local function begin_evo_or_end()
   local st = Battle._st
   Battle._pendingEnd = Battle._pendingEnd or "win"
@@ -1602,7 +1613,6 @@ local function handle_enemy_faint(opts)
       partyIndices = (#partIndices > 0) and partIndices or nil,
     })
   end
-  Battle._leveledUp = {}
   local nextEnemyIdx = (not st.wild) and Engine.nextLivingMonIndex(st.foeParty, st.enemy and st.enemy.partyIndex)
   if nextEnemyIdx and not st.link then
     -- pokefirered/src/battle_controller_opponent.c:1416
@@ -1657,7 +1667,7 @@ local function handle_enemy_faint(opts)
 
   local started = ExpSeq.begin(awards, hooks.pushMsg, nil, hooks)
   if started then
-    Battle._leveledUp = ExpSeq.leveledSet() or {}
+    merge_leveled_set(ExpSeq.leveledSet())
     Battle._onExpDone = onAwardsFinished
     Battle._phase = "awarding"
   else
@@ -2374,6 +2384,7 @@ local function has_flag(t, f)
 end
 
 function D.reset()
+  Battle._leveledUp = nil
   Battle._dblSel = nil
   Battle._dblFaint = nil
   Battle._dblSwitch = nil
@@ -3614,7 +3625,7 @@ update_body = function(dt, game)
     if not Ui.pump() then return end
     local done = ExpSeq.update()
     if done then
-      Battle._leveledUp = ExpSeq.leveledSet() or Battle._leveledUp
+      merge_leveled_set(ExpSeq.leveledSet())
       local cb = Battle._onExpDone
       Battle._onExpDone = nil
       if cb then

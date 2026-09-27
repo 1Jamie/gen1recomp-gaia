@@ -9,6 +9,7 @@ local SE = require("src.core.game3.se_ids")
 local RomText = require("src.core.game3.rom_text")
 local BattleText = require("src.core.game3.battle.battle_text")
 local Adapter = require("src.core.game3.battle.adapter")
+local ShinySeq = require("src.core.game3.battle.shiny_seq")
 
 local IntroSeq = {}
 
@@ -18,6 +19,7 @@ IntroSeq._waiting = false
 IntroSeq._pushMsg = nil
 IntroSeq._headless = false
 IntroSeq._opts = nil
+IntroSeq._st = nil
 
 function IntroSeq.reset()
   IntroSeq._steps = nil
@@ -30,6 +32,7 @@ function IntroSeq.reset()
   IntroSeq._pendingSlideIn = nil
   IntroSeq._pushMsg = nil
   IntroSeq._opts = nil
+  IntroSeq._st = nil
   IntroSeq._cryQueue = nil
 end
 
@@ -211,6 +214,7 @@ local function build_wild(st, opts)
     darken = 10 / 16,
     gender = playerGender,
   })
+  add("shiny_check", { side = "enemy" })
   add("cry", { side = "enemy" })  add("undarken", { side = "enemy", frames = 10 })
   add("healthbox", { side = "enemy", frames = 23, from = -115 })
   -- pokefirered/src/battle_message.c:1551
@@ -240,6 +244,7 @@ local function build_wild(st, opts)
   -- pokefirered/src/battle_message.c:1592
   add("msg", { text = IntroSeq.sendOutText(st, "player"), linger = true })
   add("player_throw", {})
+  add("shiny_check", { side = "player" })
   add("healthbox", { side = "player", frames = 23, from = 115 })
   add("wait", { frames = 3 })
   return steps
@@ -308,10 +313,12 @@ local function build_trainer(st, opts)
     add("msg", { text = strings.wants })
     add("msg", { text = sentOut })
     add("opponent_sendout", { toX = 280, frames = 35, ids = foeIds })
+    add("shiny_check", { ids = foeIds })
     add("cry", { side = "enemy", release = true, ids = foeIds })
     add("healthbox", { side = "enemy", frames = 23, from = -115, ids = foeIds })
     add("msg", { text = goText, linger = true })
     add("player_throw", { ids = plIds })
+    add("shiny_check", { ids = plIds })
     add("healthbox", { side = "player", frames = 23, from = 115, ids = plIds })
     add("wait", { frames = 3 })
     return steps
@@ -319,10 +326,12 @@ local function build_trainer(st, opts)
   add("msg", { text = strings.wants })
   add("msg", { text = strings.sentOut })
   add("opponent_sendout", { toX = 280, frames = 35 })
+  add("shiny_check", { side = "enemy" })
   add("cry", { side = "enemy", release = true })
   add("healthbox", { side = "enemy", frames = 23, from = -115 })
   add("msg", { text = IntroSeq.sendOutText(st, "player"), linger = true })
   add("player_throw", {})
+  add("shiny_check", { side = "player" })
   add("healthbox", { side = "player", frames = 23, from = 115 })
   add("wait", { frames = 3 })
   return steps
@@ -350,6 +359,7 @@ function IntroSeq.begin(st, opts)
   opts = opts or {}
   IntroSeq.reset()
   IntroSeq._opts = opts
+  IntroSeq._st = st
   IntroSeq._pushMsg = opts.pushMsg
   IntroSeq._headless = opts.headless and true or false
   if IntroSeq._headless or not st then
@@ -424,6 +434,25 @@ local function run_step(step)
   local kind = step.kind
   local d = step.data or {}
   local s = stage()
+
+  if kind == "shiny_check" then
+    local Battle = package.loaded["src.core.game3.battle"]
+    local st = IntroSeq._st or (Battle and Battle._st)
+    local keys = d.ids or { d.id ~= nil and d.id or d.side or "enemy" }
+    local battlers = {}
+    for _, key in ipairs(keys) do
+      battlers[#battlers + 1] = battler_of(st, key)
+    end
+    if ShinySeq.startMany(battlers, keys) then
+      -- FireRed starts shiny sparkle tasks before the healthbox animation and
+      -- waits for both to drain. Advancing here lets the next healthbox step
+      -- schedule its tween while the shared animation VM remains busy.
+      advance()
+      return
+    end
+    advance()
+    return
+  end
 
   if kind == "fade" then
     local okF, Fade = pcall(require, "src.ui.game3.fade")

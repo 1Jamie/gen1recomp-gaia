@@ -192,6 +192,8 @@ function Input:reset()
   self.captureEvents = nil
   self.aliases = nil
   self.aliasHeld = nil
+  self._pollPads = nil
+  self._pollPadCount = nil
   local suppress = {}
   local poll = self.padPoll
   if poll then

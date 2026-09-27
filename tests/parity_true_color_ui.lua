@@ -14,6 +14,7 @@ if not Data.maps then Data:load() end
 require("src.render.Font").load(Data)
 
 local PaletteFX = require("src.render.PaletteFX")
+local GameVersion = require("src.core.GameVersion")
 local Sound = require("src.core.Sound")
 local DexEntryMenu = require("src.ui.DexEntryMenu")
 local EvolutionState = require("src.ui.EvolutionState")
@@ -23,6 +24,8 @@ local TradeAnim = require("src.ui.TradeAnim")
 
 local savedCry = Sound.playCry
 Sound.playCry = function() end
+local savedGameVersion = GameVersion.get()
+GameVersion.set("red")
 
 local function uiRects(draw)
   PaletteFX.clearTrueColor()
@@ -131,5 +134,6 @@ check(#oakRects == 1 and oakRects[1].x == ox and oakRects[1].y == oy
 def.trueColor = savedTrueColor
 raichu.trueColor = savedRaichuTrueColor
 Sound.playCry = savedCry
+GameVersion.set(savedGameVersion)
 PaletteFX.clearTrueColor()
 S.finish()

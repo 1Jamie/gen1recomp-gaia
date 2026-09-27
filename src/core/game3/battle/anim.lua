@@ -7,6 +7,7 @@ local AnimSprites = require("src.core.game3.battle.anim_sprites")
 local BallOpen = require("src.core.game3.battle.ball_open")
 local AnimPal = require("src.core.game3.battle.anim_pal")
 local AnimCoords = require("src.core.game3.battle.anim_coords")
+local SE = require("src.core.game3.se_ids")
 
 local Anim = {}
 
@@ -753,6 +754,86 @@ local GENERIC_MISS = {
   { op = "delay", frames = 8 },
   { op = "end" },
 }
+
+local function shiny_sprite(template, callback, w, h, imageValue, role)
+  return {
+    op = "createsprite", template = template, tag = "GOLD_STARS",
+    animBattler = role or "attacker", subpriority = 5, callback = callback, w = w, h = h,
+    -- The portable VM copies args[3] to the sprite's image value. FireRed uses
+    -- tile offsets +4 and +5 for the two mini-star frames.
+    args = { 0, 0, imageValue or 0 },
+  }
+end
+
+local function shiny_script(ids)
+  local streams = {}
+  for i, id in ipairs(ids) do
+    local role = (i == 1) and "attacker" or "target"
+    local side = AnimCoords.sideOf(id)
+    streams[#streams + 1] = { role = role, callback = "ShinySparkleOrbit", pan = side == "player"
+      and "SOUND_PAN_ATTACKER" or "SOUND_PAN_TARGET" }
+    streams[#streams + 1] = { role = role, callback = "ShinySparkle", pan = side == "player"
+      and "SOUND_PAN_ATTACKER" or "SOUND_PAN_TARGET" }
+  end
+
+  local script = {
+    { op = "loadspritegfx", tag = "GOLD_STARS" },
+    -- pokefirered/src/battle_anim_special.c:2088-2092
+    { op = "delay", frames = 60 },
+  }
+
+  -- Each FireRed task emits one wish star and four mini stars. In a double
+  -- battle, run both battlers' task pairs through the same VM so their first
+  -- stars and four-frame bursts stay synchronized.
+  for burst = 0, 4 do
+    if burst > 0 then
+      -- Each createsprite consumes one VM frame. With two streams per
+      -- battler, this preserves the four-frame task cadence between bursts.
+      script[#script + 1] = { op = "delay", frames = 2 }
+    end
+    local template = (burst == 0) and "gWishStarSpriteTemplate"
+      or "gMiniTwinklingStarSpriteTemplate"
+    local size = (burst == 0) and 16 or 8
+    local imageValue = (burst == 0) and 0 or ((burst <= 3) and 4 or 5)
+    for _, stream in ipairs(streams) do
+      script[#script + 1] = shiny_sprite(template, stream.callback, size, size, imageValue, stream.role)
+    end
+    -- pokefirered/src/battle_anim_special.c:2120-2137
+    for _, stream in ipairs(streams) do
+      if burst == 0 and stream.callback == "ShinySparkle" then
+        script[#script + 1] = { op = "playsewithpan", se = SE.SE_SHINY, pan = stream.pan }
+      end
+    end
+  end
+
+  -- pokefirered/src/battle_anim_special.c:2150-2164
+  script[#script + 1] = { op = "waitforvisualfinish" }
+  script[#script + 1] = { op = "unloadspritegfx", tag = "GOLD_STARS" }
+  script[#script + 1] = { op = "end" }
+  return script
+end
+
+function Anim.launchShiny(key, opts)
+  opts = opts or {}
+  if not Anim._vm then Anim.reset({ headless = Anim._headless }) end
+  load_pack()
+  local ids = {}
+  for _, candidate in ipairs(opts.keys or { key }) do
+    local id = Anim.idOf(candidate) or AnimCoords.fixedId(candidate)
+    if id ~= nil and #ids < 2 then ids[#ids + 1] = id end
+  end
+  if #ids == 0 then ids[1] = Anim.idOf(key) or AnimCoords.fixedId(key) or 0 end
+  local side = AnimCoords.sideOf(ids[1])
+  local targetSide = AnimCoords.sideOf(ids[2] or ids[1])
+  local o = {}
+  for k, v in pairs(opts) do o[k] = v end
+  o.attackerSide = o.attackerSide or side
+  o.targetSide = o.targetSide or targetSide
+  o.attackerId = o.attackerId or ids[1]
+  o.targetId = o.targetId or ids[2] or ids[1]
+  if o.isReversed == nil then o.isReversed = side == "enemy" end
+  return Anim._vm:launch(shiny_script(ids), o)
+end
 
 function Anim.scriptForMove(moveId)
   local pack = load_pack()

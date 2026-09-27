@@ -73,10 +73,10 @@ return function(game)
   -- (5) version routing: as Red, the OG helpers still resolve Red's palettes
   -- (green player over the red field is correct and must not regress)
   GameVersion.set("red")
-  expect(palEq(PaletteFX.ogBg(), PaletteFX.GBC_BG), "ogBg() -> Red BG when Red")
+  expect(palEq(PaletteFX.ogBg(), PaletteFX.OG_RED_SOFT_BG), "ogBg() -> softened Red BG when Red")
   if type(PaletteFX.ogObj) == "function" then
-    expect(palEq(PaletteFX.ogObj(), PaletteFX.GBC_OBJ),
-           "ogObj() -> green Red OBJ when Red")
+    expect(palEq(PaletteFX.ogObj(), PaletteFX.OG_RED_SOFT_OBJ),
+           "ogObj() -> softened green Red OBJ when Red")
   end
 
   -- Visual proof: force Blue's OG palette over the (Red-cache) overworld.  The

@@ -388,6 +388,13 @@ actor walks -- right for Oak marching to his lab, wrong for an actor that
 moves on its own schedule (a networked player's ghost, an ambient walker).
 Five handle methods drive one without that lockout:
 
+On Gold/Crystal, the compatible form is
+`mod.world:spawnNpc(mapId, objectDefinition)`. It returns the generated object
+ID string (for example, `CHERRYGROVE_CITY_obj_2`), which can be resolved with
+`mod.world:npc(mapId, id)`. The later `world.interacted` payload keeps the
+cross-generation shape and puts the live object in `ev.target`; read
+`ev.target.id` rather than `ev.npcId`.
+
 ```lua
 local ghost = mod.world:spawnNpc({ map = "ROUTE_1", x = 5, y = 7,
                                    sprite = "SPRITE_RED" })

@@ -134,7 +134,7 @@ return function(game)
   P.applyOptions(game.save.options)
   check(tag .. " COLORS is ogred", P.mode == "ogred", P.mode)
   local blue = GameVersion.isBlue()
-  local obj = blue and P.GBC_OBJ_BLUE or P.GBC_OBJ
+  local obj = blue and P.GBC_OBJ_BLUE or P.OG_RED_SOFT_OBJ
   local bg = P.ogBg()
   objRamp = { obj[2], obj[3] }
   bgRamp = { bg[2], bg[3] }

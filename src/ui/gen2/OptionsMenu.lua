@@ -215,7 +215,11 @@ local ROWS = {
     step = function(g, dir)
       local o = g.options
       o.performance = Performance.cycle(o.performance, dir)
-      g:applyOptions()
+      if g.applyPerformanceOptions then
+        g:applyPerformanceOptions()
+      else
+        g:applyOptions()
+      end
       return true
     end },
   { label = Strings.source("GAME SPEED"), key = "speed", port = true,

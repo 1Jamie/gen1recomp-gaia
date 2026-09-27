@@ -7,7 +7,7 @@
 -- Captures ogred_0{1..5}_*.png into SHOT_DIR.  OG RED is a global palette:
 -- red BG (terrain, mon pics, HUD, text) + green OBJ (overworld characters,
 -- battle effects).  Battle mon pics are BG tiles, so they come out red/pink
--- on the near-white field -- see PaletteFX.GBC_BG / monPal.
+-- on the softened paper field -- see PaletteFX.ogBg() / monPal.
 return function(game)
   local U = dofile("tests/drivers/util.lua")
   local DIR = os.getenv("SHOT_DIR") or "."

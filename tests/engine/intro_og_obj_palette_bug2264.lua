@@ -61,15 +61,15 @@ do
   eq(#r, 2, "ogred red: Nidorino and the Gengar restack are replayed")
   local nido, gengar = r[1] or {}, r[2] or {}
   eq(b[1] and b[1].path, movie.nidoPaths[1], "Nidorino bakes its current frame")
-  eq(b[1] and b[1].colors, PaletteFX.GBC_OBJ, "red Nidorino bakes the boot-ROM OBJ ramp")
-  eq(b[1] and b[1].group, "gbcobj", "red Nidorino bakes under the red OBJ group")
-  eq(nido.image, SpriteRenderer.obpImage(movie.nidoPaths[1], PaletteFX.GBC_OBJ, "gbcobj"),
+  eq(b[1] and b[1].colors, PaletteFX.OG_RED_SOFT_OBJ, "red Nidorino bakes the softened OBJ ramp")
+  eq(b[1] and b[1].group, "gbcobj_soft", "red Nidorino bakes under the softened OBJ group")
+  eq(nido.image, SpriteRenderer.obpImage(movie.nidoPaths[1], PaletteFX.OG_RED_SOFT_OBJ, "gbcobj_soft"),
      "the replayed Nidorino image is the OBJ bake")
   eq(nido.x, 72, "Nidorino replays at nidoX")
   eq(nido.y, 72, "Nidorino replays at nidoY")
   check(sameClip(nido.clip), "Nidorino replay is clipped to the playfield under the bars")
   eq(b[2] and b[2].path, movie.gengarPaths[1], "Gengar restack bakes its current pose")
-  eq(b[2] and b[2].colors, PaletteFX.GBC_BG, "red Gengar restack bakes the boot-ROM BG ramp")
+  eq(b[2] and b[2].colors, PaletteFX.OG_RED_SOFT_BG, "red Gengar restack bakes the softened BG ramp")
   eq(gengar.x, 24, "Gengar replays at gengarX")
   eq(gengar.y, 56, "Gengar replays at gengarY")
   check(sameClip(gengar.clip), "Gengar restack is clipped to the playfield")
@@ -94,12 +94,13 @@ do
 end
 
 do
-  local W, OBJ, BG = PaletteFX.GBC_OBJ[1], PaletteFX.GBC_OBJ, PaletteFX.GBC_BG
+  local W, OBJ, BG = PaletteFX.OG_RED_SOFT_OBJ[1], PaletteFX.OG_RED_SOFT_OBJ,
+    PaletteFX.OG_RED_SOFT_BG
   local r, b = drawFight("ogred", "red", function(m) m.fadeStep = 1 end)
   eq(#r, 2, "FadePal6 replays only the two layers, no white wash")
   local nb, gb
   for _, x in ipairs(b) do
-    if x.group == "gbcobj128" then nb = x end
+    if x.group == "gbcobj_soft128" then nb = x end
     if x.group == "ogbg144" then gb = x end
   end
   check(nb and nb.colors[2] == W and nb.colors[3] == W and nb.colors[4] == OBJ[3],
@@ -108,7 +109,7 @@ do
     "FadePal6 rBGP $90 bakes Gengar c1 white, c2 shade 1, c3 shade 2")
   r, b = drawFight("ogred", "red", function(m) m.fadeStep = 2 end)
   nb = nil
-  for _, x in ipairs(b) do if x.group == "gbcobj64" then nb = x end end
+  for _, x in ipairs(b) do if x.group == "gbcobj_soft64" then nb = x end end
   check(nb and nb.colors[2] == W and nb.colors[3] == W and nb.colors[4] == OBJ[2],
     "FadePal7 rOBP0 $40 leaves only c3 at OBJ shade 1")
   r, b = drawFight("gbc", "red", function(m) m.fadeStep = 1 end)
@@ -127,7 +128,7 @@ do
   local _, b = drawFight("ogred", "red")
   PaletteFX.setDarkWorld(false)
   PaletteFX.setFadeObp(nil)
-  eq(b[1] and b[1].colors, PaletteFX.GBC_OBJ, "stale dark / fade OBP state never reaches the identity rOBP0 bake")
+  eq(b[1] and b[1].colors, PaletteFX.OG_RED_SOFT_OBJ, "stale dark / fade OBP state never reaches the identity rOBP0 bake")
 end
 
 do

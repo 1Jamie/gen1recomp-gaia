@@ -5,7 +5,7 @@ local Anim = require("src.core.game3.battle.anim")
 local State = require("src.core.game3.battle.state")
 local Audio = require("src.core.game3.audio")
 local SE = require("src.core.game3.se_ids")
-local SummaryData = require("src.core.game3.summary_data")
+local ShinySeq = require("src.core.game3.battle.shiny_seq")
 local BattleText = require("src.core.game3.battle.battle_text")
 local Adapter = require("src.core.game3.battle.adapter")
 
@@ -722,14 +722,10 @@ local function run_step(step)
 
   if kind == "shiny_check" then
     local b = step_battler(st, d)
-    local mon = b and b.mon
-    local isShiny = mon and SummaryData.isShiny(mon)
-    if isShiny then
-      pcall(function() Audio.playSe(SE.SE_SHINY) end)
+    if ShinySeq.start(b, d.id ~= nil and d.id or d.side or "enemy", function()
+      advance()
+    end) then
       wait_busy()
-      Anim.tweenStage(24, function() end, function()
-        advance()
-      end)
       return
     end
     advance()

@@ -128,7 +128,7 @@ return function(game)
   local YELLOW = PaletteFX.monPal(game.data, "WEEDLE")   -- YELLOWMON
   local REDMON = PaletteFX.monPal(game.data, "MAGIKARP") -- REDMON
   local BLUE = PaletteFX.monPal(game.data, "GYARADOS")   -- BLUEMON
-  local OGBG = PaletteFX.GBC_BG
+  local OGBG = PaletteFX.OG_RED_SOFT_BG
   check(YELLOW ~= nil and REDMON ~= nil and BLUE ~= nil,
         "WEEDLE/MAGIKARP/GYARADOS mon palettes resolve")
   U.log("WEEDLE:", ramp(YELLOW), " MAGIKARP:", ramp(REDMON),

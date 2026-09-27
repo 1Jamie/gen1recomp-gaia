@@ -3434,13 +3434,11 @@ function OverworldState:talkTo(npc)
       if e == npc then table.remove(self.entities, i) break end
     end
     local name = Game.data.items[d.item] and Game.data.items[d.item].name or d.item
-    local ddef = Game.data.items[d.item]
-    -- FoundItemText: text_far, sound_get_item_1, text_end (pick_up_item.asm)
     Game.stack:push(TextBox.new(Game,
       romText(Game.data, "_FoundItemText", "%s found\n%s!",
         Game.save.player.name, name), nil,
       TextBox.soundOpts(Game,
-        (ddef and ddef.keyItem) and "Get_Key_Item" or "Get_Item1", {auto = true})))
+        "Get_Item1", {auto = true})))
     return
   end
 
@@ -6324,6 +6322,16 @@ function OverworldState:drawWorld()
     local grassColors = PaletteFX.usesSpriteObp()
       and PaletteFX.pal(Game.data, self:paletteNameFor(self.map)) or nil
     local boulderDust = self.dustAnim and self.dustAnim.boulder
+    local grassCells, grassSeen = {}, {}
+    local function queueGrass(cx, cy)
+      if cx == nil or cy == nil or not self.map:isGrassCell(cx, cy) then
+        return
+      end
+      local key = tostring(cx) .. ":" .. tostring(cy)
+      if grassSeen[key] then return end
+      grassSeen[key] = true
+      grassCells[#grassCells + 1] = { cx, cy }
+    end
     if boulderDust then fxDust() end
     for _, g in ipairs(self.ghosts) do
       if self.battleOamKeep == nil then
@@ -6334,23 +6342,16 @@ function OverworldState:drawWorld()
       if not ((self.flyAnim or self.flyArrive or self.playerHidden)
               and e == self.player) and not self:oamCulled(e) then
         e:draw(cam.x, cam.y)
-        -- tall grass overdraws the sprite's feet (GB sprite priority);
-        -- the overdraw is BG tiles, so it rides the shake offset too
-        love.graphics.setColor(1, 1, 1, 1)
-        if self.map:isGrassCell(e.cellX, e.cellY) then
-          self.map.renderer:drawCellBottom(e.cellX, e.cellY, cam.x, bgY)
-          if grassColors then
-            self.map.renderer:markCellBottomRedraw(e.cellX, e.cellY,
-                                                   cam.x, bgY, grassColors)
-          end
-        end
-        if e.targetX and self.map:isGrassCell(e.targetX, e.targetY) then
-          self.map.renderer:drawCellBottom(e.targetX, e.targetY, cam.x, bgY)
-          if grassColors then
-            self.map.renderer:markCellBottomRedraw(e.targetX, e.targetY,
-                                                   cam.x, bgY, grassColors)
-          end
-        end
+        queueGrass(e.cellX, e.cellY)
+        queueGrass(e.targetX, e.targetY)
+      end
+    end
+    love.graphics.setColor(1, 1, 1, 1)
+    for _, cell in ipairs(grassCells) do
+      self.map.renderer:drawCellBottom(cell[1], cell[2], cam.x, bgY)
+      if grassColors then
+        self.map.renderer:markCellBottomRedraw(cell[1], cell[2],
+                                               cam.x, bgY, grassColors)
       end
     end
     fxHeal()

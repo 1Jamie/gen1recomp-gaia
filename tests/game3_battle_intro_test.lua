@@ -67,6 +67,7 @@ local function has(kind)
   return false
 end
 check(has("bgslide") and has("player_throw"), "wild has bgslide+throw")
+check(has("shiny_check"), "wild checks shiny send-out animation")
 check(not has("partybar") and not has("trainerexit"), "wild has no partybar/exit")
 local bg = IntroSeq._steps and IntroSeq._steps[2]
 check(bg and bg.kind == "bgslide" and bg.data.slidePlayer and bg.data.slideEnemyMon,
@@ -96,6 +97,7 @@ for _, step in ipairs(IntroSeq._steps or {}) do
   if step.kind == "partybar" then partyStep = step end
 end
 check(has("partybar") and has("opponent_sendout"), "trainer party+sendout")
+check(has("shiny_check"), "trainer checks shiny send-out animation")
 check(partyStep and #partyStep.data.playerBalls == 6, "player has 6 ball slots")
 check(partyStep and partyStep.data.playerBalls[1] == "ok" and partyStep.data.playerBalls[2] == "empty", "player 1 mon has 1 ok on left and 5 empty")
 check(partyStep and #partyStep.data.enemyBalls == 6, "opponent has 6 ball slots")

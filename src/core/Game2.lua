@@ -368,6 +368,22 @@ function Game2:showOptions(onDone)
   })
 end
 
+function Game2:applyPerformanceOptions()
+  local options = self.options or {}
+  local caps = require("src.core.Performance").applyOptions(options)
+  local Tilt = require("src.render.Tilt")
+  if not caps.tilt then Tilt.setLevel(0) end
+  local ShaderFX = require("src.render.ShaderFX")
+  if not caps.shaderfx then ShaderFX.deactivate() end
+  local Zoom = require("src.render.Zoom")
+  Zoom.allowSurvey = caps.survey
+  if not caps.survey and Zoom.offset < 0 then Zoom.offset = 0 end
+  if caps.fpsMax then
+    require("src.core.FrameCap").clampToPerformance(caps.fpsMax)
+  end
+  return caps
+end
+
 function Game2:showTitle()
   self.stack:clear()
   self.phase = "boot"

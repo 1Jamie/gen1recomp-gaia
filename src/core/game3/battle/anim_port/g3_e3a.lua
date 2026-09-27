@@ -764,7 +764,9 @@ function H.wishStarStep(s, vm)
   s.oy = s.oy + P.shr(d[1], 8)
   d[2] = d[2] + 1
   if P.mod(d[2], 3) == 0 then
-    P.CreateSprite(vm, "gMiniTwinklingStarSpriteTemplate", s.x + s.ox, s.y + s.oy, s.sub + 1, H.miniStar, { animate = true })
+    -- pokefirered/src/battle_anim_special.c:2150-2163
+    P.CreateSprite(vm, "gMiniTwinklingStarSpriteTemplate", s.x + s.ox, s.y + s.oy,
+      s.sub + 1, H.miniStar, { animate = true, counted = true })
   end
   local newX = s.x + s.ox + 32
   if newX < 0 or newX > 240 + 64 then P.DestroyAnimSprite(s) end
