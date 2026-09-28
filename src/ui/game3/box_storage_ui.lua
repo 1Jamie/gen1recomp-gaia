@@ -153,6 +153,8 @@ function BoxStorageUI.show(opts)
   BoxStorageUI._actionSource = nil
   BoxStorageUI._actionTarget = nil
   local storage = Storage.ensure(BoxStorageUI._session)
+  -- Repair a party left with gaps by an older build before any slot is indexed.
+  if BoxStorageUI._session then Storage.compactParty(BoxStorageUI._session.party) end
   -- pokefirered/src/pokemon_storage_system_tasks.c:426
   BoxStorageUI._lastUsedBox = storage and ((tonumber(storage.currentBox) or 1) - 1) or nil
 
@@ -379,6 +381,8 @@ function BoxStorageUI.handleInput(input)
               se(se_id("SE_BAG_POCKET"))
             end
           end
+          -- pokefirered/src/pokemon_storage_system_tasks.c SetUpHidePartyMenu -> CompactPartySlots
+          Storage.compactParty(party)
         elseif mon then
           BoxStorageUI._actionSource = "party"
           BoxStorageUI._actionTarget = { mon = mon, loc = "party", boxId = nil, slot = pIdx }

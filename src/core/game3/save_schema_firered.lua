@@ -347,7 +347,8 @@ function Schema.fromSaveTable(save)
     engine = save.engine or "game3",
     version = version,
     generation = tonumber(save.generation) or 3,
-    party = save.party or {},
+    -- A party saved with gaps (older PC builds) is closed up on load.
+    party = require("src.core.game3.storage").compactParty(save.party or {}),
     bag = bag,
     dex = save.dex or {},
     money = save.money or 0,
