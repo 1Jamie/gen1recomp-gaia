@@ -262,7 +262,7 @@ function Prize.pickupBanded(level, rand, data)
   return nil
 end
 
-local function pickup_banded(party, random)
+local function pickup_banded(party, random, rules)
   local picked = {}
   local Pokemon = require("src.core.game3.pokemon")
   for i = 1, 6 do
@@ -277,7 +277,13 @@ local function pickup_banded(party, random)
         and not (mon.isEgg or mon.egg)
         and no_item(mon.item) and no_item(mon.heldItem)
         and random() % 10 == 0 then
-        local itemId = Prize.pickupBanded(mon.level, random() % 100)
+        local itemId
+        if rules and rules.pyramidSession then
+          -- pokeemerald/src/battle_script_commands.c:9667
+          itemId = require("src.core.game3.rse.frontier.pyramid").pickupItemId(rules.pyramidSession)
+        else
+          itemId = Prize.pickupBanded(mon.level, random() % 100)
+        end
         if itemId then
           mon.item = itemId
           mon.heldItem = itemId
@@ -293,8 +299,9 @@ end
 function Prize.pickup(party, random, rules)
   local picked = {}
   if type(party) ~= "table" then return picked end
+  if rules and (rules.pickup == false or rules.noPickup) then return picked end
   random = random or require("src.core.game3.rng").Random
-  if rules and rules.pickup == "level_bands" then return pickup_banded(party, random) end
+  if rules and rules.pickup == "level_bands" then return pickup_banded(party, random, rules) end
   local Pokemon = require("src.core.game3.pokemon")
   for i = 1, 6 do
     local mon = party[i]

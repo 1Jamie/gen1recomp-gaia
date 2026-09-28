@@ -177,13 +177,18 @@ function PcChrome.friendsWallpaper(walda)
   local key = string.format("%d:%d:%d:%d", tonumber(walda.patternId) or 0, tonumber(walda.iconId) or 0,
     tonumber(colors[1]) or 0, tonumber(colors[2]) or 0)
   if PcChrome._friends and PcChrome._friends.key == key then return PcChrome._friends.image end
-  local dir = "data/generated/gba/pokemon/storage/" .. m.friends:match("^(.*)/[^/]+$") .. "/"
+  local parent = m.friends:match("^(.*)/[^/]+$")
+  if not parent then return nil end
+  local dir = "data/generated/gba/pokemon/storage/" .. parent .. "/"
   local src = read_bytes("data/generated/gba/pokemon/storage/" .. m.friends)
   local fm = src and load(src, "@friends", "t", {})()
   if not fm then return nil end
   local pat = fm.patterns[tonumber(walda.patternId) or 0] or fm.patterns[0]
+  if not pat then return nil end
   local tiles = read_bytes(dir .. pat.tiles) or ""
-  local icon = read_bytes(dir .. fm.icons[tonumber(walda.iconId) or 0]) or ""
+  local iconName = fm.icons[tonumber(walda.iconId) or 0] or fm.icons[0]
+  if not iconName then return nil end
+  local icon = read_bytes(dir .. iconName) or ""
   local off = fm.iconTileOffset
   tiles = tiles:sub(1, off) .. icon .. tiles:sub(off + #icon + 1)
   local map = read_bytes(dir .. pat.map) or ""

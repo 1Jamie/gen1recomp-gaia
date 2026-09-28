@@ -5,7 +5,9 @@ local FieldRse = {}
 
 -- pokeemerald/include/constants/vars.h:280
 local VAR_0x8004 = 0x8004
-local VAR_RESULT = 0x800D
+local function varId(name)
+  return Rse.varId(name, Rse.session())
+end
 
 -- pokeemerald/include/constants/global.h:113
 local MALE = 0
@@ -53,7 +55,196 @@ function FieldRse.startFirstBattle(onEnd, logger)
   return handle, err
 end
 
+local function condition(name)
+  local sess = Rse.session()
+  local mon = sess and sess.party and sess.party[1]
+  return tonumber(mon and mon.contest and mon.contest[name]) or 0
+end
+
+-- pokeemerald/src/field_poison.c:29-114
+local function tryFieldPoisonWhiteOut(ctx, adapters)
+  local sess = Rse.session()
+  local party = sess and sess.party or {}
+  local Pokemon = require("src.core.game3.pokemon")
+  local fainted = {}
+  for i, mon in ipairs(party) do
+    local isEgg = Pokemon.isEgg and Pokemon.isEgg(mon)
+    local status = tostring(mon.status or ""):upper()
+    local poisoned = status == "PSN" or status == "POISON" or status == "TOXIC"
+      or (tonumber(mon.statusNum) or 0) == 8
+    if not isEgg and poisoned and (tonumber(mon.hp) or 0) == 0 then
+      Pokemon.adjustFriendship(mon, Pokemon.FRIENDSHIP_EVENT_FAINT_OUTSIDE_BATTLE,
+        { mapSec = Pokemon.currentMapSec(sess) })
+      mon.status, mon.statusNum = nil, 0
+      fainted[#fainted + 1] = { slot = i, name = Pokemon.displayMonName(mon) }
+    end
+  end
+
+  local function resultCode()
+    local wiped = true
+    for _, mon in ipairs(party) do
+      if not (Pokemon.isEgg and Pokemon.isEgg(mon)) and (tonumber(mon.hp) or 0) > 0 then
+        wiped = false
+        break
+      end
+    end
+    if not wiped then return 0 end
+    local Pike = require("src.core.game3.rse.frontier.pike")
+    local Pyramid = require("src.core.game3.rse.frontier.pyramid")
+    local Hill = require("src.core.game3.rse.trainer_hill")
+    if Pike.MAPS[sess and sess.map] or Pyramid.inPyramid(sess) or Hill.inChallenge(sess) then
+      return 2
+    end
+    return 1
+  end
+
+  local function complete(done)
+    Rse.setSpecialVar(ctx, varId("VAR_RESULT"), resultCode())
+    done()
+  end
+  local Natives = require("src.core.game3.scripting.natives")
+  return Natives.yieldHost(ctx, adapters, function(done)
+    local index = 1
+    local function nextFaintMessage()
+      local row = fainted[index]
+      index = index + 1
+      if not row or not (adapters and adapters.openMessageAsync) then
+        if row then
+          while fainted[index] do index = index + 1 end
+        end
+        complete(done)
+        return
+      end
+      local profile = require("src.core.game3.profile").forSession(sess)
+      local key = (profile.field and profile.field.poisonFaintText) or "gText_PkmnFainted_FldPsn"
+      local text = require("src.core.game3.rom_text").box(key, { stringVars = { row.name } })
+      adapters.openMessageAsync(text, nextFaintMessage)
+    end
+    nextFaintMessage()
+  end)
+end
+
+local function trainerIdForSpeech(ctx, sess)
+  local TrainerSight = require("src.core.game3.trainer_sight")
+  if TrainerSight.checkTrainerB and TrainerSight._pair then
+    local id = TrainerSight.checkTrainerB and TrainerSight._pair.b or TrainerSight._pair.a
+    if tonumber(id) and tonumber(id) > 0 then return tonumber(id) end
+  end
+  local id = tonumber(ctx and ctx.trainerBattleOpponentA) or 0
+  if id > 0 then return id end
+  local localId = Rse.specialVar(ctx, varId("VAR_LAST_TALKED"))
+  local Objects = require("src.core.game3.objects")
+  local eo = Objects.find(localId) or TrainerSight._approached
+  if eo then return tonumber(TrainerSight.getTrainerId(eo)) or 0 end
+  return 0
+end
+
+local function plainTrainerSpeech(text)
+  if type(text) == "string" then return text end
+  if type(text) == "table" then
+    return require("src.core.game3.scripting.text_ir").toPlain(text, {})
+  end
+  return ""
+end
+
+local function showTrainerSpeech(ctx, adapters, text, intro)
+  text = plainTrainerSpeech(text)
+  if text == "" then return false end
+  if intro and ctx then ctx.trainerIntroShown = true end
+  local Natives = require("src.core.game3.scripting.natives")
+  if not (adapters and adapters.openMessageAsync) then return false end
+  return Natives.yieldHost(ctx, adapters, function(done)
+    adapters.openMessageAsync(text, done)
+  end)
+end
+
 FieldRse.BY_NAME = {
+  TryFieldPoisonWhiteOut = tryFieldPoisonWhiteOut,
+  -- pokeemerald/src/trainer_see.c:655
+  DoTrainerApproach = function() return false end,
+  -- pokeemerald/src/trainer_see.c:666
+  TryPrepareSecondApproachingTrainer = function(ctx)
+    Rse.setSpecialVar(ctx, varId("VAR_RESULT"), 0)
+    return false
+  end,
+  -- pokeemerald/src/battle_setup.c:1378
+  ShowTrainerIntroSpeech = function(ctx, adapters)
+    local sess = Rse.session()
+    local TrainerSight = require("src.core.game3.trainer_sight")
+    local localId = Rse.specialVar(ctx, varId("VAR_LAST_TALKED"))
+    local text
+    local Pyramid = require("src.core.game3.rse.frontier.pyramid")
+    local Hill = require("src.core.game3.rse.trainer_hill")
+    if Pyramid.inPyramid(sess) then
+      local id = Pyramid.localIdToTrainerId(sess, localId)
+      text = Pyramid.speech(sess, id, 0)
+    elseif Hill.inChallenge(sess) then
+      text = Hill.trainerText(sess, Hill.TEXT.INTRO, localId)
+    else
+      text = require("src.core.game3.scripting.trainers").dialogs(trainerIdForSpeech(ctx, sess)).intro
+    end
+    return showTrainerSpeech(ctx, adapters, text, true)
+  end,
+  -- pokeemerald/src/battle_setup.c:1435
+  ShowTrainerCantBattleSpeech = function(ctx, adapters)
+    local sess = Rse.session()
+    local text = require("src.core.game3.scripting.trainers")
+      .dialogs(trainerIdForSpeech(ctx, sess)).notEnough
+    return showTrainerSpeech(ctx, adapters, text, false)
+  end,
+  -- pokeemerald/src/decoration.c:2217
+  GetObjectEventLocalIdByFlag = function(ctx)
+    local flag = Rse.specialVar(ctx, VAR_0x8004) % 0x10000
+    local Objects = require("src.core.game3.objects")
+    for _, def in ipairs(Objects._defs or {}) do
+      if tonumber(def.flag) == flag then
+        Rse.setSpecialVar(ctx, Rse.varId("VAR_0x8005", Rse.session()), tonumber(def.localId or def.index) or 0)
+        break
+      end
+    end
+    return false
+  end,
+  -- pokeemerald/src/field_specials.c:2957
+  ShowFrontierExchangeCornerItemIconWindow = function()
+    require("src.ui.game3.screens").get("frontier_preview", Rse.session()).exchangeOpen = true
+    return false
+  end,
+  -- pokeemerald/src/field_specials.c:2975
+  CloseFrontierExchangeCornerItemIconWindow = function()
+    require("src.ui.game3.screens").get("frontier_preview", Rse.session()).exchangeOpen = false
+    return false
+  end,
+  -- pokeemerald/src/overworld.c:1142
+  Overworld_PlaySpecialMapMusic = function()
+    local Audio = require("src.core.game3.audio")
+    local song = Audio.specialMapSong()
+    if song ~= nil and song ~= Audio.currentMapMusic() then Audio.playSong(song) end
+    return false
+  end,
+  -- pokeemerald/src/sound.c:127
+  StopMapMusic = function()
+    require("src.core.game3.audio").playSong(0)
+    return false
+  end,
+  -- pokeemerald/src/field_specials.c:3582
+  Unused_SetWeatherSunny = function()
+    local Weather = require("src.core.game3.weather")
+    local weather = Weather.SUNNY
+    local Engine = require("src.core.game3.field_weather_rse")
+    Engine.setCurrentAndNextWeather(weather)
+    Weather.setWeather(weather, Rse.session())
+    return false
+  end,
+  -- pokeemerald/src/field_specials.c:1190
+  CheckLeadMonCool = function() return false, condition("cool") >= 200 and 1 or 0 end,
+  -- pokeemerald/src/field_specials.c:1198
+  CheckLeadMonBeauty = function() return false, condition("beauty") >= 200 and 1 or 0 end,
+  -- pokeemerald/src/field_specials.c:1206
+  CheckLeadMonCute = function() return false, condition("cute") >= 200 and 1 or 0 end,
+  -- pokeemerald/src/field_specials.c:1214
+  CheckLeadMonSmart = function() return false, condition("smart") >= 200 and 1 or 0 end,
+  -- pokeemerald/src/field_specials.c:1222
+  CheckLeadMonTough = function() return false, condition("tough") >= 200 and 1 or 0 end,
   -- pokeemerald/src/field_specials.c:906
   GetPlayerBigGuyGirlString = function(ctx)
     if ctx and ctx.stringVars then
@@ -82,7 +273,7 @@ FieldRse.BY_NAME = {
         frameType = frameType(sess),
         onDone = function(selection)
           -- pokeemerald/src/starter_choose.c:546
-          Rse.setSpecialVar(ctx, VAR_RESULT, selection)
+          Rse.setSpecialVar(ctx, varId("VAR_RESULT"), selection)
           FieldRse.giveStarter(ctx, selection, sess)
           FieldRse.lastSelection = selection
           FieldRse.startFirstBattle(function(result)
@@ -104,6 +295,19 @@ FieldRse.BY_NAME = {
     local ok, CameraObject = pcall(require, "src.core.game3.camera_object")
     local rt = package.loaded["src.core.game3.runtime"]
     if ok and CameraObject and CameraObject.spawn then pcall(CameraObject.spawn, rt and rt._game) end
+    return false
+  end,
+  -- pokeemerald/src/battle_setup.c:1230
+  GetTrainerBattleMode = function(ctx)
+    return false, tonumber(ctx and ctx.trainerBattleMode) or 0
+  end,
+  -- pokeemerald/src/battle_setup.c:1224
+  SetTrainerFacingDirection = function(ctx)
+    local localId = Rse.specialVar(ctx, varId("VAR_LAST_TALKED"))
+    local Objects = require("src.core.game3.objects")
+    local eo = Objects.find(localId)
+    local movementType = ({ up = 7, down = 8, left = 9, right = 10 })[eo and eo.facing]
+    if eo and movementType then Objects.setTrainerMovementType(eo, movementType) end
     return false
   end,
   -- pokeemerald/src/field_specials.c:1263
@@ -159,6 +363,47 @@ FieldRse.BY_NAME = {
     end
     return false
   end,
+  -- pokeemerald/src/field_specials.c:3443
+  CreateAbnormalWeatherEvent = function()
+    local Rng = require("src.core.game3.rng")
+    local random = Rng.Random()
+    local location
+    if Rse.flag("FLAG_DEFEATED_KYOGRE") then
+      location = random % 8 + 1
+    elseif Rse.flag("FLAG_DEFEATED_GROUDON") then
+      location = random % 8 + 9
+    elseif random % 2 == 0 then
+      location = Rng.Random() % 8 + 1
+    else
+      location = Rng.Random() % 8 + 9
+    end
+    Rse.setVar("VAR_ABNORMAL_WEATHER_STEP_COUNTER", 0)
+    Rse.setVar("VAR_ABNORMAL_WEATHER_LOCATION", location)
+    return false
+  end,
+  -- pokeemerald/src/field_specials.c:3470
+  GetAbnormalWeatherMapNameAndType = function(ctx, adapters)
+    local location = Rse.var("VAR_ABNORMAL_WEATHER_LOCATION")
+    local mapSecs = {
+      "ROUTE_114", "ROUTE_114", "ROUTE_115", "ROUTE_115",
+      "ROUTE_116", "ROUTE_116", "ROUTE_118", "ROUTE_118",
+      "ROUTE_105", "ROUTE_105", "ROUTE_125", "ROUTE_125",
+      "ROUTE_127", "ROUTE_127", "ROUTE_129", "ROUTE_129",
+    }
+    local sectionName = mapSecs[location]
+    if sectionName then
+      local RegionMap = require("src.ui.game3.rse.region_map")
+      local sec = RegionMap.mapsec(sectionName)
+      if sec and adapters and adapters.setStringVar then
+        adapters.setStringVar(1, RegionMap.mapName(sec))
+      end
+    end
+    return false, location >= 9 and 1 or 0
+  end,
+  -- pokeemerald/src/field_specials.c:2761
+  ShowGlassWorkshopMenu = function() return false end,
+  -- pokeemerald/src/field_specials.c:3588
+  GetMartEmployeeObjectEventId = function() return false, 1 end,
 }
 
 Std.legacyHandlers(FieldRse)
@@ -658,14 +903,15 @@ local STORY = {
     local labels = layout and FieldRse.scrollMultichoiceLabels(id)
     if not labels then
       if layout then Rse.missing("scrollMultichoice", "sScrollableMultichoiceOptions text", adapters and adapters.log) end
-      Rse.setSpecialVar(ctx, VAR_RESULT, MULTI_B_PRESSED)
+      Rse.setSpecialVar(ctx, varId("VAR_RESULT"), MULTI_B_PRESSED)
       return false
     end
     local ListMenu = require("src.core.game3.scripting.natives_listmenu")
     local copy = { keepOpen = false }
     for k, v in pairs(layout) do copy[k] = v end
+    copy.exchangeMenuId = id
     return ListMenu.presentItems(ctx, "scroll_multichoice", labels, copy, function(index)
-      Rse.setSpecialVar(ctx, VAR_RESULT, index)
+      Rse.setSpecialVar(ctx, varId("VAR_RESULT"), index)
     end)
   end,
   -- pokeemerald/src/field_specials.c:1969
@@ -715,12 +961,12 @@ local STORY = {
       if speciesOf(mon) ~= 0 and not isEgg(mon) then
         local t = Pokemon.types(speciesOf(mon)) or {}
         if t[1] == grass or t[2] == grass then
-          Rse.setSpecialVar(ctx, VAR_RESULT, 1)
+          Rse.setSpecialVar(ctx, varId("VAR_RESULT"), 1)
           return false
         end
       end
     end
-    Rse.setSpecialVar(ctx, VAR_RESULT, 0)
+    Rse.setSpecialVar(ctx, varId("VAR_RESULT"), 0)
     return false
   end,
   -- pokeemerald/src/field_specials.c:1544
@@ -850,9 +1096,25 @@ local STORY = {
   BufferTMHMMoveName = delegate("natives_queries", "BufferTMHMMoveName"),
   -- pokeemerald/src/field_specials.c:1450
   ScriptCheckFreePokemonStorageSpace = delegate("natives_queries", "IsThereRoomInAnyBoxForMorePokemon"),
+  -- pokeemerald/src/dodrio_berry_picking.c:2911
+  IsDodrioInParty = delegate("natives_queries", "IsDodrioInParty"),
+  -- pokeemerald/src/item.c:158
+  HasAtLeastOneBerry = delegate("natives_queries", "HasAtLeastOneBerry"),
+  -- pokeemerald/src/field_specials.c:3405
+  ShouldShowBoxWasFullMessage = delegate("natives_queries", "ShouldShowBoxWasFullMessage"),
+  -- pokeemerald/src/pokemon_jump.c:2687
+  IsPokemonJumpSpeciesInParty = delegate("natives_wireless", "IsPokemonJumpSpeciesInParty"),
+  -- pokeemerald/src/party_menu.c:5818
+  ChooseMonForWirelessMinigame = delegate("natives_wireless", "ChooseMonForWirelessMinigame"),
+  -- pokeemerald/src/pokemon_jump.c:4487
+  ShowPokemonJumpRecords = delegate("natives_wireless", "ShowPokemonJumpRecords"),
+  -- pokeemerald/src/dodrio_berry_picking.c:2929
+  ShowDodrioBerryPickingRecords = delegate("natives_wireless", "ShowDodrioBerryPickingRecords"),
+  -- pokeemerald/src/berry_crush.c:3189
+  ShowBerryCrushRankings = delegate("natives_wireless", "ShowBerryCrushRankings"),
   -- pokeemerald/src/mauville_old_man.c:746
   SetMauvilleOldManObjEventGfx = function()
-    local C = require("src.core.game3.constants").of("emerald")
+    local C = require("src.core.game3.constants").active(Rse.session())
     Rse.setVar("VAR_OBJ_GFX_ID_0", C:require("event_objects", "OBJ_EVENT_GFX_BARD"))
     return false
   end,

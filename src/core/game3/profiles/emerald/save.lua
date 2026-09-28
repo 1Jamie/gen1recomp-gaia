@@ -10,6 +10,7 @@ return {
   sizeRecordVars = { "VAR_SEEDOT_SIZE_RECORD", "VAR_LOTAD_SIZE_RECORD" },
   -- pokeemerald/src/pokemon_size_record.c:12
   sizeRecordDefault = 0x8000,
+  waldaPhrase = { phrase = "", colors = { 0x7B35, 0x6186 }, iconId = 0, patternId = 0, unlocked = false },
   -- pokeemerald/src/naming_screen.c:727
   storage = {
     sendVar = "VAR_PC_BOX_TO_SEND_MON",

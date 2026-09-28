@@ -369,6 +369,11 @@ function AnimVm:soundCount()
 end
 
 function AnimVm:reset()
+  if self._hasCoordinateOverrides then
+    AnimCoords.setCoordinateOverrides(self._previousCoordinateOverrides)
+    self._previousCoordinateOverrides = nil
+    self._hasCoordinateOverrides = nil
+  end
   self.active = false
   self.pc = 1
   self.script = nil
@@ -419,6 +424,11 @@ local function finish(self)
   AnimTasks.reset()
   self._monbg = AnimCoords.idTable()
   AnimCoords.bind(nil)
+  if self._hasCoordinateOverrides then
+    AnimCoords.setCoordinateOverrides(self._previousCoordinateOverrides)
+    self._previousCoordinateOverrides = nil
+    self._hasCoordinateOverrides = nil
+  end
   if cb then pcall(cb) end
 end
 
@@ -469,6 +479,10 @@ local function begin(self, script, opts)
     rawset(self._speciesBySide, self._tgtId, opts.targetSpecies)
   end
   self._onEnd = opts.onEnd
+  if opts.coordinateOverrides then
+    self._previousCoordinateOverrides = AnimCoords.setCoordinateOverrides(opts.coordinateOverrides)
+    self._hasCoordinateOverrides = true
+  end
   self._turn = tonumber(opts.moveTurn or opts.turn) or 0
   self.statusAnimActive = opts.statusAnim and true or false
   self._phase = opts.phase or "cb1"

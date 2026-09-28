@@ -99,6 +99,7 @@ function M.pump(game, opts)
   local Choice = mod("src.ui.game3.choice")
   local EasyChat = mod("src.ui.game3.easy_chat")
   local Menu = mod("src.core.game3.scripting.natives_listmenu").Menu
+  local PartyMenu = mod("src.ui.game3.party_menu")
   local Hud = mod("src.ui.game3.hud")
   local idle, n = 0, 0
   for _ = 1, opts.limit or 3000 do
@@ -122,6 +123,14 @@ function M.pump(game, opts)
       ai = ai + 1
       U.wait(10)
       pickList(ans == nil and 0 or ans)
+      U.wait(4)
+    elseif PartyMenu.isOpen() then
+      if opts.onPartyMenu then
+        opts.onPartyMenu(PartyMenu)
+      else
+        PartyMenu.cursor = math.max(1, math.min(tonumber(opts.partySlot) or 1, #(PartyMenu._party or {})))
+        U.tap(game, "a")
+      end
       U.wait(4)
     elseif Message.isOpen() and not (opts.holdMessage and opts.holdMessage()) then
       n = n + 1

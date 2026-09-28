@@ -274,15 +274,7 @@ function Runtime.update(dt)
   if not inMenu then
     Runtime.pumpRtc(game, dt)
   end
-  local rtcSession = Runtime.session
-  if rtcSession and require("src.core.game3.rtc").enabled(rtcSession) then
-    -- pokeemerald/src/field_tasks.c:168
-    Runtime._vblankCounter = (Runtime._vblankCounter or 0) + 1
-    local Field = package.loaded["src.core.game3.field"]
-    if not (Field and Field.locked) and not inMenu then
-      require("src.core.game3.time_events").tick(rtcSession, Runtime._vblankCounter)
-    end
-  end
+  Runtime.tickVblank(Runtime.session, inMenu)
 
   local okF, Fade = pcall(require, "src.ui.game3.fade")
   if okF and Fade.tick then Fade.tick(dt) end
@@ -334,6 +326,22 @@ function Runtime.update(dt)
     Field.update(dt)
   end
   Hud.update(game, dt, inputTop)
+end
+
+-- pokeemerald/src/main.c:349
+function Runtime.tickVblank(session, inMenu)
+  if not session or require("src.core.game3.profile").family(session) ~= "rse" then
+    return Runtime._vblankCounter or 0
+  end
+  Runtime._vblankCounter = (Runtime._vblankCounter or 0) + 1
+  if require("src.core.game3.rtc").enabled(session) then
+    -- pokeemerald/src/field_tasks.c:168
+    local Field = package.loaded["src.core.game3.field"]
+    if not (Field and Field.locked) and not inMenu then
+      require("src.core.game3.time_events").tick(session, Runtime._vblankCounter)
+    end
+  end
+  return Runtime._vblankCounter
 end
 
 function Runtime.uiBusy()

@@ -81,6 +81,12 @@ local function fieldMoveIndex()
   return g and g.index or FIELD_MOVE_INDEX
 end
 
+local function pikePartyRestrictions()
+  local Profile = require("src.core.game3.profile")
+  if Profile.family(PartyMenu._session) ~= "rse" then return false end
+  return require("src.core.game3.rse.frontier.pike").inBattlePike(PartyMenu._session)
+end
+
 local function cursor_option_text(act)
   local g = gameFieldMoves()
   if g then
@@ -2421,9 +2427,11 @@ function PartyMenu.handleInput(input)
         end
       end
     end
-    actions[#actions + 1] = "SWITCH"
-    if not (mon and mon.isEgg) then
-      actions[#actions + 1] = "ITEM"
+    if not pikePartyRestrictions() then
+      actions[#actions + 1] = "SWITCH"
+      if not (mon and mon.isEgg) then
+        actions[#actions + 1] = "ITEM"
+      end
     end
     actions[#actions + 1] = "CANCEL"
     PartyMenu.ACTIONS = actions

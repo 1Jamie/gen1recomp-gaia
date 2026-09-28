@@ -56,6 +56,12 @@ end
 local function makePlayer(idx, name, tid, gender)
   local s = Schema.newGame({ version = "emerald", name = name, rngSeed = tid })
   s.trainerId, s.secretId, s.gender = tid, 0, gender
+  s.modData = s.modData or {}
+  s.modData.cartImport = s.modData.cartImport or {}
+  s.modData.cartImport.recordMixTvBytes256 = {}
+  for i = 1, 256 do s.modData.cartImport.recordMixTvBytes256[i] = 0 end
+  s.modData.cartImport.recordMixTvBytes256[1] = Tv.TVSHOW_POKEMON_TODAY_CAUGHT
+  s.modData.cartImport.recordMixTvBytes256[2] = 1
   s.party = { { species = MUDKIP, level = 20, nickname = "", heldItem = 0 } }
   s.dex = s.dex or Dex.new()
   Dex.setSeen(s.dex, SEEDOT)
@@ -283,7 +289,8 @@ do
   local order = MixUtil.shuffle({ { linkTrainerId = MixUtil.sessionLinkTrainerId(A) }, {}, {} })
   eq(order[1] .. order[2] .. order[3], "231", "MAY's even id picks {1, 2, 0}")
   local _, packets = mix({ A, B, C })
-  local randSum = DaycareMail.randSum(packets[1].tvShows)
+  local randSum = DaycareMail.randSum(packets[1])
+  eq(randSum, Tv.TVSHOW_POKEMON_TODAY_CAUGHT + 1, "sum uses raw first 256 TV bytes after normal-show deactivation")
 
   eq(OldMan.current(A), OldMan.GIDDY, "MAY <- BRENDAN's Giddy")
   eq(OldMan.current(B), OldMan.BARD, "BRENDAN <- CHRIS's bard")
@@ -332,6 +339,14 @@ do
   eq(C2.oldMan.id, OldMan.STORYTELLER, "CHRIS's old man survives reload")
   eq(C2.hallRecords1P[1][1][1].name, "BRENDAN", "and his hall records")
   check(hasBase(C2, 11) and hasBase(C2, 21), "and both bases")
+end
+
+print("[test] raw daycare-mail selector sum is limited to the cart's first 256 TV bytes")
+do
+  local bytes = {}
+  for i = 1, 257 do bytes[i] = i == 257 and 99 or (i % 256) end
+  eq(DaycareMail.randSum(bytes), 128, "sum includes only the first 256 bytes")
+  eq(DaycareMail.randSum({ tvShowByteSum = 258 }), 2, "packet sum is reduced to a byte")
 end
 
 T.finish("emerald_record_mix")

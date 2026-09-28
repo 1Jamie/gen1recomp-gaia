@@ -117,7 +117,7 @@ function Constants.versionOf(session)
   if type(session) == "table" and type(session.version) == "string" then
     return session.version
   end
-  return GameVersion.get()
+  return require("src.core.game3.profile").resolveId(GameVersion.get())
 end
 
 function Constants.active(session)

@@ -590,6 +590,36 @@ Capabilities.FEATURES = {
     core = "src.core.game3.scripting.natives_trade",
     natives = "natives_shared_rse",
   },
+  rse_diploma_specials = {
+    cap = "rseFieldSpecials", label = "Emerald diploma special", source = "pokeemerald/src/diploma.c",
+    counterpart = "profile-specific Emerald UI", natives = "natives_diploma_rse",
+  },
+  rse_ereader_trainer_specials = {
+    cap = "rseFieldSpecials", label = "Emerald saved e-Reader trainer specials",
+    source = "pokeemerald/src/battle_tower.c",
+    counterpart = "field_specials.c name buffering; e-Reader card import and raw checksum validation are not modeled",
+    natives = "natives_ereader_rse",
+  },
+  rse_easy_chat_profile_specials = {
+    cap = "rseFieldSpecials", label = "RSE easy-chat profile specials", source = "pokeemerald/src/easy_chat.c",
+    counterpart = "profile-specific RSE data", natives = "natives_easy_chat_profile_rse",
+  },
+  rse_egg_hatch_specials = {
+    cap = "rseFieldSpecials", label = "RSE egg-hatch specials", source = "pokeemerald/src/egg_hatch.c",
+    counterpart = "FireRed egg-hatch specials use their own indexed module", natives = "natives_egg_hatch_rse",
+  },
+  rse_frontier_tutor_specials = {
+    cap = "rseFieldSpecials", label = "Emerald Frontier tutor specials", source = "pokeemerald/src/field_specials.c",
+    counterpart = "absent from FireRed", natives = "natives_frontier_tutor_rse",
+  },
+  rse_size_record_specials = {
+    cap = "rseFieldSpecials", label = "Emerald size-record specials", source = "pokeemerald/src/pokemon_size_record.c",
+    counterpart = "FireRed size records use a separate species set", natives = "natives_size_record_rse",
+  },
+  rse_walda_specials = {
+    cap = "rseFieldSpecials", label = "Walda phrase and wallpaper specials", source = "pokeemerald/src/walda_phrase.c",
+    counterpart = "absent from FireRed", natives = "natives_walda_rse",
+  },
 }
 
 local warned = {}

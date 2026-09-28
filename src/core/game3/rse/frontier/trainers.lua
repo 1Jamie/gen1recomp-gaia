@@ -525,6 +525,14 @@ function D.frontSpriteId(sess, trainerId, facility)
   return trainersPack().facilityClassToPic[fc] or 0
 end
 
+-- pokeemerald/src/pokemon.c:2057,4597-4605
+function D.secretBaseTrainerInfo(facilityClass)
+  local pack = trainersPack()
+  facilityClass = tonumber(facilityClass) or 0
+  return pack.facilityClassToTrainerClass and pack.facilityClassToTrainerClass[facilityClass] or 0,
+    pack.facilityClassToPic and pack.facilityClassToPic[facilityClass] or 0
+end
+
 function D.className(sess, classId)
   local p = trainersPack()
   local names = p.classNames

@@ -254,7 +254,8 @@ local function writeback(session, battleParty, remap, result, save, opts)
   local healAfter = opts.noWhiteout
     or (opts.earlyRival and (flags % 2 == 1)) -- bit0 = RIVAL_BATTLE_HEAL_AFTER
   if healAfter then
-    Party.healAll(session.party)
+    -- pokeemerald/data/scripts/secret_base.inc:641-652
+    if not opts.deferHeal then Party.healAll(session.party) end
     return
   end
 
@@ -313,7 +314,7 @@ BattleBridge.EXTRA_KINDS = {
   "twoOpponents", "partner", "recordedLink", "frontier", "trainerHill", "kyogreGroudon", "regi",
   "groudon", "kyogre", "rayquaza", "trainerIdB",
   "tutorialKind", "playerHalf", "partnerTrainerId", "partnerBackPic", "trainerItems",
-  "battleTower", "dome", "palace", "arena", "factory", "pike", "pyramid", "frontierTrainer", "frontierTrainerB",
+  "battleTower", "secretBase", "dome", "palace", "arena", "factory", "pike", "pyramid", "frontierTrainer", "frontierTrainerB",
 }
 
 -- pokeemerald/src/battle_main.c:5098
@@ -520,6 +521,8 @@ function BattleBridge.start(mod, game, foe, opts)
     eReader = opts.eReader or (foe and foe.eReader),
     -- pokefirered/src/battle_message.c:2066 GetTrainerTowerOpponentName
     trainerName = opts.trainerName or (foe and foe.trainerName),
+    trainerClass = opts.trainerClass or (foe and foe.trainerClass),
+    trainerClassName = opts.trainerClassName or (foe and foe.trainerClassName),
     trainerPicId = opts.trainerPicId or (foe and foe.trainerPicId),
     defeatText = opts.defeatText or (foe and foe.defeatText),
     defeatTextB = opts.defeatTextB,

@@ -269,6 +269,7 @@ for name, G in pairs(golden) do
   Rng._value = saved
 end
 
+
 local SaveSections = require("src.core.game3.save_sections")
 local probe = SaveSections.fields(B.SAVE_FIELDS)
 local exported, restored = {}, {}
@@ -286,6 +287,111 @@ local okReg, listed = pcall(function()
 end)
 check(okReg and listed, "emerald save sections resolve with the blender listed")
 check(require("src.core.game3.rse.init").system("berryBlender") == B, "Rse system berryBlender registered")
+
+local BlenderLink = require("src.core.game3.rse.berry_blender_link")
+local bus = { queues = { [0] = {}, [1] = {} } }
+local function peer(seat)
+  local link = { seat = seat, bus = bus, open = true }
+  function link:getSeat() return self.seat end
+  function link:isOpen() return self.open end
+  function link:send(message)
+    local target = 1 - self.seat
+    local copy = {}
+    for key, value in pairs(message) do copy[key] = value end
+    copy.seat = self.seat
+    self.bus.queues[target][#self.bus.queues[target] + 1] = copy
+  end
+  function link:take(kind, predicate)
+    local q = self.bus.queues[self.seat]
+    for i, message in ipairs(q) do
+      if message.type == kind and (not predicate or predicate(message)) then
+        table.remove(q, i)
+        return message
+      end
+    end
+  end
+  return link
+end
+local players = {
+  { seat = 0, trainerId = 111, name = "HOST" },
+  { seat = 1, trainerId = 222, name = "GUEST" },
+}
+local hostBlenderLink = BlenderLink.new(peer(0), players)
+local guestBlenderLink = BlenderLink.new(peer(1), players)
+eq(hostBlenderLink:submitBerry(133), nil, "linked berry waits for the partner choice")
+local guestBerries = guestBlenderLink:submitBerry(134)
+eq(guestBerries[0], 133, "guest receives host berry by link seat")
+local hostBerries = hostBlenderLink:submitBerry(133)
+eq(hostBerries[1], 134, "host receives guest berry by link seat")
+eq(hostBlenderLink:exchangeFrame(0, B.CMD.BEST), nil, "host frame waits for the guest hit")
+local guestFrame = guestBlenderLink:exchangeFrame(0, B.CMD.GOOD)
+eq(guestFrame[0], B.CMD.BEST, "linked timing frame carries the host hit")
+local hostFrame = hostBlenderLink:exchangeFrame(0, B.CMD.BEST)
+eq(hostFrame[1], B.CMD.GOOD, "linked timing frame carries the guest hit")
+eq(hostBlenderLink:exchangeContinue(B.PLAY_AGAIN.YES), nil, "continue decision waits for the guest")
+eq(guestBlenderLink:exchangeContinue(B.PLAY_AGAIN.CANT_PLAY_NO_BERRIES), nil, "guest waits for leader decision")
+local decision = hostBlenderLink:exchangeContinue(B.PLAY_AGAIN.YES)
+check(decision and not decision.continue and decision.reason == B.PLAY_AGAIN.CANT_PLAY_NO_BERRIES
+  and decision.seat == 1, "leader resolves the partner's no-berries response")
+local peerDecision = guestBlenderLink:exchangeContinue(B.PLAY_AGAIN.CANT_PLAY_NO_BERRIES)
+check(peerDecision and not peerDecision.continue and peerDecision.seat == 1, "leader decision is broadcast to guest")
+hostBlenderLink:abort("test_cancel")
+local _, abortReason = guestBlenderLink:exchangeFrame(1, 0)
+eq(abortReason, "abort", "peer cancellation releases a waiting timing frame")
+
+bus = { queues = { [0] = {}, [1] = {} } }
+local linkHost, linkGuest = peer(0), peer(1)
+local playerRows = {
+  { seat = 0, trainerId = 111, name = "HOST" },
+  { seat = 1, trainerId = 222, name = "GUEST" },
+}
+local hostSession, guestSession = {}, {}
+for _, sess in ipairs({ hostSession, guestSession }) do
+  local Bag = require("src.core.game3.bag")
+  sess.bag = Bag.new()
+  Bag.add(sess.bag, ids.first, 4)
+  sess.name = sess == hostSession and "HOST" or "GUEST"
+  sess.gameStats = {}
+  require("src.core.game3.rse.pokeblock").clearAll(sess)
+end
+local hostScreen = UI.new({ session = hostSession, manifest = man, berries = pack, opponents = 0,
+  playerName = "HOST", playerNames = { "HOST", "GUEST" }, numPlayers = 2, itemIds = ids, version = "emerald",
+  cache = cache, headless = true, linkSession = BlenderLink.new(linkHost, playerRows),
+  chooseBerry = function(done) done(ids.first) end })
+local guestScreen = UI.new({ session = guestSession, manifest = man, berries = pack, opponents = 0,
+  playerName = "GUEST", playerNames = { "HOST", "GUEST" }, numPlayers = 2, itemIds = ids, version = "emerald",
+  cache = cache, headless = true, linkSession = BlenderLink.new(linkGuest, playerRows),
+  chooseBerry = function(done) done(ids.first) end })
+local linkedScreens = { hostScreen, guestScreen }
+local yesNoTicks = { 0, 0 }
+local linkedFrames = 0
+while not hostScreen.done or not guestScreen.done do
+  linkedFrames = linkedFrames + 1
+  if linkedFrames > 30000 then break end
+  for index, ui in ipairs(linkedScreens) do
+    if not ui.done then
+      local inp = { new = {}, held = {} }
+      if ui.cb == "play" then
+        inp.new.a = ui.game.gameFrameTime % 2 == 0
+      elseif ui.cb == "end" and ui.game.gameEndState == 10 then
+        yesNoTicks[index] = yesNoTicks[index] + 1
+        if yesNoTicks[index] == 2 then inp.new.down = true end
+        if yesNoTicks[index] == 6 then inp.new.a = true end
+      elseif linkedFrames % 6 == 0 then
+        inp.new.a = true
+      end
+      ui:frame(inp)
+    end
+  end
+end
+check(hostScreen.done and guestScreen.done, "linked Blender screens finish together")
+check(hostScreen.game and guestScreen.game and hostScreen.game.gameFrameTime == guestScreen.game.gameFrameTime,
+  "linked Blender clients advance the same number of frames")
+check(hostSession.pokeblocks and guestSession.pokeblocks and hostSession.pokeblocks[1]
+  and guestSession.pokeblocks[1], "both linked players receive the same blended Pokeblock")
+eq(require("src.core.game3.bag").get(hostSession.bag, ids.first), 3, "host consumes only its selected berry")
+eq(require("src.core.game3.bag").get(guestSession.bag, ids.first), 3, "guest consumes only its selected berry")
+
 
 GameVersion.set(prevVersion)
 T.finish("emerald_berry_blender_test")

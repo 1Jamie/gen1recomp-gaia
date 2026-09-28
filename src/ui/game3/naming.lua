@@ -460,7 +460,7 @@ function Naming.open(opts)
   local st = {
     title = opts.title or (tpl and tpl.title) or RomText.plain("gText_YourName"),
     maxLen = opts.maxLen or (tpl and tpl.maxChars) or Naming.MAX_LEN,
-    name = "",
+    name = tostring(opts.initialText or ""),
     seed = opts.seed,
     page = 1,
     row = 1,

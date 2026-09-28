@@ -791,6 +791,104 @@ function SB.enemyParty(idx, sess)
   return out, b
 end
 
+-- pokeemerald/src/pokemon.c:2057,4597-4605
+-- pokeemerald/src/battle_tower.c:2032-2038
+function SB.battleFoe(idx, sess)
+  sess = session(sess)
+  local partyRows, base = SB.enemyParty(idx, sess)
+  if #partyRows == 0 then return nil end
+  local D = require("src.core.game3.rse.frontier.trainers")
+  local Rng = D.rng()
+  local otId
+  repeat
+    otId = Rng.Random32()
+  until not D.isShiny(otId, partyRows[1].personality)
+  local party = {}
+  for i, row in ipairs(partyRows) do
+    local mon = D.createMon(row.species, row.level, 15, row.personality, otId,
+      { otName = base.trainerName, otGender = base.gender, moves = row.moves })
+    D.setEvs(mon, { row.ev, row.ev, row.ev, row.ev, row.ev, row.ev })
+    D.setHeldItem(mon, row.heldItem)
+    party[i] = mon
+  end
+  local facilityClasses = SB.manifest().facilityClasses or {}
+  local classIndex = (tonumber(base.gender) or 0) * 5 + ((tonumber(base.trainerId[1]) or 0) % 5) + 1
+  local facilityClass = facilityClasses[classIndex] or 0
+  local trainerClass, trainerPic = D.secretBaseTrainerInfo(facilityClass)
+  local className = D.className(sess, trainerClass)
+  local first = party[1]
+  local BP = require("src.core.game3.battle.profile")
+  local profile = BP.get(sess)
+  return {
+    party = party,
+    species = first.species,
+    level = first.level,
+    moves = first.moves,
+    trainerId = SB.TRAINER_SECRET_BASE,
+    trainerClass = trainerClass,
+    trainerClassName = className,
+    trainerName = base.trainerName,
+    trainerPicId = trainerPic,
+    song = BP.battleSong(profile, { trainerClass = trainerClass }),
+  }, base
+end
+
+-- pokeemerald/src/battle_tower.c:2028-2038
+function SB.doSpecialBattle(ctx, adapters, sess, which)
+  if tonumber(which) ~= SB.SPECIAL_BATTLE_SECRET_BASE then return false end
+  sess = session(sess)
+  local index = var("VAR_CURRENT_SECRET_BASE", sess)
+  local foe = SB.battleFoe(index, sess)
+  local N = require("src.core.game3.scripting.natives")
+  local function fail()
+    local code = N.outcome_to_code("lose")
+    Rse.setSpecialVar(ctx, Rse.varId("VAR_RESULT", sess), code)
+    if sess then sess.battleOutcome = code end
+    return false, code
+  end
+  if not foe then return fail() end
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  local BattleBridge = require("src.core.game3.battle_bridge")
+  local Transition = require("src.core.game3.battle_transition_ids_rse")
+  local playerLevel = 5
+  for _, mon in ipairs(sess.party or {}) do
+    if (tonumber(mon.species) or 0) ~= 0 then playerLevel = math.max(playerLevel, tonumber(mon.level) or 1) end
+  end
+  local enemyLevel = 1
+  for _, mon in ipairs(foe.party) do enemyLevel = math.max(enemyLevel, tonumber(mon.level) or 1) end
+  local transitionId = Transition.pickSpecial("secret_base", { playerLevel = playerLevel, enemyLevel = enemyLevel })
+  return N.yieldHost(ctx, adapters, function(done)
+    local function finish(result)
+      local code = N.outcome_to_code(result or "win")
+      Rse.setSpecialVar(ctx, Rse.varId("VAR_RESULT", sess), code)
+      sess.battleOutcome = code
+      if ctx then ctx.lastBattleOutcome = code end
+      done()
+      local Space = package.loaded["src.core.game3.scripting.space"]
+      if Space and Space.vm then Space.vm:tick() end
+    end
+    local ok, err = BattleBridge.start(Runtime and Runtime._mod, Runtime and Runtime._game, foe, {
+      wild = false,
+      trainerId = SB.TRAINER_SECRET_BASE,
+      trainerName = foe.trainerName,
+      trainerClass = foe.trainerClass,
+      trainerClassName = foe.trainerClassName,
+      trainerPicId = foe.trainerPicId,
+      secretBase = true,
+      noWhiteout = true,
+      deferHeal = true,
+      transitionId = transitionId,
+      done = finish,
+    })
+    if not ok then
+      local msg = "[game3] Secret Base battle did not start (" .. tostring(err) .. ")"
+      if adapters and adapters.log then adapters.log(msg) else print(msg) end
+      fail()
+      done()
+    end
+  end)
+end
+
 -- pokeemerald/src/secret_base.c:1804
 function SB.initVars(sess)
   setVar("VAR_SECRET_BASE_STEP_COUNTER", 0, sess)

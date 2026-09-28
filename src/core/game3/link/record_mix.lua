@@ -95,7 +95,7 @@ function RecordMix.packet(session, multiplayerId)
   pcall(function() Tv.deactivateAllNormalShows(session) end)
   local tvData = call(Tv, "mixExport", session)
   if type(tvData) == "table" then
-    out.tvShows, out.pokeNews = tvData.tvShows, tvData.pokeNews
+    out.tvShows, out.pokeNews, out.tvShowByteSum = tvData.tvShows, tvData.pokeNews, tvData.tvShowByteSum
   end
   out.oldMan = call(system("oldMan"), "mixExport", session)
   local lady = system("lilycoveLady")
@@ -117,7 +117,7 @@ function RecordMix.receive(session, packets, myIndex, logger)
   for i, p in ipairs(packets or {}) do players[i] = type(p) == "table" and deep(p) or {} end
   myIndex = tonumber(myIndex) or 1
   local applied = {}
-  local randSum = call(system("daycareMail"), "randSum", players[1] and players[1].tvShows) or 0
+  local randSum = call(system("daycareMail"), "randSum", players[1]) or 0
   local bases = {}
   for i, p in ipairs(players) do bases[i] = p.secretBases or {} end
   local _, okS = call(system("secretBase"), "mixImport", session, bases, myIndex)

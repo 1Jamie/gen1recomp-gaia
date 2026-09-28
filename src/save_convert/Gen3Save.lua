@@ -608,6 +608,10 @@ local function build(L)
     if u16(sb2, 0x006) == 0 then return nil, "japanese" end
     local key = u32(sb2, L.KEY_OFF)
     local out = { counter = blocks.counter, slot = blocks.slot, olderSlot = blocks.olderSlot }
+    if L.RSE and L.RSE.sb1 and L.RSE.sb1.tvShows then
+      local o = L.RSE.sb1.tvShows
+      out.tvShowsRawPrefix = sb1:sub(o + 1, o + 256)
+    end
     Gen3Save.readFields(sb2, L.SB2, out, key)
     out.options = {}
     for _, f in ipairs(L.OPTIONS_BITS) do out.options[f[1]] = bits(out.optionsWord, f[2], f[3]) end
@@ -1114,6 +1118,11 @@ local function build(L)
         trainerId = r.trainerId, species = r.species, itemId = r.itemId,
         design = isMailItem(r.itemId) and r.itemId - L.MAIL_ITEM_FIRST or nil } }
     end
+    local recordMixTvBytes256
+    if type(c.tvShowsRawPrefix) == "string" and #c.tvShowsRawPrefix >= 256 then
+      recordMixTvBytes256 = {}
+      for i = 1, 256 do recordMixTvBytes256[i] = c.tvShowsRawPrefix:byte(i) end
+    end
     for _, mon in ipairs(party) do
       if mon.mail and not (mail and mail[mon.mail + 1] and mail[mon.mail + 1].itemId ~= 0) then mon.mail = nil end
     end
@@ -1208,6 +1217,7 @@ local function build(L)
           dexSeen = nationalList(seenList),
           dexOwned = nationalList(ownedList),
           lastHealLocation = portWarp(c.lastHealLocation),
+          recordMixTvBytes256 = recordMixTvBytes256,
         },
       },
       meta = { mods = {} },

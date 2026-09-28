@@ -25,9 +25,14 @@ end
 local function playStage(game, schedule, tag)
   local Stage = mod("src.ui.game3.rse.contest")
   local screen = Stage.active()
-  local selects, frames = 0, 0
+  local Anim = mod("src.core.game3.battle.anim")
+  local selects, frames, sawMoveAnim = 0, 0, false
   while screen and not screen.done and frames < 60000 do
     frames = frames + 1
+    if Anim._vm and Anim._vm.active then
+      sawMoveAnim = true
+      shotOnce(game, tag .. "_06_move_animation")
+    end
     local c = screen.c
     if stageTask(screen, "taskHandleMoveSelectInput") then
       if not shots[tag .. "_03_move_select_r" .. (c.contest.appealNumber + 1)] then
@@ -61,7 +66,7 @@ local function playStage(game, schedule, tag)
     end
     screen = Stage.active()
   end
-  return selects
+  return selects, sawMoveAnim
 end
 
 -- pokeemerald/src/contest_util.c:978
@@ -104,12 +109,17 @@ local function driveContest(game, rankChoice, schedule, tag)
       sawStage = true
       U.wait(40)
       shotOnce(game, tag .. "_01_curtain")
-      playStage(game, schedule, tag)
+      local _, sawMoveAnim = playStage(game, schedule, tag)
+      d.check(sawMoveAnim, tag .. " appeal starts an Emerald move animation")
     elseif Results.active() then
       sawResults = true
       playResults(game, tag)
     elseif mod("src.ui.game3.rse.contest_entry_pic").active and not shots[tag .. "_00b_entry_pic"] then
+      local EntryPic = mod("src.ui.game3.rse.contest_entry_pic")
+      local animation = EntryPic._animation
       U.wait(30)
+      d.check(animation and animation.frames > 0,
+        tag .. " contestant front animation advanced (" .. tostring(animation and animation.frames or 0) .. " frames)")
       shotOnce(game, tag .. "_00b_entry_pic")
     elseif PartyMenu.isOpen and PartyMenu.isOpen() then
       shotOnce(game, tag .. "_00_choose_mon")

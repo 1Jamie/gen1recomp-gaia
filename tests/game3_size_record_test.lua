@@ -192,5 +192,27 @@ do
   eq(Flags.getVar(s, ctx, 0x800D), 1, "special 0x7A slot 0 not Magikarp (VAR_RESULT = 1)")
 end
 
+print("=== 6. RSE internal species ids ===")
+do
+  local Constants = require("src.core.game3.constants")
+  local C = Constants.of("emerald")
+  local s = makeSession()
+  s.version = "emerald"
+  local ctx = makeCtx(s)
+  local adapters = { setStringVar = function(idx, val) s.stringVars[idx] = val end }
+  local lotad, seedot = C:require("species", "SPECIES_LOTAD"), C:require("species", "SPECIES_SEEDOT")
+  local lotadVar = C:require("vars", "VAR_LOTAD_SIZE_RECORD")
+  local seedotVar = C:require("vars", "VAR_SEEDOT_SIZE_RECORD")
+  s.party = {
+    { species = lotad, personality = 0xFFFFFFFF, ivHp = 15, ivAtk = 15, ivDef = 0, ivSpd = 15, ivSpAtk = 15, ivSpDef = 0 },
+    { species = seedot, personality = 0xEEEEEEEE, ivHp = 15, ivAtk = 15, ivDef = 0, ivSpd = 15, ivSpAtk = 15, ivSpDef = 0 },
+  }
+  check(lotad ~= 270 and seedot ~= 273, "Lotad and Seedot use Emerald internal ids")
+  eq(SizeRecord.compareMonSize(s, ctx, adapters, lotad, lotadVar, 0), 3, "Lotad is found and its record is stored")
+  eq(SizeRecord.compareMonSize(s, ctx, adapters, seedot, seedotVar, 1), 3, "Seedot is found and its record is stored")
+  check(SizeRecord.getVar(s, ctx, lotadVar) > 0, "Lotad record variable resolved by name")
+  check(SizeRecord.getVar(s, ctx, seedotVar) > 0, "Seedot record variable resolved by name")
+end
+
 print(string.format("\nTotal: %d passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end

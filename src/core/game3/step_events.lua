@@ -84,6 +84,26 @@ local function field_white_out_event(session, game)
     end
     local Field = package.loaded["src.core.game3.field"] or require("src.core.game3.field")
     Field.lock()
+    local Rse = require("src.core.game3.rse.init")
+    if Rse.isRse(session) then
+      local Pike = require("src.core.game3.rse.frontier.pike")
+      local Pyramid = require("src.core.game3.rse.frontier.pyramid")
+      local Hill = require("src.core.game3.rse.trainer_hill")
+      if Pike.inBattlePike(session) or Pyramid.inPyramid(session) or Hill.inChallenge(session) then
+        -- pokeemerald/data/scripts/field_poison.inc:23
+        local Space = package.loaded["src.core.game3.scripting.space"]
+          or require("src.core.game3.scripting.space")
+        local key = Space.scriptKey("EventScript_FrontierFieldWhiteOut")
+        if key and Space.startScript(key) then
+          ev.phase = "frontier_script"
+          ev.tick = function()
+            local vm = Space.vm
+            if not vm or not vm.active then onDone() end
+          end
+          return
+        end
+      end
+    end
     local BattleBridge = require("src.core.game3.battle_bridge")
     local save = game and game.save
     local name = session.name or session.playerName or ""
@@ -336,7 +356,7 @@ function StepEvents.onStepTaken(session, game)
   end
 
   if isRse and require("src.core.game3.special_scene_rse").countSSTidalStep(1) then
-    -- pokeemerald/src/field_control_avatar.c:600
+    -- pokeemerald/src/field_control_avatar.c:599
     local Space = require("src.core.game3.scripting.space")
     local key = Space.scriptKey("SSTidalCorridor_EventScript_ReachedStepCount")
     if key and Space.startScript(key) then
@@ -344,6 +364,7 @@ function StepEvents.onStepTaken(session, game)
       return
     end
   end
+
   if mcOn and require("src.core.game3.rse.match_call").tryStartMatchCall(session, game) then
     -- pokeemerald/src/field_control_avatar.c:605
     StepEvents.onRepelStep(session, game)

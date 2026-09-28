@@ -75,8 +75,15 @@ function Painting.monPixels(winner)
   local tid = tonumber(winner.trainerId) or 0
   local shiny = Pokemon.isShiny({ personality = p, otId = tid % 65536, otSecretId = math.floor(tid / 65536) % 65536 })
   local kind = shiny and "front_shiny" or "front"
-  local rgba = readCache((CachePaths.CACHE_ROOT or "data/generated/gba") .. "/pokemon/" .. kind .. "/"
-    .. Pokemon.picSpecies(species, p) .. ".rgba")
+  local rgba
+  if species == Pokemon.SPECIES_SPINDA then
+    -- pokeemerald/src/pokemon.c:5802
+    rgba = Pokemon.spindaRgba(p, shiny)
+  end
+  if not rgba then
+    rgba = readCache((CachePaths.CACHE_ROOT or "data/generated/gba") .. "/pokemon/" .. kind .. "/"
+      .. Pokemon.picSpecies(species, p) .. ".rgba")
+  end
   local px = {}
   for i = 0, 64 * 64 - 1 do
     local r, g, b, a = 0, 0, 0, 0

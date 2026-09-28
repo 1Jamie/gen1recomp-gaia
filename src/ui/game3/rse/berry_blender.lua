@@ -46,6 +46,11 @@ function UI.new(opts)
   self.headless = opts.headless or Kit.headless()
   self.sound = opts.sound or Kit.sound({ muted = opts.headless })
   self.var8004 = opts.opponents or 1
+  self.linkSession = opts.linkSession
+  self.linked = self.linkSession ~= nil
+  self.linkBerryWait = false
+  self.linkBerryItems = nil
+  self.linkPendingPressed = nil
   self.onDone = opts.onDone
   self.frames = 0
   self.done = false
@@ -267,7 +272,7 @@ function UI:printPlayerNames()
       local text = g.playerNames[pid] or ""
       local x = math.floor((0x38 - self:measure(text)) / 2)
       self:openWindow(i)
-      self:addTextPrinter(i, text, x, 1, pid == 0 and 2 or 1)
+      self:addTextPrinter(i, text, x, 1, pid == g.localPlayerId and 2 or 1)
       self:putWindow(i)
     end
   end
@@ -318,7 +323,10 @@ function UI:cb_load()
     self:initBgs()
     self.game = B.new({ tables = self.man.tables, berries = self.pack.berries, opponents = self.var8004,
       blendMaster = self.opts.blendMaster, playerName = self.opts.playerName, opponentNames = self.man.opponentNames,
-      random = function() return self:rand() end, itemIds = self.opts.itemIds, version = self.opts.version })
+      random = self.linkSession and function() return self.linkSession:random() end or function() return self:rand() end,
+      itemIds = self.opts.itemIds, version = self.opts.version, linked = self.linked,
+      localPlayerId = self.linkSession and self.linkSession.localSeat or 0,
+      numPlayers = self.opts.numPlayers, playerNames = self.opts.playerNames })
     self.wins = {}
     self.state = 1
     self:drawCenter()
@@ -359,7 +367,12 @@ function UI:chooseBerry()
     self.hidden = false
     self.itemId = tonumber(itemId) or 0
     if self.itemId == 0 then
+      if self.linkSession then self.linkSession:abort("berry_selection_cancelled") end
       self:exitToField()
+      return
+    end
+    if self.linkSession then
+      self.linkBerryWait = true
       return
     end
     self:startBlender()
@@ -509,7 +522,14 @@ function UI:cb_startLocal()
     self:initBgs()
     self.wins = {}
     g.speed, g.arrowPos, g.maxRPM, g.bg_X, g.bg_Y = 0, 0, 0, 0, 0
-    g:setBerries(self.itemId)
+    if self.linkSession then
+      if not g:setLinkBerries(self.linkBerryItems) then
+        self:exitToField()
+        return
+      end
+    else
+      g:setBerries(self.itemId)
+    end
     g.playAgainState = 0
     self.loadGfxState = 0
     self.state = 1
@@ -716,7 +736,20 @@ end
 function UI:cb_play()
   local g = self.game
   local pressed = self:joyNew(Kit.A)
-  local ended = g:playFrame(pressed, function() self:drawCenter() end)
+  local remoteScores
+  if self.linkSession then
+    if self.linkPendingPressed == nil then self.linkPendingPressed = pressed end
+    local waitError
+    remoteScores, waitError = self.linkSession:exchangeFrame(g.gameFrameTime, g:previewInputScore(self.linkPendingPressed))
+    if not remoteScores then
+      if waitError == "timeout" then self.linkSession:abort(waitError) end
+      if waitError == "abort" or waitError == "timeout" or not self.linkSession:isOpen() then self:exitToField() end
+      return
+    end
+    pressed = self.linkPendingPressed
+    self.linkPendingPressed = nil
+  end
+  local ended = g:playFrame(pressed, function() self:drawCenter() end, remoteScores)
   self:handleEvents()
   self:drawRPM()
   if ended then
@@ -955,6 +988,32 @@ function UI:cb_again()
   local P = B.PLAY_AGAIN
   local st = g.gameEndState
   if st == 0 then
+    if self.linkSession then
+      local decision, waitError = self.linkSession:exchangeContinue(g.playAgainState)
+      if not decision then
+        if waitError == "timeout" then self.linkSession:abort(waitError) end
+        if waitError == "abort" or waitError == "timeout" or not self.linkSession:isOpen() then self:exitToField() end
+        return
+      end
+      if not decision.continue then
+        self.linkEndReason = decision
+        g.playAgainState = P.NO
+        if decision.reason == P.CANT_PLAY_NO_BERRIES or decision.reason == P.CANT_PLAY_NO_PKBLCK_SPACE then
+          local who = tostring(self.opts.playerNames and self.opts.playerNames[(decision.seat or 0) + 1] or "")
+          local source
+          if decision.reason == P.CANT_PLAY_NO_BERRIES then
+            source = who .. " has no BERRIES to put in\nthe BERRY BLENDER."
+          else
+            source = who .. "'s POKEBLOCK CASE is full.\\p"
+          end
+          self.linkEndMessage = require("src.core.game3.scripting.text_ir").fromAscii(source)
+          g.gameEndState = 3
+          return
+        end
+      else
+        g.playAgainState = P.YES
+      end
+    end
     if g.playAgainState == P.YES or g.playAgainState == P.NO then g.gameEndState = 9 end
     if g.playAgainState == P.CANT_PLAY_NO_BERRIES then g.gameEndState = 2 end
     if g.playAgainState == P.CANT_PLAY_NO_PKBLCK_SPACE then g.gameEndState = 1 end
@@ -965,13 +1024,15 @@ function UI:cb_again()
     g.gameEndState = 3
     self.againKey = "runOutOfBerriesForBlending"
   elseif st == 3 then
-    if self:printMessage(self.againKey) then g.gameEndState = 9 end
+    local shown = self.linkEndMessage and self:printMessage(nil, self.linkEndMessage) or self:printMessage(self.againKey)
+    if shown then self.linkEndMessage = nil; g.gameEndState = 9 end
   elseif st == 9 then
     self.fastFade = { active = true, steps = 16, level = 0 }
     g.gameEndState = 10
   elseif st == 10 then
     if not self:fadeActive() then
       if g.playAgainState == P.YES then
+        if self.linkSession then self.linkSession:nextRound() end
         self:begin()
         return
       end
@@ -998,6 +1059,21 @@ function UI:frame(inp)
   if self.vblankRandom then self.random() end
   self:vblank()
   Kit.readKeys(self.m, self.inp)
+  if self.linkBerryWait then
+    local berries, waitError = self.linkSession:submitBerry(self.itemId)
+    if berries then
+      self.linkBerryItems = berries
+      self.linkBerryWait = false
+      self:startBlender()
+    elseif waitError == "timeout" then
+      self.linkSession:abort(waitError)
+      self.linkBerryWait = false
+      self:exitToField()
+    elseif waitError == "abort" or not self.linkSession:isOpen() then
+      self.linkBerryWait = false
+      self:exitToField()
+    end
+  end
   if self.hidden then return end
   frameCall(self)
   if self.outer then self.outer:flush() end

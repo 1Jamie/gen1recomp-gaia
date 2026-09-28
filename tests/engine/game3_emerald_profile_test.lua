@@ -59,7 +59,7 @@ eq(Capabilities.nativeAllowed({ version = "emerald" }, "natives_tower"), false,
   "Trainer Tower natives are filtered out on Emerald")
 
 eq(type(em.nativeModules), "table", "Emerald names its natives modules")
-local SHARED = { natives_daycare = true, natives_elevator = true }
+local SHARED = { natives_daycare = true, natives_elevator = true, natives_gift = true, natives_moveteach = true }
 for _, m in ipairs(em.nativeModules) do
   check(SHARED[m] or (Capabilities.nativeFeature(m) ~= nil and not Capabilities.nativeAllowed({ version = "firered" }, m)),
     "Emerald natives module " .. m .. " is RSE-gated, not a FireRed module")

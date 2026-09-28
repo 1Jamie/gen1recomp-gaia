@@ -2090,6 +2090,8 @@ end
 function Engine.canRun(st, adapter, battler)
   battler = battler or (st and st.player)
   if not st or not battler then return false, nil end
+  -- pokeemerald/src/battle_util.c:407
+  if not st.wild and (Kinds.has(st, "frontier") or Kinds.has(st, "trainerHill")) then return true end
   -- pokefirered/src/battle_main.c:3240
   if st.link then return true end
   if not st.wild then return false, State.text(st, "STRINGID_NORUNNINGFROMTRAINERS") end
@@ -2161,6 +2163,13 @@ function Engine.tryFlee(st, adapter, battler)
     if st.double then
       -- pokefirered/src/battle_main.c:4259
       return false
+    elseif st.pyramid then
+      -- pokeemerald/src/battle_util.c:432
+      local Pyramid = require("src.core.game3.rse.frontier.pyramid")
+      local multiplier = Pyramid.runMultiplier(st.session)
+      local speedVar = (math.floor(pSpd * multiplier / math.max(1, eSpd))
+        + (st.fleeAttempts or 0) * 30) % 256
+      return speedVar > roll(adapter, 0, 255)
     elseif pSpd < eSpd then
       local speedVar = (math.floor(pSpd * 128 / math.max(1, eSpd)) + (st.fleeAttempts or 0) * 30) % 256
       return speedVar > roll(adapter, 0, 255)

@@ -804,7 +804,7 @@ end, "link")
 
 -- pokefirered/src/trade_scene.c:2595
 phase("link_save", function(s)
-  setText(s, RomText.plain("gText_SavingDontTurnOffThePower2"))
+  setText(s, tradeText(s, "gText_SavingDontTurnOffThePower2"))
   if not s.awaitSave then return true end
   return s.saveDone == true
 end, "link")

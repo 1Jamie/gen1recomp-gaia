@@ -313,6 +313,13 @@ for _, name in ipairs({ "em_battle", "em_fresh", "em_doctored" }) do
     eq(save.rivalName, nil, name .. " has no stored rival name")
     eq(save.encryptionKey, F.oracle[name].key, name .. " native encryption key")
     check(type(save.modData.emerald_daycare) == "table", name .. " daycare under modData.emerald_daycare")
+    check(type(save.modData.cartImport.recordMixTvBytes256) == "table"
+      and #save.modData.cartImport.recordMixTvBytes256 == 256, name .. " preserves first 256 raw TV bytes for record mixing")
+    local decoded = E.decode(bytes)
+    for i = 1, 256 do
+      eq(save.modData.cartImport.recordMixTvBytes256[i], decoded.tvShowsRawPrefix:byte(i),
+        name .. " raw TV byte " .. i .. " retained")
+    end
     eq(save.modData.firered_daycare, nil, name .. " no FireRed daycare")
     eq(save.modData.fameChecker, nil, name .. " no fame checker")
     check(type(save.map) == "string" and save.map:sub(1, 3) == "EM_", name .. " map " .. tostring(save.map))

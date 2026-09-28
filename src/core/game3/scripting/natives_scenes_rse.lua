@@ -38,6 +38,14 @@ ScenesRse.BY_NAME = {
   Script_DoRayquazaScene = function(ctx, adapters)
     return ScenesRse.doRayquazaScene(ctx, adapters)
   end,
+  -- pokeemerald/src/main.c:141
+  -- pokeemerald/src/main.c:428
+  DoSoftReset = function()
+    local Runtime = package.loaded["src.core.game3.runtime"]
+    local game = Runtime and Runtime._game
+    if game then game.softResetRequested = true end
+    return false
+  end,
 }
 Std.legacyHandlers(ScenesRse)
 

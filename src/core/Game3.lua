@@ -445,6 +445,13 @@ function Game3:_handleRegisteredItem()
   if Field and Field.locked then return end
   local P = package.loaded["src.core.game3.player"]
   if P and P.boulderPush then return end
+  local Profile = require("src.core.game3.profile")
+  if Profile.family(session) == "rse" then
+    -- pokeemerald/src/item_menu.c:2025 UseRegisteredKeyItemOnField
+    local Pike = require("src.core.game3.rse.frontier.pike")
+    local Pyramid = require("src.core.game3.rse.frontier.pyramid")
+    if Pike.inBattlePike(session) or Pyramid.inPyramid(session) then return end
+  end
   local Bag = require("src.core.game3.bag")
   local ItemUse = require("src.core.game3.item_use")
   if not session.bag or not Bag.has(session.bag, item, 1) then

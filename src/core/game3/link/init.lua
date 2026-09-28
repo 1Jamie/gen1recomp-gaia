@@ -333,6 +333,7 @@ end
 
 function Link.attach(link)
   Link.link = link
+  if link.linkType == Game3Link.LINKTYPE.BATTLE_TOWER then Link._towerReconnectPending = false end
   Link._cardSent = false
   Link.peerCard = nil
   Link.peerCards = {}
@@ -342,6 +343,11 @@ function Link.attach(link)
     Link._cardSent = false
     Link.lastCloseReason = reason
     if Link._localClose then return end
+    -- pokeemerald/src/field_specials.c:3640
+    if link.linkType == Game3Link.LINKTYPE.BATTLE_TOWER and Link.inLinkRoom() then
+      Link._towerReconnectPending = true
+      return
+    end
     leaveLink(link)
     local Union = package.loaded["src.core.game3.link.union_room"]
     if Union and Union.isActive() and Union.onUnionRoomMap() then return end
@@ -409,7 +415,19 @@ end
 
 -- pokefirered/src/cable_club.c:222 CreateLinkupTask waits for the other machine
 function Link.beginConnect(_opts)
-  return Link.link ~= nil
+  _opts = _opts or {}
+  local live = Link.link
+  if live and live.isOpen and live:isOpen() then return true end
+  local session = _opts.session or Link.clientCall("roomSession")
+  if type(session) ~= "table" then return false end
+  local opened = Link.openRelay({
+    session = session,
+    client = _opts.client,
+    linkType = _opts.linkType,
+    timeout = _opts.timeout,
+    hello = _opts.hello,
+  })
+  return opened ~= nil
 end
 
 -- pokefirered/src/link.c:419 CloseLink
@@ -929,6 +947,7 @@ function Link.reset()
   Link._exits = nil
   Link._live = nil
   Link.connectPrompt = nil
+  Link._towerReconnectPending = false
 end
 
 package.loaded["src.core.game3.link"] = Link

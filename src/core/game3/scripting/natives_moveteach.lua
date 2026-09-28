@@ -227,7 +227,11 @@ MoveTeach.BY_NAME = {
       return false
     end
     local auto = nil
-    if tutor >= MoveLearn.TUTOR_MOVE_COUNT then
+    local tutorCount = MoveLearn.TUTOR_MOVE_COUNT
+    if require("src.core.game3.profile").family() == "rse" then
+      tutorCount = MoveLearn.tutorMoveCount()
+    end
+    if tutor >= tutorCount then
       -- pokefirered/src/party_menu.c:5814
       auto = varGet(ctx, VAR_0x8007) + 1
     end

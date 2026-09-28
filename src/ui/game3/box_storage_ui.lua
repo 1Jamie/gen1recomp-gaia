@@ -734,7 +734,7 @@ function BoxStorageUI.draw()
   PcChrome.drawBackground()
 
   -- 2. Box Wallpaper (BG2, X: 80, Y: 16)
-  PcChrome.drawWallpaper(box and box.wallpaper or 1)
+  PcChrome.drawWallpaper(box and box.wallpaper or 1, session.waldaPhrase)
 
   -- 3. Interface Frame (BG1, X: 0, Y: 0)
   PcChrome.drawInterfaceFrame()

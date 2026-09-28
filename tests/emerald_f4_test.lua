@@ -197,6 +197,41 @@ check(w.level >= pm.wildMons50[1][1].lvl - 5 and w.level <= pm.wildMons50[1][1].
 eq(w.moves[1], pm.wildMons50[1][1].moves[1], "moves come from the table")
 f.pyramidRandoms = { 0x1234, 0xBEEF, 0x0F0F, 0x5A5A }
 eq(Py.runMultiplier(sess), Py.floorTemplate(sess).runMultiplier, "GetPyramidRunMultiplier reads the floor template")
+local runSession = { version = "emerald", map = Py.FLOOR_MAP,
+  frontier = { pyramidRandoms = { 0, 0, 0, 0 }, curChallengeBattleNum = 0, lvlMode = 0 } }
+local runMultiplier
+for rand = 0, 99 do
+  runSession.frontier.pyramidRandoms[4] = rand
+  runMultiplier = Py.runMultiplier(runSession)
+  if runMultiplier < 128 then break end
+end
+check(runMultiplier and runMultiplier < 128, "Pyramid floor data includes a reduced run multiplier")
+local runOdds = math.floor(97 * runMultiplier / 100) % 256
+local State = require("src.core.game3.battle.state")
+local Adapter = require("src.core.game3.battle.adapter")
+local Engine = require("src.core.game3.battle.engine")
+local function pyramidRun(roll)
+  local st = State.new({ wild = true, playerParty = { { species = C.species.byName.SPECIES_SWAMPERT,
+    level = 50, hp = 100, maxHp = 100, speed = 97 } },
+    foeParty = { { species = C.species.byName.SPECIES_PLUSLE, level = 50, hp = 100, maxHp = 100, speed = 100 } } })
+  st.player.mon.speed, st.enemy.mon.speed = 97, 100
+  st.pyramid, st.session = true, runSession
+  st.rng = function() return roll end
+  local ad = Adapter.new(st)
+  return Engine.tryFlee(st, ad)
+end
+eq(pyramidRun(runOdds - 1), true, "Pyramid run succeeds one point below the floor-scaled odds")
+eq(pyramidRun(runOdds), false, "Pyramid run fails at the floor-scaled odds boundary")
+
+local oldVblank, oldHillTimer = Runtime._vblankCounter or 0, Hill.state(sess).timer
+Hill.setTimerRunning(sess, true)
+local hillTimerBase = Hill.state(sess).timer
+for _ = 1, 5 do Runtime.tickVblank(sess, true) end
+Hill.syncTimer(sess)
+eq(Hill.state(sess).timer, hillTimerBase + 5, "Trainer Hill VBlank timer advances while battle menus hold field input")
+Hill.setTimerRunning(sess, false)
+Hill.state(sess).timer = oldHillTimer
+Runtime._vblankCounter = oldVblank
 
 -- pokeemerald/src/trainer_hill.c:685
 local hm = Hill.manifest()

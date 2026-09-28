@@ -19,6 +19,7 @@ AnimCoords.DRAW_ORDER_DOUBLES = { 3, 1, 0, 2 }
 
 AnimCoords._double = nil
 AnimCoords._bind = nil
+AnimCoords._coordinateOverrides = nil
 
 local function battle_state()
   local Battle = package.loaded["src.core.game3.battle"]
@@ -28,6 +29,12 @@ AnimCoords.battleState = battle_state
 
 function AnimCoords.setDouble(v)
   if v == nil then AnimCoords._double = nil else AnimCoords._double = v and true or false end
+end
+
+function AnimCoords.setCoordinateOverrides(overrides)
+  local previous = AnimCoords._coordinateOverrides
+  AnimCoords._coordinateOverrides = overrides
+  return previous
 end
 
 function AnimCoords.isDouble(st)
@@ -113,6 +120,8 @@ end
 function AnimCoords.coords(st, key)
   local id = AnimCoords.idOf(key)
   if id == nil then return nil end
+  local override = AnimCoords._coordinateOverrides and AnimCoords._coordinateOverrides[id]
+  if override then return override end
   local t = AnimCoords.isDouble(st) and AnimCoords.DOUBLES or AnimCoords.SINGLES
   return t[id]
 end

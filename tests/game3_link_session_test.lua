@@ -419,6 +419,38 @@ eq(Link.dial, nil, "Link.dial is gone")
 Link.reset()
 eq(Link.beginConnect({}), false,
   "with no link there is no connect screen, so the counter just keeps waiting")
+local towerRoom = FakeRelay.room({ seats = 2 })
+check(Link.beginConnect({ session = towerRoom:session(0), client = towerRoom:client(0),
+  linkType = Game3Link.LINKTYPE.BATTLE_TOWER }),
+  "Battle Tower reconnect starts a replacement link from the existing relay room")
+check(Link.link ~= nil and Link.link.linkType == Game3Link.LINKTYPE.BATTLE_TOWER,
+  "and keeps the Battle Tower link type on the replacement session")
+Flags.setVar(store, ctx, Link.VAR_CABLE_CLUB_STATE, Link.USING.BATTLE_TOWER)
+local droppedLink, towerSession = Link.link, Link.link._transport:session()
+droppedLink:close("tower_round_transition")
+eq(Link._towerReconnectPending, true,
+  "a dropped Battle Tower session leaves its link room available to the reconnect special")
+eq(towerSession.left, false, "and does not leave the relay room during the round transition")
+check(Link.beginConnect({ session = towerSession, client = towerRoom:client(0),
+  linkType = Game3Link.LINKTYPE.BATTLE_TOWER }),
+  "the existing Battle Tower room can create a replacement after link loss")
+check(Link.link ~= nil and Link.link ~= droppedLink,
+  "and the replacement is a fresh live link object")
+local reconnectCtx = { specialVars = {} }
+local reconnectHandler = require("src.core.game3.scripting.natives_link_rse").BY_NAME.BattleTowerReconnectLink
+eq(reconnectHandler(reconnectCtx, {}), true,
+  "BattleTowerReconnectLink yields while the replacement link handshakes")
+local towerPeer = Game3Link.attach(FakeRelay.transport(towerRoom, 1), {
+  game = game, linkType = Game3Link.LINKTYPE.BATTLE_TOWER,
+})
+for _ = 1, 8 do
+  Link.link:update(0)
+  towerPeer:update(0)
+end
+eq(Link.link:isReady(), true, "the replacement Tower link reaches ready with its partner")
+eq(reconnectCtx.nativePoll(), true, "the reconnect special resumes after both seats are ready")
+towerPeer:close("test_cleanup")
+Link.reset()
 
 print("[test] ExitLinkRoom counts each seat once and seat-less exits one by one")
 local function stubLink(nseats, queue)

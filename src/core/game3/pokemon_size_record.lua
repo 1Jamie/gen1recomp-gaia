@@ -12,6 +12,16 @@ SizeRecord.VAR_HERACROSS_SIZE_RECORD = 0x403D
 SizeRecord.VAR_MAGIKARP_SIZE_RECORD = 0x4040
 SizeRecord.VAR_LOTAD_SIZE_RECORD = 0x404F
 
+function SizeRecord.species(name, session)
+  local C = require("src.core.game3.constants").active(session)
+  return C:id("species", name)
+end
+
+function SizeRecord.variable(name, session)
+  local C = require("src.core.game3.constants").active(session)
+  return C:var(name)
+end
+
 SizeRecord.DEFAULT_MAX_SIZE = 0
 SizeRecord.PARTY_SIZE = 6
 
@@ -39,15 +49,17 @@ SizeRecord.TABLE = sBigMonSizeTable
 local SPECIES_HEIGHT_DM = {
   [129] = 9,  -- Magikarp: 0.9 m (9 dm)
   [214] = 15, -- Heracross: 1.5 m (15 dm)
-  [270] = 5,  -- Lotad: 0.5 m (5 dm)
-  [273] = 5,  -- Seedot: 0.5 m (5 dm)
 }
 
-function SizeRecord.getSpeciesHeight(species)
+function SizeRecord.getSpeciesHeight(species, session)
   species = tonumber(species) or 0
   if SPECIES_HEIGHT_DM[species] then
     return SPECIES_HEIGHT_DM[species]
   end
+  local Constants = require("src.core.game3.constants")
+  local ok, C = pcall(Constants.active, session)
+  if not ok then C = Constants.of("firered") end
+  if species == C:id("species", "SPECIES_LOTAD") or species == C:id("species", "SPECIES_SEEDOT") then return 5 end
   local okP, PokedexData = pcall(require, "src.core.game3.pokedex_data")
   if okP and PokedexData and PokedexData.getEntry then
     local ent = PokedexData.getEntry(species)
@@ -119,9 +131,9 @@ end
 SizeRecord.translateIndex = translateBigMonSizeTableIndex
 
 --- pokefirered/src/pokemon_size_record.c:74 GetMonSize
-function SizeRecord.getMonSize(species, b)
+function SizeRecord.getMonSize(species, b, session)
   b = band(tonumber(b) or 0, 0xFFFF)
-  local height = SizeRecord.getSpeciesHeight(species)
+  local height = SizeRecord.getSpeciesHeight(species, session)
   local var = translateBigMonSizeTableIndex(b)
   local row = sBigMonSizeTable[var]
   local unk0 = row.unk0
@@ -152,7 +164,7 @@ function SizeRecord.compareMonSize(session, ctx, adapters, species, varId, slot)
   session = session or SizeRecord.sessionOf(ctx)
   slot = tonumber(slot)
   if slot == nil then
-    local VAR_RESULT = 0x800D
+    local VAR_RESULT = require("src.core.game3.constants").active(session):var("VAR_RESULT")
     slot = tonumber(flagsMod().getVar(scriptStore(session, ctx), ctx, VAR_RESULT)) or 0
   end
 
@@ -168,9 +180,9 @@ function SizeRecord.compareMonSize(session, ctx, adapters, species, varId, slot)
   end
 
   local sizeParams = SizeRecord.getMonSizeHash(pkmn)
-  local newSize = SizeRecord.getMonSize(species, sizeParams)
+  local newSize = SizeRecord.getMonSize(species, sizeParams, session)
   local oldRecord = SizeRecord.getVar(session, ctx, varId)
-  local oldSize = SizeRecord.getMonSize(species, oldRecord)
+  local oldSize = SizeRecord.getMonSize(species, oldRecord, session)
 
   SizeRecord.setStringVar(ctx, adapters, 3, SizeRecord.formatMonSizeRecord(oldSize))
   SizeRecord.setStringVar(ctx, adapters, 2, SizeRecord.formatMonSizeRecord(newSize))
@@ -189,7 +201,7 @@ end
 function SizeRecord.getMonSizeRecordInfo(session, ctx, adapters, species, varId)
   session = session or SizeRecord.sessionOf(ctx)
   local sizeRecord = SizeRecord.getVar(session, ctx, varId)
-  local size = SizeRecord.getMonSize(species, sizeRecord)
+  local size = SizeRecord.getMonSize(species, sizeRecord, session)
 
   SizeRecord.setStringVar(ctx, adapters, 3, SizeRecord.formatMonSizeRecord(size))
 

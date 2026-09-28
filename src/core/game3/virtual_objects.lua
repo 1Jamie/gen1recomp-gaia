@@ -50,6 +50,16 @@ function VirtualObjects.turn(vObjId, direction)
   return true
 end
 
+function VirtualObjects.remove(vObjId)
+  local id = tonumber(vObjId)
+  if id == nil or byId[id] == nil then return false end
+  byId[id] = nil
+  for i = #order, 1, -1 do
+    if order[i] == id then table.remove(order, i) end
+  end
+  return true
+end
+
 function VirtualObjects.get(vObjId)
   local id = tonumber(vObjId)
   return id and byId[id] or nil

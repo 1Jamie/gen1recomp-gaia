@@ -13,9 +13,11 @@ MonPic.top = 3
 MonPic._img = nil
 MonPic._w = 64
 MonPic._h = 64
+MonPic._animTransform = nil
 
-function MonPic.show(species, x, y)
+function MonPic.show(species, x, y, opts)
   species = tonumber(species) or 0
+  opts = opts or {}
   MonPic.active = true
   MonPic.species = species
   MonPic.left = tonumber(x) or 10
@@ -23,6 +25,7 @@ function MonPic.show(species, x, y)
   MonPic._img = nil
   MonPic._w = 64
   MonPic._h = 64
+  MonPic._animTransform = nil
   local ok, Pokemon = pcall(require, "src.core.game3.pokemon")
   if ok and Pokemon then
     -- pokefirered/src/field_effect.c:610
@@ -34,7 +37,7 @@ function MonPic.show(species, x, y)
     end
   end
   local okA, Audio = pcall(require, "src.core.game3.audio")
-  if okA and Audio and Audio.playCry then
+  if not opts.noCry and okA and Audio and Audio.playCry then
     Audio.playCry(species)
   end
 end
@@ -43,6 +46,7 @@ function MonPic.hide()
   MonPic.active = false
   MonPic.species = 0
   MonPic._img = nil
+  MonPic._animTransform = nil
 end
 
 function MonPic.isActive()
@@ -63,7 +67,13 @@ function MonPic.draw()
     local scale = math.min(64 / iw, 64 / ih)
     local dw, dh = iw * scale, ih * scale
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(MonPic._img, cx - dw / 2, cy - dh / 2, 0, scale, scale)
+    local t = MonPic._animTransform
+    if t then
+      love.graphics.draw(MonPic._img, cx + (t.x2 or 0), cy + (t.y2 or 0), t.rotation or 0,
+        scale * (t.sx or 1), scale * (t.sy or 1), iw / 2, ih / 2)
+    else
+      love.graphics.draw(MonPic._img, cx - dw / 2, cy - dh / 2, 0, scale, scale)
+    end
   else
     love.graphics.setColor(0.2, 0.25, 0.35, 1)
     love.graphics.rectangle("fill", cx - 28, cy - 28, 56, 56)

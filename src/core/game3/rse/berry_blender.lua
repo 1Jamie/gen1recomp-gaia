@@ -266,6 +266,8 @@ function Blender.new(opts)
   self.ids = opts.itemIds or Blender.itemIds(opts.version)
   self.berries = opts.berries or Blender.berriesPack().berries
   self.var8004 = opts.opponents or 1
+  self.linked = opts.linked == true
+  self.localPlayerId = tonumber(opts.localPlayerId) or 0
   self.blendMaster = opts.blendMaster and true or false
   self.names = opts.opponentNames or Blender.manifest().opponentNames
   self.playerName = opts.playerName or ""
@@ -295,7 +297,15 @@ function Blender.new(opts)
   self.blendedBerries = {}
   self.playerNames = {}
   self.arrowIdToPlayerId, self.playerIdToArrowId = {}, {}
-  self:initLocalPlayers(self.var8004)
+  if self.linked then
+    self.numPlayers = math.max(2, math.min(Blender.MAX_PLAYERS, tonumber(opts.numPlayers) or 2))
+    self.playerNames = {}
+    for i = 0, self.numPlayers - 1 do
+      self.playerNames[i] = tostring(opts.playerNames and opts.playerNames[i + 1] or "")
+    end
+  else
+    self:initLocalPlayers(self.var8004)
+  end
   if opts.playerItem then self:setBerries(opts.playerItem) end
   return self
 end
@@ -371,6 +381,16 @@ end
 function Blender:setBerries(playerItem)
   self:setPlayerBerryData(0, playerItem)
   self:setOpponentsBerryData(playerItem, self.numPlayers)
+end
+
+function Blender:setLinkBerries(items)
+  if type(items) ~= "table" then return false end
+  for playerId = 0, self.numPlayers - 1 do
+    local itemId = tonumber(items[playerId]) or tonumber(items[playerId + 1])
+    if not itemId or itemId <= 0 then return false end
+    self:setPlayerBerryData(playerId, itemId)
+  end
+  return true
 end
 
 -- pokeemerald/src/berry_blender.c:1582
@@ -588,10 +608,10 @@ function Blender:startPlay()
   local function task(name)
     return function(tid, data) self[name](self, tid, data) end
   end
-  if self.var8004 == 1 then
+  if not self.linked and self.var8004 == 1 then
     self.opponentTaskIds[0] = self.tasks:create(task(self.blendMaster and "berryMaster" or "opponent1"), 10)
   end
-  if self.var8004 > 1 then
+  if not self.linked and self.var8004 > 1 then
     for i = 0, self.var8004 - 1 do
       self.opponentTaskIds[i] = self.tasks:create(task(OPPONENTS[i + 1]), 10 + i)
     end
@@ -651,13 +671,24 @@ function Blender:updateSpeedFromHit(cmd)
 end
 
 -- pokeemerald/src/berry_blender.c:2084
-function Blender:updateOpponentScores()
+function Blender:updateOpponentScores(remoteScores)
   local CMD, SC = Blender.CMD, Blender.SCORE
   local recv = self.recv
   if self.sendScore ~= 0 then
-    recv[0][COMM_SCORE] = self.sendScore
-    recv[0][COMM_INPUT_STATE] = CMD.SEND_KEYS
+    local playerId = self.localPlayerId or 0
+    recv[playerId][COMM_SCORE] = self.sendScore
+    recv[playerId][COMM_INPUT_STATE] = CMD.SEND_KEYS
     self.sendScore = 0
+  end
+  if self.linked and type(remoteScores) == "table" then
+    for playerId, score in pairs(remoteScores) do
+      playerId, score = tonumber(playerId), tonumber(score)
+      if playerId and playerId ~= self.localPlayerId and playerId >= 0 and playerId < self.numPlayers
+          and score and score ~= 0 then
+        recv[playerId][COMM_SCORE] = score
+        recv[playerId][COMM_INPUT_STATE] = CMD.SEND_KEYS
+      end
+    end
   end
   for i = 1, Blender.MAX_PLAYERS - 1 do
     if recv[i][COMM_SCORE] ~= 0 then recv[i][COMM_INPUT_STATE] = CMD.SEND_KEYS end
@@ -701,10 +732,11 @@ end
 
 -- pokeemerald/src/berry_blender.c:2164
 function Blender:handlePlayerInput(pressedA)
-  local arrowId = self.playerIdToArrowId[0]
+  local playerId = self.localPlayerId or 0
+  local arrowId = self.playerIdToArrowId[playerId]
   if self.gameEndState == 0 and pressedA then
     self:emit({ kind = "flash", arrowId = arrowId })
-    local p = self:arrowProximity(self.arrowPos, 0)
+    local p = self:arrowProximity(self.arrowPos, playerId)
     if p == Blender.PROXIMITY.BEST then
       self.sendScore = Blender.CMD.BEST
     elseif p == Blender.PROXIMITY.GOOD then
@@ -718,6 +750,15 @@ function Blender:handlePlayerInput(pressedA)
     if self.speed > Blender.MIN_ARROW_SPEED then self.speed = self.speed - 1 end
     self.slowdownTimer = 0
   end
+end
+
+function Blender:previewInputScore(pressedA)
+  if not pressedA or self.gameEndState ~= 0 then return 0 end
+  local nextArrowPos = u16(self.arrowPos + self.speed)
+  local proximity = self:arrowProximity(nextArrowPos, self.localPlayerId or 0)
+  if proximity == Blender.PROXIMITY.BEST then return Blender.CMD.BEST end
+  if proximity == Blender.PROXIMITY.GOOD then return Blender.CMD.GOOD end
+  return Blender.CMD.MISS
 end
 
 -- pokeemerald/src/berry_blender.c:3303
@@ -751,12 +792,12 @@ function Blender:updateCenter()
 end
 
 -- pokeemerald/src/berry_blender.c:2212
-function Blender:playFrame(pressedA, onCenter)
+function Blender:playFrame(pressedA, onCenter, remoteScores)
   self:updateCenter()
   if onCenter then onCenter() end
   if self.gameFrameTime < Blender.MAX_GAME_TIME then self.gameFrameTime = self.gameFrameTime + 1 end
   self:handlePlayerInput(pressedA)
-  self:updateOpponentScores()
+  self:updateOpponentScores(remoteScores)
   if self:tryUpdateProgressBar() then self:emit({ kind = "progress", value = self.maxProgressBarValue }) end
   self:updateRPM()
   self:restoreBgCoords()
@@ -900,7 +941,10 @@ function Blender:finishBlend(session)
   if not session then return block end
   local okR, Rse = pcall(require, "src.core.game3.rse.init")
   if okR and Rse then Rse.call("tv", "incrementDailyBerryBlender", nil, nil, session) end
-  if session.bag then require("src.core.game3.bag").remove(session.bag, self.chosenItemId[0], 1) end
+  if session.bag then
+    local localItem = self.chosenItemId[self.localPlayerId or 0]
+    require("src.core.game3.bag").remove(session.bag, localItem, 1)
+  end
   require("src.core.game3.rse.pokeblock").add(session, block)
   return block
 end

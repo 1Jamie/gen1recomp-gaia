@@ -132,6 +132,7 @@ local function windowMod()
   end
   return _window or nil
 end
+ListMenu.windowMod = windowMod
 
 local function textWidth(text)
   local FrlgFont = frlgFont()
@@ -168,7 +169,9 @@ end
 
 function Menu.showItems(kind, labels, layout, scroll, cursor, onPick)
   if not (layout and labels) then return false end
-  Menu.kind = kind
+  Menu.kind = layout.exchangeMenuId or kind
+  local Preview = require("src.ui.game3.screens").get("frontier_preview", require("src.core.game3.scripting.space").store)
+  if Preview then Preview.tutorOpen = Menu.kind == 9 or Menu.kind == 10 end
   Menu.labels = labels
   Menu.count = layout.count
   Menu.maxShowed = math.min(layout.maxShowed, layout.count)
@@ -200,6 +203,8 @@ end
 
 function Menu.close()
   Menu.open = false
+  local okP, Preview = pcall(function() return require("src.ui.game3.screens").get("frontier_preview") end)
+  if okP and Preview then Preview.tutorOpen = false; Preview.exchangeOpen = false end
   Menu._onPick = nil
   local okS, Stack = pcall(require, "src.ui.game3.stack")
   if okS and Stack then Stack.pop(STACK_ID) end
@@ -286,6 +291,7 @@ local function drawScrollArrows()
   end
 end
 
+
 function Menu.draw()
   if not (Menu.open and Menu.labels) then return end
   local Window = windowMod()
@@ -321,6 +327,9 @@ function Menu.draw()
     end
   end
   drawScrollArrows()
+  local Screens = require("src.ui.game3.screens")
+  local preview = Screens.get("frontier_preview", require("src.core.game3.scripting.space").store)
+  if preview and preview.draw then preview.draw(Menu) end
 end
 
 ListMenu._suspended = nil

@@ -31,6 +31,11 @@ local function fade()
 end
 
 local function image(key)
+  local rse = require("src.core.game3.profile").family() == "rse"
+  if rse then
+    if key == "kanto" then key = "emerald_hoenn" end
+    if key == "national" then key = "emerald_national" end
+  end
   if Diploma._images[key] ~= nil then return Diploma._images[key] or nil end
   local rel = (Extract.CACHE_ROOT or "data/generated/gba") .. "/diploma/" .. key .. ".rgba"
   local bytes = require("src.core.game3.dataset").cache():read(rel)
@@ -77,16 +82,30 @@ function Diploma.show(opts)
   -- pokefirered/src/diploma.c:138
   Diploma._national = has_all_mons()
   local name = player_name()
-  -- pokefirered/src/diploma.c:260
-  local dynamic = {
-    [0] = name,
-    [1] = RomText.plain(Diploma._national and "gText_Diploma_National" or "gText_Diploma_Kanto"),
-  }
-  Diploma._player = RomText.plain("gText_Diploma_Player", { dynamic = dynamic })
-  Diploma._body = RomText.plain("gText_Diploma_ThisDocument", { dynamic = dynamic })
-  Diploma._gameFreak = RomText.plain("gText_Diploma_GameFreak")
-  Diploma._playerX = 120 - math.floor(FrlgFont.measure(Diploma._player) / 2)
-  Diploma._bodyX = 120 - math.floor(FrlgFont.measure(Diploma._body) / 2)
+  if require("src.core.game3.profile").family() == "rse" then
+    -- pokeemerald/src/diploma.c:133-140
+    local dexName = RomText.plain(Diploma._national and "gText_DexNational" or "gText_DexHoenn")
+    Diploma._player = ""
+    local textCtx = {
+      playerName = name,
+      stringVars = { dexName },
+      dialect = "rse",
+    }
+    Diploma._body = RomText.plain("gText_PokedexDiploma", textCtx)
+    Diploma._gameFreak = ""
+    Diploma._playerX, Diploma._bodyX = 40, 40
+  else
+    -- pokefirered/src/diploma.c:260
+    local dynamic = {
+      [0] = name,
+      [1] = RomText.plain(Diploma._national and "gText_Diploma_National" or "gText_Diploma_Kanto"),
+    }
+    Diploma._player = RomText.plain("gText_Diploma_Player", { dynamic = dynamic })
+    Diploma._body = RomText.plain("gText_Diploma_ThisDocument", { dynamic = dynamic })
+    Diploma._gameFreak = RomText.plain("gText_Diploma_GameFreak")
+    Diploma._playerX = 120 - math.floor(FrlgFont.measure(Diploma._player) / 2)
+    Diploma._bodyX = 120 - math.floor(FrlgFont.measure(Diploma._body) / 2)
+  end
   Diploma.open = true
   Diploma._phase = "in"
   Stack.push(Diploma.ID, Diploma, { hideBelow = true, fullscreen = true })
@@ -140,15 +159,56 @@ end
 
 function Diploma.draw()
   if not Diploma.open then return end
+  local rse = require("src.core.game3.profile").family() == "rse"
   -- pokefirered/src/diploma.c:138
   local img = image(Diploma._national and "national" or "kanto")
   love.graphics.setColor(1, 1, 1, 1)
   if img then love.graphics.draw(img, 0, 0) end
+  if rse then
+    -- pokeemerald/src/diploma.c:133-140
+    -- pokeemerald/src/diploma.c:181-189
+    -- pokeemerald/src/strings.c:1540
+    local text = tostring(Diploma._body or "")
+    local playerLine, body = text:match("^([^\n]*)\n\n(.*)$")
+    if not playerLine then playerLine, body = "", text end
+    body = body:gsub("\n\nGAME FREAK%s*$", "", 1)
+    local pitch = FrlgFont.linePitch()
+    if not pitch or pitch <= 0 then pitch = LINE_PITCH end
+    local label, name = playerLine:match("^(PLAYER:)%s*(.*)$")
+    if label then
+      local red = { colors = FrlgFont.COLOR.RED, linePitch = pitch }
+      -- pokeemerald/src/diploma.c:75-80
+      -- pokeemerald/src/diploma.c:189
+      -- pokeemerald/src/strings.c:1540
+      FrlgFont.draw(label, 40, 17, { colors = TEXT_COLORS, linePitch = pitch, maxWidth = 160 })
+      -- pokeemerald/src/strings.c:1540
+      local nameX = FrlgFont.measure(label) + 16 + 3
+      FrlgFont.draw(name, 40 + nameX, 17,
+        { colors = red.colors, linePitch = pitch, maxWidth = math.max(0, 160 - nameX) })
+    else
+      FrlgFont.draw(playerLine, 40, 17,
+        { colors = FrlgFont.COLOR.RED, linePitch = pitch, maxWidth = 160 })
+    end
+    FrlgFont.draw(body, 40, 17 + pitch * 2,
+      { colors = TEXT_COLORS, linePitch = pitch, maxWidth = 160 })
+    -- pokeemerald/src/strings.c:1540
+    -- pokeemerald/src/strings.c:1540
+    -- pokeemerald/src/strings.c:1540
+    FrlgFont.draw("GAME FREAK", 40 + 66, 17 + pitch * 7,
+      { colors = FrlgFont.COLOR.RED, linePitch = pitch, maxWidth = 160 - 66 })
+    return
+  end
   -- pokefirered/src/diploma.c:269
   local opts = { colors = TEXT_COLORS, linePitch = LINE_PITCH }
-  FrlgFont.draw(Diploma._player or "", WIN_X + Diploma._playerX, WIN_Y + 4, opts)
-  FrlgFont.draw(Diploma._body or "", WIN_X + Diploma._bodyX, WIN_Y + 30, opts)
-  FrlgFont.draw(Diploma._gameFreak or "", WIN_X + 120, WIN_Y + 105, opts)
+  if Diploma._player and Diploma._player ~= "" then
+    FrlgFont.draw(Diploma._player, WIN_X + Diploma._playerX, WIN_Y + 4, opts)
+  end
+  if Diploma._body and Diploma._body ~= "" then
+    FrlgFont.draw(Diploma._body, Diploma._bodyX, WIN_Y + 30, opts)
+  end
+  if Diploma._gameFreak and Diploma._gameFreak ~= "" then
+    FrlgFont.draw(Diploma._gameFreak, WIN_X + 120, WIN_Y + 105, opts)
+  end
 end
 
 return Diploma

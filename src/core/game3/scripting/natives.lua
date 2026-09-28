@@ -42,11 +42,15 @@ local function flagsMod()
 end
 
 local function lastTalked(ctx)
-  return flagsMod().getVar(nil, ctx, 0x800F)
+  local rt = package.loaded["src.core.game3.runtime"]
+  local sess = rt and rt.getSession and rt.getSession()
+  return flagsMod().getVar(nil, ctx, Constants.active(sess):var("VAR_LAST_TALKED"))
 end
 
 local function setResult(ctx, v)
-  flagsMod().setVar(nil, ctx, 0x800D, v)
+  local rt = package.loaded["src.core.game3.runtime"]
+  local sess = rt and rt.getSession and rt.getSession()
+  flagsMod().setVar(nil, ctx, Constants.active(sess):var("VAR_RESULT"), v)
 end
 
 local function getSpecialVar(ctx, id)
@@ -345,7 +349,7 @@ Natives.CORE = {
   end,
   GetQuestLogState = function(ctx)
     -- Playback has no script VM; scripts executing here always belong to live play.
-    require("src.core.game3.scripting.flags").setVar(nil,ctx,0x800D,0)
+    setResult(ctx, 0)
     return false
   end,
   QuestLog_CutRecording = function()
@@ -888,14 +892,19 @@ local KNOWN_MODULES = {
   "natives_corner",
   "natives_cutscene",
   "natives_daycare",
+  "natives_diploma_rse",
   "natives_dewford",
   "natives_elevator",
   "natives_events",
+  "natives_easy_chat_profile_rse",
   "natives_fame",
   "natives_fan_club",
   "natives_field_rse",
   "natives_frontier_story",
+  "natives_frontier_tutor_rse",
   "natives_game_corner_rse",
+  "natives_egg_hatch_rse",
+  "natives_ereader_rse",
   "natives_gift",
   "natives_lilycove_lady",
   "natives_link",
@@ -913,9 +922,11 @@ local KNOWN_MODULES = {
   "natives_seagallop",
   "natives_secret_base",
   "natives_size_record",
+  "natives_size_record_rse",
   "natives_tower",
   "natives_trade",
   "natives_tv",
+  "natives_walda_rse",
   "natives_wireless",
   "natives_frontier",
   "natives_tower_rse",

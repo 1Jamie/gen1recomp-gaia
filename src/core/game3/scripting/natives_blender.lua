@@ -35,18 +35,46 @@ function NativesBlender.doBerryBlending(ctx, adapters, opts)
   opts = opts or {}
   local sess = session()
   local opponents = Rse.specialVar(ctx, VAR_0x8004)
+  local linkSession
+  local playerNames, numPlayers
   if opponents == 0 then
-    Rse.missing("berryBlender", "link DoBerryBlending", adapters and adapters.log)
-    return false
+    local Link = require("src.core.game3.link.init")
+    local lk = Link.link
+    local players = lk and lk.players and lk:players() or nil
+    local Game3Link = require("src.link.Game3Link")
+    if not (lk and lk.isOpen and lk:isOpen() and lk.isReady and lk:isReady()
+        and type(players) == "table" and #players >= 2 and #players <= Blender.MAX_PLAYERS) then
+      Rse.missing("berryBlender", "link DoBerryBlending without a ready 2-4 player session", adapters and adapters.log)
+      return false
+    end
+    if lk.linkType ~= Game3Link.LINKTYPE.BERRY_BLENDER_SETUP
+        and lk.linkType ~= Game3Link.LINKTYPE.BERRY_BLENDER then
+      Rse.missing("berryBlender", "link DoBerryBlending without Berry Blender linkup", adapters and adapters.log)
+      return false
+    end
+    for index, player in ipairs(players) do
+      if tonumber(player.seat) ~= index - 1 then
+        Rse.missing("berryBlender", "non-contiguous Blender relay seats", adapters and adapters.log)
+        return false
+      end
+    end
+    local LinkSession = require("src.core.game3.rse.berry_blender_link")
+    linkSession = LinkSession.new(lk, players)
+    numPlayers, playerNames = #players, {}
+    for _, player in ipairs(players) do playerNames[(tonumber(player.seat) or 0) + 1] = tostring(player.name or "") end
+    lk.linkType = Game3Link.LINKTYPE.BERRY_BLENDER
   end
   local Natives = require("src.core.game3.scripting.natives")
   return Natives.yieldHost(ctx, adapters, function(done)
     local Fade = require("src.ui.game3.fade")
     Fade.clear()
-    NativesBlender.last = { opponents = opponents }
+    NativesBlender.last = { opponents = opponents, linkSession = linkSession }
     NativesBlender.last.screen = screen().open({
       session = sess,
       opponents = opponents,
+      linkSession = linkSession,
+      numPlayers = numPlayers,
+      playerNames = playerNames,
       blendMaster = not Rse.flag("FLAG_HIDE_LILYCOVE_CONTEST_HALL_BLEND_MASTER", sess),
       playerName = playerName(sess),
       frameType = frameType(sess),

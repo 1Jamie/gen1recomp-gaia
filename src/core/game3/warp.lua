@@ -944,6 +944,8 @@ local SCRIPTED_KINDS = {
   rse_mossdeep_gym = { se = "SE_WARP_IN", music = true, fadeOut = true, arriveSe = "SE_WARP_OUT" },
   -- pokeemerald/src/field_screen_effect.c:1064 DoSpinExitWarp
   rse_spin_exit = { spinOut = true, music = true, fadeOut = true },
+  -- pokeemerald/src/field_screen_effect.c:571 DoPortholeWarp
+  rse_porthole_enter = { fadeOut = true, hidePlayer = true },
   -- pokeemerald/src/scrcmd.c:823
   warpmossdeepgym = { se = "SE_WARP_IN", music = true, fadeOut = true, arriveSe = "SE_WARP_OUT" },
   -- pokeemerald/src/field_screen_effect.c:505 DoWhiteFadeWarp
@@ -996,6 +998,7 @@ function Warp.scripted(mod, game, kind, destMap, destX, destY, facing, onDone)
         facing = arrivalFacing,
         depth1Connections = true,
       })
+      if spec.hidePlayer then Player.setVisible(false) end
       Doors.reset()
       -- pokeemerald/src/field_screen_effect.c:307
       if spec.arriveSe then playSe(SE[spec.arriveSe]) end

@@ -3,7 +3,7 @@ local VersionsRse = require("src.import.gba.versions_rse")
 local V = VersionsRse.new("emerald")
 local sym, count = V.sym, V.count
 
-V.CACHE_VERSION = 4
+V.CACHE_VERSION = 8
 V.NATIVE_VERSION = 1
 V.OW_VERSION = 1
 V.ANIM_VERSION = 1
@@ -22,6 +22,17 @@ V.AUDIO = {
   cry_table = sym("gCryTable"),
   cry_count = count("gCryTable", 12),
   cry_table_reverse = sym("gCryTable_Reverse"),
+}
+
+-- pokeemerald/src/field_specials.c:2985
+-- pokeemerald/data/battle_frontier/battle_frontier_exchange_corner.h:1
+V.FRONTIER_EXCHANGE_CORNER = {
+  decor1 = { off = sym("sFrontierExchangeCorner_Decor1.436"), count = count("sFrontierExchangeCorner_Decor1.436", 2) },
+  decor2 = { off = sym("sFrontierExchangeCorner_Decor2.437"), count = count("sFrontierExchangeCorner_Decor2.437", 2) },
+  vitamins = { off = sym("sFrontierExchangeCorner_Vitamins.438"), count = count("sFrontierExchangeCorner_Vitamins.438", 2) },
+  holdItems = { off = sym("sFrontierExchangeCorner_HoldItems.439"), count = count("sFrontierExchangeCorner_HoldItems.439", 2) },
+  tutor1 = { off = sym("sBattleFrontier_TutorMoves1"), count = count("sBattleFrontier_TutorMoves1", 2) },
+  tutor2 = { off = sym("sBattleFrontier_TutorMoves2"), count = count("sBattleFrontier_TutorMoves2", 2) },
 }
 
 V.OW_GFX_POINTERS = sym("gObjectEventGraphicsInfoPointers")

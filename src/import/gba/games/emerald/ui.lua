@@ -1,6 +1,16 @@
 return function(V)
   local sym, count = V.sym, V.count
 
+  -- pokeemerald/src/diploma.c:41
+  V.DIPLOMA = {
+    gfx = sym("sDiplomaTiles"),
+    tilemap = sym("sDiplomaTilemap"),
+    palettes = sym("sDiplomaPalettes"),
+    gfxSize = count("sDiplomaTiles", 1),
+    tilemapSize = count("sDiplomaTilemap", 1),
+    paletteSize = count("sDiplomaPalettes", 1),
+  }
+
   -- pokeemerald/include/constants/wild_encounter.h:11
   V.LAND_WILD_COUNT = count("gRoute101_LandMons", 4)
   V.WATER_WILD_COUNT = count("gRoute103_WaterMons", 4)

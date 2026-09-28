@@ -57,16 +57,15 @@ function DaycareMail.mixExport(sess)
 end
 
 -- pokeemerald/src/record_mixing.c:743
-function DaycareMail.randSum(tvShows)
-  local sum = 0
-  if type(tvShows) == "table" then
-    for i = 0, 7 do
-      local show = tvShows[i]
-      if type(show) == "table" then
-        sum = sum + MixUtil.num(show.kind) + ((show.active == true or show.active == 1) and 1 or 0)
-      end
-    end
-  end
+function DaycareMail.randSum(packetOrBytes)
+  if type(packetOrBytes) == "number" then return packetOrBytes % 256 end
+  if type(packetOrBytes) ~= "table" then return 0 end
+  local sum = tonumber(packetOrBytes.tvShowByteSum)
+  if sum then return sum % 256 end
+  local bytes = packetOrBytes.recordMixTvBytes256 or packetOrBytes
+  if #bytes < 256 then return 0 end
+  sum = 0
+  for i = 1, 256 do sum = sum + MixUtil.num(bytes[i]) end
   return sum % 256
 end
 

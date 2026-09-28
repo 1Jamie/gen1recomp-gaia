@@ -557,6 +557,7 @@ function Battle.start(opts)
     local session = opts.session
       or (Runtime and Runtime.getSession and Runtime.getSession())
     st.session = session
+    st.pyramid = opts.pyramid == true
     st.dex = opts.dex or (session and session.dex)
     Ui.bindState(st, session)
     st.playerName = (session and session.name) or opts.playerName
@@ -627,7 +628,7 @@ function Battle.start(opts)
   st.secretBase = opts.secretBase or false
   local trainerInfo = nil
   -- pokefirered/src/battle_message.c:2043 the tower and e-reader trainers are not gTrainers rows
-  if trainerId and not st.wild and not (st.trainerTower or st.eReader) then
+  if trainerId and not st.wild and not (st.trainerTower or st.eReader or st.secretBase) then
     trainerInfo = Trainers.info(trainerId, { rivalName = rivalName })
   end
 
@@ -650,8 +651,8 @@ function Battle.start(opts)
     trainerTower = st.trainerTower or opts.trainerTower,
     eReader = st.eReader or opts.eReader,
     pokedude = st.pokedude or opts.pokedude,
-    trainer = (not st.wild) and trainerInfo ~= nil,
-    trainerClass = trainerInfo and trainerInfo.class,
+    trainer = (not st.wild) and (trainerInfo ~= nil or st.secretBase),
+    trainerClass = trainerInfo and trainerInfo.class or opts.trainerClass,
     mapBattleScene = opts.mapBattleScene,
     battleTower = st.battleTower,
     frontier = opts.frontier,
@@ -676,8 +677,8 @@ function Battle.start(opts)
     st.trainerB = { class = tonumber(fb.class), className = fb.className, name = fb.name, pic = fb.pic,
       defeatText = opts.defeatTextB }
   end
-  st.trainerClass = trainerInfo and tonumber(trainerInfo.class)
-  st.trainerClassName = trainerInfo and trainerInfo.className
+  st.trainerClass = trainerInfo and tonumber(trainerInfo.class) or tonumber(opts.trainerClass)
+  st.trainerClassName = trainerInfo and trainerInfo.className or opts.trainerClassName
   st.trainerName = (trainerInfo and trainerInfo.name) or opts.trainerName
   -- pokefirered/src/trainer_tower.c:447, src/battle_tower.c:1340
   if st.trainerTower or st.eReader then
@@ -1768,7 +1769,19 @@ local function begin_trainer_win(st)
     if bonus > 0 then
       Ui.push(Prize.payDayMessage((session and session.name) or pname, bonus))
     end
-    Prize.pickup(st.playerParty or (session and session.party), nil, bp.rules)
+    local pickupRules = bp.rules
+    if session and bp.family == "rse" then
+      -- pokeemerald/src/battle_script_commands.c:9660
+      local okPike, Pike = pcall(require, "src.core.game3.rse.frontier.pike")
+      local inPike = okPike and Pike.inBattlePike and Pike.inBattlePike(session)
+      if inPike or st.pyramid then
+        pickupRules = {}
+        for key, value in pairs(bp.rules or {}) do pickupRules[key] = value end
+        pickupRules.noPickup = inPike and true or nil
+        pickupRules.pyramidSession = st.pyramid and session or nil
+      end
+    end
+    Prize.pickup(st.playerParty or (session and session.party), nil, pickupRules)
   end
 
   if st.link then
@@ -3446,6 +3459,17 @@ end
 
 function D.run(act)
   local st, ad = Battle._st, Battle._adapter
+  if act and act.forfeit then
+    -- pokeemerald/data/battle_scripts_1.s:4547
+    -- pokeemerald/src/battle_main.c:5061-5067
+    st.over = true
+    st.result = "forfeited"
+    st.endReason = "forfeit"
+    Ui.push(BattleText.get("STRINGID_FORFEITEDMATCH"))
+    Battle._pendingEnd = "forfeited"
+    Battle._phase = "ending"
+    return
+  end
   local fled = false
   local evs = D.capture(function()
     fled = Engine.tryFlee(st, ad, State.battler(st, act.battler)) and true or false
@@ -3646,6 +3670,10 @@ update_body = function(dt, game)
     if input then Pokedex.handleInput(input) end
     return
   end
+
+  -- pokeemerald/src/battle_pyramid_bag.c:379
+  local PyramidBag = package.loaded["src.ui.game3.rse.pyramid_bag"]
+  if PyramidBag and PyramidBag.isOpen and PyramidBag.isOpen() then return end
 
   local Naming = package.loaded["src.ui.game3.naming"]
   if Naming and Naming.isOpen and Naming.isOpen() then

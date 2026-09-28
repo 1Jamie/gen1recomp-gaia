@@ -456,6 +456,33 @@ section({
   end,
 })
 
+-- pokeemerald/include/global.h:849
+section({
+  name = "waldaPhrase",
+  fields = { "waldaPhrase" },
+  read = function(x)
+    local o = x.L.RSE.sb1.waldaPhrase
+    return { waldaPhrase = {
+      colors = { u16(x.sb1, o), u16(x.sb1, o + 2) },
+      phrase = x.codec.decodeString(x.sb1, o + 4, 16),
+      iconId = u8(x.sb1, o + 20),
+      patternId = u8(x.sb1, o + 21),
+      unlocked = u8(x.sb1, o + 22) ~= 0,
+    } }
+  end,
+  write = function(x, v)
+    local o = x.L.RSE.sb1.waldaPhrase
+    local w = type(v.waldaPhrase) == "table" and v.waldaPhrase or {}
+    local colors = type(w.colors) == "table" and w.colors or { 0x7B35, 0x6186 }
+    x.w1:w16(o, num(colors[1], 0x7B35))
+    x.w1:w16(o + 2, num(colors[2], 0x6186))
+    x.w1:bytes(o + 4, x.codec.encodeString(tostring(w.phrase or ""), 16))
+    x.w1:w8(o + 20, num(w.iconId) % 256)
+    x.w1:w8(o + 21, num(w.patternId) % 256)
+    x.w1:w8(o + 22, flag(w.unlocked) and 1 or 0)
+  end,
+})
+
 -- pokeemerald/include/global.h:859
 section({
   name = "trainerNameRecords",

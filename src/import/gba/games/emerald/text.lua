@@ -6,7 +6,15 @@ return function(V)
 
   local function offsets(names)
     local out = {}
-    for _, name in ipairs(names) do out[name] = S.off(name) end
+    for _, name in ipairs(names) do
+      if name == "sText_CommunicationStandby" then
+        -- pokeemerald/src/data/trade.h:52
+        -- pokeemerald/src/berry_blender.c:287
+        out[name] = S.off("trade.o:sText_CommunicationStandby")
+      else
+        out[name] = S.off(name)
+      end
+    end
     return out
   end
 

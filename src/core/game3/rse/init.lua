@@ -168,8 +168,21 @@ function Rse.mapGroupNum(mapId, sess)
   local prefix = row and row.map and row.map.enginePrefix or ""
   local Constants = require("src.core.game3.constants")
   local C = Constants.of(Constants.versionOf(sess or session()))
+  -- pokeemerald/include/constants/map_groups.h: normalize map aliases against pret names.
+  local okCatalog, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+  local slot = okCatalog and MapCatalog.slotKeyFor and MapCatalog.slotKeyFor(mapId)
+  local group, num = type(slot) == "string" and slot:match("^(%d+)_(%d+)$")
+  if group and num then return tonumber(group), tonumber(num) end
   local name = "MAP_" .. mapId:sub(#prefix + 1)
   local e = C.map_groups.byName[name]
+  if not e then
+    local suffix = mapId:sub(#prefix + 1):upper():gsub("[^A-Z0-9]", "")
+    for constName, candidate in pairs(C.map_groups.byName) do
+      local constantSuffix = constName:gsub("^MAP_", ""):upper():gsub("[^A-Z0-9]", "")
+      local pretName = tostring(candidate.name or ""):upper():gsub("[^A-Z0-9]", "")
+      if suffix == constantSuffix or suffix == pretName then e = candidate break end
+    end
+  end
   if not e then return nil end
   return tonumber(e.group), tonumber(e.num)
 end

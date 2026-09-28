@@ -16,6 +16,9 @@ Game3Link.LINKTYPE = {
   SINGLE_BATTLE = 0x2233,
   DOUBLE_BATTLE = 0x2244,
   MULTI_BATTLE = 0x2255,
+  BERRY_BLENDER_SETUP = 0x4411,
+  BERRY_BLENDER = 0x4422,
+  BATTLE_TOWER = 0x2288,
   RECORD_MIX_BEFORE = 0x3311,
   RECORD_MIX_AFTER = 0x3322,
 }
@@ -237,6 +240,7 @@ local function row(hello, seat, isLocal)
     name = hello and hello.name,
     trainerId = tonumber(g3.trainerId) or 0,
     gender = tonumber(g3.gender) or 0,
+    version = g3.version,
     role = Game3Link.SEAT_ROLES[seat] or "guest",
     seat = seat,
     isLocal = isLocal,

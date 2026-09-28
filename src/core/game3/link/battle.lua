@@ -30,6 +30,7 @@ LB.LINKTYPE = {
   DOUBLE_BATTLE = 0x2244,
   MULTI_BATTLE = 0x2255,
   RECORD_MIX_BEFORE = 0x3311,
+  BERRY_BLENDER_SETUP = 0x4411,
 }
 
 LB.MSG = {
@@ -56,6 +57,7 @@ LB.PLAYERS = {
 
 -- pokefirered/src/cable_club.c:532 TryRecordMixLinkup
 LB.RECORD_MIX = { min = 2, max = 4, linkType = LB.LINKTYPE.RECORD_MIX_BEFORE }
+LB.BERRY_BLENDER = { min = 2, max = 4, linkType = LB.LINKTYPE.BERRY_BLENDER_SETUP }
 
 -- pokefirered/src/cable_club.c:482 TryLinkTimeout
 LB.LINKUP_TICKS = 600

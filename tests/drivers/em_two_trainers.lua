@@ -192,8 +192,8 @@ return function(game)
   local iDef = L.logIndex("were defeated")
   local loseA = Trainers.dialogs(tidA).defeat
   local loseB = Trainers.dialogs(tidB).defeat
-  local iA = loseA and L.logIndex(loseA:sub(1, 10))
-  local iB = loseB and L.logIndex(loseB:sub(1, 10))
+  local iA = loseA and L.logIndex(loseA)
+  local iB = loseB and L.logIndex(loseB)
   local iMoney = L.logIndex("got $") or L.logIndex(tostring(want))
   print(string.format("[driver] log order defeated=%s loseA=%s loseB=%s money=%s", tostring(iDef), tostring(iA),
     tostring(iB), tostring(iMoney)))

@@ -10,6 +10,7 @@ GameVersion.set("firered")
 local Std = require("src.core.game3.scripting.stdscripts")
 local Natives = require("src.core.game3.scripting.natives")
 local Constants = require("src.core.game3.constants")
+local Runtime = require("src.core.game3.runtime")
 
 Natives.bind("firered")
 
@@ -100,7 +101,7 @@ GameVersion.set("emerald")
 Natives.resetLog()
 check(Natives.ensureBound() == true, "an Emerald session rebinds the natives")
 eq(Natives.boundGame, "emerald", "bound to the Emerald special table")
-local SHARED = { natives_daycare = true, natives_elevator = true }
+local SHARED = { natives_daycare = true, natives_elevator = true, natives_gift = true, natives_moveteach = true }
 for m in pairs(Natives.MODULES) do
   local Capabilities = require("src.core.game3.capabilities")
   check(SHARED[m] or (Capabilities.nativeFeature(m) ~= nil and not Capabilities.nativeAllowed({ version = "firered" }, m)),
@@ -114,22 +115,306 @@ for id, fn in pairs(emBound) do
   check(Natives.BY_NAME[name] == fn, string.format("Emerald 0x%X runs the %s handler", id, tostring(name)))
 end
 eq(emBound[EM.byName.HealPlayerParty], Natives.CORE.HealPlayerParty, "Emerald HealPlayerParty is the shared heal handler")
+local ereaderNames = { "ValidateEReaderTrainer", "CopyEReaderTrainerGreeting", "BufferEReaderTrainerName",
+  "SetEReaderTrainerGfxId" }
+for _, name in ipairs(ereaderNames) do
+  local id = EM.byName[name]
+  check(id ~= nil and emBound[id] ~= nil, "Emerald " .. name .. " is bound")
+end
+local ereaderSpecial = EM.byName.ValidateEReaderTrainer
+local oldEreaderSession = Runtime.session
+Runtime.session = { version = "emerald", frontier = { ereaderTrainer = {
+  name = "ALPHA", party = { { species = 1 } }, greeting = "WELCOME", facilityClass = 0,
+} } }
+local ereaderCtx = { specialVars = {}, stringVars = {} }
+Natives.special(ereaderCtx, ereaderSpecial, {})
+eq(ereaderCtx.specialVars[0x800D], 0, "valid saved e-Reader trainer returns FALSE")
+local ereaderWritten = {}
+Natives.special(ereaderCtx, EM.byName.BufferEReaderTrainerName, {
+  setStringVar = function(i, value) ereaderWritten[i] = value end,
+})
+eq(ereaderCtx.stringVars[1], "ALPHA", "e-Reader name is buffered in string variable 1")
+eq(ereaderWritten[1], "ALPHA", "e-Reader name is sent to the script adapter")
+Natives.special(ereaderCtx, EM.byName.CopyEReaderTrainerGreeting, {
+  setStringVar = function(i, value) ereaderWritten[i] = value end,
+})
+eq(ereaderCtx.stringVars[4], "WELCOME", "e-Reader greeting is buffered in string variable 4")
+local EReaderTrainers = require("src.core.game3.rse.frontier.trainers")
+local oldFacilityClassToGfx = EReaderTrainers.facilityClassToGfx
+local Space = require("src.core.game3.scripting.space")
+local oldEReaderStore = Space.store
+Space.store = { vars = {} }
+EReaderTrainers.facilityClassToGfx = function(facilityClass)
+  eq(facilityClass, 0, "e-Reader gfx lookup receives the saved facility class")
+  return 77
+end
+Natives.special(ereaderCtx, EM.byName.SetEReaderTrainerGfxId, {})
+local EReaderConstants = require("src.core.game3.constants").of("emerald")
+local gfxVar = EReaderConstants:var("VAR_OBJ_GFX_ID_0")
+eq(Space.store.vars[gfxVar], 77, "e-Reader graphic is assigned to Emerald's object graphics variable")
+EReaderTrainers.facilityClassToGfx = oldFacilityClassToGfx
+Space.store = oldEReaderStore
+Runtime.session = { version = "emerald", frontier = { ereaderTrainer = {} } }
+Natives.special(ereaderCtx, ereaderSpecial, {})
+eq(ereaderCtx.specialVars[0x800D], 1, "empty e-Reader record returns TRUE")
+Runtime.session = { version = "emerald", frontier = { ereaderTrainer = {
+  name = "BROKEN", party = { { species = 1 } }, checksumValid = false,
+} } }
+Natives.special(ereaderCtx, ereaderSpecial, {})
+eq(ereaderCtx.specialVars[0x800D], 1, "invalid e-Reader checksum returns TRUE")
+Runtime.session = oldEreaderSession
+local trainerIntro = EM.byName.ShowTrainerIntroSpeech
+local trainerCantBattle = EM.byName.ShowTrainerCantBattleSpeech
+local prepareSecondTrainer = EM.byName.TryPrepareSecondApproachingTrainer
+local trainerApproach = EM.byName.DoTrainerApproach
+check(Natives.BY_NAME.DoTrainerApproach ~= nil
+  and Natives.ALLOW["special:" .. trainerApproach] ~= nil,
+  "Emerald DoTrainerApproach has a deliberate TrainerSight no-op handler")
+check(prepareSecondTrainer ~= nil and emBound[prepareSecondTrainer] ~= nil,
+  "Emerald TryPrepareSecondApproachingTrainer is bound")
+local secondTrainerCtx = { specialVars = { [0x800D] = 1 } }
+eq(Natives.special(secondTrainerCtx, prepareSecondTrainer, {}), false,
+  "TryPrepareSecondApproachingTrainer completes synchronously")
+eq(secondTrainerCtx.specialVars[0x800D], 0, "no queued second approach clears VAR_RESULT")
+check(trainerIntro ~= nil and emBound[trainerIntro] ~= nil, "Emerald ShowTrainerIntroSpeech is bound")
+check(trainerCantBattle ~= nil and emBound[trainerCantBattle] ~= nil,
+  "Emerald ShowTrainerCantBattleSpeech is bound")
+local TrainerData = require("src.core.game3.scripting.trainers")
+local Pyramid = require("src.core.game3.rse.frontier.pyramid")
+local Hill = require("src.core.game3.rse.trainer_hill")
+local oldDialogs, oldInPyramid, oldInHill = TrainerData.dialogs, Pyramid.inPyramid, Hill.inChallenge
+TrainerData.dialogs = function(trainerId)
+  eq(trainerId, 321, "trainer speech resolves the active opponent id")
+  return { intro = "CHALLENGER!", notEnough = "NOT ENOUGH POKEMON!" }
+end
+Pyramid.inPyramid, Hill.inChallenge = function() return false end, function() return false end
+Runtime.session = { version = "emerald" }
+local trainerMessages = {}
+local trainerCtx = { trainerBattleOpponentA = 321, specialVars = {} }
+Natives.special(trainerCtx, trainerIntro, { openMessageAsync = function(message, done)
+  trainerMessages[#trainerMessages + 1] = message
+  done()
+end })
+eq(trainerMessages[1], "CHALLENGER!", "ShowTrainerIntroSpeech opens the trainer intro text")
+eq(trainerCtx.trainerIntroShown, true, "field intro is marked to prevent duplicate trainerbattle text")
+Natives.special(trainerCtx, trainerCantBattle, { openMessageAsync = function(message, done)
+  trainerMessages[#trainerMessages + 1] = message
+  done()
+end })
+eq(trainerMessages[2], "NOT ENOUGH POKEMON!", "ShowTrainerCantBattleSpeech opens the refusal text")
+TrainerData.dialogs, Pyramid.inPyramid, Hill.inChallenge = oldDialogs, oldInPyramid, oldInHill
+local Vm = require("src.core.game3.scripting.vm")
+local Ops = require("src.core.game3.scripting.ops_a")
+local oldFoeFromId = TrainerData.foeFromId
+TrainerData.dialogs = function() return { intro = "DUPLICATE INTRO" } end
+TrainerData.foeFromId = function(id) return { trainerId = id } end
+local duplicateIntroCount = 0
+local introVm = Vm.new({ version = "emerald", adapters = {} })
+introVm.ctx.trainerIntroShown = true
+introVm.ctx.pc = { listKey = "test", index = 1 }
+introVm.adapters.openMessageAsync = function(_, done)
+  duplicateIntroCount = duplicateIntroCount + 1
+  done()
+end
+introVm.adapters.startTrainerBattle = function(_, done) done("lose") end
+Ops.dispatch(introVm, { op = "trainerbattle", type = 0, trainer = 321 })
+eq(duplicateIntroCount, 0, "trainerbattle does not repeat an intro already shown by the special")
+eq(introVm.ctx.trainerIntroShown, nil, "trainerbattle consumes the intro-shown marker")
+TrainerData.dialogs, TrainerData.foeFromId = oldDialogs, oldFoeFromId
+Runtime.session = oldEreaderSession
 check(emBound[EM.byName.ShouldTryRematchBattle] ~= Natives.CORE.ShouldTryRematchBattle, "the VS Seeker rematch handler is not bound on Emerald")
-eq(emBound[FR.byName.ShouldTryRematchBattle], nil, "the FireRed id of ShouldTryRematchBattle does not leak into Emerald")
+local frRematchId = FR.byName.ShouldTryRematchBattle
+eq(Std.specialName("emerald", frRematchId), "GetTrainerFlag",
+  "the FireRed rematch id means Emerald GetTrainerFlag at that index")
+eq(emBound[frRematchId], Natives.BY_NAME.GetTrainerFlag,
+  "the overlapping Emerald index dispatches by Emerald special name")
 eq(emBound[0xF001], Natives.CORE.FadeScreen, "engine specials stay bound on Emerald")
-
+check(emBound[EM.byName.ChooseMonForWirelessMinigame] ~= nil,
+  "Emerald wireless minigame party selection uses the shared eligibility-aware picker")
+local porthole = EM.byName.LookThroughPorthole
+check(porthole ~= nil and emBound[porthole] ~= nil,
+  "Emerald LookThroughPorthole is bound to the route sailing scene")
+local PortholeScene = require("src.core.game3.special_scene_rse")
+local portholeGroups = {
+  MAP_ROUTE132 = { group = 0, num = 47 },
+  MAP_ROUTE133 = { group = 0, num = 48 },
+  MAP_ROUTE134 = { group = 0, num = 49 },
+}
+local function portholeDest(state, steps)
+  return PortholeScene.portholeDestination(state, steps, portholeGroups)
+end
+local dest = portholeDest(2, 0)
+eq(dest.map, "MAP_ROUTE134", "Slateport departure begins sailing across Route 134")
+eq(dest.x, 19, "Slateport departure starts at the Emerald Route 134 coordinate")
+eq(portholeDest(2, 60).map, "MAP_ROUTE133", "eastbound sailing crosses to Route 133 at step 60")
+eq(portholeDest(2, 140).x, 0, "eastbound sailing starts Route 132 at x=0")
+eq(portholeDest(7, 0).x, 65, "westbound halfway sailing starts Route 132 at x=65")
+eq(portholeDest(7, 66).map, "MAP_ROUTE133", "westbound sailing crosses to Route 133 at step 66")
+eq(portholeDest(7, 146).x, 78, "westbound sailing enters Route 134 at x=78")
+eq(portholeDest(99, 0), nil, "invalid porthole cruise states have no route destination")
 local logs = {}
 local adapters = { log = function(m) logs[#logs + 1] = m end }
-local wallClock = EM.byName.Unused_SetWeatherSunny
-check(wallClock ~= nil, "Emerald has Unused_SetWeatherSunny")
-local yield, value, known = Natives.special({ specialVars = {} }, wallClock, adapters)
-eq(yield, false, "an unbound Emerald special does not yield")
-eq(value, nil, "an unbound Emerald special returns no value")
-eq(known, false, "an unbound Emerald special reports unknown")
-eq(#logs, 1, "an unbound Emerald special logs once")
-check(logs[1] and logs[1]:find("Unused_SetWeatherSunny", 1, true) ~= nil, "the log names the pret special")
-Natives.special({ specialVars = {} }, wallClock, adapters)
-eq(#logs, 1, "the second call does not log again")
+local poisonWhiteOut = EM.byName.TryFieldPoisonWhiteOut
+check(poisonWhiteOut ~= nil and Natives.ALLOW["special:" .. poisonWhiteOut] ~= nil,
+  "Emerald TryFieldPoisonWhiteOut is bound")
+local Pokemon = require("src.core.game3.pokemon")
+local RomText = require("src.core.game3.rom_text")
+local oldPoisonSession, oldIsEgg = Runtime.session, Pokemon.isEgg
+local oldAdjust, oldName, oldMapSec, oldBox = Pokemon.adjustFriendship, Pokemon.displayMonName,
+  Pokemon.currentMapSec, RomText.box
+local poisonSession = { version = "emerald", map = "EM_LITTLEROOT_TOWN", vars = {}, party = {
+  { species = 1, hp = 0, status = "PSN" }, { species = 4, hp = 0 },
+} }
+Runtime.session = poisonSession
+Pokemon.isEgg = function(mon) return mon.isEgg == true end
+Pokemon.adjustFriendship = function() end
+Pokemon.displayMonName = function() return "MON" end
+Pokemon.currentMapSec = function() return 0 end
+RomText.box = function(key, ctx) return key .. ":" .. ctx.stringVars[1] end
+local poisonMessageCount, poisonCtx = 0, { specialVars = {} }
+Natives.special(poisonCtx, poisonWhiteOut, { openMessageAsync = function(msg, done)
+  poisonMessageCount = poisonMessageCount + 1
+  check(msg:find("MON", 1, true) ~= nil, "poison faint message buffers the fainted Pokémon")
+  done()
+end })
+eq(poisonMessageCount, 1, "poison whiteout shows each poison faint once")
+eq(poisonCtx.specialVars[0x800D], 1, "ordinary party wipe returns FLDPSN_WHITEOUT")
+eq(poisonSession.party[1].status, nil, "poison faint clears the status")
+Runtime.session, Pokemon.isEgg, Pokemon.adjustFriendship, Pokemon.displayMonName,
+  Pokemon.currentMapSec, RomText.box = oldPoisonSession, oldIsEgg, oldAdjust, oldName, oldMapSec, oldBox
+local rematchStart = EM.byName.BattleSetup_StartRematchBattle
+check(rematchStart ~= nil and Natives.ALLOW["special:" .. rematchStart] ~= nil,
+  "Emerald BattleSetup_StartRematchBattle is bound")
+local Trainers = require("src.core.game3.scripting.trainers")
+local Rematch = require("src.core.game3.rse.rematch")
+local oldRematchSession, oldFoeFromId, oldRematchWon = Runtime.session, Trainers.foeFromId, Rematch.onRematchBattleWon
+local rematchSession = { version = "emerald", flags = {}, vars = {}, trainerRematches = {} }
+Runtime.session = rematchSession
+Trainers.foeFromId = function(id) return { trainerId = id, species = 1, level = 10 } end
+local wonTrainer, startOptions
+Rematch.onRematchBattleWon = function(sess, id) wonTrainer = id; eq(sess, rematchSession, "rematch completion uses active session") end
+local battleStarted = false
+Natives.special({ trainerBattleOpponentA = 123, trainerBattleMode = 4 }, rematchStart, {
+  startTrainerBattle = function(foe, done, opts)
+    battleStarted, startOptions = foe.trainerId == 123, opts
+    done("win")
+  end,
+})
+eq(battleStarted, true, "rematch special starts the active trainer battle")
+eq(startOptions and startOptions.double, true, "double rematch preserves its battle type")
+eq(wonTrainer, 123, "won rematch updates Emerald rematch state")
+Runtime.session, Trainers.foeFromId, Rematch.onRematchBattleWon = oldRematchSession, oldFoeFromId, oldRematchWon
+local partnerNames = EM.byName.GetLinkPartnerNames
+check(partnerNames ~= nil and Natives.ALLOW["special:" .. partnerNames] ~= nil,
+  "Emerald GetLinkPartnerNames is bound")
+local Link = require("src.core.game3.link.init")
+local oldLink = Link.link
+local partnerPlayers = {
+  { seat = 0, name = "BRENDAN", isLocal = true },
+  { seat = 1, name = "MAY", isLocal = false },
+  { seat = 2, name = "WALLY", isLocal = false },
+}
+Link.link = { role = "host", isOpen = function() return true end,
+  players = function() return partnerPlayers end }
+local partnerCtx, writtenNames = { stringVars = {} }, {}
+Natives.special(partnerCtx, partnerNames, { setStringVar = function(i, v) writtenNames[i] = v end })
+eq(partnerCtx.stringVars[1], "MAY", "GetLinkPartnerNames fills the first remote name")
+eq(partnerCtx.stringVars[2], "WALLY", "GetLinkPartnerNames fills the second remote name")
+eq(writtenNames[1], "MAY", "GetLinkPartnerNames writes through the VM adapter")
+eq(require("src.core.game3.link.battle").playerCount(), 3, "test link has three multiplayer players")
+local gfxSpecial = EM.byName.SetBattleTowerLinkPlayerGfx
+check(gfxSpecial ~= nil and Natives.ALLOW["special:" .. gfxSpecial] ~= nil,
+  "Emerald SetBattleTowerLinkPlayerGfx is bound")
+local oldRuntimeSession, oldSetVar = Runtime.session, Link.setVar
+Runtime.session = { version = "emerald" }
+local gfxRows = {
+  { seat = 0, gender = 0, isLocal = true },
+  { seat = 1, gender = 1, isLocal = false },
+}
+Link.link.players = function() return gfxRows end
+local gfxVars = {}
+Link.setVar = function(_, id, value) gfxVars[id] = value end
+Natives.special({ specialVars = {} }, gfxSpecial, adapters)
+local EC = require("src.core.game3.constants").of("emerald")
+local gfxVar = EC:var("VAR_OBJ_GFX_ID_F")
+eq(gfxVars[gfxVar], EC:require("event_objects", "OBJ_EVENT_GFX_BRENDAN_NORMAL"),
+  "link graphics special selects Brendan for a male player")
+eq(gfxVars[gfxVar - 1], EC:require("event_objects", "OBJ_EVENT_GFX_RIVAL_MAY_NORMAL"),
+  "link graphics special selects May for a female partner")
+local spawnPartners = EM.byName.SpawnLinkPartnerObjectEvent
+check(spawnPartners ~= nil and Natives.ALLOW["special:" .. spawnPartners] ~= nil,
+  "Emerald SpawnLinkPartnerObjectEvent is bound")
+local VirtualObjects = require("src.core.game3.virtual_objects")
+local Player = require("src.core.game3.player")
+local BattleLink = require("src.core.game3.link.battle")
+local oldFacing, oldCellX, oldCellY, oldMultiplayerId = Player.facing, Player.cellX, Player.cellY,
+  BattleLink.multiplayerId
+Runtime.session = { version = "emerald" }
+Player.facing, Player.cellX, Player.cellY = "right", 10, 10
+BattleLink.multiplayerId = function() return 0 end
+Link.link.players = function() return gfxRows end
+VirtualObjects.remove(0x7F01)
+Natives.special({ specialVars = { [0x8004] = 2 } }, spawnPartners, adapters)
+local partnerAvatar = VirtualObjects.get(0x7F01)
+check(partnerAvatar ~= nil, "partner spawn creates a virtual avatar for the remote seat")
+eq(partnerAvatar.graphicsId, EC:require("event_objects", "OBJ_EVENT_GFX_RIVAL_MAY_NORMAL"),
+  "partner avatar uses Emerald's female trainer sprite")
+eq(partnerAvatar.x, 11, "partner avatar uses the Emerald facing-relative seat x")
+eq(partnerAvatar.y, 11, "partner avatar uses the Emerald facing-relative seat y")
+VirtualObjects.remove(0x7F01)
+gfxRows[2].version = "sapphire"
+Natives.special({ specialVars = { [0x8004] = 2 } }, spawnPartners, adapters)
+partnerAvatar = VirtualObjects.get(0x7F01)
+eq(partnerAvatar.graphicsId, EC:require("event_objects", "OBJ_EVENT_GFX_LINK_RS_MAY"),
+  "Ruby/Sapphire link partner keeps the legacy R/S player graphics")
+VirtualObjects.remove(0x7F01)
+gfxRows[2].version = nil
+Player.facing, Player.cellX, Player.cellY, BattleLink.multiplayerId = oldFacing, oldCellX, oldCellY,
+  oldMultiplayerId
+Runtime.session, Link.setVar = oldRuntimeSession, oldSetVar
+Link.link = oldLink
+local startWired = EM.byName.Script_StartWiredTrade
+check(Natives.BY_NAME.Script_StartWiredTrade == nil
+  and Natives.ALLOW["special:" .. startWired] == nil,
+  "Emerald Script_StartWiredTrade is left unbound until wired trade flow exists")
+local saveGameSpecial = EM.byName.CableClubSaveGame
+local oldGame = Runtime._game
+local saved = false
+Runtime._game = { saveGame = function() saved = true end }
+check(saveGameSpecial ~= nil and Natives.ALLOW["special:" .. saveGameSpecial] ~= nil,
+  "Emerald CableClubSaveGame is bound")
+Natives.special({ specialVars = {} }, saveGameSpecial, adapters)
+eq(saved, true, "CableClubSaveGame calls the live game's save function")
+local towerSave = EM.byName.SaveForBattleTowerLink
+check(towerSave ~= nil and Natives.ALLOW["special:" .. towerSave] ~= nil,
+  "Emerald SaveForBattleTowerLink is bound")
+saved = false
+Natives.special({ specialVars = {} }, towerSave, adapters)
+eq(saved, true, "SaveForBattleTowerLink saves before Tower link play")
+Runtime._game = oldGame
+
+local weatherSpecial = EM.byName.Unused_SetWeatherSunny
+check(weatherSpecial ~= nil and Natives.ALLOW["special:" .. weatherSpecial] ~= nil,
+  "Emerald Unused_SetWeatherSunny has a runtime handler")
+local Weather = require("src.core.game3.weather")
+local WeatherEngine = require("src.core.game3.field_weather_rse")
+local oldSetWeather, oldSetCurrent = Weather.setWeather, WeatherEngine.setCurrentAndNextWeather
+local savedWeather, currentWeather
+Weather.setWeather = function(id) savedWeather = id end
+WeatherEngine.setCurrentAndNextWeather = function(id) currentWeather = id end
+Natives.special({ specialVars = {} }, weatherSpecial, adapters)
+eq(savedWeather, Weather.SUNNY, "sunny special updates the saved weather")
+eq(currentWeather, Weather.SUNNY, "sunny special immediately updates current and next weather")
+Weather.setWeather, WeatherEngine.setCurrentAndNextWeather = oldSetWeather, oldSetCurrent
+
+oldGame = Runtime._game
+Runtime._game = {}
+local softReset = EM.byName.DoSoftReset
+check(softReset ~= nil and Natives.ALLOW["special:" .. softReset] ~= nil,
+  "Emerald DoSoftReset has a runtime handler")
+Natives.special({ specialVars = {} }, softReset, adapters)
+eq(Runtime._game.softResetRequested, true, "soft-reset special schedules the existing title reset")
+Runtime._game = oldGame
 
 GameVersion.set("firered")
 check(Natives.ensureBound() == true, "switching back to FireRed rebinds")

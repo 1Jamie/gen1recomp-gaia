@@ -223,6 +223,13 @@ local function linkup(name)
 end
 
 NativesContest.BY_NAME = {
+  -- pokeemerald/src/contest_util.c:2302
+  GetNpcContestantLocalId = function(ctx)
+    local contestant = var(ctx, VAR_0x8005) % 0x100
+    local localId = ({ 3, 4, 5 })[contestant + 1] or 100
+    setVar(ctx, VAR_0x8004, localId)
+    return false
+  end,
   -- pokeemerald/src/contest_util.c:1958
   TryEnterContestMon = function(ctx)
     local sess = session()

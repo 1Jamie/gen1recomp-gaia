@@ -25,6 +25,23 @@ local AnimSprites = require("src.core.game3.battle.anim_sprites")
 local AnimCallbacks = require("src.core.game3.battle.anim_callbacks")
 AnimTasks.init()
 
+do
+  local coords = Anim.Coords
+  local vm = AnimVm.new()
+  local contestLabel = { { op = "delay", frames = 2 }, { op = "end" } }
+  vm:setPack({ labels = { CONTEST_ANIM = contestLabel } })
+  local positions = { [2] = { 112, 80, x = 112, y = 80 }, [3] = { 48, 40, x = 48, y = 40 } }
+  vm:launch({ { op = "jumpifcontest", label = "CONTEST_ANIM" }, { op = "end" } }, {
+    ctx = { isContest = true }, coordinateOverrides = positions, attackerId = 2, targetId = 3,
+  })
+  vm:update(1 / 60)
+  eq(vm.script[1].op, "delay", "jumpifcontest selects the contest animation body")
+  eq(coords.coords(nil, 2).x .. "/" .. coords.coords(nil, 3).x, "112/48", "contest coordinates are active during playback")
+  vm:tickFrames(5)
+  eq(vm.active, false, "contest animation VM finishes")
+  check(coords.coords(nil, 2) ~= positions[2], "animation end restores shared battler coordinates")
+end
+
 local moves = 0
 for _ in pairs(pack.moves) do moves = moves + 1 end
 eq(moves, 355, "Emerald gBattleAnims_Moves rows")

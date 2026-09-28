@@ -146,6 +146,26 @@ return function(game)
   end
 
   local battles, wild, trainerBattles = 0, 0, 0
+  local battleBagProbe = "pending"
+  local Battle = require("src.core.game3.battle")
+  local BattleUi = require("src.core.game3.battle.ui")
+  local PyramidBag = require("src.ui.game3.rse.pyramid_bag")
+  local function onBattleFrame()
+    if battleBagProbe == "pending" and Battle._phase == "command" and BattleUi._mode == "menu" then
+      battleBagProbe = "opening"
+      BattleUi._menuIndex = 2
+      U.tap(game, "a")
+    elseif battleBagProbe == "opening" and PyramidBag.isOpen() then
+      battleBagProbe = "opened"
+      check(PyramidBag._st and PyramidBag._st.location == "battle",
+        "the active battle opens the dedicated Pyramid bag in battle mode")
+      shot("04_pyramid_battle_bag")
+      U.wait(30)
+      U.tap(game, "b")
+    elseif battleBagProbe == "opened" and not PyramidBag.isOpen() then
+      battleBagProbe = "closed"
+    end
+  end
   local function onBattleStart(st)
     battles = battles + 1
     if st.wild or st.kinds and st.kinds.wild then wild = wild + 1 else trainerBattles = trainerBattles + 1 end
@@ -157,8 +177,8 @@ return function(game)
   local itemBall = nearestObject(true)
   if check(itemBall ~= nil, "an item ball is on the floor") then
     local itemsLeft = Py.remainingItems(session)
-    S.talkTo(game, itemBall, { settle = { onBattleStart = onBattleStart } })
-    S.settle(game, { limit = 6000, onBattleStart = onBattleStart })
+    S.talkTo(game, itemBall, { settle = { onBattleStart = onBattleStart, onBattleFrame = onBattleFrame } })
+    S.settle(game, { limit = 6000, onBattleStart = onBattleStart, onBattleFrame = onBattleFrame })
     check(Py.remainingItems(session) == itemsLeft - 1, "pyramid_hideitem removes the picked ball (" ..
       Py.remainingItems(session) .. ")")
     local bagAfter = 0
@@ -171,8 +191,8 @@ return function(game)
     local lid = foe.localId
     local left = Py.remainingTrainers(session)
     local sawHint = false
-    S.talkTo(game, foe, { settle = { onBattleStart = onBattleStart } })
-    S.settle(game, { limit = 30000, onBattleStart = onBattleStart, watch = function()
+    S.talkTo(game, foe, { settle = { onBattleStart = onBattleStart, onBattleFrame = onBattleFrame } })
+    S.settle(game, { limit = 30000, onBattleStart = onBattleStart, onBattleFrame = onBattleFrame, watch = function()
       if not sawHint and Message.isOpen() and trainerBattles > 0 and not require("src.core.game3.battle").isActive() then
         sawHint = true
         U.wait(20)
@@ -185,6 +205,7 @@ return function(game)
     check(sawHint, "pyramid_showhint prints a post-battle hint")
     check(f.pyramidLightRadius > 32, "winning widens the light radius (" .. tostring(f.pyramidLightRadius) .. ")")
   end
+  check(battleBagProbe == "closed", "B closes the Pyramid bag back to the battle command menu")
 
   U.tap(game, "start")
   U.wait(20)

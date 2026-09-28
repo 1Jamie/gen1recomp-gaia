@@ -460,12 +460,39 @@ local function confirm_link_forfeit(act)
   end)
 end
 
+local function is_frontier_forfeit(st)
+  local Kinds = require("src.core.game3.battle.kinds")
+  return st and not st.wild and (Kinds.has(st, "frontier") or Kinds.has(st, "trainerHill"))
+end
+
 local function open_battle_bag()
   if Ui._st and Ui._st.link then return Ui.refuseItems() end
   local BagMenu = require("src.ui.game3.bag_menu")
   local Runtime = package.loaded["src.core.game3.runtime"]
   local session = Ui._session
     or (Runtime and Runtime.getSession and Runtime.getSession())
+  local Pyramid = package.loaded["src.core.game3.rse.frontier.pyramid"]
+  if not Pyramid then
+    local okP, loaded = pcall(require, "src.core.game3.rse.frontier.pyramid")
+    if okP then Pyramid = loaded end
+  end
+  if session and Pyramid and Pyramid.inPyramid and Pyramid.inPyramid(session) then
+    -- pokeemerald/src/battle_pyramid_bag.c:379
+    Ui._mode = "bag"
+    require("src.ui.game3.rse.pyramid_bag").show({
+      session = session,
+      location = "battle",
+      onUse = function(itemId)
+        Ui._pendingCommand = { kind = "bag", user = "player", itemId = itemId, usedInMenu = true }
+        if is_double() then Ui._pendingCommand.battler = Ui._active or 0 end
+        Ui._mode = "none"
+      end,
+      onClose = function()
+        if Ui._mode == "bag" then restore_action_menu() end
+      end,
+    })
+    return
+  end
   local bag = session and session.bag
   if not bag then
     Ui.push(Strings("The BAG is empty."))
@@ -503,6 +530,7 @@ local function open_battle_bag()
     end,
   })
 end
+Ui.openBattleBag = open_battle_bag
 
 function Ui.isShowing()
   return Ui._showing or Ui.busy() or (Message and Message.isOpen and Message.isOpen())
@@ -1437,8 +1465,10 @@ local function handle_double_input(input)
           Ui.push(why)
           -- pokefirered/src/battle_controller_oak_old_man.c:1782
           Oak.say(st, "noRunning")
-        elseif st and st.link then
-          confirm_link_forfeit(Commands.playerAction(st, Ui._menuIndex, nil, id))
+        elseif st and (st.link or is_frontier_forfeit(st)) then
+          local act = Commands.playerAction(st, Ui._menuIndex, nil, id)
+          if is_frontier_forfeit(st) then act.forfeit = true end
+          confirm_link_forfeit(act)
         else
           Ui._pendingCommand = Commands.playerAction(st, Ui._menuIndex, nil, id)
           Ui._mode = "none"
@@ -1609,8 +1639,10 @@ function Ui.handleInput(input)
           Ui.push(why)
           -- pokefirered/src/battle_controller_oak_old_man.c:1782
           Oak.say(Ui._st, "noRunning")
-        elseif Ui._st and Ui._st.link then
-          confirm_link_forfeit(Commands.playerAction(Ui._st, Ui._menuIndex, nil))
+        elseif Ui._st and (Ui._st.link or is_frontier_forfeit(Ui._st)) then
+          local act = Commands.playerAction(Ui._st, Ui._menuIndex, nil)
+          if is_frontier_forfeit(Ui._st) then act.forfeit = true end
+          confirm_link_forfeit(act)
         else
           Ui._pendingCommand = Commands.playerAction(Ui._st, Ui._menuIndex, nil)
           Ui._mode = "none"

@@ -1,6 +1,7 @@
 return {
   fonts = require("src.core.game3.profiles.emerald.font"),
   screens = {
+    frontier_preview = "src.ui.game3.rse.frontier_preview",
     option = "src.ui.game3.rse.option_menu",
     -- pokeemerald/src/start_menu.c:639
     pokedex = "src.ui.game3.rse.pokedex",
@@ -58,6 +59,15 @@ return {
   },
   -- pokeemerald/src/strings.c:224
   textAliases = {
+    gText_4Qmark = "sText_FourQuestionMarks",
+    gText_IsThisTradeOkay = "sText_IsThisTradeOkay",
+    gText_TradeAction_Summary = "sText_Summary",
+    gText_TradeAction_Trade = "sText_Trade",
+    gText_Trade_CommunicationStandby = "gText_CommunicationStandby",
+    gText_TradeHasBeenCanceled = "sText_TheTradeHasBeenCanceled",
+    gText_WaitingForFriendToFinish = "sText_WaitingForYourFriend",
+    gText_FriendWantsToTrade = "sText_YourFriendWantsToTrade",
+    gText_SavingDontTurnOffThePower2 = "gText_SavingDontTurnOffPower",
     gText_ThreeHyphens = "gText_ThreeDashes",
     gText_ItemCantBeHeld = "gText_Var1CantBeHeld",
     gText_NoRoomToStoreItems = "gText_NoRoomForItems",

@@ -1506,7 +1506,8 @@ local function pic(store, kind, species, form, shiny)
   return pic_entry(store, key, read_pic(pic_rel(kind, species, form)))
 end
 
-local SPECIES_SPINDA = 308
+Pokemon.SPECIES_SPINDA = 308
+local SPECIES_SPINDA = Pokemon.SPECIES_SPINDA
 local SPINDA_ROOT = "/pokemon/spinda/"
 
 local function spinda_file(name)

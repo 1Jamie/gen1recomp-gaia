@@ -10,6 +10,127 @@ end
 
 SpecialScene._orb = nil
 SpecialScene._spot = nil
+SpecialScene._porthole = nil
+
+local SSTIDAL = {
+  DEPART_SLATEPORT = 2,
+  HALFWAY_SLATEPORT = 7,
+  EXIT_RIGHT = 9,
+  EXIT_LEFT = 10,
+  MAX_STEPS = 205,
+}
+SpecialScene.SS_TIDAL_MAX_STEPS = SSTIDAL.MAX_STEPS
+
+-- pokeemerald/src/field_special_scene.c:281-295
+function SpecialScene.portholeDestination(state, steps, mapGroups)
+  state, steps = tonumber(state) or 0, math.max(0, tonumber(steps) or 0)
+  local map, x
+  if state == SSTIDAL.DEPART_SLATEPORT then
+    if steps < 60 then map, x = "MAP_ROUTE134", steps + 19
+    elseif steps < 140 then map, x = "MAP_ROUTE133", steps - 60
+    else map, x = "MAP_ROUTE132", steps - 140 end
+  elseif state == SSTIDAL.HALFWAY_SLATEPORT then
+    if steps < 66 then map, x = "MAP_ROUTE132", 65 - steps
+    elseif steps < 146 then map, x = "MAP_ROUTE133", 145 - steps
+    else map, x = "MAP_ROUTE134", 224 - steps end
+  else
+    return nil
+  end
+  local entry = mapGroups and mapGroups[map]
+  if type(entry) ~= "table" then return nil end
+  return { group = tonumber(entry.group), num = tonumber(entry.num), x = x, y = 20, map = map }
+end
+
+local function portholeWarp(map, x, y, done)
+  local Runtime = package.loaded["src.core.game3.runtime"] or require("src.core.game3.runtime")
+  local Warp = require("src.core.game3.warp")
+  Warp.scripted(Runtime._mod, Runtime._game, "warp", map, x, y, nil, done)
+end
+
+local function finishPorthole(scene)
+  if not scene or scene.returning then return end
+  local Player = require("src.core.game3.player")
+  if Player.moving then
+    scene.exitRequested = true
+    return
+  end
+  scene.returning = true
+  local R = Rse()
+  local exitState = scene.direction == "right" and SSTIDAL.EXIT_RIGHT or SSTIDAL.EXIT_LEFT
+  R.setVar("VAR_SS_TIDAL_STATE", exitState, scene.session)
+  R.setFlag("FLAG_DONT_TRANSITION_MUSIC", false, scene.session)
+  R.setFlag("FLAG_HIDE_MAP_NAME_POPUP", false, scene.session)
+  local VirtualObjects = require("src.core.game3.virtual_objects")
+  VirtualObjects.remove(scene.objectId)
+  portholeWarp(scene.returnMap, scene.returnX, scene.returnY, function()
+    Player.setVisible(true)
+    require("src.core.game3.field").holdInput(false)
+    SpecialScene._porthole = nil
+    if scene.onDone then scene.onDone() end
+  end)
+end
+
+-- pokeemerald/src/field_special_scene.c:367 FieldCB_ShowPortholeView
+function SpecialScene.enterPorthole(session, direction, onDone)
+  local Player = require("src.core.game3.player")
+  local Constants = require("src.core.game3.constants").active(session)
+  local gfx = Constants:require("event_objects", "OBJ_EVENT_GFX_SS_TIDAL")
+  local objectId = 0x7FEF
+  local Field = require("src.core.game3.field")
+  Field.holdInput(true)
+  Player.setVisible(false)
+  local VirtualObjects = require("src.core.game3.virtual_objects")
+  VirtualObjects.remove(objectId)
+  VirtualObjects.spawn(objectId, gfx, Player.cellX, Player.cellY, 3,
+    direction == "right" and 2 or 1)
+  SpecialScene._porthole = {
+    session = session, direction = direction, objectId = objectId, graphicsId = gfx,
+    onDone = onDone, tick = 0, returning = false,
+    lastX = Player.cellX, lastY = Player.cellY,
+    returnMap = session.dynamicWarp.map,
+    returnX = session.dynamicWarp.x, returnY = session.dynamicWarp.y,
+  }
+end
+
+function SpecialScene.portholeActive()
+  return SpecialScene._porthole ~= nil
+end
+
+local function stepPorthole(scene)
+  if scene.returning then return end
+  local Player = require("src.core.game3.player")
+  local Objects = require("src.core.game3.virtual_objects")
+  local boat = Objects.get(scene.objectId)
+  if not boat then
+    boat = Objects.spawn(scene.objectId, scene.graphicsId, Player.cellX, Player.cellY, 3,
+      scene.direction == "right" and 2 or 1)
+  else
+    boat.x, boat.y = Player.cellX, Player.cellY
+  end
+  if Player.isVisible() then Player.setVisible(false) end
+
+  if Player.cellX ~= scene.lastX or Player.cellY ~= scene.lastY then
+    scene.lastX, scene.lastY = Player.cellX, Player.cellY
+    if SpecialScene.countSSTidalStep(1) then
+      finishPorthole(scene)
+      return
+    end
+  end
+
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  local game = Runtime and Runtime._game
+  local input = game and game.input
+  if input and input.wasPressed and input:wasPressed("a") then
+    scene.exitRequested = true
+  end
+  if scene.exitRequested and not Player.moving then
+    finishPorthole(scene)
+    return
+  end
+  if not Player.moving then
+    Player.scriptStep(scene.direction)
+  end
+end
 
 -- pokeemerald/src/field_screen_effect.c:819
 function SpecialScene.orbSpans(cx, cy, radius, bounds)
@@ -244,6 +365,7 @@ end
 function SpecialScene.step()
   local o = SpecialScene._orb
   if o then stepOrb(o) end
+  if SpecialScene._porthole then stepPorthole(SpecialScene._porthole) end
 end
 
 function SpecialScene.drawOverlay()
@@ -254,6 +376,7 @@ end
 function SpecialScene.reset()
   SpecialScene._orb = nil
   SpecialScene._spot = nil
+  SpecialScene._porthole = nil
 end
 
 local VAR_RESULT = 0x800D

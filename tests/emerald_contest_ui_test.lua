@@ -211,6 +211,13 @@ for _, case in ipairs({ { seed = 0x1234, sched = { 2, 0, 2, 3, 1 }, cat = 0 }, {
   local turns, heartsOk, heartsChecked = 0, true, 0
   local screen
   local sched = case.sched
+  local Anim = require("src.core.game3.battle.anim")
+  local launchMove, launched = Anim.launchMove, {}
+  Anim.launchMove = function(move, opts)
+    launched[#launched + 1] = { move = move, opts = opts }
+    if opts.onEnd then opts.onEnd() end
+    return true
+  end
   screen = Stage.open({
     contest = c, headless = true, moveName = function(m) return "MOVE" .. m end,
     autoInput = function(s)
@@ -220,6 +227,7 @@ for _, case in ipairs({ { seed = 0x1234, sched = { 2, 0, 2, 3, 1 }, cat = 0 }, {
       return { new = { a = true }, held = { a = true }, rep = {} }
     end,
   })
+  Anim.launchMove = launchMove
   eq(screen.done, true, string.format("seed %04X: the stage finishes all five appeals", case.seed))
   eq(c.contest.appealNumber, 5, "five appeal rounds ran through the UI")
   local same = true
@@ -229,6 +237,12 @@ for _, case in ipairs({ { seed = 0x1234, sched = { 2, 0, 2, 3, 1 }, cat = 0 }, {
   check(same, string.format("seed %04X: UI playback leaves the engine result unchanged (totals %d %d %d %d)", case.seed,
     c.totals[0], c.totals[1], c.totals[2], c.totals[3]))
   check(screen.frames > 2000 and screen.frames < 20000, "stage ran " .. screen.frames .. " frames")
+  check(#launched > 0, "appeal turns launch the shared move-animation VM")
+  local sample = launched[1]
+  eq(sample.opts.ctx.isContest, true, "contest animations enter jumpifcontest context")
+  eq(sample.opts.attackerId .. "/" .. sample.opts.targetId, "2/3", "contest move animation uses battlers 2 and 3")
+  eq(sample.opts.coordinateOverrides[2].x .. "/" .. sample.opts.coordinateOverrides[3].x, "112/48",
+    "contest animation uses opponent-right and player-right coordinates")
 end
 
 print("[test] hearts on BG0 track every contestant's appeal at each turn end (pokeemerald/src/contest.c:3737)")
@@ -292,6 +306,14 @@ do
     monName = "SALAMENCE", trainerName = "NICK" }, saveIdx = 0 })
   eq(hall.frameKey, "lobby", "hall painting uses the lobby frame")
   eq(hall.mon.effect, Fx.EFFECT.GRAYSCALE_LIGHT, "tough hall painting is light grayscale")
+  if IDROOT then
+    local spinda = C:require("species", "SPECIES_SPINDA")
+    local a = Painting.monPixels({ species = spinda, personality = 0x12345678, trainerId = 0x00010001 })
+    local b = Painting.monPixels({ species = spinda, personality = 0xFEDCBA98, trainerId = 0x00010001 })
+    local changed = 0
+    for i = 0, 64 * 64 - 1 do if a[i] ~= b[i] then changed = changed + 1 end end
+    check(changed > 0, "contest painting applies each Spinda personality's spot pattern (" .. changed .. " pixels)")
+  end
   if textTable then
     check(type(hall.caption) == "string" and hall.caption:find("NICK", 1, true) ~= nil, "hall caption names the trainer")
   end

@@ -1059,10 +1059,61 @@ end
 function UI:moveAnimStep(t, ev)
   local c = self.c
   local contestant = t.contestant
-  local frames = 0
+  local started, ended = false, false
+  local mon = c.mons[contestant] or {}
+  local Pokemon = require("src.core.game3.pokemon")
+  local picSpecies = Pokemon.picSpecies(tonumber(mon.species) or 0, tonumber(mon.personality) or 0)
+  local PicCoords = require("src.core.game3.battle.pic_coords")
+  local backY = 0
+  local okY, coords = pcall(PicCoords.active)
+  if okY and coords and coords.back then backY = tonumber(coords.back[picSpecies]) or 0 end
+  local sprite = self:sprite(t.monSpriteId)
+  local originalX2, originalY2 = sprite and sprite.x2 or 0, sprite and sprite.y2 or 0
+  local Anim = require("src.core.game3.battle.anim")
+  local overrides = {
+    [2] = { 112, 80 + backY, x = 112, y = 80 + backY },
+    [3] = { 48, 40, x = 48, y = 40 },
+  }
+  local target = c.mons[ev.target] or {}
   return function()
-    frames = frames + 1
-    if frames < 40 then return false end
+    if not started then
+      started = true
+      local attackerPresent = Anim.present(2)
+      attackerPresent.visible = true
+      attackerPresent.ox, attackerPresent.oy = 0, 0
+      -- pokeemerald/src/contest.c:1834-1838 configures battlers 2/3 at contest-specific coordinates.
+      Anim.launchMove(ev.move, {
+        attackerId = 2,
+        targetId = 3,
+        attackerSide = "player",
+        targetSide = "enemy",
+        attackerSpecies = mon.species,
+        targetSpecies = target.species,
+        turn = c.contest.moveAnimTurnCount,
+        ctx = { isContest = true, contestant = contestant, target = ev.target },
+        coordinateOverrides = overrides,
+        headless = self.headless,
+        onEnd = function()
+          ended = true
+          attackerPresent.ox, attackerPresent.oy = 0, 0
+          attackerPresent.visible = false
+          local current = self:sprite(t.monSpriteId)
+          if current then current.x2, current.y2 = originalX2, originalY2 end
+        end,
+      })
+    end
+    local present = Anim.present(2)
+    local current = self:sprite(t.monSpriteId)
+    if current and not ended then
+      current.x2 = originalX2 + (present and present.ox or 0)
+      current.y2 = originalY2 + (present and present.oy or 0)
+    end
+    if not ended and Anim.busy() then return false end
+    if not ended then
+      ended = true
+      if present then present.ox, present.oy, present.visible = 0, 0, false end
+      if current then current.x2, current.y2 = originalX2, originalY2 end
+    end
     if c.status[contestant].hasJudgesAttention == 0 then self:stopFlashJudgeAttentionEye(contestant) end
     self:drawUnnervedSymbols()
     return true
@@ -2120,6 +2171,8 @@ end
 function UI:draw()
   if self.headless then return end
   self.m.ppu:draw(0, 0)
+  -- pokeemerald/src/contest.c:1834 draws the move's sprites during the contest appeal scene.
+  require("src.core.game3.battle.anim").drawParticles()
   self:drawWindows()
 end
 
@@ -2130,11 +2183,13 @@ function UI.open(opts)
   local Stack = require("src.ui.game3.stack")
   local SceneKit = require("src.ui.game3.rse.scene_kit")
   local screen = UI.new(opts)
+  require("src.core.game3.battle.anim").reset({ headless = screen.headless, double = true })
   Host._screen = screen
   Host._step = SceneKit.stepper()
   local userDone = opts and opts.onDone
   screen.onDone = function()
     Host._screen = nil
+    require("src.core.game3.battle.anim").reset({ headless = false })
     Stack.pop(UI.ID)
     if userDone then userDone(screen) end
   end
@@ -2153,6 +2208,7 @@ end
 function UI.active() return Host._screen end
 
 function UI.reset()
+  require("src.core.game3.battle.anim").reset({ headless = false })
   if Host._screen then
     Host._screen = nil
     require("src.ui.game3.stack").pop(UI.ID)
@@ -2166,6 +2222,7 @@ end
 function Host.update(dt)
   local screen = Host._screen
   if not screen then return end
+  require("src.core.game3.battle.anim").update(dt)
   Host._step:run(dt, function(inp)
     if screen.done then return true end
     screen:frame(inp)

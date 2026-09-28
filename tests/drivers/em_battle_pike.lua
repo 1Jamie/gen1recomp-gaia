@@ -30,6 +30,7 @@ return function(game)
   local Field = require("src.core.game3.field")
   local PartyMenu = require("src.ui.game3.party_menu")
   local SaveMenu = require("src.ui.game3.save_menu")
+  local StartMenu = require("src.ui.game3.start_menu")
   local Stack = require("src.ui.game3.stack")
   local Message = require("src.ui.game3.message")
   local Util = require("src.core.game3.rse.frontier.util")
@@ -42,6 +43,16 @@ return function(game)
   session = Runtime.getSession()
   if not check(session and session.version == "emerald" and S.flag("FLAG_SYS_GAME_CLEAR"),
       "post-game Emerald session") then return finish() end
+  local Prize = require("src.core.game3.battle.prize")
+  local realPickup = Prize.pickup
+  local pikePickupChecks = 0
+  Prize.pickup = function(party, random, rules)
+    if Pike.inBattlePike(session) then
+      pikePickupChecks = pikePickupChecks + 1
+      check(rules and rules.noPickup == true, "Battle Pike suppresses Pickup at battle end")
+    end
+    return realPickup(party, random, rules)
+  end
   Natives.ensureBound(session)
   check(Natives.handlerFor("CallBattlePikeFunction") ~= nil and Natives.handlerFor("CloseBattlePikeCurtain") ~= nil,
     "CallBattlePikeFunction / CloseBattlePikeCurtain bound on Emerald")
@@ -167,6 +178,13 @@ return function(game)
   check(#session.party == 3, "the challenge runs with the three chosen mons")
   check(tonumber(f.curChallengeBattleNum) == 1, "the corridor starts at room 1 (" .. tostring(f.curChallengeBattleNum) .. ")")
   shot("03_three_path_room")
+  U.tap(game, "start")
+  U.wait(20)
+  local hasBag = false
+  for _, e in ipairs(StartMenu.ENTRIES or {}) do if e.id == "bag" then hasBag = true end end
+  check(StartMenu.isOpen() and not hasBag, "Battle Pike start menu omits the field BAG")
+  U.tap(game, "b")
+  U.wait(12)
 
   local R = Pike.ROOM
   local plan = { R.SINGLE_BATTLE, R.STATUS, R.WILD_MONS, R.HEAL_FULL, R.DOUBLE_BATTLE, R.HARD_BATTLE }
@@ -277,6 +295,41 @@ return function(game)
   end
   check(restored, "LoadPlayerParty + pike_resethelditems restore the party and items (battle_pike.c:1602)")
   check(Util.get1(f.pikeRecordStreaks, 0) >= 1, "record streak saved (" .. Util.get1(f.pikeRecordStreaks, 0) .. ")")
+  check(pikePickupChecks > 0, "Pike battles reached the Pickup award gate")
+
+  local pikeAttendant = S.objectByScript("BattleFrontier_BattlePikeLobby_EventScript_Attendant")
+  if check(pikeAttendant ~= nil, "Pike attendant remains available for the poison-retire case") then
+    S.talkTo(game, pikeAttendant)
+    S.settle(game, {
+      limit = 200000,
+      until_ = function() return S.mapNow() == "EM_BATTLE_FRONTIER_BATTLE_PIKE_THREE_PATH_ROOM" and not S.busy() end,
+      choice = choiceFor({}),
+      onIdleUi = idleUi,
+    })
+    if check(S.mapNow() == "EM_BATTLE_FRONTIER_BATTLE_PIKE_THREE_PATH_ROOM", "second Pike challenge starts") then
+      for _, mon in ipairs(session.party) do
+        mon.hp, mon.status, mon.statusNum = 1, "PSN", 8
+      end
+      local Sem = require("src.core.game3.field_semantics")
+      local poisonVar = Sem.var(session, "poisonSteps")
+      session.poisonSteps = 0
+      session.vars[poisonVar] = 0
+      local StepEvents = require("src.core.game3.step_events")
+      for _ = 1, 4 do StepEvents.onStepTaken(session, game) end
+      S.settle(game, {
+        limit = 200000,
+        until_ = function()
+          return S.mapNow() == "EM_BATTLE_FRONTIER_BATTLE_PIKE_LOBBY"
+            and tonumber(f.challengeStatus) == Util.CHALLENGE_STATUS.LOST and not S.busy()
+        end,
+        choice = choiceFor({}),
+      })
+      check(S.mapNow() == "EM_BATTLE_FRONTIER_BATTLE_PIKE_LOBBY"
+        and tonumber(f.challengeStatus) == Util.CHALLENGE_STATUS.LOST,
+        "field poison uses Emerald's Pike loss script and retires the challenge")
+    end
+  end
+  Prize.pickup = realPickup
   shot("09_back_in_lobby")
   return finish()
 end

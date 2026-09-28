@@ -1733,7 +1733,8 @@ local function dispatch(vm, row)
         end
       end
 
-      local hasIntro = introText and introText ~= "" and a.openMessageAsync
+      local hasIntro = introText and introText ~= "" and a.openMessageAsync and not ctx.trainerIntroShown
+      ctx.trainerIntroShown = nil
       -- pokefirered/src/battle_setup.c:1007
       if (hasIntro or battleType == 3 or battleType == 9) and battleType ~= 1 and battleType ~= 8 then
         local song = Trainers.getEncounterMusic and Trainers.getEncounterMusic(opponentA)
