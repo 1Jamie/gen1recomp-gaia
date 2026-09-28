@@ -372,6 +372,54 @@ function Records.showRankingHall(sess, hallId, lvlMode)
 end
 
 -- pokeemerald/src/battle_records.c:340
+-- pokeemerald/src/battle_records.c:76
+local LINK_BATTLE_TPL = { 2, 1, 26, 17 }
+
+-- pokeemerald/src/battle_records.c:315
+function Records.buildLinkBattle(sess)
+  local win = newWindow(LINK_BATTLE_TPL)
+  local title = text("gText_PlayersBattleResults")
+  put(win, title, math.floor((208 - width(title)) / 2), 1)
+  -- pokeemerald/src/battle_records.c:272
+  local gs = type(sess) == "table" and type(sess.gameStats) == "table" and sess.gameStats or {}
+  local function stat(id) return string.format("%d", math.max(0, math.min(9999, math.floor(tonumber(gs[id]) or 0)))) end
+  local total = text("gText_TotalRecordWLD", { stat(23), stat(24), stat(25) })
+  put(win, total, math.floor((0xD0 - width(total)) / 2), 0x11)
+  -- pokeemerald/src/battle_records.c:328
+  local x = 0
+  for _, seg in ipairs(RomText.ir("gText_WinLoseDraw")) do
+    if seg.t == "text" then
+      put(win, require("src.core.Strings")(seg.s), x, 41)
+    elseif seg.t == "ext" and seg.cmd == 0x13 then
+      x = seg.args[1]
+    end
+  end
+  local stored = type(sess) == "table" and type(sess.linkBattleRecords) == "table" and sess.linkBattleRecords or {}
+  for i = 1, 5 do
+    local e = type(stored[i]) == "table" and stored[i] or {}
+    local w, l, d = tonumber(e.wins) or 0, tonumber(e.losses) or 0, tonumber(e.draws) or 0
+    local y = (7 + (i - 1) * 2) * 8 + 1
+    -- pokeemerald/src/battle_records.c:286
+    if w == 0 and l == 0 and d == 0 then
+      local dashes = text("sText_DashesNoScore")
+      put(win, text("sText_DashesNoPlayer"), 8, y)
+      put(win, dashes, 80, y)
+      put(win, dashes, 128, y)
+      put(win, dashes, 176, y)
+    else
+      put(win, tostring(e.name or ""), 8, y)
+      put(win, num4(w), 80, y)
+      put(win, num4(l), 128, y)
+      put(win, num4(d), 176, y)
+    end
+  end
+  return win
+end
+
+function Records.showLinkBattle(sess)
+  return Records.showWindow(Records.buildLinkBattle(sess))
+end
+
 function Records.remove()
   Records._window = nil
   pop(Records.STACK_ID)

@@ -1128,8 +1128,8 @@ local function dispatch(vm, row)
     if a.addObject then a.addObject(lid) end
     return false
   elseif op == "opendoor" or op == "closedoor" then
-    -- Cosmetic on host; waitdooranim yields briefly.
-    if a.doorAnim then a.doorAnim(op, row[1], row[2]) end
+    -- pokeemerald/src/scrcmd.c:2053
+    if a.doorAnim then a.doorAnim(op, var_get(store, ctx, row[1]), var_get(store, ctx, row[2])) end
     return false
   elseif op == "setdooropen" or op == "setdoorclosed" then
     -- pret ScrCmd_setdooropen/setdoorclosed record a door's state (used to

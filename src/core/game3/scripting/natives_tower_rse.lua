@@ -80,12 +80,9 @@ NativesTowerRse.BY_NAME = {
   -- pokeemerald/src/field_specials.c:1550
   TryInitBattleTowerAwardManObjectEvent = function() return false end,
   -- pokeemerald/src/battle_records.c:315
-  ShowLinkBattleRecords = function(ctx, adapters)
-    local session = Rse.session()
-    local Screen = require("src.ui.game3.trainer_tower_records")
-    return require("src.core.game3.scripting.natives").yieldHost(ctx, adapters, function(done)
-      Screen.show({ session = session, kind = "link", onDone = done })
-    end)
+  ShowLinkBattleRecords = function()
+    require("src.ui.game3.rse.frontier_records").showLinkBattle(Rse.session())
+    return false
   end,
   -- pokeemerald/src/battle_tower.c:901
   CallBattleTowerFunc = function(ctx, adapters) return NativesTowerRse.call(ctx, adapters) end,

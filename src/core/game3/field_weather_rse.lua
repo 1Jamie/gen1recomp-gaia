@@ -258,8 +258,7 @@ end
 
 local function loadAssets()
   if not gfxAvailable() then return nil end
-  local Dataset = require("src.core.game3.dataset")
-  local key = tostring(Dataset.cache and Dataset.cache())
+  local key = tostring(require("src.import.CacheFs").prefix)
   if assets and assetsKey == key then return assets end
   local m = R.manifest()
   if not m then return nil end
