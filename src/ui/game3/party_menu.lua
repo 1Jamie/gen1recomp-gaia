@@ -2429,6 +2429,16 @@ local function slot_description(slot, mon)
   local item = PartyMenu._item
   if not item or PartyMenu._battle then return nil end
   if PartyMenu.mode ~= "use" and PartyMenu.mode ~= "message" then return nil end
+  -- pokefirered/src/party_menu.c:856 TM/HM -> DisplayPartyPokemonDataToTeachMove
+  if ItemsData.isTm(item) then
+    -- pokefirered/src/party_menu.c:4760 CanMonLearnTMTutor
+    if Pokemon.isEgg(mon) then return desc_text("NOT_ABLE_2") end
+    local moveId = Pokemon.moveFromTmItem(item)
+    local species = tonumber(mon.species or mon.speciesId)
+    if not moveId or not Pokemon.canLearnTmItem(species, item) then return desc_text("NOT_ABLE_2") end
+    if Pokemon.knowsMove(mon, moveId) then return desc_text("LEARNED") end
+    return desc_text("ABLE_2")
+  end
   if not is_evolution_stone(item) then return nil end
   local Evolution = require("src.core.game3.evolution")
   if Evolution.itemCheck(mon, item) then return nil end
