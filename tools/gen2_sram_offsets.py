@@ -33,6 +33,7 @@ FIELDS = [
     "wXCoord", "wYCoord", "wEventFlags", "wPlayerState",
     "wStatusFlags", "wStatusFlags2", "wPokegearFlags", "wVisitedSpawns",
     "wVariableSprites", "wGameTimeHours", "wGameTimeMinutes",
+    "wGameTimeSeconds", "wGameTimeFrames",
     # engine/menus/intro_menu.asm:28 _ResetWRAM, engine/overworld/player_object.asm:19
     "wRedsName", "wGreensName", "wSavedAtLeastOnce", "wSpawnAfterChampion",
     "wCenteredObject", "wPlayerStruct", "wMapObjects", "wNumPCItems",
