@@ -461,6 +461,14 @@ function Gen2Save.decode(bytes, gameVersion, data)
     party = party,
     boxes = boxes,
     currentBox = u8(bytes, L.wCurBox) % 16 + 1,
+    boxNames = (function()
+      if not L.wBoxNames then return nil end
+      local names = {}
+      for i = 1, 14 do
+        names[i] = text(bytes, L.wBoxNames + (i - 1) * 9, 9)
+      end
+      return names
+    end)(),
     inventory = inventory,
     -- Species ids, 1-based, so the set keys match save.pokedex.caught[species].
     pokedex = {
@@ -481,7 +489,8 @@ function Gen2Save.decode(bytes, gameVersion, data)
     playTime = {
       hours = be(bytes, L.wGameTimeHours, 2),
       minutes = u8(bytes, L.wGameTimeMinutes),
-      seconds = 0, frames = 0,
+      seconds = L.wGameTimeSeconds and u8(bytes, L.wGameTimeSeconds) or 0,
+      frames = L.wGameTimeFrames and u8(bytes, L.wGameTimeFrames) or 0,
     },
   }
 end
@@ -567,7 +576,9 @@ local function putText(t, at, str, n)
     end
     written = written + 1
   end
-  t[at + written] = 0x50
+  for k = written, n - 1 do
+    t[at + k] = 0x50
+  end
 end
 
 local function putBadges(t, at, owned, order)
@@ -603,13 +614,29 @@ local function putSharedMon(t, o, mon, x)
       putU8(t, o + 0x17 + i, (mon.ppRaw or {})[i + 1] or (mon.pp or {})[i + 1] or 0)
     end
   end
-  putU8(t, o + 0x1B, mon.happiness or 0)
+  putU8(t, o + 0x1B, mon.happiness or mon.friendship or 70)
   -- 0x1C-0x1E belong to the mon, not to the slot: leaving them to the template
   -- means reordering the party gives slot 1 the previous occupant's pokerus
   -- and caught data.
   putU8(t, o + 0x1C, mon.pokerus or 0)
   putBE(t, o + 0x1D, mon.caughtData or 0, 2)
   putU8(t, o + 0x1F, mon.level or 0)
+end
+
+local function putBoxStruct(t, base, box, x)
+  box = box or {}
+  local count = math.min(#box, Gen2Save.BOX_CAPACITY)
+  putU8(t, base, count)
+  for i = 1, count do
+    local mon = box[i]
+    putU8(t, base + BOX_SPECIES + i - 1, indexOf(x.pokemonIndex, mon.species))
+    putSharedMon(t, base + BOX_MONS + (i - 1) * Gen2Save.BOX_MON_STRUCT, mon, x)
+    putText(t, base + BOX_OTS + (i - 1) * Gen2Save.NAME_LENGTH,
+            mon.ot or "", Gen2Save.NAME_LENGTH)
+    putText(t, base + BOX_NICKS + (i - 1) * Gen2Save.NAME_LENGTH,
+            mon.nickname or "", Gen2Save.NAME_LENGTH)
+  end
+  putU8(t, base + BOX_SPECIES + count, 0xFF)
 end
 
 -- The bag back into its four pockets, by each item's own `pocket`.
@@ -768,6 +795,18 @@ function Gen2Save.blankImage(gameVersion, save, data)
     end
   end
 
+  -- Initialize active box in Bank 1 and archived boxes in Banks 2 & 3
+  if L.sBox then
+    putU8(t, L.sBox, 0)
+    putU8(t, L.sBox + BOX_SPECIES, 0xFF)
+  end
+  if L.boxes then
+    for _, base in ipairs(L.boxes) do
+      putU8(t, base, 0)
+      putU8(t, base + BOX_SPECIES, 0xFF)
+    end
+  end
+
   for i = 1, #PLAYER_MAP_OBJECT do
     t[O.mapObjects + i - 1] = PLAYER_MAP_OBJECT[i]
   end
@@ -785,6 +824,28 @@ function Gen2Save.blankImage(gameVersion, save, data)
 
   putU8(t, L.wMapGroup, group)
   putU8(t, L.wMapNumber, number)
+
+  -- Crystal backup initialization
+  if L.backup then
+    if L.backup.sOptions then
+      for i = 1, #DEFAULT_OPTIONS do t[L.backup.sOptions + i - 1] = DEFAULT_OPTIONS[i] end
+    end
+    if L.backup.wSavedAtLeastOnce then putU8(t, L.backup.wSavedAtLeastOnce, 1) end
+    if L.backup.wRedsName then putText(t, L.backup.wRedsName, "RED", Gen2Save.NAME_LENGTH) end
+    if L.backup.wGreensName then putText(t, L.backup.wGreensName, "GREEN", Gen2Save.NAME_LENGTH) end
+    if L.backup.wMomItemTriggerBalance then putBE(t, L.backup.wMomItemTriggerBalance, 2300, 3) end
+    if L.backup.wNumPCItems then
+      putU8(t, L.backup.wNumPCItems, 0)
+      putU8(t, L.backup.wNumPCItems + 1, 0xFF)
+    end
+    if L.backup.wBoxNames then
+      for i = 1, 14 do
+        putText(t, L.backup.wBoxNames + (i - 1) * 9, "BOX" .. i, 9)
+      end
+    end
+    if L.backup.sCheckValue1 then putU8(t, L.backup.sCheckValue1, 0x63) end
+    if L.backup.sCheckValue2 then putU8(t, L.backup.sCheckValue2, 0x7F) end
+  end
 
   local out = {}
   for i = 0, Gen2Save.SAVE_SIZE - 1 do out[i + 1] = string.char(t[i]) end
@@ -860,16 +921,38 @@ function Gen2Save.encode(save, gameVersion, template, data)
     if #box > Gen2Save.BOX_CAPACITY then
       return nil, ("box %d holds %d, which a cartridge cannot"):format(index, #box)
     end
-    putU8(t, base, #box)
-    for i, mon in ipairs(box) do
-      putU8(t, base + BOX_SPECIES + i - 1, indexOf(x.pokemonIndex, mon.species))
-      putSharedMon(t, base + BOX_MONS + (i - 1) * Gen2Save.BOX_MON_STRUCT, mon, x)
-      putText(t, base + BOX_OTS + (i - 1) * Gen2Save.NAME_LENGTH,
-              mon.ot or "", Gen2Save.NAME_LENGTH)
-      putText(t, base + BOX_NICKS + (i - 1) * Gen2Save.NAME_LENGTH,
-              mon.nickname or "", Gen2Save.NAME_LENGTH)
+    putBoxStruct(t, base, box, x)
+  end
+
+  -- Write active box in Bank 1
+  local curBoxIdx = math.max(1, math.min(save.currentBox or 1, 14))
+  local activeBox = (save.boxes or {})[curBoxIdx] or {}
+  if L.sBox then
+    putBoxStruct(t, L.sBox, activeBox, x)
+  end
+
+  -- Bank 0 Party Mail
+  local MAIL_STRUCT_LEN = 47
+  for i = 1, Gen2Save.PARTY_LENGTH do
+    local mon = party[i]
+    local slotBase = (L.sPartyMail or 0) + (i - 1) * MAIL_STRUCT_LEN
+    if mon and (mon.item and (mon.item:find("_MAIL$") or mon.item == "LITEBLUEMAIL" or mon.item == "PORTRAITMAIL")) then
+      local entry = (save.mail and save.mail.party and save.mail.party[i]) or {}
+      local msg = entry.message or ""
+      local author = entry.author or mon.ot or p.name or ""
+      local authorId = entry.authorId or mon.otId or p.id or 0
+      local speciesId = indexOf(x.pokemonIndex, mon.species)
+      local itemId = indexOf(x.itemIndex, mon.item)
+      putText(t, slotBase, msg, 32)
+      putText(t, slotBase + 32, author, 11)
+      putBE(t, slotBase + 43, authorId, 2)
+      putU8(t, slotBase + 45, speciesId)
+      putU8(t, slotBase + 46, itemId)
+    else
+      for k = 0, MAIL_STRUCT_LEN - 1 do
+        t[slotBase + k] = 0
+      end
     end
-    putU8(t, base + BOX_SPECIES + #box, 0xFF)
   end
 
   -- Refuse rather than drop. Without item defs every item buckets into ITEM,
@@ -953,6 +1036,8 @@ function Gen2Save.encode(save, gameVersion, template, data)
   if pt then
     putBE(t, L.wGameTimeHours, pt.hours or 0, 2)
     putU8(t, L.wGameTimeMinutes, pt.minutes or 0)
+    if L.wGameTimeSeconds then putU8(t, L.wGameTimeSeconds, pt.seconds or 0) end
+    if L.wGameTimeFrames then putU8(t, L.wGameTimeFrames, pt.frames or 0) end
   end
 
   putU8(t, L.sCheckValue1, 0x63)
@@ -961,6 +1046,29 @@ function Gen2Save.encode(save, gameVersion, template, data)
   for i = L.sGameData, L.sGameDataEnd - 1 do sum = (sum + t[i]) % 65536 end
   putU8(t, L.sChecksum, sum % 256)
   putU8(t, L.sChecksum + 1, math.floor(sum / 256) % 256)
+
+  -- Crystal Backup mirroring & checksum in Bank 0
+  if L.backup and L.backup.sGameData and L.backup.sGameDataEnd then
+    local delta = L.backup.sGameData - L.sGameData
+    for i = L.sGameData, L.sGameDataEnd - 1 do
+      t[i + delta] = t[i]
+    end
+    if L.backup.sOptions and L.sOptions then
+      for i = 1, #DEFAULT_OPTIONS do
+        t[L.backup.sOptions + i - 1] = t[L.sOptions + i - 1]
+      end
+    end
+    if L.backup.sCheckValue1 then putU8(t, L.backup.sCheckValue1, 0x63) end
+    if L.backup.sCheckValue2 then putU8(t, L.backup.sCheckValue2, 0x7F) end
+    local bsum = 0
+    for i = L.backup.sGameData, L.backup.sGameDataEnd - 1 do
+      bsum = (bsum + t[i]) % 65536
+    end
+    if L.backup.sChecksum then
+      putU8(t, L.backup.sChecksum, bsum % 256)
+      putU8(t, L.backup.sChecksum + 1, math.floor(bsum / 256) % 256)
+    end
+  end
 
   local out = {}
   for i = 0, Gen2Save.SAVE_SIZE - 1 do out[i + 1] = string.char(t[i]) end
