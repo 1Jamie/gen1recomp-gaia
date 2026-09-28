@@ -41,7 +41,7 @@ return function(game)
   local function setFlags(postPick)
     local flags = game.save.flags or {}
     game.save.flags = flags
-    flags.EVENT_FOLLOWED_OAK_INTO_LAB = true
+    flags.EVENT_FOLLOWED_OAK_INTO_LAB = postPick
     if postPick then
       flags.EVENT_GOT_STARTER = true
       flags.EVENT_CHOSE_SQUIRTLE = true
@@ -75,7 +75,7 @@ return function(game)
   U.shot(game, DIR .. "/a_last_ball.png")
   local aText = lastText or "<none>"
   local aPass = aBoxOpened
-    and aText:find("last Pokémon!", 1, true) ~= nil
+    and aText:find("last POKéMON!", 1, true) ~= nil
     and aText:find("Those are", 1, true) == nil
   U.log("SCENARIO A box:", aText)
   U.log("SCENARIO A", aPass and "PASS" or "FAIL")
@@ -105,7 +105,7 @@ return function(game)
   U.log("RESULT bug601", (aPass and bPass) and "PASS" or "FAIL")
   assert(aPass,
     "Leftover ball after the pick must say 'That's PROF.OAK's last "
-    .. "Pokémon!' (no 'Those are POKé BALLs'); got: " .. aText)
+    .. "POKéMON!' (no 'Those are POKé BALLs'); got: " .. aText)
   assert(bPass,
     "Pre-escort balls must keep the 'Those are POKé BALLs' line; got: "
     .. bText)

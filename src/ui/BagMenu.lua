@@ -216,13 +216,11 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
   if result == "fish" then
     local ow = game.overworld
     local p = ow and ow.player
-    if ow and p and ow:facingIsShoreOrWater() then
+    if ow and p then
       closeBag()
       ow:goFishing(id)
       return
     end
-    -- FishingInit's `ret c` -> ItemUseNotTime -> ItemUseFailed, so a rod
-    -- away from water leaves the bag up (item_effects.asm:1893-1901)
     showMessages(game, { Strings("No good! It's not\neven near water.") })
     return
   end

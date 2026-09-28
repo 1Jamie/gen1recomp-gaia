@@ -9,6 +9,7 @@ local OwSprites = {}
 OwSprites._cache = nil
 OwSprites._manifest = nil
 OwSprites._loaded = {} -- [graphicsId] = { image, quads, w, h, frameCount, inanimate }
+OwSprites._reflectionLoaded = {}
 OwSprites._logged = false
 
 -- pret ANIM_STD: stand S/N/W; walk uses frames 3-8; east = west + hflip
@@ -36,6 +37,7 @@ end
 function OwSprites.install(cache)
   OwSprites._cache = cache
   OwSprites._loaded = {}
+  OwSprites._reflectionLoaded = {}
   OwSprites._manifest = nil
   OwSprites._logged = false
   if not cache then return end
@@ -48,6 +50,7 @@ end
 
 function OwSprites.invalidate()
   OwSprites._loaded = {}
+  OwSprites._reflectionLoaded = {}
   OwSprites._manifest = nil
   OwSprites._logged = false
 end
@@ -115,6 +118,12 @@ local function load_one(gid)
     height = h,
     frameCount = n,
     inanimate = meta.inanimate,
+    paletteTag = meta.paletteTag,
+    reflectionPaletteTag = meta.reflectionPaletteTag,
+    reflectionPaletteMappedTag = meta.reflectionPaletteMappedTag,
+    palette = meta.palette,
+    reflectionPalette = meta.reflectionPalette,
+    mappedReflectionPalette = meta.mappedReflectionPalette,
   }
 end
 
@@ -421,6 +430,46 @@ function OwSprites.getDraw(graphicsId)
   return OwSprites.get(graphicsId)
 end
 
+local function paletteRgb(colors)
+  if type(colors) ~= "table" then return nil end
+  local out = {}
+  for i = 1, 15 do
+    local c = colors[i]
+    if c == nil then return nil end
+    c = tonumber(c) or 0
+    local r = c % 32
+    local g = math.floor(c / 32) % 32
+    local b = math.floor(c / 1024) % 32
+    out[#out + 1] = {
+      math.floor(r * 255 / 31 + 0.5),
+      math.floor(g * 255 / 31 + 0.5),
+      math.floor(b * 255 / 31 + 0.5),
+    }
+  end
+  return out
+end
+
+function OwSprites.getReflectionDraw(graphicsId)
+  graphicsId = tonumber(graphicsId)
+  if graphicsId == nil then return nil end
+  local cached = OwSprites._reflectionLoaded[graphicsId]
+  if cached ~= nil then return cached or nil end
+  local base = OwSprites.get(graphicsId)
+  if not base or not base.reflectionPaletteMappedTag then
+    OwSprites._reflectionLoaded[graphicsId] = false
+    return nil
+  end
+  local from = paletteRgb(base.palette)
+  local to = paletteRgb(base.mappedReflectionPalette)
+  if not (from and to) then
+    OwSprites._reflectionLoaded[graphicsId] = false
+    return nil
+  end
+  local reflected = recolour_sprite(base, from, to)
+  OwSprites._reflectionLoaded[graphicsId] = reflected or false
+  return reflected
+end
+
 --- Draw at world pixel position (cell top-left). Feet at bottom of sprite.
 -- opts.bow: use nurse bow frame (ANIM_NURSE_BOW).
 -- opts.fieldMove: use the arm-raise field move frame (opts.fieldMoveFrame).
@@ -476,8 +525,8 @@ function OwSprites.avatarGraphicsId(state, isFemale, avatars, who)
   return normal
 end
 
-function OwSprites.playerGraphicsId(game)
-  local P = package.loaded["src.core.game3.player"]
+function OwSprites.playerGraphicsId(game, player)
+  local P = player or package.loaded["src.core.game3.player"]
   local save = game and game.save
   local session = game and game.session
   local gender = (session and session.gender)

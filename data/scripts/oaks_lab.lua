@@ -61,7 +61,7 @@ local function starterBall(askText, species, choseFlag, ownBall,
     -- leftover ball: Oak reads the last-mon line (scripts/OaksLab.asm
     -- OaksLabSelectedPokeBallScript -> OaksLabLastMonScript, #601)
     { "face_object", 5, "down" },                 -- 23
-    { "show_text", "That's PROF.OAK's\nlast Pokémon!" }, -- 24
+    { "show_text", "_OaksLabLastMonText" },           -- 24
     -- OaksLabLastMonScript ends at TextScriptEnd; the port used to fall
     -- through into the pre-pick line below (#601 remnant, reported on #600)
     { "jump", "end" },                            -- 25

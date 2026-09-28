@@ -36,11 +36,132 @@ local FRAG_TRAVEL_X = 260
 local FRAG_TRAVEL_Y = 200
 
 local CELL = 16
+local GameVersion = require("src.core.GameVersion")
 local FEET_H = 8
 local RUSTLE = { 1, 2, 3, 4, 0 }
 local FRAME_DUR = 10
 -- pokefirered/src/data/field_effects/field_effect_objects.h:1099
 local FLY_BIRD_W, FLY_BIRD_H, FLY_BIRD_FRAMES = 64, 64, 5
+
+local frlgReflective = nil
+local frlgReflectionQuad = nil
+local frlgModules = nil
+local objectPoseOpts = {}
+local playerPoseOpts = {}
+local function isFrlgReflective(behavior)
+  if not frlgReflective then
+    local MB = require("src.core.game3.mb")
+    frlgReflective = {}
+    for _, name in ipairs({ "POND_WATER", "PUDDLE", "UNUSED_WATER", "CYCLING_ROAD_WATER", "ICE" }) do
+      local id = MB.id(name)
+      if id ~= nil then frlgReflective[id] = true end
+    end
+  end
+  return frlgReflective[behavior] == true
+end
+FieldEffects.isFrlgReflective = isFrlgReflective
+
+local function frlgReflectionType(cx, cy, pcx, pcy, w, h, behaviorAt)
+  local width = math.floor(((w or 16) + 8) / 16)
+  local height = math.floor(((h or 32) + 8) / 16)
+  for row = 0, height - 1 do
+    local y = cy + 1 + row
+    local prevY = pcy + 1 + row
+    for dx = 1 - width, width - 1 do
+      if isFrlgReflective(behaviorAt(cx + dx, y))
+          or isFrlgReflective(behaviorAt(pcx + dx, prevY)) then return true end
+    end
+  end
+  return false
+end
+FieldEffects.frlgReflectionType = frlgReflectionType
+
+local drawFrlgReflection
+local function getFrlgModules()
+  if frlgModules then return frlgModules end
+  local Collision = package.loaded["src.core.game3.collision"]
+  local Ow = package.loaded["src.core.game3.ow_sprites"]
+  local Objects = package.loaded["src.core.game3.objects"]
+  local Player = package.loaded["src.core.game3.player"]
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  if not (Collision and Collision.behavior and Ow and Ow.getDraw and Ow.pose
+      and Objects and Player and Runtime) then return nil end
+  frlgModules = {
+    Collision = Collision, Ow = Ow, Objects = Objects,
+    Player = Player, Runtime = Runtime,
+  }
+  return frlgModules
+end
+
+local function drawFrlgReflections(camX, camY)
+  if GameVersion.layout(GameVersion.get()) ~= "frlg" then return end
+  local modules = getFrlgModules()
+  if not modules then return end
+  local Collision, Ow = modules.Collision, modules.Ow
+  local Objects, P, Runtime = modules.Objects, modules.Player, modules.Runtime
+  local drawn = 0
+  if Objects.forDraw then
+    for _, obj in ipairs(Objects.forDraw()) do
+      if not obj.hideReflection and obj.graphicsId then
+        local spr = Ow.getDraw(obj.graphicsId)
+        if spr then
+          objectPoseOpts.frame = obj.customFrame
+          local frame, flip = Ow.pose(spr, obj.facing, Objects.walkPhase(obj), obj.stepFlip,
+            objectPoseOpts)
+          if drawFrlgReflection(obj, obj.graphicsId, frame, flip, camX, camY,
+              Collision.behavior, Ow) then drawn = drawn + 1 end
+        end
+      end
+    end
+  end
+  if P and P.isVisible and P.isVisible() and not P.hideReflection then
+    local gid = Ow.playerGraphicsId(Runtime._game, P)
+    local spr = gid and Ow.getDraw(gid)
+    if spr then
+      playerPoseOpts.running = P.runPose and P.runPose() or nil
+      local frame, flip = Ow.pose(spr, P.facing, P.walkPhase and P.walkPhase() or 0,
+        P.drawFlip and P.drawFlip() or false, playerPoseOpts)
+      if drawFrlgReflection(P, gid, frame, flip, camX, camY,
+          Collision.behavior, Ow) then drawn = drawn + 1 end
+    end
+  end
+  FieldEffects.lastFrlgReflections = drawn
+end
+
+drawFrlgReflection = function(obj, graphicsId, frame, hflip, camX, camY, behaviorAt, Ow)
+  local spr = Ow.getReflectionDraw and Ow.getReflectionDraw(graphicsId)
+  if not (spr and spr.quads and spr.quads[frame]) then return false end
+  local cx = obj.moving and obj.targetX or obj.cellX
+  local cy = obj.moving and obj.targetY or obj.cellY
+  local pcx, pcy = obj.cellX, obj.cellY
+  if not frlgReflectionType(cx, cy, pcx, pcy, spr.width, spr.height, behaviorAt) then return false end
+  local w, h = spr.width, spr.height
+  local left = (obj.px or cx * CELL) + (16 - w) / 2
+  local top = (obj.py or cy * CELL) + 14
+  local x0, x1 = math.floor(left / CELL), math.floor((left + w - 1) / CELL)
+  local y0, y1 = math.floor(top / CELL), math.floor((top + h - 1) / CELL)
+  local q = frlgReflectionQuad or love.graphics.newQuad(0, 0, 1, 1, spr.width, spr.height * spr.frameCount)
+  frlgReflectionQuad = q
+  love.graphics.setColor(1, 1, 1, 1)
+  for ty = y0, y1 do
+    for tx = x0, x1 do
+      if isFrlgReflective(behaviorAt(tx, ty)) then
+        local ix0, ix1 = math.max(left, tx * CELL), math.min(left + w, tx * CELL + CELL)
+        local iy0, iy1 = math.max(top, ty * CELL), math.min(top + h, ty * CELL + CELL)
+        local dw, dh = ix1 - ix0, iy1 - iy0
+        if dw > 0 and dh > 0 then
+          local sx = hflip and (w - (ix0 - left + dw)) or ix0 - left
+          local sy = h - (iy0 - top + dh)
+          q:setViewport(sx, frame * h + sy, dw, dh, w, h * spr.frameCount)
+          love.graphics.draw(spr.image, q, ix0 + (hflip and dw or 0) - camX, iy0 + dh - camY,
+            0, hflip and -1 or 1, -1)
+        end
+      end
+    end
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+  return true
+end
 
 -- Forward-declared so field-effect starters defined above the body can call it.
 local play_se
@@ -1756,6 +1877,7 @@ function FieldEffects.drawBehind(camX, camY)
   camX, camY = camX or 0, camY or 0
   local R = rse()
   if R then R.drawBehind(camX, camY) end
+  if not R then drawFrlgReflections(camX, camY) end
 
   -- 1) Surfing water mount (pret FLDEFF_SURF_BLOB)
   local P = package.loaded["src.core.game3.player"]

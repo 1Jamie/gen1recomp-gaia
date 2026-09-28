@@ -130,13 +130,21 @@ function Menu:draw()
   -- PlaceString at hlcoord 3,0 writes over the border row it was just
   -- drawn on (oak_speech2.asm:162-170)
   if self.title then
+    local title = self.title:gsub("{DONE}%s*$", "")
+      :gsub("{PROMPT}%s*$", "")
+    local lines = {}
+    for line in (title .. "\n"):gmatch("(.-)\n") do
+      lines[#lines + 1] = line
+    end
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.rectangle("fill", (self.tx + 3) * 8, self.ty * 8,
-      #Font.split(self.title) * 8, 8)
-  end
-  love.graphics.setColor(0, 0, 0, 1)
-  if self.title then
-    Font.draw(self.title, (self.tx + 3) * 8, self.ty * 8)
+    for i, line in ipairs(lines) do
+      love.graphics.rectangle("fill", (self.tx + 3) * 8,
+        (self.ty + i - 1) * 8, #Font.split(line) * 8, 8)
+    end
+    love.graphics.setColor(0, 0, 0, 1)
+    for i, line in ipairs(lines) do
+      Font.draw(line, (self.tx + 3) * 8, (self.ty + i - 1) * 8)
+    end
   end
   local visible = (self.maxVisible and math.min(self.maxVisible, #self.items))
     or #self.items

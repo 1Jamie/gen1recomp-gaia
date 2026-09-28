@@ -270,6 +270,22 @@ check(not onStack(pmCut), "party menu closes after a successful CUT")
 check(sawText("CUT"), "_UsedCutText shown on a successful CUT")
 drainText() -- the tree swap is deferred until the message is dismissed
 eq(ow.map:blockAt(9, 14), 109, "CUT replaces the tree block (50 -> 109)")
+check(ow.cutAnim ~= nil, "tree split animation starts after the CUT text")
+local cutX, cutY = ow.player.cellX, ow.player.cellY
+frame({ "right" })
+eq(ow.player.cellX, cutX, "held movement cannot leave position during tree split")
+eq(ow.player.targetX, nil, "held movement cannot start a step during tree split")
+while ow.cutAnim do frame({ "right" }) end
+for _, dir in ipairs({ "left", "up", "right", "down" }) do
+  frame({ dir })
+  if ow.player.moving or ow.player.targetX ~= nil
+     or ow.player.cellX ~= cutX or ow.player.cellY ~= cutY then break end
+end
+check(ow.player.moving or ow.player.targetX ~= nil
+      or ow.player.cellX ~= cutX or ow.player.cellY ~= cutY,
+      "held movement is accepted after tree split completes")
+ow.player.moving = false
+ow.player.targetX, ow.player.targetY = nil, nil
 
 -- failure path: not facing a tree -> _NothingToCutText, submenu stays open
 popToOW()

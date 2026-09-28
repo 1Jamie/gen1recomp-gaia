@@ -35,6 +35,26 @@ local function baseStatsOf(def)
   return (def and def.baseStats) or {}
 end
 
+local function speciesDefinition(data, species)
+  local def = data and data.pokemon and data.pokemon[species]
+  return def, def and species
+end
+
+local function counterpartDefinition(sourceDef, destinationData)
+  local dex = sourceDef and tonumber(sourceDef.dex)
+  if not dex then return nil end
+  for key, def in pairs(destinationData and destinationData.pokemon or {}) do
+    if tonumber(def.dex) == dex then return def, key end
+  end
+  return nil
+end
+
+local function destinationSpecies(sourceDef, species, destinationData)
+  local def, key = speciesDefinition(destinationData, species)
+  if def then return def, key end
+  return counterpartDefinition(sourceDef, destinationData)
+end
+
 local function copyStatExp(statExp)
   statExp = statExp or {}
   local special = statExp.special
@@ -101,9 +121,9 @@ end
 
 function Convert.toGen2(mon, gen1Data, gen2Data)
   if type(mon) ~= "table" then return nil, "not_a_mon" end
-  local def2 = gen2Data and gen2Data.pokemon and gen2Data.pokemon[mon.species]
+  local def1 = speciesDefinition(gen1Data, mon.species)
+  local def2, species2 = destinationSpecies(def1, mon.species, gen2Data)
   if not def2 then return nil, "species_unknown" end
-  local def1 = gen1Data and gen1Data.pokemon and gen1Data.pokemon[mon.species]
 
   local report = newReport()
   local level = levelOf(mon)
@@ -163,7 +183,7 @@ function Convert.toGen2(mon, gen1Data, gen2Data)
   end
 
   local out = {
-    species = mon.species,
+    species = def2.id or species2,
     name = def2.name or mon.species,
     nickname = mon.nickname,
     level = level,
@@ -188,8 +208,8 @@ function Convert.toGen2(mon, gen1Data, gen2Data)
     traded = mon.traded,
   }
   out.shiny = Mon.isShiny(dvs,
-    { species = mon.species, def = def2, level = level })
-  out.gender = Mon.gender(def2, dvs, { species = mon.species, level = level })
+    { species = def2.id or species2, def = def2, level = level })
+  out.gender = Mon.gender(def2, dvs, { species = def2.id or species2, level = level })
 
   entry(report.changed, "happiness",
     ("FRIENDSHIP SET TO %d"):format(Convert.DEFAULT_HAPPINESS),
@@ -204,7 +224,8 @@ end
 function Convert.refusalFor(mon, gen2Data, gen1Data)
   if type(mon) ~= "table" then return "not_a_mon", {} end
   if mon.isEgg then return "is_egg", {} end
-  local species1 = gen1Data and gen1Data.pokemon and gen1Data.pokemon[mon.species]
+  local species2 = speciesDefinition(gen2Data, mon.species)
+  local species1 = destinationSpecies(species2, mon.species, gen1Data)
   if not species1 then
     return "species_too_new", { species = mon.species }
   end
@@ -223,8 +244,8 @@ function Convert.toGen1(mon, gen2Data, gen1Data)
   local reason, info = Convert.refusalFor(mon, gen2Data, gen1Data)
   if reason then return nil, reason, info end
 
-  local def1 = gen1Data.pokemon[mon.species]
-  local def2 = gen2Data and gen2Data.pokemon and gen2Data.pokemon[mon.species]
+  local def2 = speciesDefinition(gen2Data, mon.species)
+  local def1, species1 = destinationSpecies(def2, mon.species, gen1Data)
   local report = newReport()
   local level = levelOf(mon)
   local dvs = copyDVs(mon.dvs)
@@ -301,7 +322,7 @@ function Convert.toGen1(mon, gen2Data, gen1Data)
   end
 
   local out = {
-    species = mon.species,
+    species = def1.id or species1,
     level = level,
     exp = exp,
     dvs = dvs,
@@ -321,14 +342,15 @@ end
 
 -- engine/link/time_capsule.asm:3 ValidateOTTrademon, :41 the type carve-out
 
-function Convert.validateArrival(mon, destData)
+function Convert.validateArrival(mon, destData, sourceData)
   if type(mon) ~= "table" then return false, "not_a_mon" end
-  local def = destData and destData.pokemon and destData.pokemon[mon.species]
+  local def, species = destinationSpecies(speciesDefinition(sourceData, mon.species),
+    mon.species, destData)
   if not def then return false, "species_unknown" end
   -- engine/link/time_capsule.asm:27
   local level = tonumber(mon.level)
   if not level or level < 1 or level > 100 then return false, "level" end
-  if Convert.TYPE_EXEMPT[mon.species] then return true end
+  if Convert.TYPE_EXEMPT[def.id or species] then return true end
   local claimed = mon.types
   if type(claimed) ~= "table" then return true end
   local want = def.types or {}

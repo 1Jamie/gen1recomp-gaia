@@ -154,8 +154,9 @@ M.BLUES_HOUSE = {
       { "show_text", "_BluesHouseDaisyOfferMapText" },
       -- _GotMapText: "{PLAYER} got a\n{RAM:wStringBuffer}!" -- the
       -- buffer supplies "TOWN MAP" (scripts/BluesHouse.asm GotMapText)
-      { "give_item", "TOWN_MAP", 1, "_GotMapText" },
+      { "give_item", "TOWN_MAP", 1, false },
       { "hide_object", "BLUES_HOUSE", "BLUESHOUSE_TOWN_MAP" },
+      { "show_text", "_GotMapText" },
       { "set_flag", "EVENT_GOT_TOWN_MAP" },
       { "jump", "end" },
       { "label", "got_map" },

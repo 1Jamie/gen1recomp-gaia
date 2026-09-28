@@ -5,6 +5,7 @@ love = love or require("tests.love_stub")
 
 local T = require("tests.harness")
 local Convert = require("src.online.Convert")
+local TeamPick = require("src.online.TeamPick")
 
 --------------------------------------------------------------------------
 -- Synthetic datasets
@@ -147,6 +148,47 @@ local function kinds(list)
   local out = {}
   for _, row in ipairs(list) do out[row.kind] = row end
   return out
+end
+
+do
+  local source1, source2 = { pokemon = {}, moves = gen1Data.moves },
+    { pokemon = {}, moves = gen2Data.moves }
+  source1.pokemon.FARFETCHD = {
+    id = "FARFETCHD", dex = 83, name = "FARFETCH'D", types = { "NORMAL", "FLYING" },
+    baseStats = { hp = 52, attack = 65, defense = 55, speed = 60, special = 58 },
+    catchRate = 45, growthRate = "MEDIUM_FAST",
+  }
+  source2.pokemon.FARFETCH_D = {
+    id = "FARFETCH_D", dex = 83, name = "FARFETCH'D", types = { "NORMAL", "FLYING" },
+    baseStats = { hp = 52, attack = 65, defense = 55, speed = 60,
+      specialAttack = 58, specialDefense = 58 },
+    growthRate = "GROWTH_MEDIUM_FAST", genderRatio = 0x7f,
+  }
+  source2.pokemon.growthRates = gen2Data.pokemon.growthRates
+  local from1 = gen1Mon("TESTMON", 25)
+  from1.species, from1.nickname = "FARFETCHD", "DUCK"
+  from1.catchRate = 45
+  local up = Convert.toGen2(from1, source1, source2)
+  T.eq(up and up.species, "FARFETCH_D", "cross-generation lookup uses destination Gen 2 key")
+  local preview, allowed = Convert.preview(from1, 1, 2, source1, source2)
+  T.check(allowed and #preview > 0, "renamed species is allowed in conversion preview")
+  local converted, _, refusals = TeamPick.convert({ generation = 1, party = { from1 } },
+    2, source1, source2)
+  T.eq(converted["party|1"] and converted["party|1"].species, "FARFETCH_D",
+    "trade preview converts to destination species key")
+  T.eq(next(refusals), nil, "trade preview does not refuse renamed species")
+
+  local from2 = gen2Mon("TESTMON", 25)
+  from2.species = "FARFETCH_D"
+  local down = Convert.toGen1(from2, source2, source1)
+  T.eq(down and down.species, "FARFETCHD", "reverse conversion uses destination Gen 1 key")
+  local arrival, arrivalWhy = Convert.validateArrival(
+    { species = "FARFETCH_D", level = 25, types = { "NORMAL", "FLYING" } },
+    source1, source2)
+  T.check(arrival, "arrival validation resolves renamed species by National Dex")
+  T.eq(arrivalWhy, nil, "renamed species arrival has no refusal")
+  T.check(Convert.toGen2({ species = "UNKNOWN" }, source1, source2) == nil,
+    "unmatched species remains refused")
 end
 
 --------------------------------------------------------------------------
@@ -547,6 +589,21 @@ if red and gold then
   T.check(down ~= nil, "real BULBASAUR converts down")
   T.eq(down.catchRate, red.pokemon.BULBASAUR.catchRate,
     "real BULBASAUR takes Red's catch rate")
+
+  local redFarfetch = red.pokemon.FARFETCHD
+  local goldFarfetch = gold.pokemon.FARFETCH_D
+  if redFarfetch and goldFarfetch then
+    T.eq(redFarfetch.dex, goldFarfetch.dex,
+      "real Red and Gold Farfetch'd records share National Dex number")
+    T.check(redFarfetch.id ~= goldFarfetch.id,
+      "real Farfetch'd identifiers differ across generations")
+    local realDown = Convert.toGen1(goldMon("FARFETCH_D", 25), gold, red)
+    T.eq(realDown and realDown.species, redFarfetch.id,
+      "real Farfetch'd converts to Red's species key")
+    local realUp = realDown and Convert.toGen2(realDown, red, gold)
+    T.eq(realUp and realUp.species, goldFarfetch.id,
+      "real Farfetch'd converts back to Gold's species key")
+  end
 
   local magnemite = goldMon("MAGNEMITE", 30)
   local mDown = Convert.toGen1(magnemite, gold, red)

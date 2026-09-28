@@ -42,8 +42,18 @@ end
 -- the labels, the ▶ cursor and the "more below" arrow actually landed.
 local function layout(menu)
   local realDraw, realCode = Font.draw, Font.drawCode
-  local out = { rows = {}, cols = {} }
-  Font.draw = function(_, x, y)
+  local out = { rows = {}, cols = {}, titleRows = {} }
+  local title = menu.title and menu.title:gsub("{DONE}%s*$", "")
+    :gsub("{PROMPT}%s*$", "")
+  local titleLines = {}
+  for line in ((title or "") .. "\n"):gmatch("(.-)\n") do
+    titleLines[line] = true
+  end
+  Font.draw = function(text, x, y)
+    if titleLines[text] then
+      out.titleRows[#out.titleRows + 1] = y / 8
+      return 8
+    end
     out.rows[#out.rows + 1] = y / 8
     out.cols[#out.cols + 1] = x / 8
     return 8
@@ -111,8 +121,10 @@ check(sat.arrow > sat.rows[#sat.rows],
 -- choices start at hlcoord 2,2.
 local pc = Screens.push(newGame(), "PlayerPC")
 eq(pc.th, 10, "player's PC box is 10 tiles tall")
-same(boxRules(pc, "player's PC").rows, { 2, 4, 6, 8 },
+local pcLayout = boxRules(pc, "player's PC")
+same(pcLayout.rows, { 2, 4, 6, 8 },
      "player's PC rows match hlcoord 2,2")
+same(pcLayout.titleRows, { 0, 1 }, "player's PC prompt stays above its choices")
 
 -- The Pokédex side menu (pokedex.asm PokedexMenuItemsText): DATA / CRY /
 -- AREA / QUIT, opened by choosing a seen species off the dex list.

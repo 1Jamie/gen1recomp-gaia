@@ -25,6 +25,7 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local T = require("tests.harness")
 local MapScripts = require("src.script.MapScripts")
+local generatedText = dofile("data/generated/text.lua")
 
 local contribution = dofile("data/scripts/oaks_lab.lua")
 local problems = MapScripts.validateContribution(contribution)
@@ -87,12 +88,12 @@ local got = { EVENT_GOT_STARTER = true, EVENT_FOLLOWED_OAK_INTO_LAB = true }
 local texts, offers = run(contribution.talk[BALL], got, true)
 T.eq(#offers, 0, "no starter offer after the pick")
 local box = concat(texts)
-T.check(box:find("last Pokémon!", 1, true) ~= nil,
-  "leftover ball says the last-mon line (got: " .. box .. ")")
+T.check(box:find("_OaksLabLastMonText", 1, true) ~= nil,
+  "leftover ball uses the extracted last-mon text")
+T.eq(generatedText._OaksLabLastMonText, "That's PROF.OAK's\nlast POKéMON!{DONE}",
+  "extracted last-mon text keeps the canonical POKéMON capitalization")
 T.check(box:find("Those are", 1, true) == nil,
   "leftover ball no longer says 'Those are POKé BALLs'")
-T.check(box:find("#MON", 1, true) == nil,
-  "the ROM #MON ligature is spelled out as Pokémon")
 
 -- the pokered beat also turns Oak to face the player: find the
 -- face_object row in the leftover-ball path (content-based, so a jingle
@@ -118,12 +119,10 @@ T.check(concat(t2):find("ThoseArePokeBalls", 1, true) ~= nil,
 local mid = { EVENT_GOT_STARTER = false, EVENT_FOLLOWED_OAK_INTO_LAB = true }
 local t3, o3 = run(contribution.talk[BALL], mid, true)
 T.eq(#o3, 1, "the starter offer still runs before the pick")
-T.check(concat(t3):find("last Pokémon!", 1, true) == nil,
+T.check(concat(t3):find("_OaksLabLastMonText", 1, true) == nil,
   "no last-mon line before the pick")
 
 -- ---- all three balls share the same table shape (last-mon beat present)
--- content-based again: locate the leftover-ball "Pokémon" line wherever
--- it sits, instead of pinning a row number (#668 added two jingle rows)
 for _, key in ipairs({
   "TEXT_OAKSLAB_CHARMANDER_POKE_BALL",
   "TEXT_OAKSLAB_SQUIRTLE_POKE_BALL",
@@ -133,8 +132,7 @@ for _, key in ipairs({
   local lastMon
   if script then
     for _, row in ipairs(script) do
-      if row[1] == "show_text" and type(row[2]) == "string"
-          and row[2]:find("Pokémon", 1, true) then
+      if row[1] == "show_text" and row[2] == "_OaksLabLastMonText" then
         lastMon = row[2]
         break
       end

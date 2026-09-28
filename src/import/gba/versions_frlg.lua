@@ -72,6 +72,17 @@ end
 Versions.OW_GFX_POINTERS = 0x39FDB0       -- gObjectEventGraphicsInfoPointers
 Versions.OW_SPRITE_PALETTES = 0x3A5158    -- sObjectEventSpritePalettes
 Versions.NUM_OBJ_EVENT_GFX = 152
+Versions.OW_REFLECTION = {
+  palette_map = 0x35B934,
+  palette_tag_sets = 0x3A5330,
+  player_palette_sets = 0x3A5208,
+  special_palette_sets = 0x3A5278,
+  palette_map_count = 16,
+  palette_set_count = 4,
+  palette_tag_slot_count = 10,
+  paired_palette_stride = 8,
+  paired_palette_count = 4,
+}
 -- pret OBJ_EVENT_GFX_RED / OBJ_EVENT_GFX_GREEN (Leaf)
 Versions.OW_PLAYER_MALE = 0
 Versions.OW_PLAYER_MALE_BIKE = 1
@@ -2733,6 +2744,7 @@ local FIRERED_10 = {
   num_map_groups = Versions.NUM_MAP_GROUPS,
   ow_gfx_pointers = Versions.OW_GFX_POINTERS,
   ow_sprite_palettes = Versions.OW_SPRITE_PALETTES,
+  ow_reflection = Versions.OW_REFLECTION,
   num_obj_event_gfx = Versions.NUM_OBJ_EVENT_GFX,
 }
 

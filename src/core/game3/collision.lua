@@ -4,6 +4,7 @@
 
 local Connections = require("src.core.game3.connections")
 local MB = require("src.core.game3.mb")
+local InteractionScripts = require("src.core.game3.scripting.interaction_scripts")
 local Collision = {}
 
 local function mbSet(names)
@@ -211,7 +212,7 @@ function Collision.behaviorOn(mapDef, cx, cy)
   local layout = mapDef and mapDef.midLayout
   if not layout or cx<0 or cy<0 or cx>=layout.width or cy>=layout.height then return nil end
   local pair = mapDef.pair or layout.pair
-  local behaviors = require("src.core.game3.scripting.interaction_scripts").behaviors[pair]
+  local behaviors = InteractionScripts.behaviors[pair]
   return behaviors and behaviors[layout:midAt(cx,cy)]
 end
 

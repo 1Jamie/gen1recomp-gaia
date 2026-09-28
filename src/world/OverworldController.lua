@@ -1547,6 +1547,7 @@ function OverworldState:update(dt)
                    or self.flyAnim or self.flyArrive or self.spinArrive
                or self.holeFall or self.holeArrive
                    or self.holeFall or self.holeArrive
+                   or self.cutAnim
                    or (self.dustAnim and self.dustAnim.boulder)
   if not scripted and not self.transitioning then
     self:checkTrainerSight()
@@ -1559,6 +1560,7 @@ function OverworldState:update(dt)
                or self.engaging or self.emote or self.teleportOut
                or self.flyAnim or self.flyArrive or self.spinArrive
                or self.holeFall or self.holeArrive
+               or self.cutAnim
                or (self.dustAnim and self.dustAnim.boulder)
   end
   -- a scriptMove's onDone can push a text box on the frame it retires, and

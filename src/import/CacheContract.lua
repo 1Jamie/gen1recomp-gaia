@@ -22,8 +22,8 @@ CacheContract.VERSION_FORMAT = {
   -- data/pikachu/pikachu_pic_animation.asm:340
   yellow = "rom-cache-v12-yellow2:",
   -- v8: M4A tracks retain reachable patterns and explicit entry offsets.
-  firered = "rom-cache-v18-firered:",
-  leafgreen = "rom-cache-v3-leafgreen:",
+  firered = "rom-cache-v20-firered:",
+  leafgreen = "rom-cache-v5-leafgreen:",
   emerald = "rom-cache-v1-emerald:",
 }
 CacheContract.MARKER_PATH = "rom-cache.complete"
@@ -244,6 +244,7 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/gba/intro/nidoran_f.png",
     "data/generated/gba/naming/manifest.lua",
     "data/generated/gba/ow/manifest.lua",
+    "data/generated/gba/ow/palette_manifest.lua",
     "data/generated/gba/ow/0.rgba",
     "data/generated/gba/ow/7.rgba",
     "data/generated/gba/pokemon/manifest.lua",
