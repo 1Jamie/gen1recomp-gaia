@@ -17,6 +17,18 @@ if data:sub(0xAD, 0xB0) ~= "BPEE" then
 end
 
 local GV = require("src.core.GameVersion")
+
+local function stubAnims(fn)
+  local Anim = require("src.core.game3.battle.anim")
+  local launchMove = Anim.launchMove
+  Anim.launchMove = function(_, opts)
+    if opts and opts.onEnd then opts.onEnd() end
+    return true
+  end
+  local ok, err = pcall(fn)
+  Anim.launchMove = launchMove
+  if not ok then error(err, 0) end
+end
 local Versions = require("src.import.gba.versions")
 local Rom = require("src.import.gba.rom")
 GV.set("emerald")
@@ -259,7 +271,7 @@ do
     end
     return turnEnd(self, t)
   end
-  Stage.open({ contest = c, headless = true, moveName = function(m) return "M" .. m end })
+  stubAnims(function() Stage.open({ contest = c, headless = true, moveName = function(m) return "M" .. m end }) end)
   Stage.turnEndStep = turnEnd
   eq(checks, 80, "checked 4 contestants at 20 turn ends")
   eq(mismatches, 0, "heart tiles match hearts(appeal) for every contestant")
@@ -268,7 +280,7 @@ end
 local Results = require("src.ui.game3.rse.contest_results")
 do
   local c = newContest(0x99, 0)
-  Stage.open({ contest = c, headless = true, moveName = function(m) return "M" .. m end })
+  stubAnims(function() Stage.open({ contest = c, headless = true, moveName = function(m) return "M" .. m end }) end)
   local sess = { gameStats = {}, party = {} }
   local r = Results.open({ contest = c, session = sess, headless = true, noFieldHooks = true })
   eq(r.done, true, "results screen reaches the end")

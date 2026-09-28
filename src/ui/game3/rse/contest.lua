@@ -1081,7 +1081,7 @@ function UI:moveAnimStep(t, ev)
       local attackerPresent = Anim.present(2)
       attackerPresent.visible = true
       attackerPresent.ox, attackerPresent.oy = 0, 0
-      -- pokeemerald/src/contest.c:1834-1838 configures battlers 2/3 at contest-specific coordinates.
+      -- pokeemerald/src/contest.c:1834-1838
       Anim.launchMove(ev.move, {
         attackerId = 2,
         targetId = 3,
