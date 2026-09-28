@@ -540,6 +540,17 @@ function RomExtractorGen3:runIntroAudio(sha1)
   return okI, okA, metaI, metaA
 end
 
+local function maxWorkers(taskCount)
+  local override = tonumber(os.getenv("POKEPORT_EXTRACT_WORKERS") or "")
+  if override and override >= 1 then return math.min(taskCount, math.floor(override)) end
+  local osName = love.system and love.system.getOS and love.system.getOS() or ""
+  if osName == "iOS" or osName == "Android" or osName == "NX" then
+    return math.min(taskCount, 2)
+  end
+  local cores = love.system and love.system.getProcessorCount and love.system.getProcessorCount() or 4
+  return math.max(1, math.min(taskCount, cores - 1, 6))
+end
+
 function RomExtractorGen3:runParallel(sha1)
   if os.getenv("POKEPORT_NO_THREAD") == "1" then
     return false, "POKEPORT_NO_THREAD set"
@@ -564,13 +575,29 @@ function RomExtractorGen3:runParallel(sha1)
     workerCode = love.filesystem.read("src/import/gba/extract_worker.lua")
   end
 
-  for _, t in ipairs(tasks) do
-    local okTh, th = pcall(love.thread.newThread, workerCode or "src/import/gba/extract_worker.lua")
-    if not okTh or not th then
-      return false, "failed to spawn thread for " .. t .. ": " .. tostring(th)
+  local running, nextTask = {}, 1
+  local function spawnUpTo(limit)
+    while nextTask <= #tasks and #running < limit do
+      local t = tasks[nextTask]
+      local okTh, th = pcall(love.thread.newThread, workerCode or "src/import/gba/extract_worker.lua")
+      if not okTh or not th then
+        return false, "failed to spawn thread for " .. t .. ": " .. tostring(th)
+      end
+      th:start(t, prefix, self.romData, sha1, ch_name)
+      running[#running + 1] = { task = t, thread = th }
+      nextTask = nextTask + 1
     end
-    th:start(t, prefix, self.romData, sha1, ch_name)
+    return true
   end
+  local function retire(task)
+    for i, r in ipairs(running) do
+      if r.task == task then table.remove(running, i) return end
+    end
+  end
+
+  local limit = maxWorkers(#tasks)
+  local okSpawn, spawnErr = spawnUpTo(limit)
+  if not okSpawn then return false, spawnErr end
 
   local done_count = 0
   local errors = {}
@@ -596,8 +623,21 @@ function RomExtractorGen3:runParallel(sha1)
         if not msg.ok then
           errors[#errors + 1] = msg.task .. ": " .. tostring(msg.error)
         end
+        retire(msg.task)
+        okSpawn, spawnErr = spawnUpTo(limit)
+        if not okSpawn then return false, spawnErr end
       end
     else
+      for i = #running, 1, -1 do
+        local err = running[i].thread:getError()
+        if err then
+          errors[#errors + 1] = running[i].task .. ": " .. tostring(err)
+          table.remove(running, i)
+          done_count = done_count + 1
+        end
+      end
+      okSpawn, spawnErr = spawnUpTo(limit)
+      if not okSpawn then return false, spawnErr end
       love.timer.sleep(0.005)
     end
   end
