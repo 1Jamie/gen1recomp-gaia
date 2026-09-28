@@ -808,7 +808,7 @@ function Audio._seRawGet(id)
   return e
 end
 
-function Audio._seRawPut(id, loop, rawL, rawR)
+function Audio._seRawPut(id, loop, rawL, rawR, loopStart)
   if type(rawL) ~= "table" then return end
   local n = #rawL
   if n > Audio.SE_RAW_MAX_FRAMES then return end
@@ -816,7 +816,8 @@ function Audio._seRawPut(id, loop, rawL, rawR)
   local prev = Audio._seRaw[id]
   if prev then Audio._seRawFrames = Audio._seRawFrames - prev.frames end
   Audio._seRawTick = Audio._seRawTick + 1
-  Audio._seRaw[id] = { loop = loop, rawL = rawL, rawR = rawR, frames = n, tick = Audio._seRawTick }
+  Audio._seRaw[id] = { loop = loop, rawL = rawL, rawR = rawR, loopStart = loopStart, frames = n,
+    tick = Audio._seRawTick }
   Audio._seRawFrames = Audio._seRawFrames + n
   while Audio._seRawFrames > Audio.SE_RAW_MAX_FRAMES do
     local oldId, oldTick
@@ -849,9 +850,9 @@ function Audio.playSe(id, opts)
 
   local memoable = opts.loop == nil and opts.maxSec == nil
   local hit = memoable and Audio._seRawGet(id) or nil
-  local loop, rawL, rawR
+  local loop, rawL, rawR, loopStart
   if hit then
-    loop, rawL, rawR = hit.loop, hit.rawL, hit.rawR
+    loop, rawL, rawR, loopStart = hit.loop, hit.rawL, hit.rawR, hit.loopStart
   else
     local slot = { voices = {} }
     -- SE must run the M4A sequencer (SE_SELECT is CGB pulse, not voice0 PCM).
@@ -867,39 +868,47 @@ function Audio.playSe(id, opts)
       loop = (id == SE.SE_LOW_HEALTH) or Audio._songHasGoto(slot)
     end
 
+    local loopBody = loop and opts.loop == nil and id ~= SE.SE_LOW_HEALTH
     -- pokefirered/src/battle_anim_special.c:1200
-    local cut = (loop or id == SE.SE_EXP)
+    local cut = ((loop and not loopBody) or id == SE.SE_EXP)
     local maxSec = opts.maxSec
       or (cut and Audio.SE_LOOP_MAX_SEC or Audio.SE_ONESHOT_MAX_SEC)
-    rawL, rawR = Player.bakeSlot(slot, {
+    rawL, rawR, loopStart = Player.bakeSlot(slot, {
       raw = true,
       maxSec = maxSec,
       stopOnGoto = loop and true or false,
+      loopBody = loopBody,
     })
     if not cut and opts.maxSec == nil and type(rawL) == "table"
       and #rawL >= math.floor(Mix.SAMPLE_RATE * maxSec) then
       warn_once("selen:" .. tostring(id),
         "SE " .. tostring(id) .. " hit the " .. tostring(maxSec) .. "s bake ceiling")
     end
-    if memoable then Audio._seRawPut(id, loop and true or false, rawL, rawR) end
+    if memoable then Audio._seRawPut(id, loop and true or false, rawL, rawR, loopStart) end
   end
 
   local pan = Audio.normalizePan(opts.pan)
   local master = (Audio._sfxVolume or 1) * (opts.volume or 1)
-  local sd = Audio._buildSeSoundData(rawL, rawR, master, pan, Audio._mono)
+  local src, body
+  if loop and loopStart and love and love.audio and love.audio.newQueueableSource then
+    src, body = Audio._newIntroLoopSource(rawL, rawR, loopStart, master, pan, Audio._mono)
+  end
+  local sd = not src and Audio._buildSeSoundData(rawL, rawR, master, pan, Audio._mono)
   if sd and love and love.audio and love.audio.newSource then
-    local src = love.audio.newSource(sd, "static")
-    src:setVolume(1)
+    src = love.audio.newSource(sd, "static")
     if loop then
       pcall(function() src:setLooping(true) end)
     end
+  end
+  if src then
+    src:setVolume(1)
     Audio._seSources[#Audio._seSources + 1] = src
     Audio._seByPlayer[mplay] = src
     Audio._seMeta[src] = { id = id, player = mplay,
       duckBgm = not loop and id ~= SE.SE_SELECT
         and (Audio._sfxVolume or 1) * (opts.volume or 1) > 0,
       rawL = rawL, rawR = rawR, master = master, pan = pan,
-      mono = Audio._mono, loop = loop and true or false }
+      mono = Audio._mono, loop = loop and true or false, body = body }
     update_se_duck(src)
     src:play()
     update_se_duck()
@@ -984,7 +993,7 @@ function Audio.setSePan(pan)
   for _, mplay in ipairs({ 1, 2 }) do
     local old = Audio._seByPlayer[mplay]
     local meta = old and Audio._seMeta[old]
-    if meta and meta.rawL and meta.pan ~= pan then
+    if meta and meta.rawL and not meta.body and meta.pan ~= pan then
       local playing = false
       pcall(function() playing = old:isPlaying() end)
       meta.pan = pan
@@ -1012,6 +1021,34 @@ function Audio.setSePan(pan)
     end
   end
   return pan
+end
+
+local function slice(t, from, to)
+  local out = {}
+  for i = from, to do out[#out + 1] = t[i] end
+  return out
+end
+
+function Audio._newIntroLoopSource(L, R, loopStart, master, pan, mono)
+  local n = #L
+  if loopStart <= 0 or loopStart >= n then return nil end
+  local intro = Audio._buildSeSoundData(slice(L, 1, loopStart), slice(R, 1, loopStart), master, pan, mono)
+  local body = Audio._buildSeSoundData(slice(L, loopStart + 1, n), slice(R, loopStart + 1, n), master, pan, mono)
+  if not (intro and body) then return nil end
+  local ok, src = pcall(love.audio.newQueueableSource, Mix.SAMPLE_RATE, 16, mono and 1 or 2, 3)
+  if not (ok and src) then return nil end
+  src:queue(intro)
+  src:queue(body)
+  return src, body
+end
+
+function Audio._pumpSeLoops()
+  for _, src in ipairs(Audio._seSources) do
+    local meta = Audio._seMeta[src]
+    if meta and meta.body and src:getFreeBufferCount() > 0 then
+      src:queue(meta.body)
+    end
+  end
 end
 
 function Audio._songHasGoto(slot)
@@ -1302,6 +1339,7 @@ end
 function Audio.update(dt)
   dt = dt or 1 / 60
   Audio.tickCry(dt)
+  Audio._pumpSeLoops()
   update_se_duck()
 
   Audio.pumpFanfares()

@@ -125,7 +125,6 @@ Data.textX, Data.textY, Data.rowPitch = 8, 9, 16
 
 -- pokeemerald/src/start_menu.c:612
 Data.dexNeedsSeen = true
--- pokeemerald/src/start_menu.c:747
-Data.exitConfirms = false
+Data.exitConfirms = true
 
 return Data

@@ -22,8 +22,8 @@ CacheContract.VERSION_FORMAT = {
   -- data/pikachu/pikachu_pic_animation.asm:340
   yellow = "rom-cache-v12-yellow2:",
   -- v8: M4A tracks retain reachable patterns and explicit entry offsets.
-  firered = "rom-cache-v17-firered:",
-  leafgreen = "rom-cache-v2-leafgreen:",
+  firered = "rom-cache-v18-firered:",
+  leafgreen = "rom-cache-v3-leafgreen:",
   emerald = "rom-cache-v1-emerald:",
 }
 CacheContract.MARKER_PATH = "rom-cache.complete"
@@ -526,6 +526,7 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     -- src/data/field_effects/field_effect_objects.h:288, src/itemfinder.c:39
     "data/generated/gba/field_effects/ground_impact_dust.rgba",
     "data/generated/gba/field_effects/itemfinder_arrow_star.rgba",
+    "data/generated/gba/field_effects/arrow.rgba",
     -- src/field_effect.c:73, :77
     "data/generated/gba/field_effects/field_move_streaks_outdoors.rgba",
     "data/generated/gba/field_effects/field_move_streaks_indoors.rgba",

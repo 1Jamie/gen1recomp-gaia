@@ -100,7 +100,7 @@ eq(safariWin.width, 9, "safari balls window is 9 tiles (start_menu.c:143)")
 eq(Data.extraWindow("pyramid", ctx()).width, 10, "pyramid floor window")
 check(Data.extraWindow("normal", ctx()) == nil, "no side window on the normal menu")
 eq(Data.rowPitch, 16, "Emerald start menu rows are 16px apart")
-check(Data.exitConfirms == false, "EXIT just closes on Emerald (start_menu.c:747)")
+check(Data.exitConfirms == true, "EXIT offers return to title on Emerald")
 
 local Fr = require("src.ui.game3.start_menu_frlg")
 check(Fr.exitConfirms == true and Fr.rowPitch == nil, "FRLG rows keep the FRLG layout")

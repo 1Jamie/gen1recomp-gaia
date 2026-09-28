@@ -1461,6 +1461,7 @@ end
 -- ---------------------------------------------------------------- Step & Update
 function FieldEffects.step()
   FieldEffects.groundEffects()
+  require("src.core.game3.warp_arrow").step()
   -- Tall grass update
   local fx = FieldEffects._fx
   if fx and not fx.done and fx.seq then
@@ -2070,6 +2071,7 @@ function FieldEffects.drawFront(camX, camY, playerPy)
   camX, camY = camX or 0, camY or 0
   local R = rse()
   if R then R.drawFront(camX, camY) end
+  require("src.core.game3.warp_arrow").draw(camX, camY)
 
   -- Transient airborne particle animations
   for _, anim in ipairs(FieldEffects._anims) do

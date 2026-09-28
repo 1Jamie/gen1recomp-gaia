@@ -20,12 +20,12 @@ eq(CacheContract.markerFor("emerald", SHA), "rom-cache-v1-emerald:" .. SHA, "eme
 check(CacheContract.markerMatches("emerald", "rom-cache-v1-emerald:" .. SHA), "emerald marker matches")
 check(not CacheContract.markerMatches("emerald", "rom-cache-v17-firered:" .. SHA), "a FireRed marker does not")
 
-eq(#CacheContract.requiredFiles("firered"), 398, "FireRed required list size unchanged")
-eq(digest(CacheContract.requiredFiles("firered")), 83935950, "FireRed required list unchanged")
-eq(#CacheContract.requiredFiles("leafgreen"), 399, "LeafGreen required list size unchanged")
-eq(digest(CacheContract.requiredFiles("leafgreen")), 3118136650, "LeafGreen required list unchanged")
-eq(digest(CacheContract.requiredFiles("firered", true)), 4221271784, "FireRed semantic list unchanged")
-eq(digest(CacheContract.requiredFiles("leafgreen", true)), 2731301391, "LeafGreen semantic list unchanged")
+eq(#CacheContract.requiredFiles("firered"), 399, "FireRed required list size unchanged")
+eq(digest(CacheContract.requiredFiles("firered")), 2690580945, "FireRed required list unchanged")
+eq(#CacheContract.requiredFiles("leafgreen"), 400, "LeafGreen required list size unchanged")
+eq(digest(CacheContract.requiredFiles("leafgreen")), 1230342789, "LeafGreen required list unchanged")
+eq(digest(CacheContract.requiredFiles("firered", true)), 3515802369, "FireRed semantic list unchanged")
+eq(digest(CacheContract.requiredFiles("leafgreen", true)), 3541784989, "LeafGreen semantic list unchanged")
 
 local em, isOverride = CacheContract.requiredFilesFor("emerald")
 check(isOverride == true, "emerald is a composed list, not the gen 1 list")

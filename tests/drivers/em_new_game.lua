@@ -122,6 +122,15 @@ return function(game)
   U.wait(40)
   U.still(game, DIR .. "/01_main_menu_no_save.png")
   check(host.screen.items[#host.screen.items] == "EXIT", "main menu shows a visible EXIT row")
+  local want = 1
+  for i, item in ipairs(host.screen.items) do
+    if item == "NEW_GAME" then want = i end
+  end
+  for _ = 2, want do
+    U.tap(game, "down")
+    U.wait(4)
+  end
+  check(host.screen.cursor == want, "cursor on NEW GAME")
   U.tap(game, "a")
   for _ = 1, 200 do
     if host.kind == "birch" then break end

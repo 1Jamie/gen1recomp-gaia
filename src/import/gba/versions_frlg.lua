@@ -1432,6 +1432,8 @@ Versions.FIELD_EFFECTS = {
   ground_impact_dust = { pic = 0x399008, pal = 0x398FA8, w = 16, h = 8, frames = 3 },
   -- pokefirered/src/itemfinder.c:40, src/event_object_movement.c:490
   itemfinder_arrow_star = { pic = 0x4644D0, pal = 0x35B968, w = 16, h = 16, frames = 5 },
+  -- pokefirered/src/data/field_effects/field_effect_objects.h:229
+  arrow = { pic = 0x398BA8, pal = 0x35B968, w = 16, h = 16, frames = 8 },
   -- src/ss_anne.c:21, :156, include/event_object_movement.h:20
   ss_anne_wake = { pic = 0x479838, pal = 0x395AE8, w = 16, h = 32, frames = 2 },
   -- src/ss_anne.c:22, :190

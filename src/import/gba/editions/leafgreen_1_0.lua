@@ -1594,6 +1594,7 @@ return {
   [0x396B08] = 0x396AE8, -- :gObjectEventPic_SurfBlob + 0
   [0x398648] = 0x398628, -- :gFieldEffectObjectPic_CutGrass + 0
   [0x3986A8] = 0x398688, -- :gFieldEffectObjectPic_Ripple + 0
+  [0x398BA8] = 0x398B88, -- :gFieldEffectObjectPic_Arrow + 0
   [0x398FA8] = 0x398F88, -- :gFieldEffectObjectPalette0 + 0
   [0x398FC8] = 0x398FA8, -- :gFieldEffectObjectPalette1 + 0
   [0x399008] = 0x398FE8, -- :gFieldEffectObjectPic_GroundImpactDust + 0
@@ -4726,7 +4727,7 @@ return {
   [0xE98FD8] = 0xE99058, -- :gNamingScreenPageSwapButton_Gfx + 0
   [0xE990D8] = 0xE99158, -- :gNamingScreenInputArrow_Gfx + 0
   [0xE990F8] = 0xE99178, -- :gNamingScreenUnderscore_Gfx + 0
-  [0xE99138] = 0xE991B8, -- :gTMCaseHM_Gfx + 32
+  [0xE99118] = 0xE99198, -- :gTMCaseHM_Gfx + 0
   [0xE99198] = 0xE99218, -- :gKantoTrainerCardBlue_Pal + 0
   [0xE991F8] = 0xE99278, -- :gKantoTrainerCard_Gfx + 0
   [0xE9A460] = 0xE9A4E0, -- :gSummaryScreen_Bg_Gfx + 0

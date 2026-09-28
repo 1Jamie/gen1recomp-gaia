@@ -524,9 +524,7 @@ local function shellColor(hex)
   return { tonumber(r, 16), tonumber(g, 16), tonumber(b, 16) }
 end
 
--- The real Crystal shell is glitter-flecked translucent plastic over a foil
--- label, so it is the one stock cart that ships with a finish.
-local STOCK_FINISH = { crystal = "sparkle+holo" }
+local STOCK_FINISH = { crystal = "sparkle+holo", emerald = "holo" }
 
 local function finishFlags(name)
   name = tostring(name or "")

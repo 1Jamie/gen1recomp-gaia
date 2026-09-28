@@ -4,6 +4,7 @@
 
 local Collision = require("src.core.game3.collision")
 local ModRuntime = require("src.mods.Runtime")
+local WarpArrow = require("src.core.game3.warp_arrow")
 
 local Player = {}
 
@@ -155,6 +156,8 @@ function Player.reset(x, y, facing)
   Player.cellX = tonumber(x) or 0
   Player.cellY = tonumber(y) or 0
   Player._scriptedStep = nil
+  -- pokeemerald/src/field_player_avatar.c:1402
+  WarpArrow.hide()
   Player.px = Player.cellX * CELL
   Player.py = Player.cellY * CELL
   local Collision = package.loaded["src.core.game3.collision"]
@@ -1139,6 +1142,8 @@ end
 --- Poll D-pad + B-run when field is free.
 function Player.update(game, input)
   Player.tick(game)
+  -- pokeemerald/src/field_player_avatar.c:336
+  if not Player._scriptedStep then WarpArrow.update(Player) end
   if Player.biking and Player.bikeType == "acro" then
     local BikeRse = rseBike()
     -- pokeemerald/src/field_player_avatar.c:339
