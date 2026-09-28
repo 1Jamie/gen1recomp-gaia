@@ -34,6 +34,7 @@ local Layout = require("src.ui.kit.Layout")
 local Loader = require("src.ui.kit.Loader")
 local Transition = require("src.ui.kit.Transition")
 local GameVersion = require("src.core.GameVersion")
+local SecretGames = require("src.import.SecretGames")
 local Version = require("src.core.Version")
 local Strings = require("src.core.Strings")
 local WebClip = require("src.core.WebClip")
@@ -1232,7 +1233,7 @@ end
 local function modScopeOptions(imp)
   local GameVersion = require("src.core.GameVersion")
   local options = { { id = nil, label = Strings("All games") } }
-  for _, version in ipairs(GameVersion.ORDER) do
+  for _, version in ipairs(SecretGames.order(imp)) do
     if imp.ready and imp.ready[version] then
       options[#options + 1] =
         { id = version, label = GameVersion.info(version).label }
@@ -1525,17 +1526,39 @@ end
 -- Which cartridge the dropdown is showing: the open game tab, else the last
 -- one visited, else Red.  Kept as a function so the mods/find/skins panels
 -- still answer "for which game" without a game tab being open.
-local function currentGame(imp)
+local function gameTabs(imp)
+  local launcher = type(imp) ~= "table" or imp.launcher and true or false
+  local c = imp and imp._gameTabs
+  if c and c.rev == SecretGames.rev and c.launcher == launcher then
+    return c.list, c.colors
+  end
+  local list, colors = {}, {}
   for _, g in ipairs(GAME_TABS) do
+    if SecretGames.shown(imp, g.id) then
+      list[#list + 1] = g
+      colors[#colors + 1] = g.color
+    end
+  end
+  if type(imp) == "table" then
+    imp._gameTabs = { rev = SecretGames.rev, launcher = launcher,
+      list = list, colors = colors }
+  end
+  return list, colors
+end
+
+local function currentGame(imp)
+  local tabs = gameTabs(imp)
+  for _, g in ipairs(tabs) do
     if imp.tab == g.id then return g end
   end
-  for _, g in ipairs(GAME_TABS) do
+  for _, g in ipairs(tabs) do
     if imp.modScope == g.id then return g end
   end
-  return GAME_TABS[1]
+  return tabs[1]
 end
 
 LauncherView.GAME_TABS = GAME_TABS
+LauncherView.gameTabs = gameTabs
 LauncherView.currentGame = currentGame
 
 -- Keyed off the launcher instance so the closures die with it.
@@ -1578,7 +1601,8 @@ end
 
 local function buildHeader(imp, m)
   local y = m.top
-  Theme.versionRail(m.x, y, m.w, m.railH)
+  local _, railColors = gameTabs(imp)
+  Theme.versionRail(m.x, y, m.w, m.railH, railColors)
   y = y + m.railH
 
   -- logo row
@@ -1604,10 +1628,17 @@ local function buildHeader(imp, m)
     local maxW = math.min(320 * m.s, boxW)
     local scale = math.min(maxW / lw, m.logoH / lh)
     local dw, dh = lw * scale, lh * scale
+    local lx = mobile and boxX or (boxX + (boxW - dw) / 2)
+    local ly = y + (rowH - dh) / 2
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(imp.logo,
-      Theme.snap(mobile and boxX or (boxX + (boxW - dw) / 2)),
-      Theme.snap(y + (rowH - dh) / 2), 0, scale, scale)
+    love.graphics.draw(imp.logo, Theme.snap(lx), Theme.snap(ly), 0, scale, scale)
+    local r = imp._logoRect or {}
+    r.x, r.y, r.w, r.h = lx, ly, dw, dh
+    imp._logoRect = r
+    if Kit.press(lx, ly, dw, dh) and imp._logoTap then
+      queueAction(imp, "logo-tap-" .. tostring(imp._logoTaps or 0),
+        function() imp:_logoTap() end)
+    end
   end
 
   local rx = m.x + m.w - m.pad
@@ -2679,7 +2710,7 @@ local function buildModsPanel(imp, x, y, w, availH, m)
         or Strings("In this cart: Disabled")) or Strings("Pinned, sealed:")
     else
       local count, names = 0, {}
-      for _, game in ipairs(GAME_TABS) do
+      for _, game in ipairs(gameTabs(imp)) do
         if mod.enabledByVersion and mod.enabledByVersion[game.id] then
           count = count + 1
           names[#names + 1] = Strings(game.label)
@@ -3989,10 +4020,10 @@ local function buildModGamesPicker(imp, m)
   if not mod then imp._modGames = nil return end
   local rowH = m.btnH + math.floor(12 * m.s)
   local x, y, w, h, at, maxAt, fy, gap = pickerFrame(imp, m, state, "_modGames",
-    Strings("Enable for games"), #GAME_TABS, rowH)
+    Strings("Enable for games"), #gameTabs(imp), rowH)
   local py = Kit.scrollBegin(x, y, w, h, at, maxAt)
   local rw = w - Kit.scrollGutter(m.s)
-  for i, game in ipairs(GAME_TABS) do
+  for i, game in ipairs(gameTabs(imp)) do
     local ry = py + (i - 1) * (rowH + gap)
     local on = mod.enabledByVersion and mod.enabledByVersion[game.id] == true
     local key = "_modGames-row-" .. i
@@ -4578,7 +4609,8 @@ local function buildGameModal(imp, m)
   local headH = Kit.textHeight("button") + math.floor(12 * m.s)
   local avail = m.H - 2 * m.pad
   local cols, gap, btnH = 2, math.floor(8 * m.s), m.btnH
-  local function rows() return math.ceil(#GAME_TABS / cols) + 1 end
+  local tabs = gameTabs(imp)
+  local function rows() return math.ceil(#tabs / cols) + 1 end
   local function total() return 2 * pad + headH + rows() * btnH
     + (rows() - 1) * gap end
   if total() > avail then gap = math.max(2, math.floor(3 * m.s)) end
@@ -4594,7 +4626,7 @@ local function buildGameModal(imp, m)
   local _, rw, mark, done = open()
   local chrome = headerChrome(imp)
   local colW = math.floor((rw - (cols - 1) * gap) / cols)
-  for i, g in ipairs(GAME_TABS) do
+  for i, g in ipairs(tabs) do
     local bx = px + pad + ((i - 1) % cols) * (colW + gap)
     local id = "gamepop-" .. g.id
     btn(imp, bx, mark(id, math.floor((i - 1) / cols) * (btnH + gap), btnH), colW, btnH, id,
@@ -4607,6 +4639,20 @@ local function buildGameModal(imp, m)
   btn(imp, px + pad, footY, pw - 2 * pad, btnH, "gamepop-close",
     Strings("Close"), { font = "small",
       action = function() imp._gamePopup = nil end })
+end
+
+local function buildSecretModal(imp, m)
+  local pad = math.floor(22 * m.s)
+  local w = math.floor(300 * m.s)
+  local titleH = Kit.textHeight("stat")
+  local px, _, pw, footY, open = modalFrame(imp, m, "_secretPopup", w, pad,
+    0, titleH, m.btnH, math.floor(16 * m.s))
+  local top, rw, _, done = open()
+  Kit.textCenter("stat", "BLITZ!", px + pad, top, rw, PAL.heading)
+  done()
+  btn(imp, px + pad, footY, pw - 2 * pad, m.btnH, "secret-ok", Strings("OK"), {
+    kind = "primary", font = "small",
+    action = function() imp:_confirmSecret() end })
 end
 
 local SEAL_WORD = { open = "open", ["sealed+"] = "sealed+" }
@@ -4859,14 +4905,15 @@ end
 local function findGameOptions(imp)
   local out = { { key = nil, label = Strings("All games") } }
   local seen = {}
-  for _, version in ipairs(GameVersion.ORDER) do
+  local games = SecretGames.order(imp)
+  for _, version in ipairs(games) do
     local gen = GameVersion.generation(version)
     if gen and not seen[gen] then
       seen[gen] = true
       out[#out + 1] = { key = "gen" .. gen, label = Strings("Gen %d", gen) }
     end
   end
-  for _, version in ipairs(GameVersion.ORDER) do
+  for _, version in ipairs(games) do
     if imp.ready and imp.ready[version] then
       out[#out + 1] = { key = version, label = gameLabel(version) }
     end
@@ -6398,7 +6445,7 @@ local MODAL_KEYS = {
   "_cartPopup", "_modScopePopup", "_filterPopup", "_indexManage",
   "_syncModal", "_pcPicker", "_tradeModal", "_skinActions", "_modActions",
   "_findEntry", "_gameManage", "_saveExport", "_savePicker", "_modGames",
-  "_pinModal", "_invitePicker",
+  "_pinModal", "_invitePicker", "_secretPopup",
 }
 
 LauncherView.MODAL_KEYS = MODAL_KEYS
@@ -6417,7 +6464,7 @@ local function modalUp(imp)
     or imp._profileRenamePrompt or imp._findEntry or imp._gameManage
     or imp._saveExport or imp._savePicker or imp._modGames
     or imp._tradeModal or imp._bugModal or imp._pcPicker
-    or imp._pinModal or imp._invitePicker) ~= nil
+    or imp._pinModal or imp._invitePicker or imp._secretPopup) ~= nil
 end
 
 local function modalKey(imp)
@@ -6441,6 +6488,7 @@ local function buildModals(imp, m)
     Kit.FileBrowser.draw(m)
     return true
   end
+  if imp._secretPopup then buildSecretModal(imp, m) return true end
   if imp._profileRenamePrompt then
     buildPrompt(imp, m, {
       key = "profren", modal = "_profileRenamePrompt", title = Strings("Rename profile"),

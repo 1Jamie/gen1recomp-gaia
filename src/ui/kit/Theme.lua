@@ -304,8 +304,9 @@ local railColors = {
 
 -- One seamless sweep every 24 seconds. Pixel strips keep this in the same
 -- batched rectangle pipeline as the rest of the theme, without a shader.
-function Theme.versionRail(x, y, w, h)
+function Theme.versionRail(x, y, w, h, colors)
   if not G then return end
+  local railColors = (colors and #colors > 0) and colors or railColors
   x, y, w, h = snap(x), snap(y), snap(w), snap(h)
   if w <= 0 or h <= 0 then return end
   local now = love.timer and love.timer.getTime and love.timer.getTime() or 0
