@@ -56,6 +56,10 @@ function LauncherSplash:update(dt)
     or self.age > DURATION + 2
 end
 
+function LauncherSplash:blocksInput()
+  return self.elapsed < DURATION / 2
+end
+
 function LauncherSplash:draw()
   local g = love.graphics
   local width, height = g.getDimensions()

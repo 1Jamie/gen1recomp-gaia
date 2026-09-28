@@ -210,6 +210,10 @@ end
 local Game, EditorApp, Importer, TouchEditor, Studio, Prelaunch
 local launcherSplash
 
+local function splashBlocksInput()
+  return launcherSplash ~= nil and launcherSplash:blocksInput()
+end
+
 -- #887: quit-to-launcher state, shared by love.load and love.quit (both need
 -- it, so it is declared here rather than next to love.quit).
 --   * launchedIntoGame -- a --game / POKEPORT_GAME shortcut booted this
@@ -931,12 +935,14 @@ function love.update(dt)
   -- NX only (no-op elsewhere): follow dock/undock without waiting for SDL.
   NxDisplay.sync()
   if launcherSplash then
+    if not launcherSplash.inputResumed and not launcherSplash:blocksInput() then
+      launcherSplash.inputResumed = true
+      if Importer and Importer.resumeAfterOverlay then Importer:resumeAfterOverlay() end
+    end
     if launcherSplash:update(dt) then
       launcherSplash:release()
       launcherSplash = nil
-      if Importer and Importer.resumeAfterOverlay then Importer:resumeAfterOverlay() end
     end
-    return
   end
   if editorMode then return EditorApp.update(dt) end
   if TouchEditor then return TouchEditor.update(dt) end
@@ -961,6 +967,7 @@ function love.update(dt)
   end
   if Importer then
     require("src.import.LauncherWindow").observe(dt)
+    Importer._inputBlocked = splashBlocksInput()
     return Importer:update(dt)
   end
   if not Game then return end
@@ -1064,7 +1071,7 @@ function love.draw()
 end
 
 function love.keypressed(key, scancode, isrepeat)
-  if launcherSplash then return end
+  if splashBlocksInput() then return end
   if editorMode then return EditorApp.keypressed(key) end
   if TouchEditor then return TouchEditor.keypressed(key) end
   if Studio then return Studio.keypressed(key) end
@@ -1075,7 +1082,7 @@ function love.keypressed(key, scancode, isrepeat)
 end
 
 function love.keyreleased(key)
-  if launcherSplash then return end
+  if splashBlocksInput() then return end
   if editorMode or TouchEditor or Studio then return end
   if Importer then return end
   if not Game then return end
@@ -1083,7 +1090,7 @@ function love.keyreleased(key)
 end
 
 function love.gamepadpressed(joystick, button)
-  if launcherSplash then return end
+  if splashBlocksInput() then return end
   SwitchDiagnostics.onJoystickEvent("gamepadpressed", joystick, button)
   if PadHints.windowMinimized() then return end
   if editorMode then
@@ -1106,7 +1113,7 @@ function love.gamepadpressed(joystick, button)
 end
 
 function love.gamepadreleased(joystick, button)
-  if launcherSplash then return end
+  if splashBlocksInput() then return end
   SwitchDiagnostics.onJoystickEvent("gamepadreleased", joystick, button)
   if editorMode then
     if EditorApp and EditorApp.gamepadreleased then
@@ -1127,7 +1134,7 @@ function love.gamepadreleased(joystick, button)
 end
 
 function love.gamepadaxis(joystick, axis, value)
-  if launcherSplash then return end
+  if splashBlocksInput() then return end
   SwitchDiagnostics.onJoystickEvent("gamepadaxis", joystick, axis, { value = value })
   if PadHints.windowMinimized() then value = 0 end
   if editorMode then
@@ -1149,7 +1156,7 @@ function love.gamepadaxis(joystick, axis, value)
 end
 
 function love.joystickpressed(joystick, button)
-  if launcherSplash then return end
+  if splashBlocksInput() then return end
   SwitchDiagnostics.onJoystickEvent("joystickpressed", joystick, button)
   if PadHints.windowMinimized() then return end
   if editorMode then
@@ -1171,7 +1178,7 @@ function love.joystickpressed(joystick, button)
 end
 
 function love.joystickreleased(joystick, button)
-  if launcherSplash then return end
+  if splashBlocksInput() then return end
   SwitchDiagnostics.onJoystickEvent("joystickreleased", joystick, button)
   if editorMode then
     if EditorApp and EditorApp.joystickreleased then
@@ -1192,7 +1199,7 @@ function love.joystickreleased(joystick, button)
 end
 
 function love.joystickaxis(joystick, axis, value)
-  if launcherSplash then return end
+  if splashBlocksInput() then return end
   SwitchDiagnostics.onJoystickEvent("joystickaxis", joystick, axis, { value = value })
   if PadHints.windowMinimized() then value = 0 end
   if editorMode then
@@ -1214,7 +1221,7 @@ function love.joystickaxis(joystick, axis, value)
 end
 
 function love.joystickhat(joystick, hat, direction)
-  if launcherSplash then return end
+  if splashBlocksInput() then return end
   SwitchDiagnostics.onJoystickEvent("joystickhat", joystick, hat, { direction = direction })
   if PadHints.windowMinimized() then direction = "c" end
   if editorMode then
@@ -1333,7 +1340,7 @@ function love.handlers.intent_uri(uri)
 end
 
 function love.touchpressed(id, x, y, dx, dy, pressure)
-  if launcherSplash then return end
+  if splashBlocksInput() then return end
   if editorMode then
     -- iOS synthesizes mousepressed for the primary touch; forwarding here
     -- would double-fire.  Android / NX need the explicit touch → click path
@@ -1363,7 +1370,7 @@ function love.touchpressed(id, x, y, dx, dy, pressure)
 end
 
 function love.touchmoved(id, x, y, dx, dy, pressure)
-  if launcherSplash then return end
+  if splashBlocksInput() then return end
   if editorMode then return end
   if TouchEditor then
     if love.system.getOS() == "iOS" then return end
@@ -1378,7 +1385,7 @@ function love.touchmoved(id, x, y, dx, dy, pressure)
 end
 
 function love.touchreleased(id, x, y, dx, dy, pressure)
-  if launcherSplash then return end
+  if splashBlocksInput() then return end
   if editorMode then return end
   if TouchEditor then
     if love.system.getOS() == "iOS" then return end
@@ -1393,7 +1400,7 @@ function love.touchreleased(id, x, y, dx, dy, pressure)
 end
 
 function love.wheelmoved(x, y)
-  if launcherSplash then return end
+  if splashBlocksInput() then return end
   if editorMode then
     if EditorApp.wheelmoved then return EditorApp.wheelmoved(x, y) end
     return
@@ -1431,7 +1438,7 @@ if love.system and love.system.getOS() == "Linux"
 end
 
 function love.mousepressed(x, y, button, istouch)
-  if launcherSplash then return end
+  if splashBlocksInput() then return end
   if not istouch then eventMouseX, eventMouseY = x, y end
   if TouchEditor then
     -- Android primary touch already arrived via love.touchpressed; a second
@@ -1479,7 +1486,7 @@ function love.mousepressed(x, y, button, istouch)
 end
 
 function love.mousereleased(x, y, button, istouch)
-  if launcherSplash then return end
+  if splashBlocksInput() then return end
   if TouchEditor then
     if love.system.getOS() == "Android" then return end
     return TouchEditor.mousereleased(x, y, button)
@@ -1500,7 +1507,7 @@ function love.mousereleased(x, y, button, istouch)
 end
 
 function love.mousemoved(x, y, dx, dy, istouch)
-  if launcherSplash then return end
+  if splashBlocksInput() then return end
   if not istouch then eventMouseX, eventMouseY = x, y end
   if TouchEditor then
     if love.system.getOS() == "Android" then return end
@@ -1519,7 +1526,7 @@ function love.mousemoved(x, y, dx, dy, istouch)
 end
 
 function love.textinput(text)
-  if launcherSplash then return end
+  if splashBlocksInput() then return end
   if TouchEditor then return end
   if Studio then return Studio.textinput(text) end
   if Importer then return Importer:textinput(text) end
@@ -1599,7 +1606,7 @@ function love.quit()
 end
 
 function love.filedropped(file)
-  if launcherSplash then return end
+  if splashBlocksInput() then return end
   local filename = file and file.getFilename and file:getFilename()
   if LaunchOptions.isLaunchURI(filename) then
     local request = LaunchOptions.parseURI(filename)

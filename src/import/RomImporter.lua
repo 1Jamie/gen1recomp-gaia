@@ -3434,12 +3434,12 @@ function RomImporter:update(dt)
       return
     end
   end
-  self:_updatePadCursor(dt)
+  if not self._inputBlocked then self:_updatePadCursor(dt) end
   self:_stepBaseRomScan()
   -- Pump the FlexLove view (input polling + the queued click actions).  The
   -- flag is only set once draw() has built a tree, so headless runs and the
   -- test tier never touch the toolkit.
-  if self._flex then
+  if self._flex and not self._inputBlocked then
     require("src.import.LauncherView").update(self, dt)
   end
   -- Drive every in-flight async fetch.  These are the operations that used to
