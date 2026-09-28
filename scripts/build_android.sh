@@ -449,6 +449,7 @@ pack_game_love() {
   ensure_crystal_manifest
   ensure_firered_manifest
   [ -f "$ROOT/tools/rom_manifest_leafgreen.json" ] || fail "LeafGreen import manifest is missing"
+  [ -f "$ROOT/tools/rom_manifest_emerald.json" ] || fail "Emerald import manifest is missing"
   mkdir -p "$EMBED_ASSETS"
   rm -f "$LOVE_FILE"
   # tools/save-editor ships with the app: the launcher's Edit button on a save
@@ -464,7 +465,7 @@ pack_game_love() {
     tools/rom_manifest.json tools/rom_manifest_blue.json \
     tools/rom_manifest_yellow.json tools/rom_manifest_gold.json \
     tools/rom_manifest_silver.json tools/rom_manifest_crystal.json \
-    tools/rom_manifest_firered.json tools/rom_manifest_leafgreen.json \
+    tools/rom_manifest_firered.json tools/rom_manifest_leafgreen.json tools/rom_manifest_emerald.json \
     -x '*.DS_Store' -x '*/.git/*' -x '*/.DS_Store' \
     -x 'data/generated/*' -x 'assets/generated/*')
   # List once and match against the captured text: piping unzip straight into
@@ -492,6 +493,10 @@ pack_game_love() {
     || fail "game.love is missing the Crystal ROM import manifest"
   grep -qx "$FIRERED_MANIFEST_RELATIVE" <<< "$archive_entries" \
     || fail "game.love is missing the FireRed ROM import manifest"
+  grep -qx 'tools/rom_manifest_leafgreen.json' <<< "$archive_entries" \
+    || fail "game.love is missing the LeafGreen ROM import manifest"
+  grep -qx 'tools/rom_manifest_emerald.json' <<< "$archive_entries" \
+    || fail "game.love is missing the Emerald ROM import manifest"
   # This gate exists because the launcher's UI toolkit once lived outside
   # src/ (libs/flexlove) and was added to scripts/build.sh's payload and to
   # no other packager, so Android and iOS built an APK/IPA whose launcher

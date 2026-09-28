@@ -136,7 +136,7 @@ rm -f "$WORK/game-payload.zip"
   tools/rom_manifest.json tools/rom_manifest_blue.json \
   tools/rom_manifest_yellow.json tools/rom_manifest_gold.json \
   tools/rom_manifest_silver.json tools/rom_manifest_crystal.json \
-  tools/rom_manifest_firered.json tools/rom_manifest_leafgreen.json \
+  tools/rom_manifest_firered.json tools/rom_manifest_leafgreen.json tools/rom_manifest_emerald.json \
   -x '*.DS_Store' 'data/generated/*' 'assets/generated/*')
 unzip -Z1 "$WORK/game-payload.zip" > "$WORK/payload-listing.txt"
 if grep -Eq '^(data|assets)/generated/[^/]+|^(data|assets)/generated/.+/' "$WORK/payload-listing.txt"; then
@@ -144,7 +144,7 @@ if grep -Eq '^(data|assets)/generated/[^/]+|^(data|assets)/generated/.+/' "$WORK
 fi
 for manifest in rom_manifest.json rom_manifest_blue.json rom_manifest_yellow.json \
                 rom_manifest_gold.json rom_manifest_silver.json rom_manifest_crystal.json \
-                rom_manifest_firered.json rom_manifest_leafgreen.json; do
+                rom_manifest_firered.json rom_manifest_leafgreen.json rom_manifest_emerald.json; do
   grep -qxF "tools/$manifest" "$WORK/payload-listing.txt" \
     || fail "payload is missing tools/$manifest"
 done
