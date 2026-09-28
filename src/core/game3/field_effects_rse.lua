@@ -75,36 +75,51 @@ local function set(key, names)
   return s
 end
 
+local NAMES = {
+  refl = { "POND_WATER", "PUDDLE", "UNUSED_SOOTOPOLIS_DEEP_WATER_2", "ICE", "SOOTOPOLIS_DEEP_WATER", "REFLECTION_UNDER_BRIDGE" },
+  ice = { "ICE" },
+  short = { "SHORT_GRASS" },
+  deep = { "DEEP_SAND" },
+  sand = { "SAND", "DEEP_SAND" },
+  foot = { "FOOTPRINTS" },
+  weed = { "SEAWEED", "SEAWEED_NO_SURFACING" },
+  tall = { "TALL_GRASS" },
+  long = { "LONG_GRASS" },
+  puddle = { "PUDDLE" },
+  flow = { "SHALLOW_WATER", "STAIRS_OUTSIDE_ABANDONED_SHIP", "SHOAL_CAVE_ENTRANCE" },
+  ripple = { "POND_WATER", "PUDDLE", "SOOTOPOLIS_DEEP_WATER" },
+  fr_ripple = { "POND_WATER", "PUDDLE" },
+}
+
 local B = {}
 -- pokeemerald/src/metatile_behavior.c:199
 function B.reflective(b)
-  return set("refl", { "POND_WATER", "PUDDLE", "UNUSED_SOOTOPOLIS_DEEP_WATER_2", "ICE",
-    "SOOTOPOLIS_DEEP_WATER", "REFLECTION_UNDER_BRIDGE" })[b] == true
+  return set("refl", NAMES.refl)[b] == true
 end
 -- pokeemerald/src/metatile_behavior.c:212
-function B.ice(b) return set("ice", { "ICE" })[b] == true end
+function B.ice(b) return set("ice", NAMES.ice)[b] == true end
 -- pokeemerald/src/metatile_behavior.c:979
-function B.shortGrass(b) return set("short", { "SHORT_GRASS" })[b] == true end
+function B.shortGrass(b) return set("short", NAMES.short)[b] == true end
 -- pokeemerald/src/metatile_behavior.c:191
-function B.deepSand(b) return set("deep", { "DEEP_SAND" })[b] == true end
+function B.deepSand(b) return set("deep", NAMES.deep)[b] == true end
 -- pokeemerald/src/metatile_behavior.c:183
-function B.sandOrDeepSand(b) return set("sand", { "SAND", "DEEP_SAND" })[b] == true end
+function B.sandOrDeepSand(b) return set("sand", NAMES.sand)[b] == true end
 -- pokeemerald/src/metatile_behavior.c:761
-function B.footprints(b) return set("foot", { "FOOTPRINTS" })[b] == true end
+function B.footprints(b) return set("foot", NAMES.foot)[b] == true end
 -- pokeemerald/src/metatile_behavior.c:1250
-function B.seaweed(b) return set("weed", { "SEAWEED", "SEAWEED_NO_SURFACING" })[b] == true end
+function B.seaweed(b) return set("weed", NAMES.weed)[b] == true end
 -- pokeemerald/src/metatile_behavior.c:729
-function B.tallGrass(b) return set("tall", { "TALL_GRASS" })[b] == true end
+function B.tallGrass(b) return set("tall", NAMES.tall)[b] == true end
 -- pokeemerald/src/metatile_behavior.c:737
-function B.longGrass(b) return set("long", { "LONG_GRASS" })[b] == true end
+function B.longGrass(b) return set("long", NAMES.long)[b] == true end
 -- pokeemerald/src/metatile_behavior.c:721
-function B.puddle(b) return set("puddle", { "PUDDLE" })[b] == true end
+function B.puddle(b) return set("puddle", NAMES.puddle)[b] == true end
 -- pokeemerald/src/metatile_behavior.c:879
 function B.shallowFlowing(b)
-  return set("flow", { "SHALLOW_WATER", "STAIRS_OUTSIDE_ABANDONED_SHIP", "SHOAL_CAVE_ENTRANCE" })[b] == true
+  return set("flow", NAMES.flow)[b] == true
 end
 -- pokeemerald/src/metatile_behavior.c:711
-function B.ripples(b) return set("ripple", { "POND_WATER", "PUDDLE", "SOOTOPOLIS_DEEP_WATER" })[b] == true end
+function B.ripples(b) return set("ripple", NAMES.ripple)[b] == true end
 -- pokeemerald/src/metatile_behavior.c:280
 function B.surfable(b)
   local C = Collision()
@@ -454,7 +469,7 @@ function FxRse.onFinishStep(g, cur, jumped, landingJump)
   if flagCovering("inSandPile", cur, cur, B.deepSand) then startSandPile() end
   if flagCovering("inShortGrass", cur, cur, B.shortGrass) then startShortGrass() end
   -- pokeemerald/src/event_object_movement.c:7534
-  if cur ~= nil and B.ripples(cur) and not set("fr_ripple", { "POND_WATER", "PUDDLE" })[cur] then
+  if cur ~= nil and B.ripples(cur) and not set("fr_ripple", NAMES.fr_ripple)[cur] then
     local fe = FE()
     if fe.startRipple then fe.startRipple(g.cx, g.cy) end
   end
@@ -558,26 +573,31 @@ function FxRse.reflectionPaletteTag(gid, bridge)
 end
 
 -- pokeemerald/src/event_object_movement.c:7625
+local function reflectionAt(x, y)
+  local b = behaviorAt(x, y)
+  if b == nil then return 0 end
+  if B.ice(b) then return 1 end
+  if B.reflective(b) then return 2 end
+  return 0
+end
+
 function FxRse.reflectionType(cx, cy, pcx, pcy, w, h)
   local width = math.floor(((w or 16) + 8) / 16)
   local height = math.floor(((h or 32) + 8) / 16)
-  local function at(x, y)
-    local b = behaviorAt(x, y)
-    if b == nil then return 0 end
-    if B.ice(b) then return 1 end
-    if B.reflective(b) then return 2 end
-    return 0
-  end
   for i = 0, height - 1 do
-    local r = at(cx, cy + 1 + i)
+    local r = reflectionAt(cx, cy + 1 + i)
     if r ~= 0 then return r end
-    r = at(pcx, pcy + 1 + i)
+    r = reflectionAt(pcx, pcy + 1 + i)
     if r ~= 0 then return r end
     for j = 1, width - 1 do
-      for _, p in ipairs({ { cx + j, cy }, { cx - j, cy }, { pcx + j, pcy }, { pcx - j, pcy } }) do
-        r = at(p[1], p[2] + 1 + i)
-        if r ~= 0 then return r end
-      end
+      r = reflectionAt(cx + j, cy + 1 + i)
+      if r ~= 0 then return r end
+      r = reflectionAt(cx - j, cy + 1 + i)
+      if r ~= 0 then return r end
+      r = reflectionAt(pcx + j, pcy + 1 + i)
+      if r ~= 0 then return r end
+      r = reflectionAt(pcx - j, pcy + 1 + i)
+      if r ~= 0 then return r end
     end
   end
   return 0
@@ -624,6 +644,7 @@ local function recolored(gid, spr, tag)
 end
 
 local reflQuad
+local coverCells, coverN = {}, 0
 
 local function drawReflection(obj, gid, frame, hflip, x2, y2, camX, camY)
   local Ow = package.loaded["src.core.game3.ow_sprites"]
@@ -668,6 +689,8 @@ local function drawReflection(obj, gid, frame, hflip, x2, y2, camX, camY)
           reflQuad:setViewport(sx, fy + sy, dw, dh, iw, ih)
           love.graphics.draw(src.image, reflQuad,
             ix0 + (hflip and dw or 0) - camX, iy0 + dh - camY, 0, hflip and -1 or 1, -1)
+          coverCells[coverN + 1], coverCells[coverN + 2] = tx, ty
+          coverN = coverN + 2
         end
       end
     end
@@ -676,8 +699,48 @@ local function drawReflection(obj, gid, frame, hflip, x2, y2, camX, camY)
 end
 FxRse.drawReflection = drawReflection
 
+local coverShader
+local function getCoverShader()
+  if coverShader == nil then
+    local ok, sh = pcall(love.graphics.newShader, [[
+      extern Image mask;
+      vec4 effect(vec4 color, Image tex, vec2 uv, vec2 sc) {
+        vec4 p = Texel(tex, uv);
+        return vec4(p.rgb, p.a * Texel(mask, uv).a) * color;
+      }
+    ]])
+    coverShader = ok and sh or false
+  end
+  return coverShader or nil
+end
+
+-- pokeemerald/src/field_effect_helpers.c:53
+local function coverReflections(camX, camY)
+  local n = coverN
+  coverN = 0
+  if n == 0 then return end
+  local C = Collision()
+  local mapDef = C and C._mapDef
+  local layout = mapDef and mapDef.midLayout
+  local NT = package.loaded["src.core.game3.tileset_native"]
+  if not (layout and NT) then return end
+  local ts = NT.get(mapDef.pair or layout.pair)
+  local shader = ts and ts.midImage and getCoverShader()
+  if not shader then return end
+  shader:send("mask", ts.midImage)
+  love.graphics.setShader(shader)
+  love.graphics.setColor(1, 1, 1, 1)
+  for i = 1, n, 2 do
+    local tx, ty = coverCells[i], coverCells[i + 1]
+    local q = NT.quad(ts, NT.slotFor(ts, layout:midAt(tx, ty)))
+    if q then love.graphics.draw(ts.image, q, tx * CELL - camX, ty * CELL - camY) end
+  end
+  love.graphics.setShader()
+end
+
 local function drawReflections(camX, camY)
   FxRse.lastReflections = 0
+  coverN = 0
   local Ow = package.loaded["src.core.game3.ow_sprites"]
   if not (Ow and Ow.getDraw and Ow.pose) then return end
   local O = Objects()
@@ -704,6 +767,7 @@ local function drawReflections(camX, camY)
       drawReflection(P, gid, frame, flip, 0, y2, camX, camY)
     end
   end
+  coverReflections(camX, camY)
 end
 
 

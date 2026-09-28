@@ -291,8 +291,11 @@ local function presentPlanes(game)
     and Stack ~= nil and Stack.has ~= nil and Stack.has("minigame")
   local uiOnly = minigameActive or (not battleActive and Stack ~= nil
     and Stack.fullscreen ~= nil and Stack.fullscreen())
+  local Shop = package.loaded["src.ui.game3.shop_menu"]
+  local shopView = not battleActive and not uiOnly and Shop ~= nil
+    and Shop.isShopCamera ~= nil and Shop.isShopCamera()
   local Renderer = prepareRenderer(game, battleActive and "battle" or "field")
-  Renderer:beginFrame(not battleActive and not uiOnly)
+  Renderer:beginFrame(not battleActive and not uiOnly and not shopView)
 
   if battleActive then
     love.graphics.push("all")
@@ -318,9 +321,11 @@ local function presentPlanes(game)
     return
   end
 
-  if uiOnly then
+  if uiOnly or shopView then
     love.graphics.push("all")
     love.graphics.origin()
+    -- pokeemerald/src/shop.c:781
+    if shopView then drawFieldPlane(game, Display.W, Display.H, nil) end
     drawUiPlane()
     love.graphics.pop()
     Renderer:endFrame(nil, nil)

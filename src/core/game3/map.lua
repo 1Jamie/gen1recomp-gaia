@@ -164,6 +164,39 @@ function Map.overscanSlices()
   return slices
 end
 
+local function fromNeighbor(n, nx, ny, primaryPair)
+  if not n or not n.def then return nil end
+  local L = n.def.midLayout
+  if not L then return nil end
+  if nx < 0 or ny < 0 or nx >= (L.width or 0) or ny >= (L.height or 0) then
+    return nil
+  end
+  local pair = L.pair or n.def.pair
+  return L:midAt(nx, ny), pair or primaryPair
+end
+
+local function fromDir(list, dir, cx, cy, w, h, primaryPair)
+  for i = #list, 1, -1 do
+    local n = list[i]
+    if n.dir == dir and n.def and n.def.midLayout then
+      local L = n.def.midLayout
+      local offset = tonumber(n.offset) or 0
+      local nx, ny
+      if dir == "north" then
+        nx, ny = cx - offset, (L.height or 0) + cy
+      elseif dir == "south" then
+        nx, ny = cx - offset, cy - h
+      elseif dir == "west" then
+        nx, ny = (L.width or 0) + cx, cy - offset
+      else
+        nx, ny = cx - w, cy - offset
+      end
+      local mid, pair = fromNeighbor(n, nx, ny, primaryPair)
+      if mid ~= nil then return mid, pair end
+    end
+  end
+end
+
 --- Resolve a cell in current-map space, sampling connected neighbors when OOB
 -- (pret VMap connection fill). Returns mid, sourcePair. OOB with no neighbor
 -- falls through to primary border tiling.
@@ -173,58 +206,26 @@ function Map.worldMidAt(cx, cy, primaryDef)
   local w, h = layout.width or 0, layout.height or 0
   local primaryPair = layout.pair or primaryDef.pair
 
-  local function fromNeighbor(n, nx, ny)
-    if not n or not n.def then return nil end
-    local L = n.def.midLayout
-    if not L then return nil end
-    if nx < 0 or ny < 0 or nx >= (L.width or 0) or ny >= (L.height or 0) then
-      return nil
-    end
-    local pair = L.pair or n.def.pair
-    return L:midAt(nx, ny), pair or primaryPair
-  end
-
   if cx >= 0 and cy >= 0 and cx < w and cy < h then
     return layout:midAt(cx, cy), primaryPair
   end
 
   local list = Map.neighborList or {}
-  local function fromDir(dir)
-    for i = #list, 1, -1 do
-      local n = list[i]
-      if n.dir == dir and n.def and n.def.midLayout then
-        local L = n.def.midLayout
-        local offset = tonumber(n.offset) or 0
-        local nx, ny
-        if dir == "north" then
-          nx, ny = cx - offset, (L.height or 0) + cy
-        elseif dir == "south" then
-          nx, ny = cx - offset, cy - h
-        elseif dir == "west" then
-          nx, ny = (L.width or 0) + cx, cy - offset
-        else
-          nx, ny = cx - w, cy - offset
-        end
-        local mid, pair = fromNeighbor(n, nx, ny)
-        if mid ~= nil then return mid, pair end
-      end
-    end
-  end
 
   -- pokefirered/src/fieldmap.c:129
   if cy < 0 then
-    local mid, pair = fromDir("north")
+    local mid, pair = fromDir(list, "north", cx, cy, w, h, primaryPair)
     if mid ~= nil then return mid, pair end
   elseif cy >= h then
-    local mid, pair = fromDir("south")
+    local mid, pair = fromDir(list, "south", cx, cy, w, h, primaryPair)
     if mid ~= nil then return mid, pair end
   end
 
   if cx < 0 then
-    local mid, pair = fromDir("west")
+    local mid, pair = fromDir(list, "west", cx, cy, w, h, primaryPair)
     if mid ~= nil then return mid, pair end
   elseif cx >= w then
-    local mid, pair = fromDir("east")
+    local mid, pair = fromDir(list, "east", cx, cy, w, h, primaryPair)
     if mid ~= nil then return mid, pair end
   end
 

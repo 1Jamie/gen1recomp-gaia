@@ -14,6 +14,17 @@ local MONITOR_CENTER_X, MONITOR_CENTER_Y = 128, 24
 local BALL_CORNER = { -4, -4 }
 local MONITOR_CORNER = { -16, -8 }
 
+-- pokefirered/src/field_effect.c:293
+local MONITOR = {
+  sheet = "pokemoncenter_monitor",
+  w = 32,
+  h = 16,
+  corner = MONITOR_CORNER,
+  seq = { 1, 2, 3, 2, 1, 0 },
+  durs = { 5, 5, 7, 5, 5, 5 },
+  loops = 3,
+}
+
 -- pret sPokeballCoordOffsets: L→R, top→bottom on the 2×3 LED tray.
 local BALL_OFFSETS = {
   { 0, 0 }, { 6, 0 },
@@ -44,6 +55,7 @@ PokecenterHeal._ballPal = nil
 PokecenterHeal._ballImgs = nil
 PokecenterHeal._monImg = nil
 PokecenterHeal._monQuads = nil
+PokecenterHeal._monSheet = nil
 PokecenterHeal._cache = nil
 PokecenterHeal._logged = false
 PokecenterHeal._claimed = false
@@ -60,6 +72,25 @@ local function read_cache(rel)
   local ok, data = pcall(cache.read, cache, rel)
   if not ok then return nil end
   return data
+end
+
+local function heal_block()
+  local ok, Profile = pcall(require, "src.core.game3.profile")
+  if not (ok and Profile and Profile.forSession) then return nil end
+  local ok2, row = pcall(Profile.forSession)
+  return ok2 and row and row.heal or nil
+end
+
+local function monitor_spec()
+  local b = heal_block()
+  return (b and b.monitor) or MONITOR
+end
+
+local function monitor_center()
+  local b = heal_block()
+  local c = b and b.monitorCenter
+  if c then return c[1], c[2] end
+  return MONITOR_CENTER_X, MONITOR_CENTER_Y
 end
 
 local function read_field_effect(name, ext)
@@ -79,9 +110,15 @@ function PokecenterHeal.invalidate()
   PokecenterHeal._ballImgs = nil
   PokecenterHeal._monImg = nil
   PokecenterHeal._monQuads = nil
+  PokecenterHeal._monSheet = nil
 end
 
 local function ensure_gfx()
+  local spec = monitor_spec()
+  if PokecenterHeal._monSheet ~= spec.sheet then
+    PokecenterHeal._monImg = nil
+    PokecenterHeal._monQuads = nil
+  end
   if PokecenterHeal._ballIdx and PokecenterHeal._monImg then return true end
   if not (love and love.image and love.graphics) then return false end
 
@@ -103,24 +140,28 @@ local function ensure_gfx()
   end
 
   if not PokecenterHeal._monImg then
-    local mon = read_field_effect("pokemoncenter_monitor", ".rgba")
-    if mon and #mon >= 32 * 64 * 4 then
-      local ok, id = pcall(love.image.newImageData, 32, 64, "rgba8", mon)
+    local mon = read_field_effect(spec.sheet, ".rgba")
+    local mw, mh = spec.w, spec.h
+    local frames = mon and math.floor(#mon / (mw * mh * 4)) or 0
+    if frames > 0 then
+      local sheetH = mh * frames
+      local ok, id = pcall(love.image.newImageData, mw, sheetH, "rgba8", mon:sub(1, mw * sheetH * 4))
       if ok and id then
         local img = love.graphics.newImage(id)
         if img.setFilter then img:setFilter("nearest", "nearest") end
         local quads = {}
-        for i = 0, 3 do
-          quads[i] = love.graphics.newQuad(0, i * 16, 32, 16, 32, 64)
+        for i = 0, frames - 1 do
+          quads[i] = love.graphics.newQuad(0, i * mh, mw, mh, mw, sheetH)
         end
         PokecenterHeal._monImg = img
         PokecenterHeal._monQuads = quads
+        PokecenterHeal._monSheet = spec.sheet
       end
     end
   end
 
   if not (PokecenterHeal._ballIdx and PokecenterHeal._monImg) then
-    log("field_effects/pokeball_glow + pokemoncenter_monitor missing; re-import the ROM cache")
+    log("field_effects/pokeball_glow + " .. spec.sheet .. " missing; re-import the ROM cache")
     return false
   end
   return true
@@ -253,8 +294,9 @@ local function ball_screen_tl(slot)
 end
 
 local function monitor_screen_tl()
-  return MONITOR_CENTER_X + MONITOR_CORNER[1],
-    MONITOR_CENTER_Y + MONITOR_CORNER[2]
+  local cx, cy = monitor_center()
+  local corner = monitor_spec().corner or MONITOR_CORNER
+  return cx + corner[1], cy + corner[2]
 end
 
 function PokecenterHeal.start()
@@ -302,15 +344,16 @@ function PokecenterHeal.wait(done)
 end
 
 local function start_monitor_anim(fx)
+  local spec = monitor_spec()
   fx.monitorVisible = true
   fx.monitorAnim = {
-    seq = { 1, 2, 3, 2, 1, 0 },
-    durs = { 5, 5, 7, 5, 5, 5 },
+    seq = spec.seq,
+    durs = spec.durs,
     i = 1,
     timer = 0,
-    loopsLeft = 3,
+    loopsLeft = spec.loops or 0,
   }
-  fx.monitorFrame = 1
+  fx.monitorFrame = spec.seq[1]
 end
 
 local function step_monitor(fx)

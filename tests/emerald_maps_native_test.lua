@@ -82,13 +82,15 @@ local fullOk = true
 for pair, p in pairs(man.pairs) do
   local idx = NativePack.decodeIdx(files[ROOT .. "/native/" .. pair .. "/mids.idx"])
   local over = NativePack.decodeIdx(files[ROOT .. "/native/" .. pair .. "/mids_over.idx"])
+  local middle = NativePack.decodeIdx(files[ROOT .. "/native/" .. pair .. "/mids_mid.idx"])
   local pals = NativePack.decodePalettes(files[ROOT .. "/native/" .. pair .. "/palettes.bin"])
-  if not (idx and over and pals) or idx.midCount ~= p.midCount or over.midCount ~= p.midCount
+  if not (idx and over and middle and pals) or idx.midCount ~= p.midCount or over.midCount ~= p.midCount
+      or middle.midCount ~= p.midCount
       or pals.numPalsInPrimary ~= 6 or pals.numPalsTotal ~= 13 then
     fullOk = false
   end
 end
-check(fullOk, "every pair has under/over atlases and a 6/13 palette header")
+check(fullOk, "every pair has under/over/middle atlases and a 6/13 palette header")
 
 local alt = {}
 for _, key in ipairs(summary.altLayouts) do alt[key] = true end

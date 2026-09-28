@@ -4,6 +4,7 @@ local Extract = require("src.import.gba.extract_island1")
 local Versions = require("src.import.gba.versions")
 
 local TilesetAnim = {}
+local EMPTY = {}
 
 TilesetAnim._cache = nil
 TilesetAnim._pairs = {}
@@ -166,10 +167,10 @@ local function rse_apply(entry, bank, frame, dirty)
     end
     return
   end
-  if rse_paste(entry, bank, bank.under, row.mids or {}, row.quads, frame, ts.imageData, entry.lut, false) then
+  if rse_paste(entry, bank, bank.under, row.mids or EMPTY, row.quads, frame, ts.imageData, entry.lut, false) then
     dirty.under = true
   end
-  if rse_paste(entry, bank, bank.over, row.overMids or {}, row.overQuads, frame, ts.overImageData, entry.lutOver, true) then
+  if rse_paste(entry, bank, bank.over, row.overMids or EMPTY, row.overQuads, frame, ts.overImageData, entry.lutOver, true) then
     dirty.over = true
   end
 end
@@ -202,6 +203,8 @@ function TilesetAnim.enterMap(pair, seamless)
   return true
 end
 
+local rseDirty = {}
+
 -- pokeemerald/src/tileset_anims.c:586
 function TilesetAnim.stepRse()
   local st = TilesetAnim._rse
@@ -213,7 +216,8 @@ function TilesetAnim.stepRse()
   for pair in pairs(TilesetAnim._visible) do
     local entry = TilesetAnim._pairs[pair]
     if entry and entry.rse then
-      local dirty = {}
+      local dirty = rseDirty
+      dirty.under, dirty.over = nil, nil
       for _, bank in ipairs(entry.banks) do
         if bank then
           local row = bank.row
@@ -297,8 +301,9 @@ function TilesetAnim.bindPair(pair, atlas)
 end
 
 function TilesetAnim.setVisiblePairs(visible)
-  TilesetAnim._visible = {}
-  for pair in pairs(visible) do TilesetAnim._visible[pair] = true end
+  local set = TilesetAnim._visible
+  for pair in pairs(set) do set[pair] = nil end
+  for pair in pairs(visible) do set[pair] = true end
 end
 
 local function get_frame_piece(bank, frame, mi, frameRgba)

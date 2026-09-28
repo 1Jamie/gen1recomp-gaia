@@ -355,6 +355,27 @@ do
   package.loaded["src.core.game3.runtime"] = rt
 end
 
+do
+  print("[test] Emerald {STR_VAR_1}'s nickname? title prints the species once")
+  local TextIR = require("src.core.game3.scripting.text_ir")
+  local savedRT = package.loaded["src.core.game3.rom_text"]
+  local savedNaming = package.loaded["src.ui.game3.naming"]
+  local savedProvider = TextIR._provider
+  package.loaded["src.core.game3.rom_text"] = {
+    plain = function(_, ctx) return TextIR.toPlain(TextIR.fromAscii("{STR_VAR_1}'s nickname?"), ctx or {}) end,
+  }
+  package.loaded["src.ui.game3.naming"] = nil
+  local EmNaming = require("src.ui.game3.naming")
+  TextIR.setContextProvider(function(kind)
+    if kind == "stringVars" then return { "MUDKIP" } end
+  end)
+  local title = EmNaming.monTitle("MUDKIP")
+  check(title == "MUDKIP's nickname?", "title is " .. title)
+  TextIR.setContextProvider(savedProvider)
+  package.loaded["src.core.game3.rom_text"] = savedRT
+  package.loaded["src.ui.game3.naming"] = savedNaming
+end
+
 if failed == 0 then
   print("\nAll game3 nickname tests passed.")
   os.exit(0)

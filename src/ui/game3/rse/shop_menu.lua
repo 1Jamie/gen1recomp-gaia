@@ -468,31 +468,72 @@ local function draw_money_label()
 end
 
 local iconsImage
+local blankIcons = {}
+
+-- pokeemerald/src/decoration.c:2103
+local function draw_object_icon(id, x, y)
+  local Decor = require("src.core.game3.rse.decoration")
+  local d = Decor.info(id)
+  if not d then return end
+  love.graphics.setColor(1, 1, 1, 1)
+  if d.permission == Decor.PERM.SPRITE then
+    local spr = require("src.core.game3.ow_sprites").getDraw(d.tiles[1])
+    local q = spr and spr.quads and spr.quads[0]
+    if q then love.graphics.draw(spr.image, q, x - spr.width / 2, y - spr.height / 2) end
+    return
+  end
+  local NT = require("src.core.game3.tileset_native")
+  -- pokeemerald/src/decoration.c:2117
+  local ts = NT.get(Decor.ICON_PAIR)
+  if not ts then return end
+  local w, h = Decor.dims(id)
+  -- pokeemerald/src/decoration.c:2159
+  if id == Decor.DECOR_SILVER_SHIELD or id == Decor.DECOR_GOLD_SHIELD then y = y - 4 end
+  local x0, y0 = x - w * 8, y - h * 8
+  for j = 0, h - 1 do
+    for i = 0, w - 1 do
+      local tile = d.tiles[j * w + i + 1] or 0
+      local slot = NT.slotFor(ts, tile + Decor.PRIMARY)
+      -- pokeemerald/src/data/decoration/tilemaps.h:112
+      local img = Decor.layerType(tile) == 1 and ts.midImage or ts.overImage
+      local q = img and NT.quad(ts, slot)
+      if q then love.graphics.draw(img, q, x0 + i * 16, y0 + j * 16) end
+    end
+  end
+end
 
 local function draw_icon(shop, id)
   if is_decor(shop) and id ~= nil then
+    if blankIcons[id] then return draw_object_icon(id, 20, 84) end
     if iconsImage == nil then
       local rel = "data/generated/gba/decorations/icons.rgba"
       local bytes = require("src.core.game3.dataset").cache():read(rel)
       local n = bytes and math.floor(#bytes / (24 * 24 * 4)) or 0
       if n > 0 then
+        local stride = 24 * 24 * 4
+        for k = 0, n - 1 do
+          local chunk = bytes:sub(k * stride + 1, (k + 1) * stride)
+          if not chunk:find("[^%z]") then blankIcons[k] = true end
+        end
         iconsImage = love.graphics.newImage(love.image.newImageData(24, 24 * n, "rgba8", bytes))
         iconsImage:setFilter("nearest", "nearest")
       else
         iconsImage = false
       end
     end
+    if blankIcons[id] then return draw_object_icon(id, 20, 84) end
     if iconsImage then
       local _, h = iconsImage:getDimensions()
       love.graphics.setColor(1, 1, 1, 1)
-      -- pokeemerald/src/shop.c:681
+      -- pokeemerald/src/shop.c:699
       love.graphics.draw(iconsImage, love.graphics.newQuad(0, id * 24, 24, 24, 24, h), 20 - 12, 84 - 12)
     end
     return
   end
-  local ok, BagChrome = pcall(require, "src.ui.game3.bag_chrome")
-  -- pokeemerald/src/shop.c:672
-  if ok and BagChrome then pcall(BagChrome.drawItemIcon, id or ItemsData.ITEMS_COUNT, 24 - 12, 88 - 12) end
+  local BagChrome = require("src.ui.game3.rse.bag_chrome")
+  local icon = id ~= nil and ItemsData.toNumericId(id) or BagChrome.returnIconIndex()
+  -- pokeemerald/src/shop.c:693
+  BagChrome.drawItemIcon(icon, 24 - 16, 88 - 16)
 end
 
 function RseShop.draw(shop)

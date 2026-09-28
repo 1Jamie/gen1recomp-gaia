@@ -77,7 +77,9 @@ function NativePack.buildLayeredIdx(bundle, midList)
     Metatile.compositeIndexedUnder, bundle, midList, NativePack.FLAG_LAYERED)
   local over = build_idx_with(
     Metatile.compositeIndexedOver, bundle, midList, NativePack.FLAG_LAYERED)
-  return under, over
+  local middle = build_idx_with(
+    Metatile.compositeIndexedMiddle, bundle, midList, NativePack.FLAG_LAYERED)
+  return under, over, middle
 end
 
 function NativePack.encodeIdx(tbl)
@@ -517,11 +519,12 @@ function NativePack.writeExtract(cache, root, bundles, grids, borders, pairNames
     if bundle then
       local midList = midLists and midLists[pairName]
         or NativePack.collectMidsForPair(grids, borders, pairName, scriptMids)
-      local underTbl, overTbl = NativePack.buildLayeredIdx(bundle, midList)
+      local underTbl, overTbl, middleTbl = NativePack.buildLayeredIdx(bundle, midList)
       local palBlob = NativePack.encodePalettes(bundle.mapPals)
       local pairDir = NativeRoot .. "/" .. pairName
       cache:write(pairDir .. "/mids.idx", NativePack.encodeIdx(underTbl))
       cache:write(pairDir .. "/mids_over.idx", NativePack.encodeIdx(overTbl))
+      cache:write(pairDir .. "/mids_mid.idx", NativePack.encodeIdx(middleTbl))
       cache:write(pairDir .. "/palettes.bin", palBlob)
       manifest.pairs[pairName] = {
         midCount = underTbl.midCount,

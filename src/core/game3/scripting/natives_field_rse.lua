@@ -976,7 +976,7 @@ local STORY = {
   -- pokeemerald/src/field_specials.c:1455
   IsPokerusInParty = function()
     local Pokemon = require("src.core.game3.pokemon")
-    return boolRet(Pokemon.checkPartyPokerus(partyOf(), 0x3F) and true or false)
+    return boolRet(Pokemon.checkPartyPokerus(partyOf(), 0x3F) ~= 0)
   end,
   -- pokeemerald/src/field_specials.c:1572
   MonOTNameNotPlayer = function(ctx, adapters)

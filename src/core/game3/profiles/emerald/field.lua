@@ -1,4 +1,6 @@
 return {
+  -- pokeemerald/src/field_control_avatar.c:172
+  walkIntoSigns = false,
   -- pokeemerald/src/event_object_movement.c:4422
   inPlaceMovementTypes = true,
   -- pokeemerald/src/data/object_events/object_event_anims.h:346

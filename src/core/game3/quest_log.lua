@@ -5,6 +5,12 @@ local function copy(v)
   if type(v)~='table' then return v end
   local t={}; for k,x in pairs(v) do t[k]=copy(x) end; return t
 end
+local function sameFlat(a,b)
+  if type(a)~='table' or type(b)~='table' then return false end
+  for k,v in pairs(b) do if type(v)=='table' or a[k]~=v then return false end end
+  for k in pairs(a) do if b[k]==nil then return false end end
+  return true
+end
 local function empty() return {version=1,scenes={}} end
 function Q.restore(value)
   local log=empty()
@@ -67,12 +73,19 @@ function Q.sample(session,frame,elapsed)
   scene.frames[#scene.frames+1]=copy(frame)
 end
 -- Tiles are deduplicated per scene, outside the 10 Hz actor samples.
-function Q.addTiles(session,tiles)
+function Q.tileScene(session)
   local scenes=session and session.questLog and session.questLog.scenes
   local scene=scenes and scenes[#scenes]
-  if session._questNewScene or not scene or scene.map~=session.map or #scene.frames>=Q.MAX_FRAMES then return end
+  if session._questNewScene or not scene or scene.map~=session.map or #scene.frames>=Q.MAX_FRAMES then return nil end
   scene.tiles=scene.tiles or {}
-  for key,tile in pairs(tiles or {}) do scene.tiles[key]=copy(tile) end
+  return scene
+end
+function Q.addTiles(session,tiles)
+  local scene=Q.tileScene(session)
+  if not scene then return end
+  for key,tile in pairs(tiles or {}) do
+    if not sameFlat(scene.tiles[key],tile) then scene.tiles[key]=copy(tile) end
+  end
 end
 local Playback={}; Playback.__index=Playback
 function Q.playback(log,finalScene)

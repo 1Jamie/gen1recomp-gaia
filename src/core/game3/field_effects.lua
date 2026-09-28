@@ -2050,6 +2050,8 @@ function FieldEffects.collectActors(actors)
         actors[#actors + 1] = {
           kind = "field_effect_emote",
           elevation = t and t.elevation or 3,
+          -- pokeemerald/src/trainer_see.c:733
+          oamPriority = 1,
           sortY = oy + 0.5,
           x = sx,
           y = sy,

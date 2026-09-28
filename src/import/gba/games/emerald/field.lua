@@ -16,7 +16,8 @@ return function(V)
       { name = "exclamation_question_mark", template = sym("trainer_see.o:sSpriteTemplate_ExclamationQuestionMark") },
       { name = "heart_icon", template = sym("trainer_see.o:sSpriteTemplate_HeartIcon") },
       { name = "pokeball_glow", template = sym("field_effect.o:sSpriteTemplate_PokeballGlow") },
-      { name = "pokecenter_monitor", template = sym("field_effect.o:sSpriteTemplate_PokecenterMonitor") },
+      -- pokeemerald/src/field_effect.c:413
+      { name = "pokecenter_monitor", template = sym("field_effect.o:sSpriteTemplate_PokecenterMonitor"), frame = { 24, 16 } },
       { name = "hof_monitor_big", template = sym("field_effect.o:sSpriteTemplate_HofMonitorBig") },
       { name = "hof_monitor_small", template = sym("field_effect.o:sSpriteTemplate_HofMonitorSmall") },
       { name = "deoxys_rock_fragment", template = sym("field_effect.o:sSpriteTemplate_DeoxysRockFragment") },

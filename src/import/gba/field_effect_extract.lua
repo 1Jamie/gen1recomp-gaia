@@ -223,9 +223,10 @@ local function rsePalettes(rom, V)
   return byTag, slots
 end
 
-local function rseObject(rom, S, G, cache, root, name, off, byTag, slots, symbol, palStruct)
+local function rseObject(rom, S, G, cache, root, name, off, byTag, slots, symbol, palStruct, frame)
   local t = G.readTemplate(rom, S, off)
   local fw, fh = t.oam.w, t.oam.h
+  if frame then fw, fh = frame[1], frame[2] end
   local entry = {
     name = name,
     symbol = symbol,
@@ -316,7 +317,7 @@ function FieldEffectExtract.runRse(rom, cache, opts)
   end
   for _, x in ipairs(F.extras or {}) do
     extras[#extras + 1] = rseObject(rom, S, G, cache, root, x.name, x.template, byTag, slots,
-      G.symName(S, x.template), x.palette)
+      G.symName(S, x.template), x.palette, x.frame)
   end
   local streaks = {}
   for kind, spec in pairs(V.FIELD_MOVE_STREAKS or {}) do

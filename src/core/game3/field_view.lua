@@ -437,6 +437,7 @@ local ELEVATION_TO_PRIORITY = {
 }
 
 local function actorPriority(a)
+  if a.oamPriority then return a.oamPriority end
   if a.kind == "player" then
     local PlayerMod = package.loaded["src.core.game3.player"]
     if PlayerMod and (PlayerMod.jumping or PlayerMod.surfHopping) then
@@ -576,7 +577,8 @@ local function collectGame3Actors(game, mapDef, camX, camY, px, py, facing, walk
       a.facing = eo.facing or "down"
       a.walkPhase = Objects.walkPhase(eo)
       a.stepFlip = eo.stepFlip and true or false
-      a.bow = (eo.bowFrames and eo.bowFrames > 0) or eo.raiseHand == true
+      -- pokeemerald/src/data/object_events/object_event_anims.h:602
+      a.bow = (eo.bowFrames and eo.bowFrames > 8 and eo.bowFrames <= 40) or eo.raiseHand == true
       a.frame = eo.customFrame
       a.sprite = eo.sprite or spriteNameForObj(eo.def or {})
       a.graphicsId = eo.graphicsId or (eo.def and (eo.def.graphicsId or eo.def.graphics))
@@ -856,17 +858,8 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
       cellsByPair = {}
       FieldView._nativeCellsByPair = cellsByPair
     else
-      for k, list in pairs(cellsByPair) do
-        for i = #list, 1, -1 do list[i] = nil end
-      end
+      for _, list in pairs(cellsByPair) do list.n = 0 end
     end
-
-    local cellPool = FieldView._nativeCellPool
-    if not cellPool then
-      cellPool = {}
-      FieldView._nativeCellPool = cellPool
-    end
-    local poolIdx = 0
 
     local voidHas, voidPrimary = nil, nil
     if voidMode ~= "map" and voidMode ~= "black" then
@@ -875,10 +868,12 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
     end
     for row = 0, rows - 1 do
       for col = 0, cols - 1 do
-        local mid, srcPair, isVoid = layout:midAt(cx0 + col, cy0 + row), pair, false
+        local mid, srcPair, isVoid
         if Map.worldMidAt then
           mid, srcPair, isVoid = Map.worldMidAt(cx0 + col, cy0 + row, mapDef)
           srcPair = srcPair or pair
+        else
+          mid, srcPair, isVoid = layout:midAt(cx0 + col, cy0 + row), pair, false
         end
         local skip = false
         if isVoid and voidMode ~= "map" then
@@ -895,24 +890,25 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
         if not skip then
           local list = cellsByPair[srcPair]
           if not list then
-            list = {}
+            list = { n = 0 }
             cellsByPair[srcPair] = list
           end
-          poolIdx = poolIdx + 1
-          local c = cellPool[poolIdx]
-          if not c then
-            c = {}
-            cellPool[poolIdx] = c
-          end
-          c.mid = mid
-          c.x = col * CELL
-          c.y = row * CELL
-          list[#list + 1] = c
+          local n = list.n + 1
+          list.n = n
+          list[n * 3 - 2], list[n * 3 - 1], list[n * 3] = mid, col * CELL, row * CELL
         end
       end
     end
+    local visiblePairs = FieldView._nativeVisiblePairs
+    if not visiblePairs then
+      visiblePairs = {}
+      FieldView._nativeVisiblePairs = visiblePairs
+    else
+      for k in pairs(visiblePairs) do visiblePairs[k] = nil end
+    end
     for srcPair, cells in pairs(cellsByPair) do
-      local ts = NativeTileset.get(srcPair)
+      if cells.n > 0 then visiblePairs[srcPair] = true end
+      local ts = cells.n > 0 and NativeTileset.get(srcPair)
       if ts and ts.image then
         local batch = ensure_batch(FieldView._nativeBatches, srcPair, ts.image, capacity)
         batch:clear()
@@ -922,14 +918,15 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
             FieldView._nativeOverBatches, srcPair, ts.overImage, capacity)
           overBatch:clear()
         end
-        for _, cell in ipairs(cells) do
-          local slot = NativeTileset.slotFor(ts, cell.mid)
+        for i = 1, cells.n * 3, 3 do
+          local x, y = cells[i + 1], cells[i + 2]
+          local slot = NativeTileset.slotFor(ts, cells[i])
           local q = NativeTileset.quad(ts, slot)
-          if q then batch:add(q, cell.x, cell.y) end
+          if q then batch:add(q, x, y) end
           if overBatch then
             local oq = NativeTileset.overQuad(ts, slot)
             if oq then
-              overBatch:add(oq, cell.x, cell.y)
+              overBatch:add(oq, x, y)
             end
           end
         end
@@ -938,7 +935,7 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
     local TilesetAnim = package.loaded["src.core.game3.tileset_anim"]
       or require("src.core.game3.tileset_anim")
     if TilesetAnim and TilesetAnim.setVisiblePairs then
-      TilesetAnim.setVisiblePairs(cellsByPair)
+      TilesetAnim.setVisiblePairs(visiblePairs)
     end
     FieldView._nativeBx = cx0
     FieldView._nativeBy = cy0

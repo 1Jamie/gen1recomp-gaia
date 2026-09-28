@@ -6,6 +6,7 @@ local Decor = {}
 Decor.MANIFEST = "data/generated/gba/secret_base/manifest.lua"
 -- pokeemerald/include/fieldmap.h:4
 Decor.PRIMARY = 0x200
+Decor.ICON_PAIR = "secret_base__secret_base_red_cave"
 -- pokeemerald/include/constants/global.h:57
 Decor.MAX_SECRET_BASE = 16
 Decor.MAX_PLAYERS_HOUSE = 12

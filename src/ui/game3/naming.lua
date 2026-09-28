@@ -32,9 +32,10 @@ Naming.TEMPLATE = {
 -- pokeemerald/include/naming_screen.h:7
 Naming.TEMPLATE_ORDER = { "PLAYER", "BOX", "CAUGHT_MON", "NICKNAME", "WALDA" }
 
--- src/naming_screen.c:1714
+-- pokeemerald/src/naming_screen.c:1715
 function Naming.monTitle(speciesName)
-  return tostring(speciesName or "") .. RomText.plain("gText_PkmnsNickname")
+  -- pokeemerald/src/text.c:972
+  return tostring(speciesName or "") .. RomText.plain("gText_PkmnsNickname", { stringVars = {} })
 end
 
 -- pret sKeyboardChars + sPageColumnXPos (cursor).

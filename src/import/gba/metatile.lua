@@ -124,6 +124,17 @@ function Metatile.compositeIndexedOver(bundle, mid)
   return Metatile.compositeIndexedTop(bundle, mid)
 end
 
+-- pokeemerald/src/field_camera.c:245
+function Metatile.compositeIndexedMiddle(bundle, mid)
+  local lt = Metatile.layerType(bundle, mid)
+  if lt == Metatile.LAYER_NORMAL then
+    return Metatile.compositeIndexedBottom(bundle, mid)
+  elseif lt == Metatile.LAYER_COVERED then
+    return Metatile.compositeIndexedTop(bundle, mid)
+  end
+  return empty_idx()
+end
+
 --- Flat composite (bottom then top). Used by demake/quantize paths.
 function Metatile.compositeIndexed(bundle, mid)
   local entries = Tileset.metatileEntries(bundle.primaryMt, bundle.secondaryMt, mid)

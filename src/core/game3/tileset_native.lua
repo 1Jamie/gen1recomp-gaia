@@ -141,6 +141,11 @@ local function load_pair(cache, pair)
         ts.overBlob = overBlob
       end
     end
+    local midBlob = cache:read(NATIVE .. "/" .. pair .. "/mids_mid.idx")
+    local midTbl = midBlob and NativePack.decodeIdx(midBlob)
+    if midTbl then
+      ts.midImage = bake_or_load(cache, pair, midTbl, rgb, Palette.hash(bgr, midBlob), "m", true)
+    end
   end
 
   return ts

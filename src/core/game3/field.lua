@@ -744,6 +744,8 @@ local WALK_INTO_SIGN = {
 function Field.tryWalkIntoSign(game, dir, probe)
   game = game or Field._game
   if dir ~= "up" and dir ~= "down" then return false end
+  local FP = require("src.core.game3.profile").forSession(Field._session)
+  if FP and FP.field and FP.field.walkIntoSigns == false then return false end
   local input = game and game.input
   if input and input.isDown and (input:isDown("left") or input:isDown("right")) then return false end
   if not Field.running or Field.locked then return false end
