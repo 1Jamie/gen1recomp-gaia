@@ -232,12 +232,27 @@ return function(game)
   local OptionMenu = require("src.ui.game3.rse.option_menu")
   check(topId() == "option" and OptionMenu.isOpen(), "OPTION opens the Emerald option menu")
   shot(game, "06_options")
-  tapWait(game, "down", 10)
+  local function rowIndex(id)
+    local p = OptionMenu._st.pages[#OptionMenu._st.pages]
+    for i, r in ipairs(p.rows) do if r.id == id then return i end end
+  end
+  local top = OptionMenu._st.pages[1].rows
+  check(top[1] and top[1].id == "group.speed" and rowIndex("textSpeed") == nil,
+    "cart options are filed into the FRLG categories")
+  local gi = rowIndex("group.graphics")
+  check(gi ~= nil, "GRAPHICS category row")
+  for _ = 1, (gi or 1) - 1 do tapWait(game, "down", 6) end
   shot(game, "06_options_down")
-  for _ = 1, 4 do tapWait(game, "down", 6) end
+  tapWait(game, "a", 10)
+  local fi = rowIndex("frameType")
+  check(fi ~= nil and OptionMenu._st.pages[#OptionMenu._st.pages].rows[fi].cart ~= nil,
+    "FRAME is a cart row inside GRAPHICS")
+  shot(game, "06_options_graphics")
+  for _ = 1, (fi or 1) - 1 do tapWait(game, "down", 6) end
   tapWait(game, "right", 10)
   check(Options.block(session.engineOptions or game.options).frameType == 5, "RIGHT on FRAME steps the frame type")
   tapWait(game, "left", 10)
+  tapWait(game, "b", 60)
   tapWait(game, "b", 60)
   check(topId() == "start", "B leaves the option menu")
 

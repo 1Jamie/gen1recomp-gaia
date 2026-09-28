@@ -61,11 +61,15 @@ local function setCart(key, v)
 end
 
 local function portRows()
-  local cartIds = {}
-  for _, r in ipairs(OptionMenu.CART) do cartIds[r.id] = true end
+  local cartRows = {}
+  for _, r in ipairs(OptionMenu.CART) do cartRows[r.id] = { id = r.id, cart = r } end
   local rows = {}
   for _, r in ipairs(Rows.build(st.ctx)) do
-    if not cartIds[r.id] then rows[#rows + 1] = r end
+    rows[#rows + 1] = cartRows[r.id] or r
+    cartRows[r.id] = nil
+  end
+  for _, r in ipairs(OptionMenu.CART) do
+    if cartRows[r.id] then rows[#rows + 1] = cartRows[r.id] end
   end
   return Rows.group(rows, function(title, members)
     st.pages[#st.pages + 1] = { title = title, rows = members, index = 1, scroll = 0 }
@@ -85,9 +89,7 @@ function OptionMenu.show(opts)
   st.ctx = { session = opts.session, game = game, options = engine }
   st.onClose = opts.onClose
   st.pages = {}
-  local rows = {}
-  for _, r in ipairs(OptionMenu.CART) do rows[#rows + 1] = { cart = r } end
-  for _, r in ipairs(portRows()) do rows[#rows + 1] = r end
+  local rows = portRows()
   table.insert(st.pages, 1, { title = RomText.plain("gText_Option"), rows = rows, index = 1, scroll = 0, top = true })
   while #st.pages > 1 do table.remove(st.pages) end
   st.k = 0

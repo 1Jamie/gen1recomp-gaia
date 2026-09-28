@@ -801,6 +801,64 @@ local function ensure_batch(store, srcPair, texture, capacity)
   return batch
 end
 
+FieldView.VOID_FADE_FRAMES = 20
+local voidKeys = setmetatable({}, { __index = function(t, pair)
+  local k = "void|" .. pair
+  t[pair] = k
+  return k
+end })
+
+local function isVoidKey(k)
+  return type(k) == "string" and k:sub(1, 5) == "void|"
+end
+
+local function connectedTo(Map, def)
+  for _, n in ipairs(Map.neighborList or {}) do
+    if n.def == def then return true end
+  end
+  return false
+end
+
+local function beginVoidFade(Map, mapDef, camX, camY, voidMode)
+  local prev = FieldView._voidMapDef
+  if prev == mapDef then return end
+  FieldView._voidMapDef = mapDef
+  FieldView._voidFrom = nil
+  if not (prev and voidMode == "map" and FieldView._lastCamX and connectedTo(Map, prev)) then return end
+  local from = { under = {}, over = {}, bx = FieldView._nativeBx or 0, by = FieldView._nativeBy or 0,
+    dx = FieldView._lastCamX - camX, dy = FieldView._lastCamY - camY, t = 0 }
+  for _, store in ipairs({ { FieldView._nativeBatches, from.under }, { FieldView._nativeOverBatches, from.over } }) do
+    for k, b in pairs(store[1] or {}) do
+      if isVoidKey(k) then
+        store[2][k] = b
+        store[1][k] = nil
+      end
+    end
+  end
+  if next(from.under) then FieldView._voidFrom = from end
+  FieldView._nativeDirty = true
+end
+
+local function drawVoidFrom(batches, camX, camY)
+  local f = FieldView._voidFrom
+  if not f then return end
+  love.graphics.setColor(1, 1, 1, 1 - f.t / FieldView.VOID_FADE_FRAMES)
+  local x, y = f.bx * CELL - (camX + f.dx), f.by * CELL - (camY + f.dy)
+  for _, b in pairs(batches) do love.graphics.draw(b, x, y) end
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
+local function drawLayer(batches, pair, ox, oy, fromBatches, camX, camY)
+  for k, b in pairs(batches) do
+    if isVoidKey(k) then love.graphics.draw(b, ox, oy) end
+  end
+  if fromBatches then drawVoidFrom(fromBatches, camX, camY) end
+  if batches[pair] then love.graphics.draw(batches[pair], ox, oy) end
+  for k, b in pairs(batches) do
+    if k ~= pair and not isVoidKey(k) then love.graphics.draw(b, ox, oy) end
+  end
+end
+
 --- Prefer native mid atlas when ready. Supports cross-pair connection seams
 -- (e.g. Route1 pallet_outdoor → Viridian viridian_outdoor) by batching per pair.
 -- Draws under-layer (BG3/BG1) only; call drawNativeOverTiles after sprites for BG2.
@@ -836,6 +894,7 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
     or require("src.core.game3.map")
   local VoidFill = require("src.core.game3.void_fill")
   local voidMode = VoidFill.normalize(VoidFill.mode)
+  beginVoidFade(Map, mapDef, camX, camY, voidMode)
 
   if FieldView._nativeDirty
       or FieldView._nativeVoid ~= voidMode
@@ -888,10 +947,11 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
           srcPair = pair
         end
         if not skip then
-          local list = cellsByPair[srcPair]
+          local key = (isVoid and voidMode == "map") and voidKeys[srcPair] or srcPair
+          local list = cellsByPair[key]
           if not list then
-            list = { n = 0 }
-            cellsByPair[srcPair] = list
+            list = { n = 0, pair = srcPair }
+            cellsByPair[key] = list
           end
           local n = list.n + 1
           list.n = n
@@ -906,16 +966,17 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
     else
       for k in pairs(visiblePairs) do visiblePairs[k] = nil end
     end
-    for srcPair, cells in pairs(cellsByPair) do
+    for key, cells in pairs(cellsByPair) do
+      local srcPair = cells.pair
       if cells.n > 0 then visiblePairs[srcPair] = true end
       local ts = cells.n > 0 and NativeTileset.get(srcPair)
       if ts and ts.image then
-        local batch = ensure_batch(FieldView._nativeBatches, srcPair, ts.image, capacity)
+        local batch = ensure_batch(FieldView._nativeBatches, key, ts.image, capacity)
         batch:clear()
         local overBatch = nil
         if ts.layered and ts.overImage then
           overBatch = ensure_batch(
-            FieldView._nativeOverBatches, srcPair, ts.overImage, capacity)
+            FieldView._nativeOverBatches, key, ts.overImage, capacity)
           overBatch:clear()
         end
         for i = 1, cells.n * 3, 3 do
@@ -950,14 +1011,14 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
   FieldView._nativeOverOx = ox
   FieldView._nativeOverOy = oy
   FieldView._nativeOverPair = pair
-  if FieldView._nativeBatches[pair] then
-    love.graphics.draw(FieldView._nativeBatches[pair], ox, oy)
+  FieldView._nativeCamX, FieldView._nativeCamY = camX, camY
+  local from = FieldView._voidFrom
+  drawLayer(FieldView._nativeBatches, pair, ox, oy, from and from.under, camX, camY)
+  if from then
+    from.t = from.t + 1
+    if from.t >= FieldView.VOID_FADE_FRAMES then FieldView._voidFrom = nil end
   end
-  for srcPair, batch in pairs(FieldView._nativeBatches) do
-    if srcPair ~= pair then
-      love.graphics.draw(batch, ox, oy)
-    end
-  end
+  FieldView._lastCamX, FieldView._lastCamY = camX, camY
 
   if not FieldView._loggedNative then
     log("native mid atlas ON pair=" .. tostring(pair))
@@ -974,14 +1035,9 @@ local function drawNativeOverTiles()
   local ox = FieldView._nativeOverOx or 0
   local oy = FieldView._nativeOverOy or 0
   love.graphics.setColor(1, 1, 1, 1)
-  if pair and batches[pair] then
-    love.graphics.draw(batches[pair], ox, oy)
-  end
-  for srcPair, batch in pairs(batches) do
-    if srcPair ~= pair then
-      love.graphics.draw(batch, ox, oy)
-    end
-  end
+  local from = FieldView._voidFrom
+  drawLayer(batches, pair, ox, oy, from and from.over,
+    FieldView._nativeCamX or 0, FieldView._nativeCamY or 0)
 end
 
 local function rseFamily()
@@ -1461,6 +1517,8 @@ function FieldView.invalidate()
   FieldView._nativeBatch = nil
   FieldView._nativeBatches = nil
   FieldView._nativeOverBatches = nil
+  FieldView._voidFrom, FieldView._voidMapDef = nil, nil
+  FieldView._lastCamX, FieldView._lastCamY = nil, nil
   FieldView._nativeBx = nil
   FieldView._nativeBy = nil
   FieldView._nativePair = nil
