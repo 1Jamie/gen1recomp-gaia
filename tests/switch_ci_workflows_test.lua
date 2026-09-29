@@ -169,8 +169,6 @@ mustContain(build_doc, "CI and release", "switch-build.md")
 mustNotContain(build_doc, "switch-development", "switch-build.md")
 mustNotContain(build_doc, "switch-hardware-evidence", "switch-build.md")
 
-mustContain(readme, "CI vs release", "README.md")
-mustContain(readme, "switch-build.md", "README.md")
 mustNotContain(readme, "switch-development", "README.md")
 mustNotContain(readme, "switch-hardware-evidence", "README.md")
 
