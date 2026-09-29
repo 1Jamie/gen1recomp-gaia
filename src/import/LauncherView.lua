@@ -123,6 +123,10 @@ function LauncherView.detach(imp)
   end
   Transition.reset()
   Kit.occlude(nil)
+  if imp and imp._themeVideo then
+    imp._themeVideo:release()
+    imp._themeVideo = nil
+  end
   if not imp or not imp._flex then return end
   imp._flex = nil
   if love.keyboard and love.keyboard.setKeyRepeat then
@@ -175,6 +179,24 @@ end
 -- below is the other half of that guarantee.
 function LauncherView.update(imp, dt)
   if not imp._flex then return end
+  local settingsOptions = imp._settings and imp._settings.opts
+  if type(settingsOptions) == "table" then
+    imp._themeVideoOptions = settingsOptions
+  elseif not imp._themeVideoOptions then
+    local ok, options = pcall(require("src.core.SaveData").loadOptions)
+    imp._themeVideoOptions = ok and type(options) == "table" and options or {}
+  end
+  local videoEnabled = imp._themeVideoOptions.themeVideoBg ~= false
+  if videoEnabled and not imp._themeVideo then
+    local ok, player = pcall(function()
+      return require("src.import.LauncherThemeVideo").new()
+    end)
+    if ok then imp._themeVideo = player end
+  elseif not videoEnabled and imp._themeVideo then
+    imp._themeVideo:release()
+    imp._themeVideo = nil
+  end
+  if imp._themeVideo then imp._themeVideo:update(dt) end
   if imp._launchFade then return end
 
   local down = false
@@ -6807,6 +6829,7 @@ function LauncherView.draw(imp)
   Toast.occlude(imp)
 
   Theme.field()
+  if imp._themeVideo then imp._themeVideo:draw() end
 
   -- Everything from here to buildModals sits UNDER any open modal, so the
   -- whole stage draws shielded (no clicks, no hover, no focus ring) while

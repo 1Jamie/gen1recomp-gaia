@@ -798,6 +798,16 @@ function LauncherSettings.open(hooks, version)
         end,
       },
       {
+        label = Strings("Theme Video BG"),
+        value = function()
+          return opts.themeVideoBg == false and Strings("OFF") or Strings("ON")
+        end,
+        step = function()
+          opts.themeVideoBg = opts.themeVideoBg == false
+          return true
+        end,
+      },
+      {
         label = Strings("Splash Sound"),
         value = function()
           return opts.splashMute == true and Strings("OFF") or Strings("ON")
