@@ -87,9 +87,17 @@ function Fade:_finish()
 end
 
 function Fade.draw()
-  if not Fade.active and (Fade.t or 0) <= 0 then return end
+  if not Fade.active and (Fade.t or 0) <= 0 then
+    local okR, Renderer = pcall(require, "src.render.Renderer")
+    if okR and Renderer then Renderer.screenVeil = nil end
+    return
+  end
   local a = (Fade.t or 0) / 16
-  if a <= 0 then return end
+  if a <= 0 then
+    local okR, Renderer = pcall(require, "src.render.Renderer")
+    if okR and Renderer then Renderer.screenVeil = nil end
+    return
+  end
   local r, g, b = targetColor(Fade.mode)
 
   local okR, Renderer = pcall(require, "src.render.Renderer")

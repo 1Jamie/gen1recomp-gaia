@@ -329,12 +329,36 @@ end
 
 function ListMenu.drawArrow(dir, cx, cy, t)
   if not (love and love.graphics) then return end
-  local art = ListMenu.loadArrows()
-  local frame = art.frames[dir]
-  if not frame then return end
-  local dx, dy = ListMenu.bounce(frame.bounce, t)
-  love.graphics.setColor(1, 1, 1, 1)
-  love.graphics.draw(art.image, frame.quad, cx - art.w / 2 + dx, cy - art.h / 2 + dy)
+  local drawn = false
+  local ok, art = pcall(ListMenu.loadArrows)
+  if ok and art and type(art) == "table" then
+    local frame = art.frames and art.frames[dir]
+    if frame then
+      local dx, dy = ListMenu.bounce(frame.bounce, t)
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.draw(art.image, frame.quad, cx - art.w / 2 + dx, cy - art.h / 2 + dy)
+      drawn = true
+    end
+  end
+  if not drawn then
+    local okR, RseBagChrome = pcall(require, "src.ui.game3.rse.bag_chrome")
+    if okR and RseBagChrome and RseBagChrome.drawArrow and RseBagChrome.manifest and RseBagChrome.manifest() then
+      local okD = pcall(RseBagChrome.drawArrow, dir, cx, cy, t)
+      if okD then drawn = true end
+    end
+  end
+  if not drawn then
+    local okB, BagChrome = pcall(require, "src.ui.game3.bag_chrome")
+    if okB and BagChrome and BagChrome.drawArrow then
+      local okD = pcall(BagChrome.drawArrow, dir, cx - 8, cy - 8)
+      if okD then drawn = true end
+    end
+  end
+  if not drawn then
+    local dy = (dir == "up" and -1 or 1) * math.floor(math.sin(((t or 0) % 256) * math.pi * 2 / 32) * 2 + 0.5)
+    local glyph = (dir == "up" and FrlgFont.CHAR_UP_ARROW) or (dir == "down" and FrlgFont.CHAR_DOWN_ARROW) or FrlgFont.CHAR_SELECTOR_ARROW
+    FrlgFont.drawGlyph(glyph, cx - 4, cy - 4 + dy, { colors = FrlgFont.COLOR.NORMAL })
+  end
 end
 
 function ListMenu.drawScrollArrows(template, showUp, showDown, t)

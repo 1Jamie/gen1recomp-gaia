@@ -108,6 +108,8 @@ tools/reimport.local
 
 # Reference decompilation repositories (used for reference / extraction only)
 pokefirered/
+pokeemerald/
+pokeruby/
 pokered/
 pokegold/
 pokecrystal/

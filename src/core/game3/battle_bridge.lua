@@ -430,6 +430,12 @@ function BattleBridge.start(mod, game, foe, opts)
     BattleBridge._remap = nil
     BattleBridge._battleParty = nil
     BattleBridge._finish = nil
+    if opts.firstBattleKind or opts.firstBattle then
+      -- pokeemerald/src/battle_setup.c:952 CB2_EndFirstBattle Overworld_ClearSavedMusic
+      pcall(function()
+        require("src.core.game3.audio").clearSavedSong()
+      end)
+    end
     pcall(function()
       require("src.core.game3.audio").restoreMapSong()
     end)

@@ -21,6 +21,8 @@ StartMenu.cursor = 1
 StartMenu.ENTRIES = {}
 StartMenu._confirmExit = false
 StartMenu._confirmCursor = 2 -- 1=YES, 2=NO (default NO)
+StartMenu.MAX_VISIBLE = 8
+StartMenu._scrollOffset = 0
 
 local function player_label(session)
   local name = (session and (session.name or session.playerName)) or "PLAYER"
@@ -110,6 +112,42 @@ end
 
 function StartMenu.resetCursor()
   StartMenu.cursor = 1
+  StartMenu._scrollOffset = 0
+end
+
+function StartMenu.clampScroll(delta, prevCursor)
+  local maxVisible = (StartMenu._data and StartMenu._data.maxVisible) or StartMenu.MAX_VISIBLE or 8
+  local n = #(StartMenu.ENTRIES or {})
+  local visible = math.min(n, maxVisible)
+  StartMenu._scrollOffset = StartMenu._scrollOffset or 0
+  if visible >= n then
+    StartMenu._scrollOffset = 0
+    return
+  end
+
+  if delta and prevCursor then
+    if prevCursor == 1 and StartMenu.cursor == n then
+      StartMenu._scrollOffset = n - visible
+    elseif prevCursor == n and StartMenu.cursor == 1 then
+      StartMenu._scrollOffset = 0
+    elseif StartMenu.cursor > StartMenu._scrollOffset + visible then
+      StartMenu._scrollOffset = StartMenu.cursor - visible
+    elseif StartMenu.cursor <= StartMenu._scrollOffset then
+      StartMenu._scrollOffset = StartMenu.cursor - 1
+    end
+  else
+    if StartMenu.cursor > StartMenu._scrollOffset + visible then
+      StartMenu._scrollOffset = StartMenu.cursor - visible
+    elseif StartMenu.cursor <= StartMenu._scrollOffset then
+      StartMenu._scrollOffset = math.max(0, StartMenu.cursor - 1)
+    end
+  end
+
+  if StartMenu._scrollOffset < 0 then
+    StartMenu._scrollOffset = 0
+  elseif StartMenu._scrollOffset > n - visible then
+    StartMenu._scrollOffset = n - visible
+  end
 end
 
 function StartMenu.saveOffered(session, game)
@@ -142,6 +180,7 @@ function StartMenu.show(opts)
   local pos = tonumber(StartMenu.cursor) or 1
   if pos < 1 or pos > #StartMenu.ENTRIES then pos = 1 end -- pokefirered/src/menu.c:276
   StartMenu.cursor = pos -- pokefirered/src/start_menu.c:329
+  StartMenu.clampScroll()
   Stack.push("start", StartMenu, { hideBelow = true })
   se("SE_WIN_OPEN")
 end
@@ -173,7 +212,9 @@ function StartMenu.move(delta)
   end
   local n = #StartMenu.ENTRIES
   if n < 1 then return end
+  local prevCursor = StartMenu.cursor
   StartMenu.cursor = ((StartMenu.cursor - 1 + delta) % n) + 1
+  StartMenu.clampScroll(delta, prevCursor)
   se("SE_SELECT")
 end
 
@@ -303,7 +344,8 @@ end
 
 --- pret: content at (22,1), width 7; labels at +8px, rows every 15px.
 function StartMenu.contentTemplate()
-  local n = math.max(1, #StartMenu.ENTRIES)
+  local maxVisible = (StartMenu._data and StartMenu._data.maxVisible) or StartMenu.MAX_VISIBLE or 8
+  local n = math.min(math.max(1, #StartMenu.ENTRIES), maxVisible)
   local d = StartMenu._data
   if d and d.window then
     return Window.template(d.window.left, d.window.top, d.window.width, n * 2 + 2) -- pokeemerald/src/menu.c:493
@@ -329,14 +371,33 @@ function StartMenu.draw()
   local leftPx = tpl.left * 8
   local topPx = tpl.top * 8
   local d = StartMenu._data
-  for i, e in ipairs(StartMenu.ENTRIES) do
-    -- pret: cursor (0, i*15), text (8, i*15) inside the window.
-    local yPx = Window.menuRowPx(topPx, i)
-    if d and d.rowPitch then yPx = topPx + d.textY + (i - 1) * d.rowPitch end
+
+  local maxVisible = (d and d.maxVisible) or StartMenu.MAX_VISIBLE or 8
+  local visibleCount = math.min(#StartMenu.ENTRIES, maxVisible)
+  local scroll = StartMenu._scrollOffset or 0
+
+  for r = 1, visibleCount do
+    local i = scroll + r
+    local e = StartMenu.ENTRIES[i]
+    if not e then break end
+    -- pret: cursor (0, r*15), text (8, r*15) inside the window.
+    local yPx = Window.menuRowPx(topPx, r)
+    if d and d.rowPitch then yPx = topPx + d.textY + (r - 1) * d.rowPitch end
     if not StartMenu._confirmExit and i == StartMenu.cursor then
       Window.cursorPx(leftPx, yPx)
     end
     Window.printPx(e.label, leftPx + Window.CURSOR_WIDTH, yPx)
+  end
+
+  local n = #StartMenu.ENTRIES
+  if n > visibleCount and not StartMenu._confirmExit then
+    local showUp = scroll > 0
+    local showDown = scroll + visibleCount < n
+    StartMenu._frames = ((StartMenu._frames or 0) + 1) % 256
+    local okL, ListMenu = pcall(require, "src.ui.game3.list_menu")
+    if okL and ListMenu and ListMenu.drawScrollArrows then
+      pcall(ListMenu.drawScrollArrows, tpl, showUp, showDown, StartMenu._frames)
+    end
   end
 
   if StartMenu._confirmExit then

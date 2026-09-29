@@ -6,11 +6,62 @@ local RomText = require("src.core.game3.rom_text")
 
 local Field = {}
 
+local _locks = {}
+Field._locks = _locks
+
+function Field.isLocked()
+  if not Field._locks then return false end
+  return next(Field._locks) ~= nil
+end
+
+function Field.lock(tag)
+  tag = tag or "default"
+  Field._locks = Field._locks or {}
+  Field._locks[tag] = true
+end
+
+function Field.unlock(tag)
+  if Field._flyLanding then return end
+  -- pokefirered/src/field_effect.c:1274 FallWarpEffect_7
+  if Field._fallWarp then return end
+  -- pokefirered/src/field_effect.c:2532 TeleportInFieldEffectTask3
+  if Field._fieldCallback then return end
+  -- pokefirered/src/map_preview_screen.c:439
+  local MapPreviewScreen = package.loaded["src.ui.game3.map_preview_screen"]
+  if MapPreviewScreen and MapPreviewScreen.isForestActive() then return end
+
+  Field._locks = Field._locks or {}
+  if tag then
+    Field._locks[tag] = nil
+  else
+    Field._locks["default"] = nil
+  end
+end
+
+setmetatable(Field, {
+  __index = function(t, k)
+    if k == "locked" then
+      return Field.isLocked()
+    end
+    return rawget(t, k)
+  end,
+  __newindex = function(t, k, v)
+    if k == "locked" then
+      if v then
+        Field.lock("default")
+      else
+        Field.unlock("default")
+      end
+      return
+    end
+    rawset(t, k, v)
+  end,
+})
+
 Field.running = false
 Field._mod = nil
 Field._game = nil
 Field._session = nil
-Field.locked = false
 Field.weather = 0
 Field.metatileOverrides = {}
 Field._overrideLayouts = {}
@@ -49,7 +100,7 @@ function Field.start(mod, game, session)
   Field._game = game
   Field._session = session
   Field.running = true
-  Field.locked = false
+  Field._locks = {}
   Field.weather = 0
   Field._waterfall = nil
   Field._fishing = nil
@@ -93,7 +144,7 @@ function Field.stop()
   require("src.world.game3.Follower").reset()
   Field.running = false
   Field._session = nil
-  Field.locked = false
+  Field._locks = {}
   Field._waterfall = nil
   Field._fishing = nil
   Field._flyLanding = nil
@@ -135,7 +186,7 @@ function Field.update(_dt)
         local claiming = Space._pendingOnFrame
         Space._pendingOnFrame = false
         Space._deferOnFrameForFade = false
-        if claiming or not Field.locked then
+        if claiming or not Field.isLocked() then
           Space.runOnFrame()
           -- pokefirered/src/script.c:463 TryRunOnFrameMapScript
           if claiming and not Space.vm:isRunning() then
@@ -226,10 +277,6 @@ function Field.update(_dt)
   require("src.core.game3.itemfinder").update()
 end
 
-function Field.lock()
-  Field.locked = true
-end
-
 -- pokefirered/src/field_effect.c:1104 FieldCallback_FlyIntoMap
 Field._flyLanding = false
 
@@ -248,18 +295,6 @@ function Field.callbackPending()
     if Warp and Warp.isBusy() then return true end
   end
   return false
-end
-
-function Field.unlock()
-  if Field._flyLanding then return end
-  -- pokefirered/src/field_effect.c:1274 FallWarpEffect_7
-  if Field._fallWarp then return end
-  -- pokefirered/src/field_effect.c:2532 TeleportInFieldEffectTask3
-  if Field._fieldCallback then return end
-  -- pokefirered/src/map_preview_screen.c:439
-  local MapPreviewScreen = package.loaded["src.ui.game3.map_preview_screen"]
-  if MapPreviewScreen and MapPreviewScreen.isForestActive() then return end
-  Field.locked = false
 end
 
 local DELTA = { up = { 0, -1 }, down = { 0, 1 }, left = { -1, 0 }, right = { 1, 0 } }

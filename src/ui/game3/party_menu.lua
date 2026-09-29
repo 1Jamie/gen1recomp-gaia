@@ -49,12 +49,28 @@ local FIELD_MOVE_INDEX = {}
 for j, name in ipairs(FIELD_MOVES) do FIELD_MOVE_INDEX[name:gsub("_", " ")] = j - 1 end
 
 -- pokefirered/src/data/party_menu.h:634
-local DESC = { NO_USE = 0, ABLE_3 = 1, FIRST = 2, SECOND = 3, THIRD = 4, ABLE = 5,
+local DESC_FRLG = { NO_USE = 0, ABLE_3 = 1, FIRST = 2, SECOND = 3, THIRD = 4, ABLE = 5,
   NOT_ABLE = 6, ABLE_2 = 7, NOT_ABLE_2 = 8, LEARNED = 9 }
+
+-- pokeemerald/include/constants/party_menu.h:115
+local DESC_EMERALD = { NO_USE = 0, ABLE_3 = 1, FIRST = 2, SECOND = 3, THIRD = 4, FOURTH = 5,
+  ABLE = 6, NOT_ABLE = 7, ABLE_2 = 8, NOT_ABLE_2 = 9, LEARNED = 10 }
+
+local DESC = DESC_FRLG
+
+local function currentSession()
+  return PartyMenu._session or (package.loaded["src.core.game3.runtime"] and package.loaded["src.core.game3.runtime"].getSession and package.loaded["src.core.game3.runtime"].getSession())
+end
+
+local function isRse()
+  local ok, Profile = pcall(require, "src.core.game3.profile")
+  local session = currentSession()
+  return ok and Profile.family(session) == "rse"
+end
 
 local function partyUi()
   local ok, Profile = pcall(require, "src.core.game3.profile")
-  local row = ok and Profile.forSession(PartyMenu._session) or nil
+  local row = ok and Profile.forSession(currentSession()) or nil
   return row and type(row.ui) == "table" and row.ui.party or nil
 end
 
@@ -83,8 +99,8 @@ end
 
 local function pikePartyRestrictions()
   local Profile = require("src.core.game3.profile")
-  if Profile.family(PartyMenu._session) ~= "rse" then return false end
-  return require("src.core.game3.rse.frontier.pike").inBattlePike(PartyMenu._session)
+  if Profile.family(currentSession()) ~= "rse" then return false end
+  return require("src.core.game3.rse.frontier.pike").inBattlePike(currentSession())
 end
 
 local function cursor_option_text(act)
@@ -111,7 +127,9 @@ local function partyText(key, fallback)
 end
 
 local function desc_text(id)
-  return RomText.at("sDescriptionStringTable", DESC[id])
+  local tbl = isRse() and DESC_EMERALD or DESC_FRLG
+  local idx = tbl[id] or DESC_FRLG[id]
+  return RomText.at("sDescriptionStringTable", idx)
 end
 
 local function se(id)
@@ -2463,9 +2481,8 @@ local function hp_bar(hp, maxHp, px, py, width)
   love.graphics.setColor(1, 1, 1, 1)
 end
 
--- BG + text only; OAM sprites flushed by Display.present.
--- pokefirered/src/party_menu.c:848 DisplayPartyPokemonDataForMoveTutorOrEvolutionItem
-local MULTI_ORDER_TEXT = { "FIRST", "SECOND", "THIRD" }
+-- pokeemerald/include/constants/party_menu.h:120
+local MULTI_ORDER_TEXT = { "FIRST", "SECOND", "THIRD", "FOURTH" }
 
 local function slot_description(slot, mon)
   -- pokefirered/src/party_menu.c:839

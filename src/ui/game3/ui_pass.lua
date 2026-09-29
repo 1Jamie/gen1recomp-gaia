@@ -139,12 +139,17 @@ function UiPass.drawUi()
   if okW and WirelessIcon.drawField then tryDraw({ draw = WirelessIcon.drawField }) end
 
   local okF, Fade = pcall(require, "src.ui.game3.fade")
+  local okN, Naming = pcall(require, "src.ui.game3.naming")
   local isNamingOpen = okN and Naming.isOpen and Naming.isOpen()
   local okR, RegionMap = pcall(require, "src.ui.game3.region_map")
   local isRegionMapOpen = okR and RegionMap.isOpen and RegionMap.isOpen()
   local okEC, EasyChat = pcall(require, "src.ui.game3.easy_chat")
   local isEasyChatOpen = okEC and EasyChat.isOpen and EasyChat.isOpen()
-  if okF and Fade.draw and not isNamingOpen and not isRegionMapOpen and not isEasyChatOpen then
+  local isFullscreen = Stack.fullscreen() or Stack.has("bag") or BagMenu.isOpen()
+  if isFullscreen or isNamingOpen or isRegionMapOpen or isEasyChatOpen then
+    local okRen, Renderer = pcall(require, "src.render.Renderer")
+    if okRen and Renderer then Renderer.screenVeil = nil end
+  elseif okF and Fade.draw then
     Fade.draw()
   end
 

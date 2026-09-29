@@ -345,6 +345,8 @@ function BagMenu.show(sessionBag, opts)
   BagMenu._onChoose = opts.onChoose
   BagMenu._sell = nil
   BagMenu._onBattleUse = opts.onBattleUse
+  local profVer = require("src.core.game3.profile").sessionVersion(BagMenu._session)
+  ItemsData.applyProfile(profVer)
   local st = bag_state()
   BagMenu.pocketIdx = opts.pocketIdx or st.pocket or 1
   BagMenu.mode = "list"
@@ -356,8 +358,16 @@ function BagMenu.show(sessionBag, opts)
   BagMenu.tossQty = 1
   BagMenu._onClose = opts.onClose
   if opts.pocket then
-    for i, p in ipairs(ItemsData.BAG_POCKET_ORDER) do
-      if p == opts.pocket then BagMenu.pocketIdx = i; break end
+    if type(opts.pocket) == "number" then
+      BagMenu.pocketIdx = opts.pocket
+    else
+      for i, p in ipairs(ItemsData.BAG_POCKET_ORDER) do
+        if p == opts.pocket or (opts.pocket == "BERRIES" and (p == "BERRIES" or p == "BERRY_POUCH"))
+            or (opts.pocket == "TM_HM" and (p == "TM_HM" or p == "TM_CASE")) then
+          BagMenu.pocketIdx = i
+          break
+        end
+      end
     end
   end
   if not ItemsData.BAG_POCKET_ORDER[BagMenu.pocketIdx] then BagMenu.pocketIdx = 1 end

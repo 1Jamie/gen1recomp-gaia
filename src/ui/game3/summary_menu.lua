@@ -149,7 +149,15 @@ local function moves_for_mon(mon)
   end
 
   if SummaryMenu._mode == "select_move" and SummaryMenu._moveToLearn then
-    local newId = tonumber(SummaryMenu._moveToLearn) or SummaryMenu._moveToLearn
+    local newId = tonumber(SummaryMenu._moveToLearn)
+    if not newId and type(SummaryMenu._moveToLearn) == "string" then
+      local C = require("src.core.game3.constants").of(SummaryMenu._playerState or SummaryMenu._session)
+      newId = C and C:id("moves", SummaryMenu._moveToLearn)
+    end
+    if not newId and type(SummaryMenu._moveToLearn) == "string" and Pokemon.battleMoveId then
+      newId = Pokemon.battleMoveId(SummaryMenu._moveToLearn)
+    end
+    newId = newId or SummaryMenu._moveToLearn
     local mdef = Pokemon.battleMove(newId)
     local name = Pokemon.moveName(newId)
     if not name or name == "" or name:match("^MOVE ") then

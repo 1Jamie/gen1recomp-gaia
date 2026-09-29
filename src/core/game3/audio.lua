@@ -684,6 +684,11 @@ function Audio.setSavedSong(id)
   Audio._savedSong = id
 end
 
+-- pokeemerald/src/battle_setup.c:952 / pokefirered/src/overworld.c:1056 Overworld_ClearSavedMusic
+function Audio.clearSavedSong()
+  Audio._savedSong = nil
+end
+
 -- pokefirered/src/overworld.c:1089
 function Audio.fadeDefaultBgm(speed)
   if rse_policy() then return Audio.changeMusicToDefault() end
