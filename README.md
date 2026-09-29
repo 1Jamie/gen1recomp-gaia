@@ -141,7 +141,7 @@ Options menu and persist in `options.lua`.
 **Low-end devices:** **OPTIONS > PERFORMANCE** scales the optional extras for
 weaker hardware (HIGH, BALANCED, LOW, or AUTO, the default). It only changes
 presentation; game logic is identical on every tier. Details in
-[docs/new-features.md](docs/new-features.md#performance-tier-low-end-devices).
+[docs/new-features.md](docs/new-features.md).
 
 ## Documentation
 
