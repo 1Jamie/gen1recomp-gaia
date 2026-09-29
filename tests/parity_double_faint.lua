@@ -44,8 +44,16 @@ local function battleWith(partyHP, result)
     data = { text = { _UseNextMonText = "Use next POKéMON?" } },
     game = { save = { party = party, player = { name = "RED" } } },
     sayNext = function(self, m) self.said[#self.said + 1] = m end,
-    say = function(self, m) self.said[#self.said + 1] = m end,
-    ui = function() end,
+    rows = {},
+    say = function(self, m)
+      self.said[#self.said + 1] = m
+      self.rows[#self.rows + 1] = { kind = "say", text = m }
+    end,
+    sayChoice = function(self, m, fn, opts)
+      self.said[#self.said + 1] = m
+      self.rows[#self.rows + 1] = { kind = "choice", text = m, fn = fn, opts = opts }
+    end,
+    ui = function(self) self.rows[#self.rows + 1] = { kind = "ui" } end,
   }, BattleState)
 end
 
@@ -106,6 +114,11 @@ do
   BattleState.playerMonFainted(b)
   eq(b.result, nil, "a faint with reserves left does not decide the battle")
   check(not saidBlackout(b), "and does not black out")
+  eq(#b.rows, 1, "the prompt is a single queue row, no trailing ui row")
+  eq(b.rows[1].kind, "choice", "Use next POKéMON? is a done-tail choice row")
+  eq(b.rows[1].text, "Use next POKéMON?", "the choice row carries the prompt text")
+  eq(b.rows[1].opts.box.tx, 13, "YES/NO sits at hlcoord 13, 9 (x)")
+  eq(b.rows[1].opts.box.ty, 9, "YES/NO sits at hlcoord 13, 9 (y)")
 end
 
 -- enemyMonFainted is also a native authority path used by move effects.  A

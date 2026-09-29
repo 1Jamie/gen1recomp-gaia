@@ -5073,10 +5073,9 @@ function BattleState:playerMonFainted()
   -- battles go straight to the party menu (the menu-phase guard).
   if self.kind ~= "wild" then return end
   local game = self.game
-  self:say(self.data.text._UseNextMonText or Strings("Use next POKéMON?"))
-  self:ui(function()
-    local ChoiceBox = require("src.ui.ChoiceBox")
-    return ChoiceBox.new(game, function(yes)
+  -- engine/battle/core.asm:1052-1078
+  self:sayChoice(self.data.text._UseNextMonText or Strings("Use next POKéMON?"),
+    function(yes)
       if yes then return end -- the menu-phase guard opens the party menu
       local pSpd = (game.save.party[1].stats or { speed = 0 }).speed or 0
       if self:runRoll(pSpd, TurnOrder.effectiveSpeed(self.enemy)) then
@@ -5088,8 +5087,7 @@ function BattleState:playerMonFainted()
       else
         self:say(self:romText("_CantEscapeText", "Can't escape!"))
       end
-    end)
-  end)
+    end, { box = require("src.ui.Theme").useNextMonBox })
 end
 
 -- ChooseNextMon (core.asm:1086-1128): the battle party menu; a fainted
