@@ -3535,10 +3535,19 @@ function OverworldState:openPC(onDone)
   -- (engine/menus/pokemon_pc.asm gates on EVENT_MET_BILL; we reach that
   -- when Bill hands over the SS Ticket)
   local metBill = flags.EVENT_MET_BILL or flags.EVENT_GOT_SS_TICKET
-  -- keepOpen so B in the sub-PC returns here instead of exiting the
-  -- PC session (#695); the sub-PC screens (BoxMenu, PlayerPC) already
-  -- use keepOpen for their own rows, matching the original ROM's flow
-  -- where the main menu stays underneath.
+  local menu
+  -- engine/pokemon/bills_pc.asm:121, engine/menus/pc.asm:86
+  local function openSub(id)
+    if Game.stack:top() == menu then Game.stack:pop() end
+    local sub = Screens.push(Game, id)
+    local baseExit = sub.exit
+    sub.exit = function(...)
+      if type(baseExit) == "function" then baseExit(...) end
+      menu.index = 1 -- engine/pokemon/bills_pc.asm:81
+      Game.stack:push(menu)
+    end
+    return sub
+  end
   local boxPcLabel = metBill and Strings.source("BILL'S PC")
                               or Strings.source("SOMEONE'S PC")
   table.insert(items, {
@@ -3553,7 +3562,7 @@ function OverworldState:openPC(onDone)
         or romText(Game.data, "_AccessedSomeonesPCText",
           "Accessed someone's\nPC.\fAccessed POKéMON\nStorage System.")
       Game.stack:push(TextBox.new(Game, accessed, function()
-        Screens.push(Game, "BoxMenu")
+        openSub("BoxMenu")
       end))
       done()
     end,
@@ -3572,7 +3581,7 @@ function OverworldState:openPC(onDone)
       Game.stack:push(TextBox.new(Game,
         romText(Game.data, "_AccessedMyPCText",
           "Accessed my PC.\fAccessed Item\nStorage System."),
-        function() Screens.push(Game, "PlayerPC") end))
+        function() openSub("PlayerPC") end))
       done()
     end,
   })
@@ -3585,7 +3594,10 @@ function OverworldState:openPC(onDone)
       onSelect = function()
         -- pc.asm OaksPC plays SFX_ENTER_PC before the farcall (#960)
         require("src.core.Sound").play(Game.data, "Enter_PC")
-        self:openOaksPC(done)
+        self:openOaksPC(function()
+          menu.index = 1 -- engine/pokemon/bills_pc.asm:81
+          done()
+        end)
       end,
     })
 
@@ -3601,7 +3613,7 @@ function OverworldState:openPC(onDone)
           Game.stack:push(TextBox.new(Game,
             romText(Game.data, "_AccessedHoFPCText",
               "Accessed POKéMON\nLEAGUE's site.\fAccessed the HALL\nOF FAME List."),
-            function() Screens.push(Game, "LeaguePC") end))
+            function() openSub("LeaguePC") end))
           done()
         end,
       })
@@ -3639,7 +3651,7 @@ function OverworldState:openPC(onDone)
   table.insert(items, { label = Strings("LOG OFF"), onSelect = logOff })
   -- BIT_NO_MENU_BUTTON_SOUND for the whole PC session; DisplayPCMainMenu's
   -- TextBoxBorder c=14 interior -> tw 16 (engine/overworld/pokecenter_pc.asm)
-  local menu = Menu.new(Game, items,
+  menu = Menu.new(Game, items,
     { tx = 0, ty = 0, tw = 16, th = #items * 2 + 2, onCancel = logOff,
       noSound = true })
   -- engine/menus/pc.asm:5

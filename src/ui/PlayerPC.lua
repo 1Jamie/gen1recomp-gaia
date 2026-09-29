@@ -143,6 +143,7 @@ local function withdraw(game)
     noSound = true, -- PlayerPCMenu holds BIT_NO_MENU_BUTTON_SOUND (#570)
     onChoose = function(item, list)
       if leftOnCancel(item, list) then return end
+      list.hollowIndex = list.index -- home/list_menu.asm:91
       askQuantity(game, list, pc[item.value] or 1, item.value, function(qty)
         local Bag = require("src.inventory.Bag")
         if not Bag.add(game.save, item.value, qty, game.data) then
@@ -190,6 +191,7 @@ local function deposit(game)
     noSound = true, -- PlayerPCMenu holds BIT_NO_MENU_BUTTON_SOUND (#570)
     onChoose = function(item, list)
       if leftOnCancel(item, list) then return end
+      list.hollowIndex = list.index -- home/list_menu.asm:91
       askQuantity(game, list, inv[item.value] or 1, item.value, function(qty)
         if pcFull(game, pc, item.value) then
           list.footer = Strings("No room left to\nstore items.")
@@ -223,6 +225,7 @@ local function toss(game)
     noSound = true, -- PlayerPCMenu holds BIT_NO_MENU_BUTTON_SOUND (#570)
     onChoose = function(item, list)
       if leftOnCancel(item, list) then return end
+      list.hollowIndex = list.index -- home/list_menu.asm:91
       local def = game.data.items[item.value]
       if (def and def.keyItem) or item.value:find("^HM_") then
         list.footer = Strings("That's too impor-\ntant to toss!")
@@ -259,7 +262,7 @@ function PlayerPC.new(game, opts)
   local logOff = function()
     if opts and opts.direct then Sound.play(game.data, "Turn_Off_PC") end
   end
-  return Menu.new(game, {
+  local rows = {
     -- keepOpen so B in the item lists returns here instead of dropping the
     -- whole PC session (players_pc.asm re-shows the PC menu); same pattern
     -- as BoxMenu's rows
@@ -267,12 +270,40 @@ function PlayerPC.new(game, opts)
     { label = Strings("DEPOSIT ITEM"), keepOpen = true, onSelect = function() deposit(game) end },
     { label = Strings("TOSS ITEM"), keepOpen = true, onSelect = function() toss(game) end },
     { label = Strings("LOG OFF"), onSelect = logOff },
-    -- silent PC session (BIT_NO_MENU_BUTTON_SOUND); players_pc.asm
-    -- PlayersPCMenu TextBoxBorder (0,0) b=8 c=14 → 16x10
-  }, { tx = 0, ty = 0, tw = 16, th = 10,
-       title = romText(game.data, "_WhatDoYouWantText",
-                       "What do you want\nto do?"),
+  }
+  -- silent PC session (BIT_NO_MENU_BUTTON_SOUND); players_pc.asm
+  -- PlayersPCMenu TextBoxBorder (0,0) b=8 c=14 → 16x10
+  local menu = Menu.new(game, rows, { tx = 0, ty = 0, tw = 16, th = 10,
        noSound = true, onCancel = logOff })
+  local prompt = TextBox.strip(romText(game.data, "_WhatDoYouWantText",
+    "What do you want\nto do?"))
+  for _, row in ipairs(rows) do
+    local onSelect = row.onSelect
+    if row.keepOpen and onSelect then
+      row.onSelect = function()
+        menu.hollowIndex = menu.index -- engine/menus/players_pc.asm:55
+        onSelect()
+      end
+    end
+  end
+  local baseUpdate = menu.update
+  function menu:update(dt)
+    if self.game.stack:top() == self then self.hollowIndex = nil end
+    return baseUpdate(self, dt)
+  end
+  local baseDraw = menu.draw
+  function menu:draw()
+    baseDraw(self)
+    Font.drawBox(0, 12, 20, 6) -- engine/menus/players_pc.asm:50
+    love.graphics.setColor(0, 0, 0, 1)
+    local y = 112
+    for line in (prompt .. "\n"):gmatch("([^\n]*)\n") do
+      Font.draw(line, 8, y)
+      y = y + 16
+    end
+    love.graphics.setColor(1, 1, 1, 1)
+  end
+  return menu
 end
 
 return PlayerPC

@@ -99,6 +99,7 @@ local function withdraw(game)
     itemBox = true,
     onChoose = function(item, list)
       if item.cancel then list:close() return end
+      list.hollowIndex = list.index -- home/list_menu.asm:91
       local mon = box[item.value]
       if not mon then return end
       monSubmenu(game, Strings("WITHDRAW"), mon, function()
@@ -149,6 +150,7 @@ local function deposit(game)
     itemBox = true,
     onChoose = function(item, list)
       if item.cancel then list:close() return end
+      list.hollowIndex = list.index -- home/list_menu.asm:91
       local mon = game.save.party[item.value]
       if not mon then return end
       local Follower = require("src.world.PikachuFollower")
@@ -202,6 +204,7 @@ local function release(game)
     itemBox = true,
     onChoose = function(item, list)
       if item.cancel then list:close() return end
+      list.hollowIndex = list.index -- home/list_menu.asm:91
       local mon = box[list.index]
       if not mon then return end
       local name = monName(game, mon)

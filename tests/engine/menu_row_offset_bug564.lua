@@ -40,16 +40,24 @@ end
 
 -- Draw the menu with the font stubbed out and report, in tile rows, where
 -- the labels, the ▶ cursor and the "more below" arrow actually landed.
-local function layout(menu)
+local function layout(menu, prompt)
   local realDraw, realCode = Font.draw, Font.drawCode
-  local out = { rows = {}, cols = {}, titleRows = {} }
+  local out = { rows = {}, cols = {}, titleRows = {}, promptY = {} }
   local title = menu.title and menu.title:gsub("{DONE}%s*$", "")
     :gsub("{PROMPT}%s*$", "")
   local titleLines = {}
   for line in ((title or "") .. "\n"):gmatch("(.-)\n") do
     titleLines[line] = true
   end
+  local promptLines = {}
+  for line in ((prompt or "") .. "\n"):gmatch("(.-)\n") do
+    promptLines[line] = true
+  end
   Font.draw = function(text, x, y)
+    if promptLines[text] then
+      out.promptY[text] = y
+      return 8
+    end
     if titleLines[text] then
       out.titleRows[#out.titleRows + 1] = y / 8
       return 8
@@ -74,8 +82,8 @@ end
 -- Every boxed menu owes the same two things to its border, and the second
 -- is the one #564/#572 were about: a menu that starts at ty+1 leaves the
 -- bottom interior row empty and the text crowded under the top edge.
-local function boxRules(menu, label)
-  local at = layout(menu)
+local function boxRules(menu, label, prompt)
+  local at = layout(menu, prompt)
   local first, last = at.rows[1], at.rows[#at.rows]
   check(first and first >= menu.ty + 1 and last <= menu.ty + menu.th - 2,
         label .. ": every choice sits inside the border (rows "
@@ -121,10 +129,16 @@ check(sat.arrow > sat.rows[#sat.rows],
 -- choices start at hlcoord 2,2.
 local pc = Screens.push(newGame(), "PlayerPC")
 eq(pc.th, 10, "player's PC box is 10 tiles tall")
-local pcLayout = boxRules(pc, "player's PC")
+local pcLayout = boxRules(pc, "player's PC",
+  "What do you want\nto do?")
 same(pcLayout.rows, { 2, 4, 6, 8 },
      "player's PC rows match hlcoord 2,2")
-same(pcLayout.titleRows, { 0, 1 }, "player's PC prompt stays above its choices")
+same(pcLayout.titleRows, {}, "player's PC prompt is not a border title")
+eq(pc.title, nil, "player's PC has no title")
+eq(pcLayout.promptY["What do you want"], 112,
+   "players_pc.asm:50 prompt line 1 is in the bottom text box")
+eq(pcLayout.promptY["to do?"], 128,
+   "players_pc.asm:50 prompt line 2 is in the bottom text box")
 
 -- The Pokédex side menu (pokedex.asm PokedexMenuItemsText): DATA / CRY /
 -- AREA / QUIT, opened by choosing a seen species off the dex list.

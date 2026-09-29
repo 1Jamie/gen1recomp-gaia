@@ -25,21 +25,34 @@ local fakeGame = {
     flags = { EVENT_GOT_POKEDEX = true },
     player = { name = "RED" },
   },
-  stack = { push = function(_, item) pushed[#pushed + 1] = item end },
+  stack = {
+    push = function(_, item) pushed[#pushed + 1] = item end,
+    top = function() return pushed[#pushed] end,
+    pop = function() return table.remove(pushed) end,
+  },
 }
 
 local sounds = {}
 package.loaded["src.core.Sound"] = {
   play = function(_, name) sounds[#sounds + 1] = name end,
 }
-local menuItems
+local menuItems, mainMenu
 package.loaded["src.ui.Menu"] = {
-  new = function(_, items) menuItems = items; return { menu = true } end,
+  new = function(_, items)
+    menuItems = items
+    mainMenu = { menu = true, index = 4 }
+    return mainMenu
+  end,
 }
-local opened = {}
+local opened, subs = {}, {}
 T.check(setUpvalue(OW.openPC, "Game", fakeGame), "Game upvalue on openPC")
 T.check(setUpvalue(OW.openPC, "Screens", {
-  push = function(_, id) opened[#opened + 1] = id end,
+  push = function(_, id)
+    opened[#opened + 1] = id
+    local sub = {}
+    subs[#subs + 1] = sub
+    return sub
+  end,
 }), "Screens upvalue on openPC")
 T.check(setUpvalue(OW.openPC, "TextBox", {
   new = function(_, text, onDone) return { text = text, onDone = onDone } end,
@@ -84,8 +97,17 @@ T.eq(sounds[#sounds], "Enter_PC", "PKMNLeague plays SFX_ENTER_PC")
 local box = pushed[#pushed]
 T.eq(box.text, fakeGame.data.text._AccessedHoFPCText,
   "PKMNLeaguePC prints AccessedHoFPCText first")
+T.check(pushed[#pushed - 1] == mainMenu,
+  "the main menu is up under the access text")
+table.remove(pushed)
 box.onDone()
 T.same(opened, { "LeaguePC" }, "the Hall of Fame roster screen opens")
+T.check(pushed[#pushed] ~= mainMenu,
+  "bills_pc.asm:121 the main menu is wiped once the roster opens")
+subs[1].exit()
+T.check(pushed[#pushed] == mainMenu,
+  "pc.asm:86 ReloadMainMenu rebuilds the main menu on return")
+T.eq(mainMenu.index, 1, "bills_pc.asm:81 the cursor is back on row 1")
 
 -- without the Pokedex, .noOaksPC2 skips Oak's PC and the league row alike
 -- (bills_pc.asm:48-49, :68-72); only the box height ignores it (:5-7)

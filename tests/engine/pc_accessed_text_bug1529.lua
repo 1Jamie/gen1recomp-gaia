@@ -27,7 +27,12 @@ local function setUpvalue(fn, name, val)
 end
 
 local pushed, screens = {}, {}
-local stackStub = { push = function(_, item) pushed[#pushed + 1] = item end }
+local stackStub = {
+  push = function(_, item) pushed[#pushed + 1] = item end,
+  top = function() return pushed[#pushed] end,
+  pop = function() return table.remove(pushed) end,
+}
+local subs = {}
 local textBoxStub = {
   new = function(_, text, onDone, opts)
     return { kind = "text", text = text, onDone = onDone, opts = opts }
@@ -43,7 +48,12 @@ local fakeGame = { data = Data, save = SaveData.newGame(), stack = stackStub }
 T.check(setUpvalue(OW.openPC, "Game", fakeGame), "Game upvalue on openPC")
 T.check(setUpvalue(OW.openPC, "TextBox", textBoxStub), "TextBox upvalue on openPC")
 T.check(setUpvalue(OW.openPC, "Screens",
-  { push = function(_, id) screens[#screens + 1] = id end }), "Screens upvalue on openPC")
+  { push = function(_, id)
+      screens[#screens + 1] = id
+      local sub = { id = id }
+      subs[#subs + 1] = sub
+      return sub
+    end }), "Screens upvalue on openPC")
 
 local fakeSelf = setmetatable({}, { __index = OW })
 
@@ -69,8 +79,16 @@ do
   T.check(tostring(box.text):find("Accessed someone's", 1, true) ~= nil,
     "before meeting BILL it is AccessedSomeonesPCText")
   T.eq(#screens, 0, "and the box screen has NOT opened yet")
+  table.remove(pushed)
   box.onDone()
   T.eq(screens[1], "BoxMenu", "BoxMenu follows the text, as the farcall does")
+  T.check(menu ~= pushed[#pushed],
+    "bills_pc.asm:121 the main menu is wiped once BoxMenu opens")
+  menu.index = 3
+  subs[1].exit()
+  T.check(pushed[#pushed] == menu,
+    "pc.asm:86 ReloadMainMenu rebuilds the main menu on return")
+  T.eq(menu.index, 1, "bills_pc.asm:81 the cursor is back on row 1")
 end
 
 -- === BILL'S PC once EVENT_MET_BILL is set
@@ -95,6 +113,31 @@ do
   T.eq(#screens, 0, "PlayerPC has not opened yet")
   box.onDone()
   T.eq(screens[1], "PlayerPC", "PlayerPC follows the text")
+end
+
+-- engine/menus/pc.asm:86
+do
+  pushed, screens = {}, {}
+  fakeGame.save = SaveData.newGame()
+  fakeGame.save.flags.EVENT_GOT_POKEDEX = true
+  fakeSelf:openPC(function() end)
+  pushed[#pushed].onDone()
+  local menu = pushed[#pushed]
+  local oakDone
+  fakeSelf.openOaksPC = function(_, cb) oakDone = cb end
+  local oakRow
+  for _, row in ipairs(menu.items) do
+    if row.label == "PROF.OAK's PC" then oakRow = row end
+  end
+  T.check(oakRow, "the PC menu has a PROF.OAK's PC row")
+  menu.index = 3
+  oakRow.onSelect()
+  T.check(pushed[#pushed] == menu,
+    "oaks_pc.asm:1 the main menu stays up while Oak's PC runs")
+  oakDone()
+  T.check(pushed[#pushed] == menu, "and it is still the top menu after")
+  T.eq(menu.index, 1, "pc.asm:65 ReloadMainMenu, bills_pc.asm:81 cursor back on row 1")
+  fakeSelf.openOaksPC = nil
 end
 
 T.finish("PC access text (#1529)")
