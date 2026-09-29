@@ -40,7 +40,7 @@ function BootModules.available(name)
     or (love and love.filesystem and love.filesystem.getInfo(name:gsub("%.", "/") .. ".lua") ~= nil) or false
 end
 
-function BootModules.newState(Boot, mods)
+function BootModules.newState(Boot, mods, game)
   local Machine = require("src.ui.game3.rse.gba_machine")
   return {
     phase = Boot.PHASE.INTRO,
@@ -52,13 +52,14 @@ function BootModules.newState(Boot, mods)
       mods = mods,
       machine = Machine.new(),
       coldBoot = true,
+      game = game,
     },
   }
 end
 
 local function ctxOf(Boot, state)
   local c = state.custom
-  return { machine = c.machine, params = c.mods.params, boot = Boot, state = state }
+  return { machine = c.machine, params = c.mods.params, boot = Boot, state = state, game = c.game }
 end
 
 local function destroy(obj)

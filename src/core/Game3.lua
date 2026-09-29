@@ -216,7 +216,7 @@ function Game3:load(opts)
   -- Never auto-skip boot into a legacy Sevii sidecar.
   local continueOk = self:_hasContinueSave()
   require("src.ui.game3.start_menu").resetCursor() -- pokefirered/src/main.c:134
-  self.boot = Boot.new()
+  self.boot = Boot.new(self)
   Boot.setHasContinue(self.boot, continueOk)
   if continueOk then
     Boot.setContinueInfo(self.boot, Boot.continueInfoFromSave(rawSave))
@@ -1278,7 +1278,7 @@ function Game3:returnToTitle()
   end
   local continueOk = self:_hasContinueSave()
   require("src.ui.game3.start_menu").resetCursor()
-  self.boot = Boot.new()
+  self.boot = Boot.new(self)
   Boot.setHasContinue(self.boot, continueOk)
   if continueOk then
     Boot.setContinueInfo(self.boot, Boot.continueInfoFromSave(rawSave))

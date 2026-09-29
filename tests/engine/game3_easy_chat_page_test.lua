@@ -20,6 +20,7 @@ stub.draw = function(text, x, y) drawn[#drawn + 1] = { text = text, x = x, y = y
 package.loaded["src.ui.game3.frlg_font"] = stub
 
 package.loaded["src.core.game3.rom_text"] = {
+  has = function() return true end,
   plain = function(key) return key end,
   ir = function(key) return { { t = "text", s = key } } end,
 }

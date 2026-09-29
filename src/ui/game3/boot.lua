@@ -56,9 +56,9 @@ local function loadImage(rel)
   return nil
 end
 
-function Boot.new()
+function Boot.new(game)
   local mods = BootModules.resolve(require("src.core.game3.profile").active())
-  if mods.custom then return BootModules.newState(Boot, mods) end
+  if mods.custom then return BootModules.newState(Boot, mods, game) end
   local index = loadIntroIndex()
   local base = INTRO_FALLBACK
   local function path(key, file)

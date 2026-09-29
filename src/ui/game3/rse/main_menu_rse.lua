@@ -159,6 +159,8 @@ function MainMenu.new(opts, ctx)
       saveStatus = state.saveStatus,
       textSpeed = state.textSpeed,
       returningFromOptions = state.custom and state.custom.returningFromOptions,
+      game = ctx and ctx.game,
+      bootState = state,
     }
   end
   opts = opts or {}
@@ -168,6 +170,7 @@ function MainMenu.new(opts, ctx)
     info = info,
     saveStatus = opts.saveStatus or "ok",
     game = opts.game,
+    bootState = opts.bootState,
     textSpeed = tonumber(opts.textSpeed) or 1,
     pal = Pal.new(),
     step = Kit.stepper(),
@@ -308,6 +311,7 @@ function MainMenu:frame(inp)
     if not (self.optionMenu and self.optionMenu.isOpen()) then
       self.state = "check_save"
       self.optionMenu = nil
+      self:_syncTextSpeed()
       self.saveStatus = "ok"
       self.pal:beginFade(Pal.ALL, 0, 16, 0, Pal.BLACK)
     end
@@ -318,6 +322,15 @@ end
 
 function MainMenu:destroy()
   if self.gift then self:_closeMysteryGift() end
+end
+
+function MainMenu:_syncTextSpeed()
+  local opts = self.game and self.game.options
+  if type(opts) ~= "table" then return end
+  local speed = tonumber(require("src.core.game3.options").block(opts).textSpeed)
+  if not speed then return end
+  self.textSpeed = speed
+  if type(self.bootState) == "table" then self.bootState.textSpeed = speed end
 end
 
 function MainMenu:_openOptions()

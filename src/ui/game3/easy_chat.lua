@@ -50,6 +50,15 @@ local FOOTER_X = 32
 -- src/easy_chat_3.c:2314
 function EasyChat.footerLabels()
   local out, xs = {}, { 0 }
+  if not RomText.has("gText_DelAllCancelOk") then
+    -- pokeemerald/src/easy_chat.c:1201
+    local offsets = { 16, 111, 196 }
+    for i, key in ipairs({ "gText_DelAll", "gText_Cancel5", "gText_Ok2" }) do
+      out[i] = RomText.plain(key)
+      xs[i] = 8 + offsets[i] - FOOTER_X
+    end
+    return out, xs
+  end
   for _, seg in ipairs(RomText.ir("gText_DelAllCancelOk")) do
     if seg.t == "text" then
       out[#out + 1] = Strings(seg.s)
@@ -109,10 +118,59 @@ local function unlocked_words(gid, dex)
   return out
 end
 
+-- pokeemerald/src/easy_chat.c:5806
+local function rse_group_words(gid, sess, Town)
+  local g = EasyChatText.group(gid)
+  if not (g and g.words) then return nil end
+  local G = Town.EC_GROUP
+  local out = {}
+  for k, v in pairs(g) do out[k] = v end
+  out.words = {}
+  if gid == G.POKEMON or gid == G.POKEMON_NATIONAL or gid == G.MOVE_1 or gid == G.MOVE_2 then
+    local Dex = require("src.core.game3.dex")
+    for _, w in ipairs(g.words) do
+      if gid ~= G.POKEMON or (sess.dex and Dex.isSeen(sess.dex, w.value)) then out.words[#out.words + 1] = w end
+    end
+  else
+    -- pokeemerald/src/easy_chat.c:5775
+    for _, w in ipairs(g.words) do
+      local idx = tonumber(w.alphabeticalOrder) or 0
+      local entry = g.words[idx + 1]
+      local on
+      if gid == G.TRENDY_SAYING then
+        on = require("src.core.game3.rse.old_man").isTrendySayingUnlocked(idx, sess)
+      else
+        on = entry and entry.enabled ~= false
+      end
+      if entry and on then out.words[#out.words + 1] = entry end
+    end
+  end
+  return out
+end
+
+-- pokeemerald/src/easy_chat.c:5613
+local function rse_populate_groups(session)
+  local Town = require("src.core.game3.rse.town_common")
+  local G = Town.EC_GROUP
+  local ids = {}
+  if Town.numWordsInGroup(G.POKEMON, session) > 0 then ids[#ids + 1] = G.POKEMON end
+  for gid = G.TRAINER, G.ADJECTIVES do ids[#ids + 1] = gid end
+  for _, gid in ipairs({ G.EVENTS, G.MOVE_1, G.MOVE_2, G.TRENDY_SAYING, G.POKEMON_NATIONAL }) do
+    if Town.groupUnlocked(gid, session) then ids[#ids + 1] = gid end
+  end
+  local list = {}
+  for _, gid in ipairs(ids) do
+    local g = rse_group_words(gid, session, Town)
+    if g then list[#list + 1] = g end
+  end
+  return list
+end
+
 -- pokefirered/src/easy_chat.c:500 PopulateECGroups
 function EasyChat.populateGroups(session)
   local flag
   session, flag = session_state(session)
+  if require("src.core.game3.profile").family(session) == "rse" then return rse_populate_groups(session) end
   local Dex = require("src.core.game3.dex")
   local PokedexData = require("src.core.game3.pokedex_data")
   local dex = session.dex

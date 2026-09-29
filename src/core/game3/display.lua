@@ -253,17 +253,19 @@ local function drawFieldPlane(game, vw, vh, Renderer)
 end
 
 local uiRenderer
+local uiPass
 function Display.setUiRenderer(fn)
   uiRenderer = fn
 end
 local function drawUiPass()
-  if not uiRenderer then
+  if uiRenderer then return uiRenderer() end
+  if uiPass == nil then
     local ok, pass = pcall(require, "src.ui.game3.ui_pass")
-    uiRenderer = (ok and type(pass) == "table" and type(pass.drawUi) == "function")
-      and pass.drawUi or function() end
+    uiPass = (ok and type(pass) == "table") and pass or false
   end
-  uiRenderer()
+  if uiPass and type(uiPass.drawUi) == "function" then uiPass.drawUi() end
 end
+Display.drawUiPass = drawUiPass
 
 local function drawUiPlane()
   local Oam = require("src.core.game3.oam")
