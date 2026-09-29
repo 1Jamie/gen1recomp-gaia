@@ -3,6 +3,7 @@ local Rse = require("src.core.game3.rse.init")
 local Town = require("src.core.game3.rse.town_common")
 local Dewford = require("src.core.game3.rse.dewford_trend")
 local Types = require("src.core.game3.rse.easy_chat_types")
+require("src.core.game3.rse.easy_chat_player")
 require("src.core.game3.rse.daily_events")
 
 local NativesDewford = {}

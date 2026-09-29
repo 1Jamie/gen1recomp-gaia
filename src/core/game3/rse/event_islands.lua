@@ -136,13 +136,31 @@ local function injectGift(g)
 end
 EventIslands.injectGift = injectGift
 
+-- pokeemerald/src/script.c:441 GetSavedRamScriptIfValid
+function EventIslands.cardGift(sess)
+  sess = sess or Rse.session()
+  if not (sess and Rse.isRse(sess)) then return nil end
+  local MysteryGift = require("src.core.game3.mystery_gift")
+  if not MysteryGift.validateSavedCard(sess) then return nil end
+  local id = MysteryGift.ramScriptId(sess)
+  if not id then return nil end
+  local ok, man = pcall(EventIslands.manifest)
+  if not ok then return nil end
+  for _, g in ipairs(man.gifts or {}) do
+    if g.id == id then return g end
+  end
+  return nil
+end
+
 -- pokeemerald/src/scrcmd.c:2228
 function EventIslands.tryWonderCardScript(vm)
-  local g = EventIslands.pendingGift()
+  local g = EventIslands.pendingGift() or EventIslands.cardGift()
   if not g then return nil end
   local key = injectGift(g)
   if not key then return nil end
   EventIslands.lastGift = g.id
+  local ctx, cur = vm.ctx, vm.ctx and vm.ctx.pc
+  if cur and ctx.stack then ctx.stack[#ctx.stack + 1] = { listKey = cur.listKey, index = cur.index } end
   vm:setPc(key, 1)
   return false
 end

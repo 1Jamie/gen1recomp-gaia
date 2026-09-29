@@ -1,7 +1,7 @@
 local Stack = require("src.ui.game3.stack")
 local Window = require("src.ui.game3.window")
 local Strings = require("src.core.Strings")
-local RomText = require("src.core.game3.rom_text")
+local RomText = require("src.core.game3.link.family").romText()
 local FrlgFont = require("src.ui.game3.frlg_font")
 local ListMenu = require("src.ui.game3.list_menu")
 
@@ -424,7 +424,11 @@ UnionRoomScreen.ACTIVITY_LABELS = RomText.lazy({
 
 function UnionRoomScreen.activityLabel(activity)
   local id = (tonumber(activity) or 0) % 0x40
-  return UnionRoomScreen.ACTIVITY_LABELS[id] or ""
+  local label = UnionRoomScreen.ACTIVITY_LABELS[id]
+  if label then return label end
+  local key = RomText.key("sLinkGroupActivityNameTexts", id)
+  if id > 0 and RomText.has(key) then return RomText.plain(key) end
+  return ""
 end
 
 local function draw_frame(tpl)

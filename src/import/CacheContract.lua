@@ -22,9 +22,9 @@ CacheContract.VERSION_FORMAT = {
   -- data/pikachu/pikachu_pic_animation.asm:340
   yellow = "rom-cache-v12-yellow2:",
   -- v8: M4A tracks retain reachable patterns and explicit entry offsets.
-  firered = "rom-cache-v20-firered:",
-  leafgreen = "rom-cache-v5-leafgreen:",
-  emerald = "rom-cache-v1-emerald:",
+  firered = "rom-cache-v21-firered:",
+  leafgreen = "rom-cache-v6-leafgreen:",
+  emerald = "rom-cache-v3-emerald:",
 }
 CacheContract.MARKER_PATH = "rom-cache.complete"
 
@@ -686,6 +686,20 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/gba/pokemon_jump/vine4_pal2.rgba",
   },
 }
+do
+  local frlg = CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.firered
+  -- src/trainer_card.c:155, :293
+  local hoenn = "data/generated/gba/rse/trainer_card/"
+  frlg[#frlg + 1] = hoenn .. "manifest.lua"
+  frlg[#frlg + 1] = hoenn .. "badges.png"
+  frlg[#frlg + 1] = hoenn .. "star.png"
+  for stars = 0, 4 do
+    for _, side in ipairs({ "screen", "front", "back" }) do
+      frlg[#frlg + 1] = string.format("%s%s_%d.png", hoenn, side, stars)
+      frlg[#frlg + 1] = string.format("%s%s_%d_female.png", hoenn, side, stars)
+    end
+  end
+end
 CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.leafgreen = {}
 for i, path in ipairs(CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.firered) do
   CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.leafgreen[i] = path

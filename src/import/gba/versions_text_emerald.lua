@@ -5830,6 +5830,7 @@ return {
     "gText_YouWantedVar1ThatllBeVar2",
     "gText_YourFeelingAtTheBattlesStart",
     "gText_YourName",
+    "gText_YourPartnerHasRetired",
     "gText_YourPartysFull",
     "gText_YourProfile",
     "gText_YoureHoldingAPkmn",

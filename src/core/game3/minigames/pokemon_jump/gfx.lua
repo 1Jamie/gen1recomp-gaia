@@ -16,7 +16,7 @@ Gfx.FUNC = {
 }
 
 -- pokefirered/include/constants/songs.h:9
-require("src.core.game3.song_fields")(Gfx)
+require("src.core.game3.minigames.songs").fields(Gfx)
 
 Gfx.MENU_NOTHING_CHOSEN = -2
 Gfx.MENU_B_PRESSED = -1

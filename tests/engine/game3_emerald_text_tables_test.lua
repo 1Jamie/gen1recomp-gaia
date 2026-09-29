@@ -32,7 +32,7 @@ for _, key in ipairs({
   "gText_MainMenuOption", "gText_MainMenuMysteryGift", "gText_MainMenuMysteryEvents",
   "gText_ContinueMenuPlayer", "gText_ContinueMenuTime", "gText_ContinueMenuPokedex", "gText_ContinueMenuBadges",
   "gText_BatteryRunDry", "gText_SaveFileErased", "gText_SaveFileCorrupted", "gText_IsThisTheCorrectTime",
-  "InsideOfTruck_Text_BoxPrintedWithMonLogo", "gText_ExpandedPlaceholder_Emerald",
+  "InsideOfTruck_Text_BoxPrintedWithMonLogo", "gText_ExpandedPlaceholder_Emerald", "gText_YourPartnerHasRetired",
 }) do
   check(V.NAMED_TEXTS[key] ~= nil, "emerald NAMED_TEXTS has " .. key)
 end

@@ -7,7 +7,7 @@ Protocol2.VERSION = 2
 Protocol2.PROTOCOL = 3
 
 Protocol2.INTENTS = { battle = true, trade = true, tournament = true,
-                      chat = true, card = true, minigame = true }
+                      chat = true, card = true, minigame = true, link = true }
 Protocol2.JOIN_AS = { player = true, spectator = true }
 
 Protocol2.ACTIVITIES = { "battle_single", "battle_double", "battle_multi", "trade", "chat", "card",
@@ -39,6 +39,21 @@ Protocol2.SEAT_ROLES = { [0] = "host", [1] = "guest", [2] = "seat2", [3] = "seat
 Protocol2.PLAZA_KINDS = { union = true, wireless = true }
 Protocol2.DIRECT_ACTIVITIES = { battle_single = true, battle_double = true,
   battle_multi = true, trade = true }
+
+Protocol2.LINK_ACTIVITIES = { "record_corner", "berry_blender", "contest_cool", "contest_beauty",
+  "contest_cute", "contest_smart", "contest_tough", "battle_tower", "battle_tower_open" }
+-- pokeemerald/src/data/union_room.h:641
+Protocol2.LINK_CAPACITY = {
+  record_corner = { 2, 4 }, berry_blender = { 2, 4 }, contest_cool = { 2, 4 }, contest_beauty = { 2, 4 },
+  contest_cute = { 2, 4 }, contest_smart = { 2, 4 }, contest_tough = { 2, 4 },
+  battle_tower = { 2, 2 }, battle_tower_open = { 2, 2 } }
+for _, a in ipairs(Protocol2.LINK_ACTIVITIES) do
+  Protocol2.ACTIVITIES[#Protocol2.ACTIVITIES + 1] = a
+  Protocol2.ACTIVITY_RULESET[a] = "g3_link"
+  Protocol2.ACTIVITY_INTENT[a] = "link"
+  Protocol2.GROUP_CAPACITY[a] = Protocol2.LINK_CAPACITY[a]
+  if a ~= "battle_tower" and a ~= "battle_tower_open" then Protocol2.DIRECT_ACTIVITIES[a] = true end
+end
 
 local ACTIVITY_SET = {}
 for _, a in ipairs(Protocol2.ACTIVITIES) do ACTIVITY_SET[a] = true end
@@ -146,11 +161,12 @@ function Protocol2.directQueue(opts)
     profile = opts.profile,
     avatar = opts.avatar,
     preview = opts.preview or {},
+    seats = opts.seats,
   })
 end
 
-function Protocol2.directList(activity, profile)
-  return build({ type = "direct_list", activity = activity, profile = profile })
+function Protocol2.directList(activity, profile, avatar)
+  return build({ type = "direct_list", activity = activity, profile = profile, avatar = avatar })
 end
 
 function Protocol2.directLeave()

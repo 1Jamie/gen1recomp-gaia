@@ -139,6 +139,50 @@ eq(Family.canTradeSelectedMon("emerald", { { species = 277 }, { species = 280, i
   Family.CANT_TRADE_LAST_MON, "eggs do not count as a mon left for battle")
 eq(EGG, 412, "SPECIES_EGG by name")
 
+print("[test] 3b. Direct Corner trade gate reads the partner avatar (union_room.c:1051)")
+do
+  local Link = require("src.core.game3.link")
+  local Union = require("src.core.game3.link.union_room")
+  local saved = { session = Link.session, clientCall = Link.clientCall }
+  local sess = { version = "emerald", specialSaveWarpFlags = 0x80 }
+  local entries, room = {}, nil
+  Link.session = function() return sess end
+  Link.clientCall = function(name)
+    if name == "directEntries" then return entries end
+    if name == "you" then return { id = "me" } end
+    if name == "room" then return room end
+    return nil
+  end
+  local ok, err = pcall(function()
+    entries = {
+      { kind = "player", id = "p1", avatar = { name = "RED", version = "firered", canLinkNationally = false } },
+      { kind = "player", id = "p2", avatar = { name = "LEAF", version = "leafgreen", canLinkNationally = true } },
+      { kind = "player", id = "p3", avatar = { name = "OLD", version = "firered" } },
+      { kind = "room", room = "r1", host = "h1", avatar = { name = "HOST", version = "firered", canLinkNationally = false } },
+      { kind = "player", id = "p4", avatar = { name = "MAY", version = "emerald", canLinkNationally = false } },
+    }
+    local rows = Union.directRows("trade")
+    eq(Union.tradeReadyWith(rows[1]), UR.PARTNER_NOT_READY, "FR partner that cannot link nationally is refused")
+    eq(Union.tradeReadyWith(rows[2]), UR.READY, "LG partner that can link nationally trades")
+    eq(Union.tradeReadyWith(rows[3]), UR.PARTNER_NOT_READY, "an avatar without the capability is never assumed ready")
+    eq(rows[4].version, "firered", "a hosted room row carries the host version")
+    eq(Union.tradeReadyWith(rows[4]), UR.PARTNER_NOT_READY, "a hosted FR room is gated too")
+    eq(Union.tradeReadyWith(rows[5]), UR.READY, "an Emerald partner is home")
+    sess.specialSaveWarpFlags = 0
+    eq(Union.tradeReadyWith(rows[2]), UR.PLAYER_NOT_READY, "before the HoF warp the player is not ready")
+    sess.specialSaveWarpFlags = 0x80
+    room = { players = { { id = "me", avatar = { version = "emerald" } },
+      { id = "x", avatar = { name = "RED", version = "firered", canLinkNationally = false } } } }
+    eq(Union.tradeReadyWith(Union.roomPartnerAvatar(room)), UR.PARTNER_NOT_READY,
+      "the matched room partner is checked on this side too")
+    sess.flags = {}
+    local av = Link.avatar()
+    eq(av.canLinkNationally, false, "the avatar carries FLAG_IS_CHAMPION as canLinkNationally")
+  end)
+  Link.session, Link.clientCall = saved.session, saved.clientCall
+  check(ok, "direct corner gate checks ran: " .. tostring(err))
+end
+
 print("[test] 4. the [rules] row and the Emerald hello")
 local emRules, frRules = Fingerprint.rulesGen3("emerald"), Fingerprint.rulesGen3("firered")
 check(type(emRules) == "string" and #emRules == 16, "Emerald rules digest")

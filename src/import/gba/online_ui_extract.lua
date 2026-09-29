@@ -148,7 +148,7 @@ function OnlineUiExtract.giftArt(rom, write, dir)
 end
 
 -- src/union_room_player_avatar.c:33-95
-local function avatars(rom, cache, root)
+function OnlineUiExtract.avatars(rom, cache, root)
   local P = AssetPack
   local ids = P.grid(rom, Versions.UR_OBJ_GFX_IDS, "u8", { 2, 10 })
   local male, female = {}, {}
@@ -168,7 +168,7 @@ function OnlineUiExtract.run(rom, cache, opts)
   opts = opts or {}
   local root = opts.cacheRoot or AssetPack.defaultRoot()
   linkArt(rom, cache, root)
-  local male, female = avatars(rom, cache, root)
+  local male, female = OnlineUiExtract.avatars(rom, cache, root)
   print(string.format("[online_ui_extract] countdowns, digits, %d avatar gids -> %s", #male + #female, root))
   return { root = root }
 end

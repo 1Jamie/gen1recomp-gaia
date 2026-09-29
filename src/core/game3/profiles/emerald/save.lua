@@ -36,5 +36,6 @@ return {
     { name = "trainerHill", module = "src.core.game3.rse.trainer_hill" },
     { name = "apprentice", module = "src.core.game3.rse.frontier.apprentice" },
     { name = "recordMixingGift", module = "src.core.game3.rse.record_mixing_gift" },
+    { name = "easyChat", module = "src.core.game3.rse.easy_chat_player" },
   },
 }

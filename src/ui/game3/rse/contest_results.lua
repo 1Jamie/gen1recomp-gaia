@@ -27,6 +27,8 @@ local SLIDING_MON_ENTERED, SLIDING_MON_EXITED = 1, 2
 local TAG_TEXT_WINDOW_BASE, TAG_CONFETTI = 3009, 3017
 -- pokeemerald/include/constants/game_stat.h:40
 local GAME_STAT_ENTERED_CONTEST, GAME_STAT_WON_CONTEST = 36, 37
+-- pokeemerald/include/constants/game_stat.h:39
+local GAME_STAT_WON_LINK_CONTEST = 35
 -- pokeemerald/include/constants/field_specials.h:80
 local FANCOUNTER_FINISHED_CONTEST = 2
 
@@ -273,8 +275,37 @@ function UI:drawResultsTextWindow(text, spriteId)
   for k = 0, 3 do
     self:sprite(ids[k]).sheet = Vram.sheetFromTileList(sprTiles[k], 64, 32, self.headless)
   end
-  self.boxText = { text = text, x = math.floor((tileWidth * 8 - strWidth) / 2) + 8, spriteId = spriteId }
+  self.boxTexts = self.boxTexts or {}
+  self.boxTexts[spriteId] = { text = text, x = math.floor((tileWidth * 8 - strWidth) / 2) + 8, spriteId = spriteId }
   return math.floor((DISPLAY_WIDTH - (tileWidth + 2) * 8) / 2)
+end
+
+-- pokeemerald/src/contest_util.c:1363
+function UI:showLinkResultsTextBox(text)
+  local x = self:drawResultsTextWindow(text, self.d.linkTextBoxSpriteId)
+  local s = self:sprite(self.d.linkTextBoxSpriteId)
+  s.x, s.y, s.invisible = x + 32, 80, false
+  for i = 0, 2 do
+    local s2 = self:sprite(s.data[i])
+    s2.x = s.x + s.x2 + (i + 1) * 64
+    s2.y = s.y
+    s2.invisible = false
+  end
+  self.win0h = winRange(0, DISPLAY_WIDTH)
+  self.win0v = winRange(s.y - 16, s.y + 16)
+  self.m.ppu:set("WININ", Ppu.WININ_WIN1_BG_ALL + Ppu.WININ_WIN1_OBJ + 0x2000 + 0xE + Ppu.WININ_WIN0_OBJ
+    + Ppu.WININ_WIN0_CLR)
+  self.linkBoxShown = true
+end
+
+-- pokeemerald/src/contest_util.c:1387
+function UI:hideLinkResultsTextBox()
+  local s = self:sprite(self.d.linkTextBoxSpriteId)
+  s.invisible = true
+  for i = 0, 2 do self:sprite(s.data[i]).invisible = true end
+  self.win0h, self.win0v = 0, 0
+  self.m.ppu:set("WININ", Ppu.WININ_WIN0_ALL + Ppu.WININ_WIN1_BG_ALL + Ppu.WININ_WIN1_OBJ + 0x2000)
+  self.linkBoxShown = false
 end
 
 -- pokeemerald/src/contest_util.c:1273
@@ -411,11 +442,51 @@ local function incrementGameStat(session, id)
   session.gameStats[id] = math.min(0xFFFFFF, math.floor(tonumber(session.gameStats[id]) or 0) + 1)
 end
 
+-- pokeemerald/src/contest.c:3635
+local function saveLinkContestResults(sess, c)
+  if not sess then return end
+  local rows = type(sess.contestLinkResults) == "table" and sess.contestLinkResults or {}
+  sess.contestLinkResults = rows
+  local cat = (tonumber(c.category) or 0) + 1
+  local place = (tonumber(c.standings[c.playerIndex]) or 0) + 1
+  rows[cat] = type(rows[cat]) == "table" and rows[cat] or { 0, 0, 0, 0 }
+  rows[cat][place] = math.min(9999, (tonumber(rows[cat][place]) or 0) + 1)
+end
+UI.saveLinkContestResults = saveLinkContestResults
+
 -- pokeemerald/src/contest_util.c:592
 function UI:taskShowContestResults(tid, d)
+  local c, sess = self.c, self.session
+  if c:isLink() and c.link then
+    if not self.linkResultsSaved then
+      self.linkResultsSaved = true
+      -- pokeemerald/src/contest_util.c:601
+      saveLinkContestResults(sess, c)
+      if c.standings[c.playerIndex] == 0 then incrementGameStat(sess, GAME_STAT_WON_LINK_CONTEST) end
+      local okF, FieldRse = pcall(require, "src.core.game3.scripting.natives_field_rse")
+      if okF and FieldRse and FieldRse.tryGainNewFanFromCounter and sess and not self.opts.noFieldHooks then
+        pcall(FieldRse.tryGainNewFanFromCounter, FANCOUNTER_FINISHED_CONTEST)
+      end
+      local okN, NC = pcall(require, "src.core.game3.scripting.natives_contest")
+      if okN and NC and NC.onResultsShown and sess then NC.onResultsShown(c, sess) end
+    end
+    if self:pal():fadeActive() then return end
+    -- pokeemerald/src/contest_util.c:653
+    if not self.standbyBeforeResults then
+      self.standbyBeforeResults = true
+      self:showLinkResultsTextBox(Stage().plain("gText_CommunicationStandby"))
+    end
+    -- pokeemerald/src/contest_util.c:681
+    local row, err = c.link:exchange("results", c.playerIndex)
+    if not (row or err) then return end
+    -- pokeemerald/src/contest_util.c:692
+    self:hideLinkResultsTextBox()
+    d[0] = 0
+    self:setFunc(tid, "taskAnnouncePreliminaryResults")
+    return
+  end
   if self:pal():fadeActive() then return end
   d[0] = 0
-  local c, sess = self.c, self.session
   incrementGameStat(sess, GAME_STAT_ENTERED_CONTEST)
   if c.standings[c.playerIndex] == 0 then incrementGameStat(sess, GAME_STAT_WON_CONTEST) end
   local okN, NC = pcall(require, "src.core.game3.scripting.natives_contest")
@@ -627,8 +698,28 @@ function UI:taskSetSeenWinnerMon(tid, d)
       for i = 0, N - 1 do Dex.setSeen(sess.dex, tonumber(self.c.mons[i].species) or 0) end
     end
     d[10] = 0
-    self:setFunc(tid, "taskTrySetContestInterviewData")
+    self:setFunc(tid, "taskTryDisconnectLinkPartners")
   end
+end
+
+-- pokeemerald/src/contest_util.c:998
+function UI:taskTryDisconnectLinkPartners(tid)
+  local c = self.c
+  if c:isLink() and c.link then
+    if not self.standbyBeforeBye then
+      self.standbyBeforeBye = true
+      -- pokeemerald/src/contest_util.c:1004
+      self:showLinkResultsTextBox(Stage().plain("gText_CommunicationStandby"))
+    end
+    local row, err = c.link:exchange("bye", 1)
+    if not (row or err) then return end
+    -- pokeemerald/src/contest_util.c:1022
+    self:hideLinkResultsTextBox()
+    -- pokeemerald/src/contest_util.c:1005
+    require("src.core.game3.link.contest_link").close("contest_results")
+    c.link = nil
+  end
+  self:setFunc(tid, "taskTrySetContestInterviewData")
 end
 
 -- pokeemerald/src/contest_util.c:1027
@@ -952,17 +1043,17 @@ function UI:draw()
       lg.setScissor()
     end
   end
-  local bt = self.boxText
-  if bt then
-    local s = self:sprite(bt.spriteId)
+  for _, id in ipairs({ self.d.slidingTextBoxSpriteId, self.d.linkTextBoxSpriteId }) do
+    local bt = self.boxTexts and self.boxTexts[id]
+    local s = bt and self:sprite(bt.spriteId)
     if s and s.inUse and not s.invisible then
-      local bp = self:sprites()
       local palNum = s.oam.paletteNum
       local tfg = color(pltt[256 + palNum * 16 + 15] or 0)
       local tsh = color(pltt[256 + palNum * 16 + 14] or 0)
       local x = s.x + s.x2 - 32 + bt.x
       local y = s.y + s.y2 - 16 + 8 + 1
-      lg.setScissor(0, DISPLAY_HEIGHT - 32, DISPLAY_WIDTH, 32)
+      local clipTop = id == self.d.linkTextBoxSpriteId and (s.y + s.y2 - 16) or (DISPLAY_HEIGHT - 32)
+      lg.setScissor(0, clipTop, DISPLAY_WIDTH, 32)
       FrlgFont.draw(bt.text, x, y, { colors = { fg = tfg, shadow = tsh } })
       lg.setScissor()
     end

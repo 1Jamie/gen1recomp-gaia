@@ -90,8 +90,8 @@ function LinkSession:exchangeFrame(frame, score)
     local msg = self.link:take("game3_blender_frame")
     if not msg then break end
     local seat, msgFrame = seatOf(msg), tonumber(msg.frame)
-    if self.frames[seat] and tonumber(msg.round) == self.round and msgFrame == frame then
-      self.frames[seat][frame] = tonumber(msg.score) or 0
+    if self.frames[seat] and tonumber(msg.round) == self.round and msgFrame and msgFrame >= frame then
+      self.frames[seat][msgFrame] = tonumber(msg.score) or 0
     end
   end
   local out = {}

@@ -5,7 +5,7 @@ Sim.__index = Sim
 
 Sim.DIR = "dodrio_berry_picking"
 -- pokefirered/include/constants/songs.h:9
-require("src.core.game3.song_fields")(Sim)
+require("src.core.game3.minigames.songs").fields(Sim)
 -- pokefirered/src/sound.c:61
 Sim.TOO_BAD_FRAMES = 160
 -- pokefirered/src/dodrio_berry_picking.c:3663

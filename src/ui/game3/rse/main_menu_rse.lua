@@ -273,6 +273,16 @@ function MainMenu:frame(inp)
         result = self:_openOptions()
       elseif sel == "EXIT" then
         result = { action = "exit" }
+      elseif sel == "MYSTERY_GIFT" or sel == "MYSTERY_GIFT2" then
+        -- pokeemerald/src/main_menu.c:1075
+        self:_openMysteryGift()
+      elseif sel == "MYSTERY_EVENTS" then
+        -- pokeemerald/src/main_menu.c:1040
+        self.cursor, self.scroll = 1, 0
+        self.invalidKey = "gText_MysteryEventsCantUse"
+        errorPrinter(self, self.invalidKey)
+        self.pal:beginFade(Pal.ALL, 0, 16, 0, Pal.BLACK)
+        self.state = "invalid_action"
       else
         -- pokeemerald/src/main_menu.c:1122
         self.cursor, self.scroll = 1, 0
@@ -306,6 +316,10 @@ function MainMenu:frame(inp)
   return result
 end
 
+function MainMenu:destroy()
+  if self.gift then self:_closeMysteryGift() end
+end
+
 function MainMenu:_openOptions()
   -- pokeemerald/src/main_menu.c:1070
   local ok, OptionMenu = pcall(function() return require("src.ui.game3.screens").get("option") end)
@@ -318,7 +332,48 @@ function MainMenu:_openOptions()
   return nil
 end
 
+-- pokeemerald/src/mystery_gift_menu.c:453 CB2_InitMysteryGift
+function MainMenu:_openMysteryGift()
+  local MysteryGift = require("src.core.game3.mystery_gift")
+  local MysteryGiftUi = require("src.ui.game3.mystery_gift")
+  local SaveData = require("src.core.SaveData")
+  local okLoad, raw = false, nil
+  if SaveData.load then okLoad, raw = pcall(SaveData.load) end
+  local loaded = okLoad and type(raw) == "table"
+  local save = loaded and raw or {}
+  local session = MysteryGift.sessionFromSave(save)
+  self.giftSave = save
+  self.gift = MysteryGiftUi.new({
+    session = session,
+    fetch = { session = session },
+    onSave = function(sess)
+      if not loaded then return false end
+      MysteryGift.applyToSave(sess, save)
+      if not SaveData.save then return false end
+      local okSave, written = pcall(SaveData.save, save)
+      return okSave and written ~= false
+    end,
+  })
+  self.state = "mystery_gift"
+end
+
+-- pokeemerald/src/mystery_gift_menu.c:474 MainCB_FreeAllBuffersAndReturnToInitTitleScreen
+function MainMenu:_closeMysteryGift()
+  if self.gift then require("src.ui.game3.mystery_gift").close(self.gift) end
+  self.gift, self.giftSave = nil, nil
+  self.state = "closed"
+end
+
 function MainMenu:update(input, dt)
+  if self.state == "mystery_gift" and self.gift then
+    local MysteryGiftUi = require("src.ui.game3.mystery_gift")
+    local pressed = function(k) return input and input.wasPressed and input:wasPressed(k) end
+    if MysteryGiftUi.update(self.gift, pressed, dt) == "exit" then
+      self:_closeMysteryGift()
+      return "title"
+    end
+    return nil
+  end
   if self.state == "options" and self.optionMenu then
     self.optionMenu.handleInput(input)
     if self.optionMenu.update then self.optionMenu.update() end
@@ -373,6 +428,10 @@ local function compositeDarkened(canvas, win)
 end
 
 function MainMenu:draw()
+  if self.state == "mystery_gift" and self.gift then
+    require("src.ui.game3.mystery_gift").draw(self.gift)
+    return
+  end
   local p = self.title and self.title.palettes
   local bgPal = p and p.mainMenuBg
   local bd = Kit.color555(bgPal and bgPal[1] or 0)

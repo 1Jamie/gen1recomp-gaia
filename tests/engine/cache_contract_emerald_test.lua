@@ -16,16 +16,16 @@ local function digest(list)
   return h
 end
 
-eq(CacheContract.markerFor("emerald", SHA), "rom-cache-v1-emerald:" .. SHA, "emerald marker")
-check(CacheContract.markerMatches("emerald", "rom-cache-v1-emerald:" .. SHA), "emerald marker matches")
+eq(CacheContract.markerFor("emerald", SHA), "rom-cache-v3-emerald:" .. SHA, "emerald marker")
+check(CacheContract.markerMatches("emerald", "rom-cache-v3-emerald:" .. SHA), "emerald marker matches")
 check(not CacheContract.markerMatches("emerald", "rom-cache-v17-firered:" .. SHA), "a FireRed marker does not")
 
-eq(#CacheContract.requiredFiles("firered"), 400, "FireRed required list size")
-eq(digest(CacheContract.requiredFiles("firered")), 606428493, "FireRed required list")
-eq(#CacheContract.requiredFiles("leafgreen"), 401, "LeafGreen required list size")
-eq(digest(CacheContract.requiredFiles("leafgreen")), 2008834177, "LeafGreen required list")
-eq(digest(CacheContract.requiredFiles("firered", true)), 781754428, "FireRed semantic list")
-eq(digest(CacheContract.requiredFiles("leafgreen", true)), 3951912768, "LeafGreen semantic list")
+eq(#CacheContract.requiredFiles("firered"), 433, "FireRed required list size")
+eq(digest(CacheContract.requiredFiles("firered")), 3052316112, "FireRed required list")
+eq(#CacheContract.requiredFiles("leafgreen"), 434, "LeafGreen required list size")
+eq(digest(CacheContract.requiredFiles("leafgreen")), 3097867067, "LeafGreen required list")
+eq(digest(CacheContract.requiredFiles("firered", true)), 2123642333, "FireRed semantic list")
+eq(digest(CacheContract.requiredFiles("leafgreen", true)), 1337846595, "LeafGreen semantic list")
 
 local em, isOverride = CacheContract.requiredFilesFor("emerald")
 check(isOverride == true, "emerald is a composed list, not the gen 1 list")
@@ -83,7 +83,7 @@ check(not CacheContract.cacheVersionCurrent("emerald", stale), "an emerald meta 
 
 local complete = {}
 for _, p in ipairs(em) do complete["emerald/" .. p] = "x" end
-complete["emerald/" .. CacheContract.MARKER_PATH] = "rom-cache-v1-emerald:" .. SHA
+complete["emerald/" .. CacheContract.MARKER_PATH] = "rom-cache-v3-emerald:" .. SHA
 complete["emerald/data/generated/gba/meta.json"] = emMeta
 check(CacheContract.isReady("emerald", memfs(complete)), "a complete emerald cache is ready")
 

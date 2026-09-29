@@ -150,6 +150,11 @@ end
 function WirelessIcon.onLinkMap(mapId)
   if type(mapId) ~= "string" then return false end
   if WirelessIcon.LINK_MAPS[mapId] then return true end
+  local Family = require("src.core.game3.link.family")
+  for key in pairs(Family.MAPS) do
+    local ok, id = pcall(Family.mapId, nil, key)
+    if ok and id == mapId then return true end
+  end
   if require("src.core.game3.link.union_room").isUnionMap(mapId) then return true end
   return mapId:match("_POKEMON_CENTER_2F$") ~= nil
 end

@@ -314,7 +314,7 @@ end
 Contest.SCARVES = { [0] = "ITEM_RED_SCARF", "ITEM_BLUE_SCARF", "ITEM_PINK_SCARF", "ITEM_GREEN_SCARF", "ITEM_YELLOW_SCARF" }
 
 -- pokeemerald/src/contest.c:2777
-function Contest:createPlayerMon(p)
+function Contest.buildContestMon(p)
   local m = {
     trainerName = p.trainerName, trainerGfxId = p.trainerGfxId or 0, aiFlags = 0, highestRank = 0,
     species = p.species or 0, nickname = p.nickname, isPlayer = true,
@@ -329,8 +329,45 @@ function Contest:createPlayerMon(p)
     stats[key] = stats[key] + 20
   end
   for k, v in pairs(stats) do m[k] = v > 255 and 255 or v end
+  return m
+end
+
+function Contest:createPlayerMon(p)
+  local m = Contest.buildContestMon(p)
   self.mons[self.playerIndex] = m
   return m
+end
+
+-- pokeemerald/src/contest.c:2910
+function Contest:setLinkAIContestants(numPlayers, rank, gameCleared, rand)
+  if numPlayers >= N then return end
+  local d = self.data
+  local list, count = {}, 0
+  for i = 0, d.opponentCount - 1 do
+    local o = d.opponents[i]
+    if rank == o.whichRank then
+      local f = d.postgameFilter[i]
+      local skip
+      if gameCleared == true then skip = f == Contest.FILTER.NO_POSTGAME else skip = f == Contest.FILTER.ONLY_POSTGAME end
+      if not skip and o.aiPool[Contest.CATEGORY_NAMES[self.category]] then
+        list[count] = i
+        count = count + 1
+      end
+    end
+  end
+  list[count] = NONE
+  self.opponentIds = self.opponentIds or {}
+  for i = 0, N - numPlayers - 1 do
+    local rnd = rand() % count
+    self.opponentIds[numPlayers + i] = list[rnd]
+    self.mons[numPlayers + i] = Contest.copyMon(d.opponents[list[rnd]])
+    local j = rnd
+    while list[j] ~= NONE do
+      list[j] = list[j + 1]
+      j = j + 1
+    end
+    count = count - 1
+  end
 end
 
 -- pokeemerald/src/contest.c:3051
@@ -489,7 +526,15 @@ end
 -- pokeemerald/src/contest.c:3406
 function Contest:chooseMoves(playerMoveChoice)
   if playerMoveChoice ~= nil then self.contest.playerMoveChoice = playerMoveChoice end
-  for i = 0, N - 1 do self.status[i].currMove = self:chosenMove(i) end
+  local linked = self.linkMoves
+  for i = 0, N - 1 do
+    if linked and linked[i] ~= nil then
+      -- pokeemerald/src/contest_link.c:295
+      self.status[i].currMove = self:isTurnDisabled(i) and 0 or (tonumber(linked[i]) or 0)
+    else
+      self.status[i].currMove = self:chosenMove(i)
+    end
+  end
 end
 
 local E = {}

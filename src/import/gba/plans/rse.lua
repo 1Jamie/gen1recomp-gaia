@@ -1,7 +1,7 @@
 local AREAS = {
   "maps", "scripts", "data", "pokemon_gfx", "text", "ow", "field", "battle", "audio", "boot", "ui", "rse",
   "b1", "b2", "b3", "fa", "fb", "fc", "ua", "ub", "uc", "ud", "xa", "aa",
-  "c1a", "c1b", "sb", "pb1", "pb2", "tv", "misc", "gc", "ma", "pn", "f1", "f2", "f3", "f4", "sav", "link", "ver",
+  "c1a", "c1b", "sb", "pb1", "pb2", "tv", "misc", "gc", "ma", "pn", "f1", "f2", "f3", "f4", "sav", "link", "lmg", "ver",
 }
 
 local plan = {

@@ -20,7 +20,7 @@ Draw.DROPPED_WIN = { 4, 6, 22, 5 }
 Draw.NAME_W, Draw.NAME_H = 7, 2
 
 local function mods()
-  return require("src.ui.game3.frlg_font"), require("src.ui.game3.chrome"), require("src.core.game3.rom_text")
+  return require("src.ui.game3.frlg_font"), require("src.ui.game3.chrome"), require("src.core.game3.minigames.text")
 end
 
 local colorCache = nil

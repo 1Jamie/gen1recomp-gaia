@@ -315,6 +315,7 @@ BattleBridge.EXTRA_KINDS = {
   "groudon", "kyogre", "rayquaza", "trainerIdB",
   "tutorialKind", "playerHalf", "partnerTrainerId", "partnerBackPic", "trainerItems",
   "battleTower", "secretBase", "dome", "palace", "arena", "factory", "pike", "pyramid", "frontierTrainer", "frontierTrainerB",
+  "towerLinkMulti", "victoryTextB",
 }
 
 -- pokeemerald/src/battle_main.c:5098

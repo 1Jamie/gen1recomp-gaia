@@ -354,6 +354,8 @@ do
   save.linkBattleRecords = { { name = "MAY", trainerId = 7, wins = 9, losses = 2, draws = 1 } }
   save.modData.emerald_daycare.daycare.offspringPersonality = 0xFEDCBA98
   save.localTimeOffset = { days = 3, hours = -1, minutes = 2, seconds = 0 }
+  eq(type(save.easyChatBattleStart) == "table" and #save.easyChatBattleStart, 6, "battle start words import")
+  save.easyChatBattleWon[2] = 1234
   local out = assert(E.exportPort(save, opts(bytes)))
   local c, blocks = E.decode(out)
   eq(c.money, 424242, "edited money exports under the save's key")
@@ -374,8 +376,10 @@ do
   eq(s.linkBattleRecords[1].wins, 9, "link record wins")
   eq(s.localTimeOffset.hours, -1, "local time offset keeps its sign")
   eq(s.localTimeOffset.days, 3, "local time offset days")
+  eq(c.easyChatBattle.won[2], 1234, "edited battle won words export to SB1")
   local again = assert(E.importPort(out, "emerald"))
   eq(again.money, 424242, "re-import sees the edit")
+  eq(again.easyChatBattleWon[2], 1234, "re-import sees the battle words")
 end
 
 do

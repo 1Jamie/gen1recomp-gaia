@@ -331,11 +331,15 @@ local Ctx = {}
 Ctx.__index = Ctx
 
 function K.context(rom, cache, opts, sub)
-  assert(isRom(rom), "boot_gfx: rom needs readString")
   opts = opts or {}
   local game = opts.game or rom.id or "emerald"
   if game == "leafgreen" or game == "firered" then error("boot_gfx: rse extractor run for " .. game) end
-  local S = require("src.import.gba.syms").of(game)
+  return K.contextWith(rom, cache, opts, sub, require("src.import.gba.syms").of(game), game)
+end
+
+function K.contextWith(rom, cache, opts, sub, S, game)
+  assert(isRom(rom), "boot_gfx: rom needs readString")
+  opts = opts or {}
   local root = (opts.cacheRoot or "data/generated/gba") .. "/" .. sub
   return setmetatable({
     rom = rom,

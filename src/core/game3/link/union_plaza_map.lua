@@ -4,6 +4,7 @@ local Plaza = setmetatable({}, {
   __index = function(_, k)
     if k == "SOURCE_ID" then return Family.mapId(nil, "unionRoom") end
     if k == "MAP_ID" then return Family.mapId(nil, "unionRoom") .. "_PLAZA" end
+    if k == "EXITS" then local t = rawget(_, "FAMILY_EXITS"); return t[Family.of()] or t.frlg end
     return nil
   end,
 })
@@ -12,6 +13,13 @@ Plaza.WIDTH = 25
 Plaza.HEIGHT = 25
 Plaza.EXIT_X, Plaza.EXIT_Y = 12, 24
 Plaza.ATTENDANT_LOCAL_ID = 1
+
+Plaza.FAMILY_EXITS = {
+  -- pokefirered/data/maps/UnionRoom/map.json warp_events
+  frlg = { { x = 12, y = 24, source = 1 } },
+  -- pokeemerald/data/maps/UnionRoom/map.json warp_events
+  rse = { { x = 12, y = 24, source = 1 }, { x = 13, y = 24, source = 2 } },
+}
 
 Plaza.ROLES = {
   "ABCDTTTTTTTTTTTTTTTTTTTTE",
@@ -190,9 +198,13 @@ function Plaza.ensure(game)
     def.connections = {}
     def.midLayout = LayoutNative.fromDecoded(Plaza.buildDecoded(src), Plaza.MAP_ID, pair)
     def.pair = pair
-    local warp = copyRow((srcDef.warps and srcDef.warps[1]) or {})
-    warp.x, warp.y = Plaza.EXIT_X, Plaza.EXIT_Y
-    def.warps = { warp }
+    def.warps = {}
+    for i, exit in ipairs(Plaza.EXITS) do
+      local srcWarps = srcDef.warps or {}
+      local warp = copyRow(srcWarps[exit.source] or srcWarps[1] or {})
+      warp.x, warp.y = exit.x, exit.y
+      def.warps[i] = warp
+    end
     def.objects = nil
     def.objectEvents = nil
     def.bgEvents = {}

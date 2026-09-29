@@ -71,6 +71,47 @@ for _, room in ipairs({ "FR_UNION_ROOM_PLAZA", "FR_UNION_ROOM" }) do
   check(c.map == CENTER_2F and c.x == 9 and c.y == 1, room .. " save with a dynamic warp still uses it")
 end
 
+local EmRules = require("src.core.game3.profiles.emerald_rules")
+local EM_2F = "EM_OLDALE_TOWN_POKEMON_CENTER_2F"
+local function emSession(room)
+  return { version = "emerald", map = room, x = 5, y = 8, specialSaveWarpFlags = 0,
+    dynamicWarp = { map = EM_2F, warpId = 1, x = 5, y = 1 } }
+end
+local function emRoundTrip(s)
+  local f, w = EmRules.saveWarpFields(s)
+  local c = { version = "emerald", map = s.map, x = s.x, y = s.y, healMap = s.healMap,
+    specialSaveWarpFlags = f, continueGameWarp = w }
+  EmRules.useContinueGameWarp(c)
+  return c, f
+end
+for _, room in ipairs({ "EM_TRADE_CENTER", "EM_RECORD_CORNER", "EM_BATTLE_COLOSSEUM_2P", "EM_BATTLE_COLOSSEUM_4P",
+  "EM_UNION_ROOM", "EM_UNION_ROOM_PLAZA" }) do
+  local c, f = emRoundTrip(emSession(room))
+  check(f == 1, "emerald " .. room .. " save carries CONTINUE_GAME_WARP")
+  check(c.map == EM_2F and c.x == 5 and c.y == 1 and c.specialSaveWarpFlags == 0,
+    "emerald " .. room .. " save continues at the dynamic warp (got " .. tostring(c.map) .. " "
+    .. tostring(c.x) .. "," .. tostring(c.y) .. ")")
+end
+for _, room in ipairs({ "EM_UNION_ROOM_PLAZA", "EM_UNION_ROOM" }) do
+  for _, case in ipairs({
+    { heal = "EM_LILYCOVE_CITY_POKEMON_CENTER_1F", want = "EM_LILYCOVE_CITY_POKEMON_CENTER_2F" },
+    { heal = "EM_LITTLEROOT_TOWN_BRENDANS_HOUSE_1F", want = EM_2F },
+  }) do
+    local s = emSession(room)
+    s.dynamicWarp = nil
+    s.healMap = case.heal
+    local c, f = emRoundTrip(s)
+    check(f == 0, "emerald " .. room .. " save with no dynamic warp sets no continue warp")
+    check(c.map == case.want and c.x == 5 and c.y == 1 and c.facing == "down",
+      "emerald " .. room .. " save with no dynamic warp (heal " .. case.heal .. ") continues at the Union Room door (got "
+      .. tostring(c.map) .. " " .. tostring(c.x) .. "," .. tostring(c.y) .. ")")
+  end
+end
+local emOut = emSession(EM_2F)
+emOut.x, emOut.y = 7, 4
+local eo, ef = emRoundTrip(emOut)
+check(ef == 0 and eo.map == EM_2F and eo.x == 7 and eo.y == 4, "an emerald save outside the link rooms is not redirected")
+
 local outside = linkSession(CENTER_2F)
 outside.x, outside.y = 7, 4
 local o = Schema.fromSaveTable(Schema.toSaveTable(outside))

@@ -116,7 +116,7 @@ local function link()
 end
 
 local function romText()
-  return require("src.core.game3.rom_text")
+  return require("src.core.game3.link.family").romText()
 end
 
 local function playSe(name)

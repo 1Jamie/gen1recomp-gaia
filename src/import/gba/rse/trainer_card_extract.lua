@@ -26,8 +26,29 @@ local function mapString(entries)
   return table.concat(out)
 end
 
+local function context(rom, cache, opts)
+  opts = opts or {}
+  local Versions = require("src.import.gba.versions")
+  local okV, V = pcall(Versions.forGame, opts.game or rom.id)
+  if not okV then V = Versions end
+  if type(V.HOENN_CARD) ~= "table" then return K.context(rom, cache, opts, M.SUB), V end
+  local map = Versions.HOENN_CARD
+  local function row(name) return assert(map[name], "hoenn card: no offset for " .. name) end
+  local S = {
+    off = function(name) return row(name)[1] end,
+    size = function(name) return row(name)[2] end,
+  }
+  return K.contextWith(rom, cache, opts, M.SUB, S, Versions.active()), Versions
+end
+
+local function pics(c, Versions)
+  local classes = Versions.HOENN_CARD_PIC_CLASSES
+  local base = Versions.FACILITY_CLASS_TO_PIC_INDEX
+  return { male = c:u8(base + classes.male), female = c:u8(base + classes.female) }
+end
+
 function M.run(rom, cache, opts)
-  local c = K.context(rom, cache, opts, M.SUB)
+  local c, Versions = context(rom, cache, opts)
   -- pokeemerald/src/trainer_card.c:532
   local gfx = c:lz("gHoennTrainerCard_Gfx")
   local maps = {
@@ -73,6 +94,7 @@ function M.run(rom, cache, opts)
     star = { png = c:path("star.png"), w = SW, h = SH },
     -- pokeemerald/src/trainer_card.c:287
     picOffset = { 1, 0 },
+    pics = pics(c, Versions),
   })
 end
 

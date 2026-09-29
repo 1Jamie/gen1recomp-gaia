@@ -10,7 +10,7 @@ return {
   scriptStepEvents = false,
   -- pokeemerald/src/field_screen_effect.c:317
   onFrameAfterWarpExit = true,
-  fieldModules = {},
+  fieldModules = { unionPlaza = true },
   -- pokeemerald/src/overworld.c:682
   escapeWarp = { delta = 1 },
   semantics = {

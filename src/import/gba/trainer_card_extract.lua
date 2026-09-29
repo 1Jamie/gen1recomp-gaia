@@ -7,7 +7,7 @@ local Lz77 = require("src.import.gba.lz77")
 local TrainerCardExtract = {}
 
 TrainerCardExtract.CACHE_SUB = "trainer_card"
-TrainerCardExtract.FORMAT_VERSION = 2
+TrainerCardExtract.FORMAT_VERSION = 3
 
 -- src/trainer_card.c:265 sKantoTrainerCardPals
 TrainerCardExtract.STAR_COUNT = 5
@@ -352,11 +352,19 @@ return {
   stickerHeight = %d,
   stickerSlots = %d,
   stickerPalettes = %d,
+  pics = { male = %d, female = %d },
 }
 ]], TrainerCardExtract.FORMAT_VERSION, W, H, TrainerCardExtract.STAR_COUNT,
     TrainerCardExtract.STICKER_SIZE, TrainerCardExtract.STICKER_SIZE,
-    TrainerCardExtract.STICKER_SLOTS, TrainerCardExtract.STICKER_PALETTES)
+    TrainerCardExtract.STICKER_SLOTS, TrainerCardExtract.STICKER_PALETTES,
+    get(Versions.FACILITY_CLASS_TO_PIC_INDEX + Versions.TRAINER_CARD_PIC_CLASSES.male),
+    get(Versions.FACILITY_CLASS_TO_PIC_INDEX + Versions.TRAINER_CARD_PIC_CLASSES.female))
   cache:write(root .. "/manifest.lua", manifest)
+
+  -- src/trainer_card.c:155
+  if type(Versions.HOENN_CARD) == "table" then
+    require("src.import.gba.rse.trainer_card_extract").run(rom, cache, { cacheRoot = opts.cacheRoot })
+  end
 
   return {
     ok = true,

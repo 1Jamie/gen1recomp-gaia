@@ -1019,6 +1019,7 @@ SCHEMAS.plaza_counts = function(m)
     battle = Wire.num(m.battle, 0, 0, MAX_INT),
     chat = Wire.num(m.chat, 0, 0, MAX_INT),
     minigame = Wire.num(m.minigame, 0, 0, MAX_INT),
+    link = Wire.num(m.link, 0, 0, MAX_INT),
     total = Wire.num(m.total, 0, 0, MAX_INT),
   }
 end
@@ -1157,6 +1158,7 @@ SCHEMAS.direct_queue = function(m)
     profile = profile(m.profile),
     avatar = Wire.avatar(m.avatar),
     preview = speciesList(m.preview),
+    seats = Wire.num(m.seats, nil, 2, 4),
   }
 end
 
@@ -1418,12 +1420,123 @@ end
 SCHEMAS.game3_battle_action = inner3(function(m)
   local out = action3(m)
   out.turn = Wire.num(m.turn, 0, 0, MAX_INT)
+  out.forSeat = Wire.num(m.forSeat, nil, 0, MAX_SEAT)
   out.actions = m.actions ~= nil and Wire.list(m.actions, 2, action3) or nil
   return out
 end)
 
 SCHEMAS.game3_battle_switch = inner3(function(m)
-  return { slot = Wire.num(m.slot, nil, 0, 255) }
+  return { slot = Wire.num(m.slot, nil, 0, 255), forSeat = Wire.num(m.forSeat, nil, 0, MAX_SEAT) }
+end)
+
+local function blockData(v)
+  if type(v) == "table" then return Wire.plain(v) end
+  if type(v) == "number" then return Wire.num(v, nil, -MAX_INT, MAX_U32) end
+  if type(v) == "boolean" then return v end
+  return Wire.str(v, nil, MAX_STRING)
+end
+
+-- pokeemerald/src/contest_link.c:22 LinkContest_SendBlock
+SCHEMAS.game3_contest_block = inner3(function(m)
+  local key = Wire.str(m.key, nil, MAX_NAME)
+  if not key then return nil end
+  return { key = key, from = Wire.num(m.from, nil, 0, MAX_SEAT), data = blockData(m.data) }
+end)
+
+SCHEMAS.game3_contest_abort = inner3(function(m)
+  return { from = Wire.num(m.from, nil, 0, MAX_SEAT) }
+end)
+
+-- pokeemerald/src/battle_tower.c:2588
+SCHEMAS.game3_tower_challenge = inner3(function(m)
+  return { from = Wire.num(m.from, nil, 0, MAX_SEAT), challengeNum = Wire.num(m.challengeNum, 0, 0, 65535) }
+end)
+
+-- pokeemerald/src/battle_tower.c:2625
+SCHEMAS.game3_tower_trainers = inner3(function(m)
+  return {
+    from = Wire.num(m.from, nil, 0, MAX_SEAT),
+    ids = Wire.list(m.ids, 14, function(v) return Wire.num(v, nil, 0, 65535) end),
+  }
+end)
+
+-- pokeemerald/src/battle_main.c:1302
+SCHEMAS.game3_tower_setup = inner3(function(m)
+  return {
+    from = Wire.num(m.from, nil, 0, MAX_SEAT),
+    battleNum = Wire.num(m.battleNum, 0, 0, 255),
+    name = Wire.str(m.name, nil, MAX_NAME),
+    trainerId = Wire.num(m.trainerId, 0, 0, MAX_U32),
+    gender = Wire.num(m.gender, 0, 0, 1),
+    seed = Wire.num(m.seed, nil, 0, MAX_U32),
+    party = party3(m.party),
+    foes = m.foes ~= nil and Wire.list(m.foes, 2, function(f)
+      if type(f) ~= "table" then return nil end
+      return {
+        name = Wire.str(f.name, nil, MAX_NAME),
+        trainerId = Wire.num(f.trainerId, 0, 0, 65535),
+        gender = Wire.num(f.gender, 0, 0, 1),
+        party = party3(f.party),
+      }
+    end) or nil,
+  }
+end)
+
+local function blender(extra)
+  return inner3(function(m)
+    local out = {
+      senderSeat = Wire.num(m.senderSeat, nil, 0, MAX_SEAT),
+      round = Wire.num(m.round, 0, 0, MAX_INT),
+    }
+    for k, kind in pairs(extra) do
+      if kind == "num" then out[k] = Wire.num(m[k], nil, -MAX_INT, MAX_INT)
+      elseif kind == "bool" then out[k] = Wire.bool(m[k], nil)
+      else out[k] = Wire.str(m[k], nil, MAX_NAME) end
+    end
+    return out
+  end)
+end
+
+-- pokeemerald/src/berry_blender.c:1047
+SCHEMAS.game3_blender_abort = blender({ reason = "str" })
+SCHEMAS.game3_blender_berry = blender({ itemId = "num" })
+SCHEMAS.game3_blender_frame = blender({ frame = "num", score = "num" })
+SCHEMAS.game3_blender_continue = blender({ choice = "num" })
+SCHEMAS.game3_blender_continue_result = blender({ continue = "bool", reason = "num", reasonSeat = "num" })
+
+-- pokeemerald/src/field_specials.c:3651
+SCHEMAS.game3_tower_retire_choice = inner3(function(m)
+  return { choice = Wire.num(m.choice, nil, 0, 1) }
+end)
+SCHEMAS.game3_tower_retire_result = inner3(function(m)
+  return { result = Wire.num(m.result, nil, 0, 3) }
+end)
+SCHEMAS.game3_tower_retire_standby = inner3(function()
+  return {}
+end)
+
+local MIX_DEPTH = 16
+local MIX_STRING = 512
+
+local function mixPlain(v, depth)
+  if type(v) ~= "table" or depth > MIX_DEPTH then return nil end
+  local out = {}
+  for k, val in pairs(v) do
+    local kt, vt = type(k), type(val)
+    if kt == "string" and #k <= MAX_STRING then
+      if vt == "string" then out[k] = Wire.str(val, nil, MIX_STRING)
+      elseif vt == "number" then
+        if val == val then out[k] = val end
+      elseif vt == "boolean" then out[k] = val
+      elseif vt == "table" then out[k] = mixPlain(val, depth + 1) end
+    end
+  end
+  return out
+end
+
+-- pokeemerald/src/record_mixing.c:220
+SCHEMAS.rse_record_mix = inner3(function(m)
+  return { spot = Wire.num(m.spot, nil, 0, 3), packet = mixPlain(m.packet, 0) }
 end)
 
 SCHEMAS.game3_battle_outcome = inner3(function(m)

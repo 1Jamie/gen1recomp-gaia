@@ -151,7 +151,7 @@ local textCache = {}
 local function romText(key, ctx, cacheKey)
   cacheKey = cacheKey or (ctx == nil and key or nil)
   if cacheKey and textCache[cacheKey] then return textCache[cacheKey] end
-  local ok, RomText = pcall(require, "src.core.game3.rom_text")
+  local ok, RomText = pcall(require, "src.core.game3.minigames.text")
   if not ok then return "" end
   local okText, text = pcall(RomText.plain, key, ctx)
   if not okText then return "" end

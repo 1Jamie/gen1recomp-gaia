@@ -85,6 +85,18 @@ end
 
 local CONTINUE_GAME_WARP = 0x01
 
+local UNION_ROOMS = { EM_UNION_ROOM = true, EM_UNION_ROOM_PLAZA = true }
+-- pokeemerald/data/maps/OldaleTown_PokemonCenter_2F/map.json:79
+local UNION_DOOR_X, UNION_DOOR_Y = 5, 1
+local FIRST_CENTER_2F = "EM_OLDALE_TOWN_POKEMON_CENTER_2F"
+
+local function union_room_door_map(session)
+  local heal = type(session.healMap) == "string" and session.healMap or ""
+  local city = heal:match("^(.+_POKEMON_CENTER)_1F$")
+  if city then return city .. "_2F" end
+  return FIRST_CENTER_2F
+end
+
 -- pokeemerald/src/load_save.c:134
 function Rules.useContinueGameWarp(session)
   local Bit = require("bit")
@@ -95,11 +107,36 @@ function Rules.useContinueGameWarp(session)
     -- pokeemerald/src/overworld.c:1741
     session.specialSaveWarpFlags = Bit.band(f, Bit.bnot(CONTINUE_GAME_WARP))
     session.map, session.x, session.y, session.facing = w.map, tonumber(w.x), tonumber(w.y), "down"
+    return
+  end
+  if UNION_ROOMS[session.map] then
+    -- pokeemerald/data/scripts/cable_club.inc:845
+    session.map, session.x, session.y, session.facing =
+      union_room_door_map(session), UNION_DOOR_X, UNION_DOOR_Y, "down"
   end
 end
 
+-- pokeemerald/include/constants/map_groups.h:431
+local LINK_ROOMS = {
+  EM_BATTLE_COLOSSEUM_2P = true,
+  EM_TRADE_CENTER = true,
+  EM_RECORD_CORNER = true,
+  EM_BATTLE_COLOSSEUM_4P = true,
+  EM_UNION_ROOM = true,
+  EM_UNION_ROOM_PLAZA = true,
+}
+
+-- pokeemerald/src/load_save.c:149 SetContinueGameWarpStatusToDynamicWarp
 function Rules.saveWarpFields(session)
-  return tonumber(session.specialSaveWarpFlags) or 0, session.continueGameWarp
+  local f = tonumber(session.specialSaveWarpFlags) or 0
+  local w = session.continueGameWarp
+  local dw = session.dynamicWarp
+  if LINK_ROOMS[session.map] and type(dw) == "table" and type(dw.map) == "string"
+      and tonumber(dw.x) and tonumber(dw.y) then
+    -- pokeemerald/src/overworld.c:735 SetContinueGameWarpToDynamicWarp
+    return require("bit").bor(f, CONTINUE_GAME_WARP), { map = dw.map, x = tonumber(dw.x), y = tonumber(dw.y) }
+  end
+  return f, w
 end
 
 return Rules

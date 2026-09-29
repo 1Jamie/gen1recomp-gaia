@@ -353,10 +353,13 @@ function IntroSeq.multiTrainerPics(st, playerGender)
   local own = tonumber(st.linkOwn) or 0
   local g = st.linkGenders
   local function front(gender) return (gender == 1) and LB.TRAINER_PIC_LEAF or LB.TRAINER_PIC_RED end
+  local towerA = st.towerLinkMulti and st.trainerPicId or nil
+  local towerB = st.towerLinkMulti and st.trainerB and st.trainerB.pic or nil
   return {
     -- pokefirered/src/battle_controller_link_opponent.c:1133
-    enemyPic = front(g[1]), enemyX = 200,
-    enemyPic2 = front(g[3]), enemyX2 = 152,
+    -- pokeemerald/src/battle_controller_link_opponent.c:1228
+    enemyPic = towerA or front(g[1]), enemyX = 200,
+    enemyPic2 = towerB or front(g[3]), enemyX2 = 152,
     -- pokefirered/src/battle_controller_player.c:2171
     gender = g[own] or playerGender or 0, x = (own == 2) and 90 or 32,
     -- pokefirered/src/battle_controller_link_partner.c:1106

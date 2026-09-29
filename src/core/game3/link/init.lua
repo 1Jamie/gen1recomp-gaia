@@ -264,6 +264,14 @@ function Link.callSpecial(ctx, adapters, id)
   return true
 end
 
+function Link.callSpecialNamed(ctx, adapters, name)
+  local ok, id = pcall(function()
+    return require("src.core.game3.constants").of(Family.activeVersion()):special(name)
+  end)
+  if not (ok and id) then return false end
+  return Link.callSpecial(ctx, adapters, id)
+end
+
 function Link.cableClubState(ctx)
   return Link.getVar(ctx, Link.VAR_CABLE_CLUB_STATE)
 end
@@ -277,7 +285,7 @@ function Link.cleanupLinkRoomState(ctx, adapters)
   local mode = Link.getVar(ctx, Link.VAR_0x8004)
   if mode == Link.USING.SINGLE_BATTLE or mode == Link.USING.DOUBLE_BATTLE
       or mode == Link.USING.MULTI_BATTLE then
-    Link.callSpecial(ctx, adapters, 0x28)
+    Link.callSpecialNamed(ctx, adapters, "LoadPlayerParty")
     Link.savePlayerBag()
   end
   local s = Link.session()
@@ -604,6 +612,8 @@ function Link.avatar()
     trainerId = (tonumber(s.trainerId or s.id) or 0) % 65536,
     gender = (s.gender == 1 or s.gender == "female") and 1 or 0,
     version = Link.version(),
+    -- pokeemerald/src/link_rfu_3.c:679
+    canLinkNationally = Family.canLinkNationally(s, Link.version()) and true or false,
   }
 end
 
@@ -704,6 +714,14 @@ function Link.isWirelessAdapterConnected(ctx, adapters)
   if not (okM and okC and Message.show and Choice.yesNo) then return false, 0 end
   local Strings = require("src.core.Strings")
   local Natives = require("src.core.game3.scripting.natives")
+  local live, liveWhy = Link.liveProfile()
+  if not live and liveWhy == "mods" then
+    local shown = false
+    Natives.yieldHost(ctx, adapters, function() end)
+    Message.show(Link.reasonText(liveWhy), function() shown = true end)
+    ctx.nativePoll = function() return shown end
+    return true
+  end
   local stage = "ask"
   local finished = false
   local function finish(value)
@@ -776,6 +794,11 @@ end
 
 -- pokefirered/src/trainer_card.c:858
 function Link.cardStars(s)
+  if Family.of() == "rse" then
+    -- pokeemerald/src/trainer_card.c:776 TrainerCard_GenerateCardForLinkPlayer
+    local FieldRse = require("src.core.game3.scripting.natives_field_rse")
+    return math.min(4, tonumber(FieldRse.countTrainerStars(s)) or 0)
+  end
   local stars = 0
   if (tonumber(s.hofDebutHours) or 0) ~= 0 or (tonumber(s.hofDebutMinutes) or 0) ~= 0
       or (tonumber(s.hofDebutSeconds) or 0) ~= 0 then

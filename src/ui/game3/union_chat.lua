@@ -207,7 +207,7 @@ function UnionChat.drawKeyboard(ox)
     for row = 0, Chat.KB_ROWS - 1 do
       local key = Chat.KEYBOARD[Chat.page][row + 1]
       if key then
-        FrlgFont.draw(UnionChat.MIN_SPACING .. require("src.core.game3.rom_text").plain(key),
+        FrlgFont.draw(UnionChat.MIN_SPACING .. require("src.core.game3.link.family").romText().plain(key),
           k.x + left + ox, k.y + row * UnionChat.KEY_PITCH, { small = true, colors = FrlgFont.COLOR.NORMAL })
       end
     end
@@ -287,7 +287,7 @@ end
 local function drawYesNo()
   local yn = Chat.yesNo
   if not yn then return end
-  local RomText = require("src.core.game3.rom_text")
+  local RomText = require("src.core.game3.link.family").romText()
   Window.stdFrame(Window.template(yn.left, yn.top, 6, 4))
   local px, py = yn.left * 8, yn.top * 8
   FrlgFont.draw(RomText.plain("gText_Yes"), px + 8, py + 2, { colors = FrlgFont.COLOR.NORMAL })
@@ -299,7 +299,7 @@ end
 local function drawSwap()
   local sw = Chat.swap
   if not sw then return end
-  local RomText = require("src.core.game3.rom_text")
+  local RomText = require("src.core.game3.link.family").romText()
   local tpl = UnionChat.SWAP_TEMPLATE
   Window.stdFrame(tpl)
   local px, py = tpl.left * 8, tpl.top * 8

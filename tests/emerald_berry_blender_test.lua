@@ -335,8 +335,15 @@ check(decision and not decision.continue and decision.reason == B.PLAY_AGAIN.CAN
   and decision.seat == 1, "leader resolves the partner's no-berries response")
 local peerDecision = guestBlenderLink:exchangeContinue(B.PLAY_AGAIN.CANT_PLAY_NO_BERRIES)
 check(peerDecision and not peerDecision.continue and peerDecision.seat == 1, "leader decision is broadcast to guest")
+eq(hostBlenderLink:exchangeFrame(1, 0), nil, "host frame 1 waits")
+check(guestBlenderLink:exchangeFrame(1, B.CMD.GOOD) ~= nil, "guest clears frame 1")
+eq(guestBlenderLink:exchangeFrame(2, B.CMD.BEST), nil, "guest runs ahead to frame 2")
+check(hostBlenderLink:exchangeFrame(1, 0) ~= nil, "host clears frame 1 with the guest's frame 2 already queued")
+local ahead = hostBlenderLink:exchangeFrame(2, 0)
+eq(ahead and ahead[1], B.CMD.BEST, "a partner frame that arrives early is kept, not dropped")
+check(guestBlenderLink:exchangeFrame(2, B.CMD.BEST) ~= nil, "guest clears frame 2")
 hostBlenderLink:abort("test_cancel")
-local _, abortReason = guestBlenderLink:exchangeFrame(1, 0)
+local _, abortReason = guestBlenderLink:exchangeFrame(3, 0)
 eq(abortReason, "abort", "peer cancellation releases a waiting timing frame")
 
 bus = { queues = { [0] = {}, [1] = {} } }

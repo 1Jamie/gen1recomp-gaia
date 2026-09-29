@@ -845,7 +845,7 @@ local function resendState()
   end
   if S.directQueue then sendRaw(Protocol2.directQueue(S.directQueue)) end
   if S.directWatch then
-    sendRaw(Protocol2.directList(S.directWatch.activity, S.directWatch.profile))
+    sendRaw(Protocol2.directList(S.directWatch.activity, S.directWatch.profile, S.directWatch.avatar))
   end
   local g = S.groupOpen
   if g then sendRaw(Protocol2.groupOpen(g.activity, g.profile, g.avatar)) end
@@ -1465,14 +1465,14 @@ function Client.queueDirect(opts)
   return sendRaw(Protocol2.directQueue(q))
 end
 
-function Client.directList(activity, profile)
+function Client.directList(activity, profile, avatar)
   if activity == nil then
     S.directWatch = nil
     return sendRaw(Protocol2.directList(nil, nil))
   end
   profile = profile or defaultProfile(3)
-  S.directWatch = { activity = activity, profile = profile }
-  return sendRaw(Protocol2.directList(activity, profile))
+  S.directWatch = { activity = activity, profile = profile, avatar = avatar }
+  return sendRaw(Protocol2.directList(activity, profile, avatar))
 end
 
 function Client.leaveDirect()

@@ -946,7 +946,7 @@ function MG.handleInput(input)
 end
 
 local function drawText(key)
-  local okR, RomText = pcall(require, "src.core.game3.rom_text")
+  local okR, RomText = pcall(require, "src.core.game3.minigames.text")
   if not okR then return end
   local Window = require("src.ui.game3.window")
   local Chrome = require("src.ui.game3.chrome")

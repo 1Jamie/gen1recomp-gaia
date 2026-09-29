@@ -31,6 +31,41 @@ function Pouch.isOpen()
   return Pouch._state ~= nil
 end
 
+local function matchLive()
+  local mg = MG()
+  local m = mg.match()
+  return mg.isActive() and not (m and (m.phase == "error" or m.phase == "done"))
+end
+
+-- pokeemerald/src/berry_crush.c:1054
+local function openBag(session, bag, done)
+  local impl = require("src.core.game3.rse.init").system("bag", "ChooseBerryForMachine")
+  if not (impl and impl.chooseBerry) then
+    done(nil)
+    return false
+  end
+  local st = { done = done, bag = bag, viaBag = true }
+  Pouch._state = st
+  require("src.core.game3.task").spawn(function(_, dt)
+    if Pouch._state ~= st then return true end
+    MG().update(dt)
+    if matchLive() then return false end
+    local Bag = require("src.ui.game3.screens").get("bag", session)
+    if Bag then
+      Bag._onChoose = nil
+      if Bag.open and Bag.close then Bag.close() end
+    end
+    Pouch.close(nil)
+    return true
+  end)
+  impl.chooseBerry(nil, function(itemId)
+    if Pouch._state ~= st then return end
+    local id = tonumber(itemId)
+    Pouch.close(id and id > 0 and id or nil)
+  end, "blender")
+  return true
+end
+
 -- pokefirered/src/berry_crush.c:1033
 function Pouch.open(session, done)
   local bag = type(session) == "table" and session.bag or nil
@@ -38,6 +73,9 @@ function Pouch.open(session, done)
   if #list == 0 then
     done(nil)
     return false
+  end
+  if not require("src.core.game3.profile").has(session, "berryPouch") then
+    return openBag(session, bag, done)
   end
   local BP = BerryPouch()
   BP.show(session, bag, { fromBerryCrush = true, cursor = 1, scroll = 0 })
@@ -50,10 +88,12 @@ function Pouch.close(itemId)
   local st = Pouch._state
   if not st then return end
   Pouch._state = nil
-  local BP = BerryPouch()
-  BP.open = false
-  BP._onClose = nil
-  Stack.pop(Pouch.ID)
+  if not st.viaBag then
+    local BP = BerryPouch()
+    BP.open = false
+    BP._onClose = nil
+    Stack.pop(Pouch.ID)
+  end
   if st.done then st.done(itemId) end
 end
 
@@ -133,9 +173,10 @@ function Pouch.draw()
 end
 
 function Pouch.reset()
-  if Pouch._state then
+  local st = Pouch._state
+  if st then
     Pouch._state = nil
-    Stack.pop(Pouch.ID)
+    if not st.viaBag then Stack.pop(Pouch.ID) end
   end
 end
 

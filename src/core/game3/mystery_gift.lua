@@ -84,10 +84,68 @@ local FLAG_FOUGHT_DEOXYS = 0x2E4
 local FLAG_FOUGHT_LUGIA = 0x2F2
 local FLAG_FOUGHT_HO_OH = 0x2F3
 
--- pokefirered/include/constants/vars.h:87
+local function versionOf(session)
+  local ok, row = pcall(function() return require("src.core.game3.profile").forSession(session) end)
+  return ok and type(row) == "table" and row.id or "firered"
+end
+MysteryGift.versionOf = versionOf
+
+function MysteryGift.familyOf(session)
+  return require("src.core.game3.link.family").of(versionOf(session))
+end
+
+local function consts(session)
+  return require("src.core.game3.constants").of(versionOf(session))
+end
+
+MysteryGift.FAMILY = {
+  frlg = {
+    -- pokefirered/src/event_data.c:127
+    enableFlag = "FLAG_SYS_MYSTERY_GIFT_ENABLED",
+    -- pokefirered/src/wonder_news.c:74
+    newsEnableFlag = "FLAG_SYS_MYSTERY_GIFT_ENABLED",
+    -- pokefirered/src/event_data.c:152
+    giftVars = { "VAR_EVENT_PICHU_SLOT", "VAR_MYSTERY_GIFT_1", "VAR_MYSTERY_GIFT_2", "VAR_MYSTERY_GIFT_3",
+      "VAR_MYSTERY_GIFT_4", "VAR_MYSTERY_GIFT_5", "VAR_MYSTERY_GIFT_6", "VAR_MYSTERY_GIFT_7",
+      "VAR_ALTERING_CAVE_WILD_SET" },
+  },
+  rse = {
+    -- pokeemerald/src/event_data.c:107
+    enableFlag = "FLAG_SYS_MYSTERY_GIFT_ENABLE",
+    -- pokeemerald/src/wonder_news.c:77
+    newsEnableFlag = "FLAG_SYS_MYSTERY_EVENT_ENABLE",
+    -- pokeemerald/src/event_data.c:132
+    giftVars = { "VAR_GIFT_PICHU_SLOT", "VAR_GIFT_UNUSED_1", "VAR_GIFT_UNUSED_2", "VAR_GIFT_UNUSED_3",
+      "VAR_GIFT_UNUSED_4", "VAR_GIFT_UNUSED_5", "VAR_GIFT_UNUSED_6", "VAR_GIFT_UNUSED_7" },
+  },
+}
+
+local function familyRow(session)
+  return MysteryGift.FAMILY[MysteryGift.familyOf(session)] or MysteryGift.FAMILY.frlg
+end
+
+local function flagNamed(session, name)
+  return consts(session):require("flags", name)
+end
+
+local function varNamed(session, name)
+  return consts(session):require("vars", name)
+end
+
 local function wonderNewsStepVar(session)
-  local game = require("src.core.game3.profile").forSession(session).id
-  return require("src.core.game3.constants").of(game):require("vars", "VAR_WONDER_NEWS_STEP_COUNTER")
+  return varNamed(session, "VAR_WONDER_NEWS_STEP_COUNTER")
+end
+
+local RESOLVE_KINDS = { flags = true, vars = true, items = true, species = true, moves = true }
+
+function MysteryGift.resolveId(version, kind, value)
+  local n = tonumber(value)
+  if n then return n end
+  if type(value) ~= "string" or not RESOLVE_KINDS[kind] or not value:match("^[A-Z][A-Z0-9_]*$") then return nil end
+  local ok, id = pcall(function()
+    return require("src.core.game3.constants").of(version or versionOf(nil)):id(kind, value)
+  end)
+  return ok and tonumber(id) or nil
 end
 -- pokefirered/include/constants/vars.h:71
 local VAR_ALTERING_CAVE_WILD_SET = 0x4024
@@ -171,25 +229,33 @@ local function copyList(list, count, limit)
   return out
 end
 
-local function copyFlagList(list)
+local function copyFlagList(list, version, bad)
   local out = {}
   for _, id in ipairs(type(list) == "table" and list or {}) do
-    local n = tonumber(id)
-    if n then out[#out + 1] = n end
+    local n = MysteryGift.resolveId(version, "flags", id)
+    if n then out[#out + 1] = n elseif id ~= nil then bad.any = true end
   end
   return out
 end
 
+local function resolved(version, kind, value, bad)
+  if value == nil then return nil end
+  local n = MysteryGift.resolveId(version, kind, value)
+  if n == nil then bad.any = true end
+  return n
+end
+
 -- pokefirered/include/global.h:655 struct WonderCard
-function MysteryGift.normalizeCard(card)
+function MysteryGift.normalizeCard(card, version)
   if type(card) ~= "table" then return nil end
   local gift = type(card.gift) == "table" and card.gift or {}
+  local bad = {}
   local moves = {}
   for slot, move in pairs(type(gift.moves) == "table" and gift.moves or {}) do
-    local s, m = tonumber(slot), tonumber(move)
+    local s, m = tonumber(slot), resolved(version, "moves", move, bad)
     if s and m then moves[s] = m end
   end
-  return {
+  local out = {
     flagId = num(card.flagId),
     iconSpecies = num(card.iconSpecies),
     idNumber = num(card.idNumber),
@@ -204,26 +270,29 @@ function MysteryGift.normalizeCard(card)
     footerLine2Text = clampText(card.footerLine2Text, WONDER_CARD_TEXT_LENGTH),
     gift = {
       kind = type(gift.kind) == "string" and gift.kind or "none",
-      item = tonumber(gift.item),
+      item = resolved(version, "items", gift.item, bad),
       quantity = tonumber(gift.quantity) or 1,
-      species = tonumber(gift.species),
+      species = resolved(version, "species", gift.species, bad),
       level = tonumber(gift.level) or 5,
       nickname = type(gift.nickname) == "string" and gift.nickname or nil,
       moves = moves,
       personality = tonumber(gift.personality),
       otName = type(gift.otName) == "string" and gift.otName or nil,
       otId = tonumber(gift.otId),
-      heldItem = tonumber(gift.heldItem),
-      setFlags = copyFlagList(gift.setFlags),
-      haveFlags = copyFlagList(gift.haveFlags),
-      doneFlag = tonumber(gift.doneFlag),
-      slotVar = tonumber(gift.slotVar),
+      heldItem = resolved(version, "items", gift.heldItem, bad),
+      setFlags = copyFlagList(gift.setFlags, version, bad),
+      haveFlags = copyFlagList(gift.haveFlags, version, bad),
+      doneFlag = resolved(version, "flags", gift.doneFlag, bad),
+      slotVar = resolved(version, "vars", gift.slotVar, bad),
       varAdd = tonumber(gift.varAdd),
       varWrap = tonumber(gift.varWrap),
       requireStat = tonumber(gift.requireStat),
       requireValue = tonumber(gift.requireValue),
+      script = type(gift.script) == "string" and gift.script:match("^[%w_]+$") and gift.script or nil,
     },
   }
+  if bad.any then return nil, "unresolved" end
+  return out
 end
 
 -- pokefirered/include/global.h:646 struct WonderNews
@@ -261,6 +330,7 @@ local function cardBytes(card)
     tostring(gift.varAdd or 0), tostring(gift.varWrap or 0),
     tostring(gift.requireStat or 0), tostring(gift.requireValue or 0),
   }
+  if gift.script then parts[#parts + 1] = "R" .. tostring(gift.script) end
   for _, slot in ipairs(moveKeys) do
     parts[#parts + 1] = tostring(slot) .. "=" .. tostring(gift.moves[slot])
   end
@@ -345,13 +415,39 @@ function MysteryGift.ensure(session)
   return rec
 end
 
+-- pokeemerald/src/mystery_gift.c:54 GetQuestionnaireWordsPtr
+function MysteryGift.questionnaireWords(session)
+  local rec = MysteryGift.ensure(session)
+  local words = type(rec.questionnaireWords) == "table" and rec.questionnaireWords or {}
+  for i = 1, NUM_QUESTIONNAIRE_WORDS do
+    local w = tonumber(words[i]) or 0
+    -- pokeemerald/src/easy_chat.c:5857 InitQuestionnaireWords
+    words[i] = w == 0 and 0xFFFF or w
+  end
+  rec.questionnaireWords = words
+  return words
+end
+
+-- pokeemerald/src/easy_chat.c:2988 DidPlayerInputMysteryGiftPhrase
+MysteryGift.MYSTERY_GIFT_PHRASE = { 521, 5131, 4144, 4138 }
+
+function MysteryGift.isMysteryGiftPhrase(words)
+  for i = 1, NUM_QUESTIONNAIRE_WORDS do
+    if tonumber(type(words) == "table" and words[i]) ~= MysteryGift.MYSTERY_GIFT_PHRASE[i] then return false end
+  end
+  return true
+end
+
 local function flagsMod()
   return require("src.core.game3.scripting.flags")
 end
 
 local function scriptStore(session)
-  if type(session) == "table" and type(session.store) == "table" then return session.store end
   local Space = package.loaded["src.core.game3.scripting.space"]
+  local rt = package.loaded["src.core.game3.runtime"]
+  local live = rt and rt.getSession and rt.getSession() or nil
+  if Space and type(Space.store) == "table" and live ~= nil and session == live then return Space.store end
+  if type(session) == "table" and type(session.store) == "table" then return session.store end
   if Space and Space.store then return Space.store end
   if type(session) == "table" then
     session.flags = type(session.flags) == "table" and session.flags or {}
@@ -383,12 +479,12 @@ MysteryGift.setFlag = setFlag
 
 -- pokefirered/src/event_data.c:127 IsMysteryGiftEnabled
 function MysteryGift.isEnabled(session)
-  return getFlag(session, FLAG_SYS_MYSTERY_GIFT_ENABLED)
+  return getFlag(session, flagNamed(session, familyRow(session).enableFlag))
 end
 
 -- pokefirered/src/event_data.c:122 EnableMysteryGift
 function MysteryGift.enable(session)
-  setFlag(session, FLAG_SYS_MYSTERY_GIFT_ENABLED, true)
+  setFlag(session, flagNamed(session, familyRow(session).enableFlag), true)
 end
 
 -- pokefirered/src/mystery_gift.c:62 GetSavedWonderNews
@@ -464,18 +560,17 @@ end
 
 -- pokefirered/src/event_data.c:132 ClearMysteryGiftFlags
 local function clearMysteryGiftFlags(session)
-  for id = FLAG_MYSTERY_GIFT_DONE, FLAG_MYSTERY_GIFT_DONE + 15 do
+  local first = flagNamed(session, "FLAG_MYSTERY_GIFT_DONE")
+  for id = first, first + 15 do
     setFlag(session, id, false)
   end
 end
 
 -- pokefirered/src/event_data.c:152 ClearMysteryGiftVars
 local function clearMysteryGiftVars(session)
-  setVar(session, VAR_EVENT_PICHU_SLOT, 0)
-  for i = 0, 6 do
-    setVar(session, VAR_MYSTERY_GIFT_1 + i, 0)
+  for _, name in ipairs(familyRow(session).giftVars) do
+    setVar(session, varNamed(session, name), 0)
   end
-  setVar(session, VAR_ALTERING_CAVE_WILD_SET, 0)
 end
 
 -- pokefirered/src/mystery_gift.c:134 ClearSavedWonderNewsMetadata
@@ -592,16 +687,17 @@ local function isFlagIdInValidRange(flagId)
 end
 
 -- pokefirered/src/mystery_gift.c:30 sReceivedGiftFlags
-function MysteryGift.receivedGiftFlag(flagId)
+function MysteryGift.receivedGiftFlag(flagId, session)
   flagId = num(flagId)
   if not isFlagIdInValidRange(flagId) then return nil end
-  return MysteryGift.RECEIVED_GIFT_FLAG_FIRST + (flagId - MysteryGift.WONDER_CARD_FLAG_OFFSET)
+  local first = flagNamed(session, "FLAG_RECEIVED_AURORA_TICKET")
+  return first + (flagId - MysteryGift.WONDER_CARD_FLAG_OFFSET)
 end
 
 -- pokefirered/src/mystery_gift.c:248 IsSavedWonderCardGiftNotReceived
 function MysteryGift.isGiftNotReceived(session)
   local flagId = MysteryGift.getCardFlagId(session)
-  local giftFlag = MysteryGift.receivedGiftFlag(flagId)
+  local giftFlag = MysteryGift.receivedGiftFlag(flagId, session)
   if not giftFlag then return false end
   if getFlag(session, giftFlag) then return false end
   return true
@@ -836,7 +932,8 @@ end
 -- pokefirered/src/wonder_news.c:68 WonderNews_GetRewardInfo
 function MysteryGift.getNewsRewardInfo(session)
   local data = MysteryGift.getSavedNewsMetadata(session)
-  if not MysteryGift.isEnabled(session) or not MysteryGift.validateSavedNews(session) then
+  if not getFlag(session, flagNamed(session, familyRow(session).newsEnableFlag))
+    or not MysteryGift.validateSavedNews(session) then
     return MysteryGift.NEWS_REWARD_NONE, nil
   end
   local rewardType = newsRewardType(data)
@@ -937,7 +1034,7 @@ function MysteryGift.deliverGift(session, card)
   card = card or MysteryGift.getSavedCard(session)
   if type(card) ~= "table" then return MysteryGift.DELIVER_NOTHING end
   local gift = type(card.gift) == "table" and card.gift or {}
-  local receivedFlag = MysteryGift.receivedGiftFlag(card.flagId)
+  local receivedFlag = MysteryGift.receivedGiftFlag(card.flagId, session)
 
   -- pokefirered/src/mystery_gift.c:248 IsSavedWonderCardGiftNotReceived
   if receivedFlag and getFlag(session, receivedFlag) then
@@ -974,7 +1071,7 @@ function MysteryGift.deliverGift(session, card)
     if not mon then return MysteryGift.DELIVER_PARTY_FULL end
   elseif gift.kind == "var" then
     -- pokefirered/data/mystery_event_msg.s:325 MysteryEventScript_AlteringCave
-    local id = num(gift.slotVar, VAR_ALTERING_CAVE_WILD_SET)
+    local id = num(gift.slotVar, varNamed(session, "VAR_ALTERING_CAVE_WILD_SET"))
     local value = getVar(session, id) + num(gift.varAdd, 1)
     if gift.varWrap and value == num(gift.varWrap) then value = 0 end
     setVar(session, id, value)
@@ -995,15 +1092,121 @@ end
 function MysteryGift.receiveCard(session, card)
   if not MysteryGift.saveCard(session, card) then return false end
   MysteryGift.enable(session)
+  MysteryGift.runReceiveScript(session)
   return true
+end
+
+MysteryGift.RSE_TICKET_SCRIPTS = {
+  -- pokeemerald/data/scripts/gift_aurora_ticket.inc:1
+  ITEM_AURORA_TICKET = "aurora",
+  -- pokeemerald/data/scripts/gift_mystic_ticket.inc:1
+  ITEM_MYSTIC_TICKET = "mystic",
+  -- pokeemerald/data/scripts/gift_old_sea_map.inc:1
+  ITEM_OLD_SEA_MAP = "oldSeaMap",
+  -- pokeemerald/data/scripts/cable_club.inc:33
+  ITEM_EON_TICKET = "eon",
+}
+
+function MysteryGift.ramScriptId(session, card)
+  card = card or MysteryGift.getSavedCard(session)
+  if type(card) ~= "table" or MysteryGift.familyOf(session) ~= "rse" then return nil end
+  local gift = type(card.gift) == "table" and card.gift or {}
+  if gift.script then return gift.script end
+  if gift.kind ~= "item" then return nil end
+  local C = consts(session)
+  for name, id in pairs(MysteryGift.RSE_TICKET_SCRIPTS) do
+    if C:id("items", name) == num(gift.item) then return id end
+  end
+  return nil
+end
+
+-- pokeemerald/src/field_specials.c:3630 ShouldDistributeEonTicket
+function MysteryGift.runReceiveScript(session)
+  if MysteryGift.ramScriptId(session) ~= "eon" then return false end
+  local Bag = require("src.core.game3.bag")
+  local C = consts(session)
+  if type(session) == "table" and session.bag and Bag.has(session.bag, C:require("items", "ITEM_EON_TICKET"), 1) then
+    return false
+  end
+  if getFlag(session, C:require("flags", "FLAG_ENABLE_SHIP_SOUTHERN_ISLAND")) then return false end
+  setVar(session, C:require("vars", "VAR_DISTRIBUTE_EON_TICKET"), 1)
+  return true
+end
+
+local TEXT_KEYS = {
+  frlg = {
+    -- pokefirered/data/mystery_event_msg.s:260
+    noRoom = { default = "sText_AuroraTicketNoPlace", ITEM_MYSTIC_TICKET = "sText_MysticTicketNoPlace" },
+    -- pokefirered/data/mystery_event_msg.s:256
+    done = { default = "sText_AuroraTicketGot", ITEM_MYSTIC_TICKET = "sText_MysticTicketGot" },
+    -- pokefirered/data/mystery_event_msg.s:108
+    partyFull = "sText_FullParty",
+  },
+  rse = {
+    -- pokeemerald/data/scripts/gift_aurora_ticket.inc:24
+    noRoom = { default = "sText_AuroraTicketBagFull", ITEM_MYSTIC_TICKET = "sText_MysticTicketBagFull",
+      ITEM_OLD_SEA_MAP = "sText_MysteryGiftOldSeaMapBagFull" },
+    -- pokeemerald/data/scripts/gift_aurora_ticket.inc:31
+    done = { default = "sText_AuroraTicketThankYou", ITEM_MYSTIC_TICKET = "sText_MysticTicketThankYou",
+      ITEM_OLD_SEA_MAP = "sText_MysteryGiftOldSeaMapThankYou" },
+    -- pokeemerald/data/scripts/gift_pichu.inc:24
+    partyFull = "sText_FullParty",
+    -- pokeemerald/data/scripts/gift_pichu.inc:13
+    egg = "sText_MysteryGiftEgg",
+    -- pokeemerald/data/scripts/gift_altering_cave.inc:9
+    var = "sText_MysteryGiftAlteringCave",
+    -- pokeemerald/data/scripts/gift_battle_card.inc:9
+    statWon = "sText_MysteryGiftBattleCountCard_WonPrize",
+    -- pokeemerald/data/scripts/gift_battle_card.inc:20
+    statInfo = "sText_MysteryGiftBattleCountCard",
+    -- pokeemerald/data/scripts/gift_stamp_card.inc:11
+    stamp = "sText_MysteryGiftStampCard",
+  },
+}
+MysteryGift.TEXT_KEYS = TEXT_KEYS
+
+local function byItem(session, map, item)
+  local C = consts(session)
+  for name, key in pairs(map) do
+    if name ~= "default" and C:id("items", name) == num(item) then return key end
+  end
+  return map.default
+end
+
+function MysteryGift.deliveryTextKey(session, code, card)
+  card = card or MysteryGift.getSavedCard(session)
+  local keys = TEXT_KEYS[MysteryGift.familyOf(session)] or TEXT_KEYS.frlg
+  local gift = type(card) == "table" and type(card.gift) == "table" and card.gift or {}
+  if code == MysteryGift.DELIVER_NO_ROOM then return byItem(session, keys.noRoom, gift.item) end
+  if code == MysteryGift.DELIVER_PARTY_FULL then return keys.partyFull end
+  if code == MysteryGift.DELIVER_GIVEN then
+    if gift.requireStat and keys.statWon then return keys.statWon end
+    if gift.kind == "egg" and keys.egg then return keys.egg end
+    if gift.kind == "var" and keys.var then return keys.var end
+    return nil
+  end
+  if gift.requireStat and keys.statInfo then return keys.statInfo end
+  if type(card) == "table" and num(card.type) == MysteryGift.CARD_TYPE_STAMP and keys.stamp then return keys.stamp end
+  return byItem(session, keys.done, gift.item)
+end
+
+function MysteryGift.fallbackTextKey(session, card)
+  card = card or MysteryGift.getSavedCard(session)
+  local keys = TEXT_KEYS[MysteryGift.familyOf(session)] or TEXT_KEYS.frlg
+  local gift = type(card) == "table" and type(card.gift) == "table" and card.gift or {}
+  return byItem(session, keys.done, gift.item)
 end
 
 local function bodyOf(...)
   return { ... }
 end
 
+local rseBuiltins
+
 -- pokefirered/data/mystery_event_msg.s:1
-function MysteryGift.builtins()
+function MysteryGift.builtins(family)
+  family = family or MysteryGift.familyOf(nil)
+  if family == "rse" then return rseBuiltins() end
   return {
     {
       key = "mystic_ticket",
@@ -1191,6 +1394,133 @@ function MysteryGift.builtins()
   }
 end
 
+local function rseCard(key, label, t)
+  t.iconSpecies = t.iconSpecies or 0
+  t.type = t.type or MysteryGift.CARD_TYPE_GIFT
+  t.sendType = t.sendType or MysteryGift.SEND_TYPE_DISALLOWED
+  t.maxStamps = t.maxStamps or 0
+  t.titleText = t.titleText or label
+  t.subtitleText = t.subtitleText or Strings("MYSTERY GIFT")
+  t.footerLine1Text = t.footerLine1Text or Strings("Speak to the deliveryman")
+  t.footerLine2Text = t.footerLine2Text or Strings("at a POKéMON CENTER.")
+  return { key = key, family = "rse", label = label, card = t }
+end
+
+function rseBuiltins()
+  local C = require("src.core.game3.constants").of("emerald")
+  local function f(name) return C:require("flags", name) end
+  local function v(name) return C:require("vars", name) end
+  local function i(name) return C:require("items", name) end
+  local ticketBody = function()
+    return bodyOf(
+      Strings("Thank you for using the MYSTERY"),
+      Strings("GIFT System."),
+      Strings("There is a ticket here for you."),
+      Strings("It is for use at LILYCOVE CITY port."))
+  end
+  return {
+    rseCard("rse_eon_ticket", Strings("EON TICKET"), {
+      flagId = MysteryGift.WONDER_CARD_FLAG_OFFSET + 3, idNumber = 101, bgType = 1, bodyText = ticketBody(),
+      -- pokeemerald/data/scripts/cable_club.inc:33
+      gift = { kind = "item", item = i("ITEM_EON_TICKET"), quantity = 1,
+        setFlags = { f("FLAG_ENABLE_SHIP_SOUTHERN_ISLAND") },
+        haveFlags = { f("FLAG_ENABLE_SHIP_SOUTHERN_ISLAND") } },
+    }),
+    rseCard("rse_aurora_ticket", Strings("AURORA TICKET"), {
+      flagId = MysteryGift.WONDER_CARD_FLAG_OFFSET, idNumber = 102, bgType = 3, bodyText = ticketBody(),
+      -- pokeemerald/data/scripts/gift_aurora_ticket.inc:5
+      gift = { kind = "item", item = i("ITEM_AURORA_TICKET"), quantity = 1,
+        setFlags = { f("FLAG_ENABLE_SHIP_BIRTH_ISLAND"), f("FLAG_RECEIVED_AURORA_TICKET") },
+        haveFlags = { f("FLAG_RECEIVED_AURORA_TICKET"), f("FLAG_BATTLED_DEOXYS") } },
+    }),
+    rseCard("rse_mystic_ticket", Strings("MYSTIC TICKET"), {
+      flagId = MysteryGift.WONDER_CARD_FLAG_OFFSET + 1, idNumber = 103, bgType = 2, bodyText = ticketBody(),
+      -- pokeemerald/data/scripts/gift_mystic_ticket.inc:5
+      gift = { kind = "item", item = i("ITEM_MYSTIC_TICKET"), quantity = 1,
+        setFlags = { f("FLAG_ENABLE_SHIP_NAVEL_ROCK"), f("FLAG_RECEIVED_MYSTIC_TICKET") },
+        haveFlags = { f("FLAG_RECEIVED_MYSTIC_TICKET"), f("FLAG_CAUGHT_LUGIA"), f("FLAG_CAUGHT_HO_OH") } },
+    }),
+    rseCard("rse_old_sea_map", Strings("OLD SEA MAP"), {
+      flagId = MysteryGift.WONDER_CARD_FLAG_OFFSET + 2, idNumber = 104, bgType = 6,
+      bodyText = bodyOf(
+        Strings("Thank you for using the MYSTERY"),
+        Strings("GIFT System."),
+        Strings("We received this OLD SEA MAP"),
+        Strings("addressed to you.")),
+      -- pokeemerald/data/scripts/gift_old_sea_map.inc:5
+      gift = { kind = "item", item = i("ITEM_OLD_SEA_MAP"), quantity = 1,
+        setFlags = { f("FLAG_ENABLE_SHIP_FARAWAY_ISLAND"), f("FLAG_RECEIVED_OLD_SEA_MAP") },
+        haveFlags = { f("FLAG_RECEIVED_OLD_SEA_MAP"), f("FLAG_CAUGHT_MEW") } },
+    }),
+    rseCard("rse_surf_pichu", Strings("SURFING PICHU EGG"), {
+      flagId = MysteryGift.WONDER_CARD_FLAG_OFFSET + 4, idNumber = 105, iconSpecies = 172, bgType = 1,
+      titleText = Strings("POKéMON EGG"),
+      bodyText = bodyOf(
+        Strings("From the POKéMON CENTER we"),
+        Strings("have a gift, a POKéMON EGG!"),
+        Strings("Please raise it with love and"),
+        Strings("kindness.")),
+      -- pokeemerald/data/scripts/gift_pichu.inc:1
+      gift = { kind = "egg", script = "surfPichu", species = C:require("species", "SPECIES_PICHU"),
+        moves = { [3] = C:require("moves", "MOVE_SURF") },
+        slotVar = v("VAR_GIFT_PICHU_SLOT"), doneFlag = f("FLAG_MYSTERY_GIFT_DONE") },
+    }),
+    rseCard("rse_stamp_card", Strings("STAMP CARD"), {
+      flagId = MysteryGift.WONDER_CARD_FLAG_OFFSET + 5, idNumber = 106, type = MysteryGift.CARD_TYPE_STAMP,
+      bgType = 4, sendType = MysteryGift.SEND_TYPE_ALLOWED, maxStamps = MysteryGift.MAX_STAMP_CARD_STAMPS,
+      bodyText = bodyOf(
+        Strings("Thank you for using the STAMP CARD"),
+        Strings("System."),
+        Strings("Trade with other TRAINERS to fill"),
+        Strings("your STAMP CARD.")),
+      -- pokeemerald/data/scripts/gift_stamp_card.inc:1
+      gift = { kind = "none", script = "stampCard" },
+    }),
+    rseCard("rse_battle_card", Strings("BATTLE COUNT CARD"), {
+      flagId = MysteryGift.WONDER_CARD_FLAG_OFFSET + 6, idNumber = 107, type = MysteryGift.CARD_TYPE_LINK_STAT,
+      bgType = 5, sendType = MysteryGift.SEND_TYPE_ALLOWED,
+      bodyText = bodyOf(
+        Strings("Your BATTLE COUNT CARD keeps"),
+        Strings("track of your battle record against"),
+        Strings("TRAINERS with the same CARD."),
+        Strings("Look for them and battle!")),
+      -- pokeemerald/data/scripts/gift_battle_card.inc:1
+      gift = { kind = "item", script = "battleCard", item = i("ITEM_POTION"), quantity = 1,
+        doneFlag = f("FLAG_MYSTERY_GIFT_DONE"),
+        requireStat = MysteryGift.CARD_STAT_BATTLES_WON, requireValue = 3 },
+    }),
+    rseCard("rse_altering_cave", Strings("ALTERING CAVE"), {
+      flagId = MysteryGift.WONDER_CARD_FLAG_OFFSET + 7, idNumber = 108, bgType = 6,
+      bodyText = bodyOf(
+        Strings("The POKéMON living in ALTERING"),
+        Strings("CAVE have changed."),
+        Strings("Go and see what turns up"),
+        Strings("on ROUTE 103.")),
+      -- pokeemerald/data/scripts/gift_altering_cave.inc:1
+      gift = { kind = "var", script = "alteringCave", slotVar = v("VAR_ALTERING_CAVE_WILD_SET"), varAdd = 1,
+        varWrap = 10 },
+    }),
+  }
+end
+
+MysteryGift.UI_TEXT = {
+  rse = {
+    -- pokeemerald/src/mystery_gift_menu.c:493
+    gText_MysteryGift2 = "gText_MysteryGift",
+    -- pokeemerald/src/union_room.c:2275
+    gText_UR_SearchingForWirelessSystemWait = "sText_SearchingForWirelessSystemWait",
+    -- pokeemerald/src/union_room.c:2393
+    gText_UR_WirelessSearchCanceled = "sText_WirelessSearchCanceled",
+    -- pokeemerald/src/union_room.c:2402
+    gTexts_UR_NoWonderShared = "sNoWonderSharedTexts",
+  },
+}
+
+function MysteryGift.uiTextKey(key, session)
+  local map = MysteryGift.UI_TEXT[MysteryGift.familyOf(session)]
+  return map and map[key] or key
+end
+
 MysteryGift.GIFT_PUBKEY = "2cecc61cc4d4ea70fc6802a66643e659a0f2c344eec6391ccf20b434ab280ffd"
 MysteryGift.FEED_PATH = "/gifts/gen3"
 MysteryGift.FEED_VERSION = 1
@@ -1243,14 +1573,25 @@ function MysteryGift.claimNews(session, news)
   return true
 end
 
-function MysteryGift.parseFeed(payload)
+local function rowFamily(raw)
+  return type(raw) == "table" and type(raw.family) == "string" and raw.family or "frlg"
+end
+
+local function familyVersion(family)
+  if family == MysteryGift.familyOf(nil) then return versionOf(nil) end
+  return family == "rse" and "emerald" or "firered"
+end
+
+function MysteryGift.parseFeed(payload, family)
+  family = family or MysteryGift.familyOf(nil)
+  local version = familyVersion(family)
   local Json = require("src.link.Json")
   local data = Json.decode(payload)
   if type(data) ~= "table" or data.v ~= MysteryGift.FEED_VERSION then return nil, "bad_feed" end
   if type(data.cards) ~= "table" or type(data.news) ~= "table" then return nil, "bad_feed" end
   local out = { issued = num(data.issued), cards = {}, news = {} }
   for _, raw in ipairs(data.cards) do
-    local card = MysteryGift.normalizeCard(raw)
+    local card = rowFamily(raw) == family and MysteryGift.normalizeCard(raw, version) or nil
     if card and validateCard(card) and isFlagIdInValidRange(card.flagId) and card.idNumber ~= 0 then
       out.cards[#out.cards + 1] = {
         key = type(raw.key) == "string" and raw.key or tostring(card.idNumber),
@@ -1260,7 +1601,7 @@ function MysteryGift.parseFeed(payload)
     end
   end
   for _, raw in ipairs(data.news) do
-    local news = MysteryGift.normalizeNews(raw)
+    local news = rowFamily(raw) == family and MysteryGift.normalizeNews(raw) or nil
     if news and validateNews(news) then
       out.news[#out.news + 1] = {
         key = type(raw.key) == "string" and raw.key or tostring(news.id),
@@ -1272,7 +1613,7 @@ function MysteryGift.parseFeed(payload)
   return out
 end
 
-function MysteryGift.verifyFeed(feed)
+function MysteryGift.verifyFeed(feed, family)
   if type(feed) ~= "table" or type(feed.payload) ~= "string" or type(feed.sig) ~= "string" then
     return nil, "bad_feed"
   end
@@ -1280,11 +1621,17 @@ function MysteryGift.verifyFeed(feed)
   if not Ed25519.verify(MysteryGift.GIFT_PUBKEY, feed.payload, feed.sig) then
     return nil, "bad_signature"
   end
-  return MysteryGift.parseFeed(feed.payload)
+  return MysteryGift.parseFeed(feed.payload, family)
+end
+
+function MysteryGift.feedPath(family)
+  if family == "frlg" then return MysteryGift.FEED_PATH end
+  return MysteryGift.FEED_PATH .. "?family=" .. tostring(family)
 end
 
 function MysteryGift.fetchOnline(opts)
   opts = opts or {}
+  local family = opts.family or MysteryGift.familyOf(opts.session)
   local client = opts.client
   if not client then
     local okS, SyncClient = pcall(require, "src.sync.SyncClient")
@@ -1293,12 +1640,12 @@ function MysteryGift.fetchOnline(opts)
     if not okN then return { status = "error", reason = "offline" } end
     client = made
   end
-  local okR, handle = pcall(client.send, client, "GET", MysteryGift.FEED_PATH, nil,
+  local okR, handle = pcall(client.send, client, "GET", MysteryGift.feedPath(family), nil,
     { noAuth = true, maxSeconds = MysteryGift.FETCH_SECONDS })
   if not okR or handle == nil then
-    return { status = "error", reason = "offline", client = client }
+    return { status = "error", reason = "offline", client = client, family = family }
   end
-  return { status = "pending", client = client, handle = handle }
+  return { status = "pending", client = client, handle = handle, family = family }
 end
 
 function MysteryGift.pollOnline(job)
@@ -1315,7 +1662,7 @@ function MysteryGift.pollOnline(job)
     job.reason = (num(res.code) >= 400) and "server" or "offline"
     return "error", job.reason
   end
-  local list, why = MysteryGift.verifyFeed(res.data)
+  local list, why = MysteryGift.verifyFeed(res.data, job.family)
   if not list then
     job.status, job.reason = "error", why
     return "error", why
@@ -1340,7 +1687,8 @@ function MysteryGift.sessionFromSave(save)
   local store = Flags.newStore()
   Flags.loadInto(store, { flags = save.flags, vars = save.vars })
   save.modData = type(save.modData) == "table" and save.modData or {}
-  local session = { store = store, modData = save.modData }
+  local session = { store = store, modData = save.modData,
+    version = type(save.version) == "string" and save.version or nil, bag = save.bag }
   MysteryGift.ensure(session)
   return session
 end

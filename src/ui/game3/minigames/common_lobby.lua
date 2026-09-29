@@ -2,7 +2,7 @@ local Stack = require("src.ui.game3.stack")
 local Window = require("src.ui.game3.window")
 local FrlgFont = require("src.ui.game3.frlg_font")
 local Chrome = require("src.ui.game3.chrome")
-local RomText = require("src.core.game3.rom_text")
+local RomText = require("src.core.game3.minigames.text")
 
 local Lobby = {}
 

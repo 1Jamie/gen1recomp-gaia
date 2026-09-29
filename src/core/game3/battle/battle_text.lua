@@ -173,6 +173,8 @@ end
 local function special(id, fill)
   if id == 0 then
     if fill.trainer then
+      -- pokeemerald/src/battle_message.c:1991
+      if fill.towerLinkMulti then return "sText_TwoTrainersWantToBattle" end
       if fill.link then
         if fill.multi then return "sText_TwoLinkTrainersWantToBattle" end
         return fill.unionRoom and "sText_Trainer1WantsToBattle" or "sText_LinkTrainerWantsToBattle"
@@ -203,6 +205,8 @@ local function special(id, fill)
     if fill.double then
       -- pokeemerald/src/battle_message.c:2057
       if fill.twoOpponents and not fill.link then return "sText_TwoTrainersSentPkmn" end
+      -- pokeemerald/src/battle_message.c:2059
+      if fill.towerLinkMulti then return "sText_TwoTrainersSentPkmn" end
       if fill.multi then return "sText_TwoLinkTrainersSentOutPkmn" end
       return fill.link and "sText_LinkTrainerSentOutTwoPkmn" or "sText_Trainer1SentOutTwoPkmn"
     end
@@ -228,6 +232,10 @@ local function special(id, fill)
       if scale == 2 then return "sText_GoForItPkmn" end
       return "sText_YourFoesWeakGetEmPkmn"
     end
+    if fill.towerLinkMulti then
+      -- pokeemerald/src/battle_message.c:2122
+      return fill.switchBattler == 1 and "sText_Trainer1SentOutPkmn2" or "sText_Trainer2SentOutPkmn"
+    end
     if fill.link then
       if fill.multi then return "sText_LinkTrainerMultiSentOutPkmn" end
       return fill.unionRoom and "sText_Trainer1SentOutPkmn2" or "sText_LinkTrainerSentOutPkmn2"
@@ -246,6 +254,10 @@ local function special(id, fill)
       if outcome == "lost" or outcome == "drew" then return "sText_GotAwaySafely" end
       if fill.multi then return "sText_TwoWildFled" end
       return fill.unionRoom and "sText_Trainer1Fled" or "sText_WildFled"
+    end
+    if fill.towerLinkMulti and outcome == "won" then
+      -- pokeemerald/src/battle_message.c:2190
+      return "sText_TwoInGameTrainersDefeated"
     end
     if fill.multi then
       return ({ won = "sText_TwoLinkTrainersDefeated", lost = "sText_PlayerLostToTwo",

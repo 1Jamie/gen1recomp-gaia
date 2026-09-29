@@ -407,7 +407,7 @@ function openOffers(st, list)
     closeOffers(st)
     st.state = Ui.STATE.RESULT_MSG
     -- pokefirered/src/union_room.c:2560
-    say(st, RomText.at("gTexts_UR_NoWonderShared", st.isNews and 1 or 0),
+    say(st, RomText.at(MysteryGift.uiTextKey("gTexts_UR_NoWonderShared", session(st)), st.isNews and 1 or 0),
       toMainMenuOffline)
     return
   end
@@ -433,7 +433,7 @@ end
 
 -- pokefirered/src/union_room.c:2423
 local function startSearch(st)
-  st.prompt = RomText.plain("gText_UR_SearchingForWirelessSystemWait")
+  st.prompt = RomText.plain(MysteryGift.uiTextKey("gText_UR_SearchingForWirelessSystemWait", session(st)))
   st.state = Ui.STATE.SEARCHING
   st.timer = 0
   st.lastError = nil
@@ -583,7 +583,7 @@ function Ui.update(st, pressed, dt)
       closeOffers(st)
       st.state = S.RESULT_MSG
       -- pokefirered/src/union_room.c:2551
-      say(st, RomText.plain("gText_UR_WirelessSearchCanceled"), toMainMenuOffline)
+      say(st, RomText.plain(MysteryGift.uiTextKey("gText_UR_WirelessSearchCanceled", session(st))), toMainMenuOffline)
       return nil
     end
     local status, result = MysteryGift.pollOnline(st.job)
@@ -678,7 +678,7 @@ end
 
 -- pokefirered/src/mystery_gift_menu.c:466 PrintMysteryGiftOrEReaderTopMenu
 local function drawTopBar(st)
-  Window.printPx(RomText.plain("gText_MysteryGift2"), 2, 2, { colors = TOP_TEXT })
+  Window.printPx(RomText.plain(MysteryGift.uiTextKey("gText_MysteryGift2", session(st))), 2, 2, { colors = TOP_TEXT })
   local S = Ui.STATE
   local useExit = st.state == S.SEARCHING
     or st.state == S.OFFER_LIST

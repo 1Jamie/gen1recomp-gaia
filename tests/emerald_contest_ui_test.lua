@@ -385,7 +385,10 @@ do
   NC.BY_NAME.GenerateContestRand(ctx)
   check(get(0x800D) < 8, "GenerateContestRand reduces VAR_RESULT modulo itself")
   NC.BY_NAME.TryContestGModeLinkup(ctx)
-  eq(get(0x800D), 5, "link contest linkup reports LINKUP_FAILED")
+  for _ = 1, 700 do
+    if not ctx.nativePoll or ctx.nativePoll() then break end
+  end
+  eq(get(0x800D), 6, "link contest linkup with nobody to link reports LINKUP_CONNECTION_ERROR")
   local _, won = NC.BY_NAME.HasMonWonThisContestBefore(ctx)
   eq(won, 0, "HasMonWonThisContestBefore is false without a ribbon")
   Contest2.data = realData

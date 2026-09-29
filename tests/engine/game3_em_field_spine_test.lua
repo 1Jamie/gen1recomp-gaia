@@ -15,6 +15,8 @@ for name in pairs(FieldModules.NAMES) do
   check(FieldModules.enabled(name, FR), "FireRed keeps field module " .. name)
   if name == "mapNamePopup" then
     check(FieldModules.enabled(name, EM), "Emerald runs the themed map name popup")
+  elseif name == "unionPlaza" then
+    check(FieldModules.enabled(name, EM), "Emerald shares the 40-player union plaza")
   else
     check(not FieldModules.enabled(name, EM), "Emerald does not run FireRed field module " .. name)
   end

@@ -5,6 +5,24 @@ local NativesEventIslands = {}
 
 local function natives() return require("src.core.game3.scripting.natives") end
 
+local Types = require("src.core.game3.rse.easy_chat_types")
+
+-- pokeemerald/src/easy_chat.c:1539
+Types.register(Types.ID.QUESTIONNAIRE, {
+  words = function(_, sess)
+    local MysteryGift = require("src.core.game3.mystery_gift")
+    local w = MysteryGift.questionnaireWords(sess)
+    return { w[1], w[2], w[3], w[4] }
+  end,
+  -- pokeemerald/src/easy_chat.c:2972
+  commit = function(ctx, sess, words)
+    local MysteryGift = require("src.core.game3.mystery_gift")
+    local w = MysteryGift.questionnaireWords(sess)
+    for i = 1, 4 do w[i] = tonumber(words[i]) or 0xFFFF end
+    Rse.setSpecialVar(ctx, 0x8004, MysteryGift.isMysteryGiftPhrase(w) and 2 or 0)
+  end,
+})
+
 NativesEventIslands.BY_NAME = {
   -- pokeemerald/src/field_specials.c:3264
   DoDeoxysRockInteraction = function(ctx)

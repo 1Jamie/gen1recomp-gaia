@@ -1,31 +1,23 @@
-local RomText = require("src.core.game3.rom_text")
+local RomText = require("src.core.game3.link.family").romText()
 
 local Union = {}
 
--- pokefirered/include/constants/union_room.h:21
-Union.ACTIVITY = {
-  NONE = 0,
-  BATTLE_SINGLE = 1,
-  BATTLE_DOUBLE = 2,
-  BATTLE_MULTI = 3,
-  TRADE = 4,
-  CHAT = 5,
-  CARD = 8,
-  POKEMON_JUMP = 9,
-  BERRY_CRUSH = 10,
-  BERRY_PICK = 11,
-  SEARCH = 12,
-  SPIN_TRADE = 13,
-  ITEM_TRADE = 14,
-  RECORD_CORNER = 15,
-  BERRY_BLENDER = 16,
-  ACCEPT = 17,
-  DECLINE = 18,
-  NPCTALK = 19,
-  PLYRTALK = 20,
-  WONDER_CARD = 21,
-  WONDER_NEWS = 22,
-}
+local Family = require("src.core.game3.link.family")
+
+local activityRows = {}
+
+-- pokeemerald/include/constants/union_room.h:20
+Union.ACTIVITY = setmetatable({}, {
+  __index = function(_, k)
+    local version = Family.activeVersion()
+    local row = activityRows[version]
+    if not row then
+      row = Family.activity(version)
+      activityRows[version] = row
+    end
+    return row[k]
+  end,
+})
 
 -- pokefirered/include/constants/union_room.h:49
 Union.IN_UNION_ROOM = 0x40
@@ -42,9 +34,17 @@ Union.LINK_GROUP = {
   WONDER_NEWS = 8,
   UNION_ROOM_RESUME = 9,
   UNION_ROOM_INIT = 10,
+  -- pokeemerald/include/constants/union_room.h:70
+  RECORD_CORNER = 12,
+  BERRY_BLENDER = 13,
+  COOL_CONTEST = 15,
+  BEAUTY_CONTEST = 16,
+  CUTE_CONTEST = 17,
+  SMART_CONTEST = 18,
+  TOUGH_CONTEST = 19,
+  BATTLE_TOWER = 20,
+  BATTLE_TOWER_OPEN = 21,
 }
-
-local Family = require("src.core.game3.link.family")
 
 Union.Family = Family
 
@@ -115,11 +115,18 @@ end
 
 -- pokefirered/include/constants/union_room.h:82
 Union.INTERACT_ATTENDANT = 9
-Union.INTERACT_START_MENU = 10
+Union.INTERACT_START_MENU_BY_FAMILY = {
+  frlg = 10,
+  -- pokeemerald/include/constants/union_room.h:100
+  rse = 11,
+}
 
 setmetatable(Union, {
   __index = function(_, k)
     if k == "MAP" then return Family.mapId(nil, "unionRoom") end
+    if k == "INTERACT_START_MENU" then
+      return rawget(Union, "INTERACT_START_MENU_BY_FAMILY")[Family.of()]
+    end
     return nil
   end,
 })
@@ -131,17 +138,11 @@ Union.MSG = {
 Union.AWAIT_ROOM_SECONDS = 20
 Union.CARD_WAIT_SECONDS = 3
 
-Union.WIRE_NAMES = {
-  [Union.ACTIVITY.BATTLE_SINGLE] = "battle_single",
-  [Union.ACTIVITY.BATTLE_DOUBLE] = "battle_double",
-  [Union.ACTIVITY.BATTLE_MULTI] = "battle_multi",
-  [Union.ACTIVITY.TRADE] = "trade",
-  [Union.ACTIVITY.CHAT] = "chat",
-  [Union.ACTIVITY.CARD] = "card",
-  [Union.ACTIVITY.POKEMON_JUMP] = "minigame_jump",
-  [Union.ACTIVITY.BERRY_CRUSH] = "minigame_crush",
-  [Union.ACTIVITY.BERRY_PICK] = "minigame_pick",
-}
+Union.WIRE_NAMES = setmetatable({}, {
+  __index = function(_, activity)
+    return Family.wireForActivity(nil, activity)
+  end,
+})
 
 Union.state = "off"
 Union.players = {}
@@ -713,10 +714,10 @@ function Union.warpForCableClubActivity(dest, linkService, opts)
   local ctx, adapters = L.vmCtx()
   L.setVar(ctx, L.VAR_0x8004, linkService)
   L.setVar(ctx, L.VAR_CABLE_CLUB_STATE, linkService)
-  if linkService ~= L.USING.TRADE_CENTER then
+  if linkService ~= L.USING.TRADE_CENTER and linkService ~= L.USING.RECORD_CORNER then
     -- pokefirered/src/union_room.c:1901
-    L.callSpecial(ctx, adapters, 0x00)
-    L.callSpecial(ctx, adapters, 0x27)
+    L.callSpecialNamed(ctx, adapters, "HealPlayerParty")
+    L.callSpecialNamed(ctx, adapters, "SavePlayerParty")
     L.loadPlayerBag()
   end
   local s = L.session()
@@ -1357,6 +1358,16 @@ end
 function Union.linkGroupFlow(ctx, adapters, role)
   local L = link()
   local group = L.getVar(ctx, L.VAR_0x8004)
+  -- pokeemerald/src/union_room.c:397
+  if Family.of() == "rse" and group == Union.LINK_GROUP.BATTLE_TOWER then
+    local okU, Util = pcall(require, "src.core.game3.rse.frontier.util")
+    local okD, D = pcall(require, "src.core.game3.rse.frontier.trainers")
+    local f = okU and Util.frontier and Util.frontier(L.session()) or nil
+    if okD and type(f) == "table" and D.LVL and f.lvlMode == D.LVL.OPEN then
+      group = group + 1
+      L.setVar(ctx, L.VAR_0x8004, group)
+    end
+  end
   local spec = Union.GROUP_ACTIVITY[group] or Union.GROUP_ACTIVITY[0]
   Union.activity = spec.activity
   linkupResult(ctx, L.LINKUP.ONGOING)
@@ -1465,7 +1476,7 @@ Union.GROUP_WIRE_ACTIVITY = {
 
 function Union.memberActivity(m)
   local g = type(m.group) == "table" and m.group or nil
-  local act = g and Union.GROUP_WIRE_ACTIVITY[g.activity] or nil
+  local act = g and (Union.GROUP_WIRE_ACTIVITY[g.activity] or Family.activityForWire(nil, g.activity)) or nil
   if not act then act = Union.STATUS_ACTIVITY[m.status] end
   if not act then act = Union.ACTIVITY.NONE end
   return act + Union.IN_UNION_ROOM
@@ -2269,11 +2280,24 @@ function Union.directDest(group)
 end
 
 -- pokefirered/src/union_room.c:1975
--- pokefirered/data/maps/BattleColosseum_2P/map.json coord_events
-Union.COLOSSEUM_SEATS = {
-  [0] = { x = 3, y = 5, script = "BattleColosseum_2P_EventScript_PlayerSpot0" },
-  [1] = { x = 10, y = 5, script = "BattleColosseum_2P_EventScript_PlayerSpot1" },
+Union.COLOSSEUM_SEATS_BY_FAMILY = {
+  -- pokefirered/data/maps/BattleColosseum_2P/map.json coord_events
+  frlg = {
+    [0] = { x = 3, y = 5, script = "BattleColosseum_2P_EventScript_PlayerSpot0" },
+    [1] = { x = 10, y = 5, script = "BattleColosseum_2P_EventScript_PlayerSpot1" },
+  },
+  -- pokeemerald/data/maps/BattleColosseum_2P/map.json coord_events
+  rse = {
+    [0] = { x = 3, y = 5, script = "EventScript_BattleColosseum_2P_PlayerSpot0" },
+    [1] = { x = 10, y = 5, script = "EventScript_BattleColosseum_2P_PlayerSpot1" },
+  },
 }
+Union.COLOSSEUM_SEATS = setmetatable({}, {
+  __index = function(_, seat)
+    local rows = Union.COLOSSEUM_SEATS_BY_FAMILY[Family.of()] or Union.COLOSSEUM_SEATS_BY_FAMILY.frlg
+    return rows[seat]
+  end,
+})
 Union.PARTNER_LOCAL_ID = 30
 
 local function seatPath(fromX, fromY, toX, toY, lead)
@@ -2306,7 +2330,7 @@ function Union.walkToSeats()
   if Objects and type(Objects._defs) == "table" and Objects.addObject then
     Objects._defs[#Objects._defs + 1] = {
       localId = Union.PARTNER_LOCAL_ID, x = px, y = py, facing = "up",
-      graphicsId = Union.graphicsIdFor(g3.gender, g3.trainerId),
+      graphicsId = (Family.linkPlayerGfx(nil, g3.version, g3.gender)),
     }
     if Objects.addObject(Union.PARTNER_LOCAL_ID) then
       Movement.start(ctx, Union.PARTNER_LOCAL_ID, seatPath(px, py, theirs.x, theirs.y, 2), adapters)
@@ -2390,9 +2414,30 @@ function Union.waitForMatch(ctx, adapters, spec)
     L.setStatus("busy")
     return finish(L.LINKUP.FAILED)
   end
+  local refused = nil
   local function poll()
     if done then return true end
-    if Union.matchStarted(L.clientCall("room")) then
+    if refused then
+      if refused.closed then
+        L.setStatus("busy")
+        return finish(L.LINKUP.FAILED)
+      end
+      return false
+    end
+    local room = L.clientCall("room")
+    if Union.matchStarted(room) then
+      local text = spec.refuse and spec.refuse(room)
+      if text then
+        spec.cancel()
+        refused = {}
+        if D then D.close() end
+        if M and M.show then
+          M.show(text, { done = function() refused.closed = true end })
+        else
+          refused.closed = true
+        end
+        return false
+      end
       finish(nil)
       spec.onMatch()
       return true
@@ -2509,6 +2554,26 @@ function Union.directModes(ctx, row, done)
   return true
 end
 
+-- pokeemerald/src/union_room.c:1266 IsTryingToTradeAcrossVersionTooSoon
+function Union.tradeReadyWith(partner)
+  if type(partner) ~= "table" or not Family.isGame3(partner.version) then return Family.UR_TRADE.READY end
+  local s = link().session() or {}
+  return Family.tradeAcrossVersionTooSoon(Family.of(), {
+    trading = true,
+    partnerVersion = Family.cartVersion(partner.version),
+    specialSaveWarpFlags = s.specialSaveWarpFlags,
+    partnerCanLinkNationally = partner.canLinkNationally == true,
+  })
+end
+
+function Union.roomPartnerAvatar(room)
+  local me = myId()
+  for _, p in ipairs(type(room) == "table" and type(room.players) == "table" and room.players or {}) do
+    if type(p) == "table" and p.id ~= me and type(p.avatar) == "table" then return p.avatar end
+  end
+  return nil
+end
+
 function Union.directRows(wire)
   local out = {}
   for _, e in ipairs(link().clientCall("directEntries", wire) or {}) do
@@ -2516,10 +2581,12 @@ function Union.directRows(wire)
       local av = type(e.avatar) == "table" and e.avatar or {}
       if e.kind == "room" and e.room ~= nil then
         out[#out + 1] = { key = "r:" .. tostring(e.room), kind = "room", room = e.room, id = e.host,
-          name = av.name or e.name, trainerId = av.trainerId, gender = av.gender, locked = e.locked == true }
+          name = av.name or e.name, trainerId = av.trainerId, gender = av.gender, locked = e.locked == true,
+          version = av.version, canLinkNationally = av.canLinkNationally == true }
       elseif e.kind == "player" and e.id ~= nil and wire ~= "battle_multi" then
         out[#out + 1] = { key = "p:" .. tostring(e.id), kind = "player", id = e.id,
-          name = av.name or e.name, trainerId = av.trainerId, gender = av.gender }
+          name = av.name or e.name, trainerId = av.trainerId, gender = av.gender, version = av.version,
+          canLinkNationally = av.canLinkNationally == true }
       end
     end
   end
@@ -2539,7 +2606,7 @@ function Union.chooseDirect(ctx, adapters, group, _direct)
   local st = { phase = "list", done = false }
   Union._choose = st
   natives().yieldHost(ctx, adapters, function() end)
-  L.clientCall("directList", wire, profile)
+  L.clientCall("directList", wire, profile, L.avatar())
   L.setStatus("idle")
   -- pokefirered/src/union_room.c:1169
   local prompt = RomText.ascii(RomText.key("gTexts_UR_ChooseTrainer", group))
@@ -2555,7 +2622,14 @@ function Union.chooseDirect(ctx, adapters, group, _direct)
     if Union._choose == st then Union._choose = nil end
     return true
   end
+  local notice
   local function success()
+    local ready = wire == "trade" and Union.tradeReadyWith(Union.roomPartnerAvatar(L.clientCall("room")))
+      or Family.UR_TRADE.READY
+    if ready ~= Family.UR_TRADE.READY then
+      L.clientCall("leaveRoom")
+      return notice(RomText.ascii(RomText.key("gTexts_UR_CantTransmitToTrainer", ready - 1)))
+    end
     finish(nil)
     if not L.openRelay({ linkType = linkType }) then
       linkupResult(ctx, L.LINKUP.CONNECTION_ERROR)
@@ -2574,7 +2648,7 @@ function Union.chooseDirect(ctx, adapters, group, _direct)
     end
     showPrompt()
   end
-  local function notice(text)
+  notice = function(text)
     st.phase = "notice"
     if D then D.setNotice(true) end
     if M then M.show(text, { done = function() if not st.done then backToList() end end }) end
@@ -2603,6 +2677,13 @@ function Union.chooseDirect(ctx, adapters, group, _direct)
     if st.phase ~= "list" or type(row) ~= "table" then return end
     -- pokefirered/src/union_room.c:1222
     playSe("SE_POKENAV_ON")
+    if wire == "trade" then
+      -- pokeemerald/src/union_room.c:1051
+      local ready = Union.tradeReadyWith(row)
+      if ready ~= Family.UR_TRADE.READY then
+        return notice(RomText.ascii(RomText.key("gTexts_UR_CantTransmitToTrainer", ready - 1)))
+      end
+    end
     if row.kind == "player" then
       st.phase, st.row = "inviting", row
       if D then D.setFrozen(true) end
@@ -2717,6 +2798,13 @@ function Union.directFlow(ctx, adapters, group, role)
   local _, _, linkType = Union.directDest(group)
   return Union.waitForMatch(ctx, adapters, {
     cancel = function() L.clientCall("leaveDirect") end,
+    refuse = function(room)
+      if wire ~= "trade" then return nil end
+      local ready = Union.tradeReadyWith(Union.roomPartnerAvatar(room))
+      if ready == Family.UR_TRADE.READY then return nil end
+      L.clientCall("leaveRoom")
+      return RomText.ascii(RomText.key("gTexts_UR_CantTransmitToTrainer", ready - 1))
+    end,
     onMatch = function()
       if not L.openRelay({ linkType = linkType }) then
         linkupResult(ctx, L.LINKUP.CONNECTION_ERROR)
@@ -2784,6 +2872,92 @@ function Union.finishMinigameLinkup(ctx, group)
     return true
   end)
   return L.LINKUP.SUCCESS
+end
+
+Union.LINK_GROUP_PROVIDERS = {
+  "src.core.game3.scripting.natives_contest",
+  "src.core.game3.scripting.natives_tower_rse",
+}
+-- pokeemerald/src/cable_club.c:482
+Union.LINK_READY_TICKS = 600
+
+function Union.linkGroupSpec(wire)
+  local RseGroups = require("src.core.game3.link.rse_groups")
+  local spec = RseGroups.get(wire)
+  if spec then return spec end
+  for _, name in ipairs(Union.LINK_GROUP_PROVIDERS) do
+    if not package.loaded[name] then pcall(require, name) end
+  end
+  return RseGroups.get(wire)
+end
+
+function Union.linkTypeOf(spec)
+  local v = type(spec) == "table" and spec.linkType or nil
+  if type(v) == "string" then return require("src.link.Game3Link").LINKTYPE[v] end
+  return tonumber(v)
+end
+
+-- pokeemerald/src/union_room.c:1600 WarpForCableClubActivity
+function Union.armLinkRoom(ctx, dest, service)
+  local started, finished = false, false
+  natives().awaitState(ctx, function()
+    if not started then
+      started = true
+      Union.warpForCableClubActivity(dest, service, {
+        cableClubWarp = true,
+        onDone = function() finished = true end,
+      })
+    end
+    return finished
+  end)
+end
+
+-- pokeemerald/src/union_room.c:1750 Task_RunScriptAndFadeToActivity
+function Union.finishLinkGroup(ctx, adapters, group, wire, role, spec)
+  local L = link()
+  local linkType = Union.linkTypeOf(spec)
+  if not (linkType and L.openRelay({ linkType = linkType })) then
+    L.clientCall("leaveRoom")
+    linkupResult(ctx, L.LINKUP.CONNECTION_ERROR)
+    return true
+  end
+  L.setStatus("busy")
+  local ticks = 0
+  ctx.nativePoll = function()
+    ticks = ticks + 1
+    local lk = L.link
+    if not (lk and lk:isOpen()) then
+      linkupResult(ctx, L.LINKUP.CONNECTION_ERROR)
+      return true
+    end
+    if not lk:isReady() then
+      if ticks <= Union.LINK_READY_TICKS then return false end
+      L.closeLink("linkup_timeout")
+      linkupResult(ctx, L.LINKUP.CONNECTION_ERROR)
+      return true
+    end
+    lk.linkType = linkType
+    linkupResult(ctx, L.LINKUP.SUCCESS)
+    if type(spec.dest) == "table" then
+      Union.armLinkRoom(ctx, spec.dest, tonumber(spec.service) or L.USING[spec.service or ""])
+    end
+    if type(spec.onLinked) == "function" then
+      local players = type(lk.players) == "function" and lk:players() or {}
+      local ok, err = pcall(spec.onLinked, ctx, adapters, lk, {
+        group = group, wire = wire, role = role, players = players, seat = tonumber(lk.seat),
+      })
+      if not ok and adapters and adapters.log then adapters.log("[game3/link] " .. wire .. " onLinked: " .. tostring(err)) end
+    end
+    return true
+  end
+  return false
+end
+
+function Union.finishGroupLinkup(ctx, adapters, group, wire, role)
+  local spec = Union.linkGroupSpec(wire)
+  if spec then return Union.finishLinkGroup(ctx, adapters, group, wire, role, spec) end
+  Union.finishMinigameLinkup(ctx, group)
+  return true
 end
 
 function Union.lobbyScreen()
@@ -2864,10 +3038,33 @@ function Union.groupLead(ctx, adapters, group, wire)
     if Union.matchStarted(L.clientCall("room")) then
       if s.isOpen() then s.close() end
       done = true
-      Union.finishMinigameLinkup(ctx, group)
-      return true
+      return Union.finishGroupLinkup(ctx, adapters, group, wire, "leader")
     end
     if not L.online() then return finish(L.LINKUP.CONNECTION_ERROR) end
+    if phase == "list" and (tonumber(spec.min) or 0) == 0 and M then
+      local g = L.clientCall("group")
+      local members = type(g) == "table" and type(g.members) == "table" and g.members or {}
+      if #members >= (tonumber(spec.max) or 2) then
+        -- pokefirered/src/union_room.c:602
+        local last = members[#members]
+        local av = type(last) == "table" and type(last.avatar) == "table" and last.avatar or {}
+        if s.isOpen() then s.close() end
+        M.show(RomText.ascii("gText_UR_AnOKWasSentToPlayer", { stringVars = { av.name or (last and last.name) or "" } }),
+          { stay = true })
+        phase, waited = "ok_sent", 0
+        return false
+      end
+    end
+    if phase == "ok_sent" then
+      waited = waited + 1
+      -- pokefirered/src/union_room.c:658
+      if waited > 120 then
+        if M.isOpen and M.isOpen() then M.close() end
+        L.clientCall("startGroup")
+        phase, waited = "starting", 0
+      end
+      return false
+    end
     if phase == "list" then
       local g = L.clientCall("group")
       local pending = type(g) == "table" and type(g.pending) == "table" and g.pending[1] or nil
@@ -2969,8 +3166,7 @@ function Union.groupJoin(ctx, adapters, group, wire)
       local g = L.clientCall("group")
       if type(g) == "table" then Union._groupMembers = g.members end
       finish(nil)
-      Union.finishMinigameLinkup(ctx, group)
-      return true
+      return Union.finishGroupLinkup(ctx, adapters, group, wire, "group")
     end
     if not L.online() then return finish(L.LINKUP.CONNECTION_ERROR) end
     if phase == "waiting" then
@@ -3006,6 +3202,18 @@ function Union.relayGroupFlow(ctx, adapters, group, role)
   if role == "leader" then return Union.groupLead(ctx, adapters, group, wire) end
   return Union.groupJoin(ctx, adapters, group, wire)
 end
+
+local RseGroups = require("src.core.game3.link.rse_groups")
+-- pokeemerald/src/union_room.c:1705
+RseGroups.register("record_corner", {
+  linkType = "RECORD_MIX_BEFORE",
+  dest = Union.RECORD_CORNER,
+  service = "RECORD_CORNER",
+})
+-- pokeemerald/data/scripts/berry_blender.inc:694
+RseGroups.register("berry_blender", {
+  linkType = "BERRY_BLENDER_SETUP",
+})
 
 function Union.reset()
   Union.stop("reset")

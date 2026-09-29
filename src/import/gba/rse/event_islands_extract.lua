@@ -11,6 +11,16 @@ M.GIFT_SCRIPTS = {
   { id = "aurora", labels = { "MysteryGiftScript_AuroraTicket", "AuroraTicket_NoBagSpace", "AuroraTicket_Obtained" } },
   { id = "mystic", labels = { "MysteryGiftScript_MysticTicket", "MysticTicket_NoBagSpace", "MysticTicket_Obtained" } },
   { id = "oldSeaMap", labels = { "MysteryGiftScript_OldSeaMap", "OldSeaMap_NoBagSpace", "OldSeaMap_Obtained" } },
+  -- pokeemerald/data/scripts/gift_pichu.inc:1
+  { id = "surfPichu", labels = { "MysteryGiftScript_SurfPichu", "SurfPichu_GiveIfPossible", "SurfPichu_FullParty",
+    "SurfPichu_GiveEgg", "SurfPichu_Slot1", "SurfPichu_Slot2", "SurfPichu_Slot3", "SurfPichu_Slot4",
+    "SurfPichu_Slot5" } },
+  -- pokeemerald/data/scripts/gift_battle_card.inc:1
+  { id = "battleCard", labels = { "MysteryGiftScript_BattleCard", "MysteryGiftScript_BattleCardInfo" } },
+  -- pokeemerald/data/scripts/gift_stamp_card.inc:1
+  { id = "stampCard", labels = { "MysteryGiftScript_StampCard" } },
+  -- pokeemerald/data/scripts/gift_altering_cave.inc:1
+  { id = "alteringCave", labels = { "MysteryGiftScript_AlteringCave", "MysteryGiftScript_AlteringCave_" } },
 }
 
 local function bytesAt(c, off, maxLen)

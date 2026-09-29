@@ -1,4 +1,4 @@
-local RomText = require("src.core.game3.rom_text")
+local RomText = require("src.core.game3.link.family").romText()
 
 local Status = {}
 
@@ -14,35 +14,76 @@ local function link()
   return require("src.core.game3.link")
 end
 
--- pokefirered/src/wireless_communication_status_screen.c:140 sActivityGroupInfo
-function Status.table()
-  local A = union().ACTIVITY
-  local U = union().IN_UNION_ROOM
-  local G = Status.GROUPTYPE
-  return {
-    { A.BATTLE_SINGLE, G.BATTLE, 2 },
-    { A.BATTLE_DOUBLE, G.BATTLE, 2 },
-    { A.BATTLE_MULTI, G.BATTLE, 4 },
-    { A.TRADE, G.TRADE, 2 },
-    { A.WONDER_CARD, G.TOTAL, 2 },
-    { A.WONDER_NEWS, G.TOTAL, 2 },
-    { A.POKEMON_JUMP, nil, 0 },
-    { A.BERRY_CRUSH, nil, 0 },
-    { A.BERRY_PICK, nil, 0 },
-    { A.SEARCH, nil, 0 },
-    { A.SPIN_TRADE, G.TRADE, 0 },
-    { A.ITEM_TRADE, nil, 0 },
-    { A.RECORD_CORNER, nil, 0 },
-    { A.NONE + U, G.UNION, 1 },
-    { A.BATTLE_SINGLE + U, G.UNION, 2 },
-    { A.TRADE + U, G.UNION, 2 },
-    { A.CHAT + U, G.UNION, 0 },
-    { A.CARD + U, G.UNION, 2 },
-    { A.PLYRTALK + U, G.UNION, 1 },
-    { A.NPCTALK + U, G.UNION, 2 },
-    { A.ACCEPT + U, G.UNION, 1 },
-    { A.DECLINE + U, G.UNION, 1 },
-  }
+local TABLES = {
+  -- pokefirered/src/wireless_communication_status_screen.c:140 sActivityGroupInfo
+  frlg = function(A, U, G)
+    return {
+      { A.BATTLE_SINGLE, G.BATTLE, 2 },
+      { A.BATTLE_DOUBLE, G.BATTLE, 2 },
+      { A.BATTLE_MULTI, G.BATTLE, 4 },
+      { A.TRADE, G.TRADE, 2 },
+      { A.WONDER_CARD, G.TOTAL, 2 },
+      { A.WONDER_NEWS, G.TOTAL, 2 },
+      { A.POKEMON_JUMP, nil, 0 },
+      { A.BERRY_CRUSH, nil, 0 },
+      { A.BERRY_PICK, nil, 0 },
+      { A.SEARCH, nil, 0 },
+      { A.SPIN_TRADE, G.TRADE, 0 },
+      { A.ITEM_TRADE, nil, 0 },
+      { A.RECORD_CORNER, nil, 0 },
+      { A.NONE + U, G.UNION, 1 },
+      { A.BATTLE_SINGLE + U, G.UNION, 2 },
+      { A.TRADE + U, G.UNION, 2 },
+      { A.CHAT + U, G.UNION, 0 },
+      { A.CARD + U, G.UNION, 2 },
+      { A.PLYRTALK + U, G.UNION, 1 },
+      { A.NPCTALK + U, G.UNION, 2 },
+      { A.ACCEPT + U, G.UNION, 1 },
+      { A.DECLINE + U, G.UNION, 1 },
+    }
+  end,
+  -- pokeemerald/src/wireless_communication_status_screen.c:140 sActivityGroupInfo
+  rse = function(A, U, G)
+    return {
+      { A.BATTLE_SINGLE, G.BATTLE, 2 },
+      { A.BATTLE_DOUBLE, G.BATTLE, 2 },
+      { A.BATTLE_MULTI, G.BATTLE, 4 },
+      { A.TRADE, G.TRADE, 2 },
+      { A.WONDER_CARD_DUP, G.TOTAL, 2 },
+      { A.WONDER_NEWS_DUP, G.TOTAL, 2 },
+      { A.POKEMON_JUMP, G.TOTAL, 0 },
+      { A.BERRY_CRUSH, G.TOTAL, 0 },
+      { A.BERRY_PICK, G.TOTAL, 0 },
+      { A.SEARCH, nil, 0 },
+      { A.SPIN_TRADE, G.TRADE, 0 },
+      { A.BERRY_BLENDER, G.TOTAL, 0 },
+      { A.RECORD_CORNER, G.TOTAL, 0 },
+      { A.NONE + U, G.UNION, 1 },
+      { A.BATTLE_SINGLE + U, G.UNION, 2 },
+      { A.TRADE + U, G.UNION, 2 },
+      { A.CHAT + U, G.UNION, 0 },
+      { A.CARD + U, G.UNION, 2 },
+      { A.PLYRTALK + U, G.UNION, 1 },
+      { A.NPCTALK + U, G.UNION, 2 },
+      { A.ACCEPT + U, G.UNION, 1 },
+      { A.DECLINE + U, G.UNION, 1 },
+      { A.WONDER_CARD, G.TOTAL, 2 },
+      { A.WONDER_NEWS, G.TOTAL, 2 },
+      { A.CONTEST_COOL, G.TOTAL, 0 },
+      { A.CONTEST_BEAUTY, G.TOTAL, 0 },
+      { A.CONTEST_CUTE, G.TOTAL, 0 },
+      { A.CONTEST_SMART, G.TOTAL, 0 },
+      { A.CONTEST_TOUGH, G.TOTAL, 0 },
+      { A.BATTLE_TOWER, G.BATTLE, 2 },
+      { A.BATTLE_TOWER_OPEN, G.BATTLE, 2 },
+    }
+  end,
+}
+
+function Status.table(version)
+  local Family = require("src.core.game3.link.family")
+  local build = TABLES[Family.of(version)] or TABLES.frlg
+  return build(Family.activity(version), union().IN_UNION_ROOM, Status.GROUPTYPE)
 end
 
 -- pokefirered/src/wireless_communication_status_screen.c:388 CountPlayersInGroupAndGetActivity
@@ -72,7 +113,10 @@ function Status.counts(entries)
   end
   local G = Status.GROUPTYPE
   -- pokefirered/src/wireless_communication_status_screen.c:505 the retail total drops GROUPTYPE_TOTAL
-  counts[G.TOTAL] = counts[G.TRADE] + counts[G.BATTLE] + counts[G.UNION]
+  local extra = 0
+  -- pokeemerald/src/wireless_communication_status_screen.c:465
+  if require("src.core.game3.link.family").of() == "rse" then extra = counts[G.TOTAL] end
+  counts[G.TOTAL] = counts[G.TRADE] + counts[G.BATTLE] + counts[G.UNION] + extra
   return counts
 end
 
@@ -129,7 +173,7 @@ function Status.fromPlaza(pc)
     counts[G.BATTLE] = math.max(0, math.floor(tonumber(pc.battle) or 0))
     counts[G.UNION] = math.max(0, math.floor(tonumber(pc.union) or 0))
     counts[G.TOTAL] = math.max(0, math.floor(tonumber(pc.total)
-      or (counts[G.TRADE] + counts[G.BATTLE] + counts[G.UNION])))
+      or (counts[G.TRADE] + counts[G.BATTLE] + counts[G.UNION] + (tonumber(pc.link) or 0))))
   end
   return counts
 end

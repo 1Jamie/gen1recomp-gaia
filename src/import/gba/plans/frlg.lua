@@ -76,5 +76,7 @@ return {
     "/chrome/fonts",
     "/ow",
     "/native",
+    "/rse",
+    "/rse/trainer_card",
   },
 }

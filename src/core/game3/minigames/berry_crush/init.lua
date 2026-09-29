@@ -84,7 +84,7 @@ G.hooks = {
     pcall(function() require("src.core.game3.audio").resumeBgm() end)
   end,
   text = function(key, vars)
-    local RomText = require("src.core.game3.rom_text")
+    local RomText = require("src.core.game3.minigames.text")
     local TextIR = require("src.core.game3.scripting.text_ir")
     local ctx = { stringVars = vars, maxWidth = 208 }
     local ir = RomText.translate(RomText.ir(key), ctx, key)
@@ -105,7 +105,7 @@ G.hooks = {
     return box
   end,
   plain = function(key, vars)
-    return require("src.core.game3.rom_text").plain(key, { stringVars = vars })
+    return require("src.core.game3.minigames.text").plain(key, { stringVars = vars })
   end,
   berryName = function(berry)
     local name = require("src.core.game3.items_data").displayName(R.FIRST_BERRY + (tonumber(berry) or 0))

@@ -1653,6 +1653,25 @@ Versions.TRAINER_CARD_STICKER_PAL2 = 0x3CD340
 Versions.TRAINER_CARD_STICKER_PAL3 = 0x3CD360
 Versions.TRAINER_CARD_STICKER_PAL4 = 0x3CD380
 Versions.TRAINER_CARD_STAR_TILE = 143           -- src/trainer_card.c:1553
+-- src/trainer_card.c:293
+Versions.TRAINER_CARD_PIC_CLASSES = { male = 134, female = 135 }
+Versions.HOENN_CARD_PIC_CLASSES = { male = 132, female = 133 }
+-- src/trainer_card.c:155, src/graphics.c:1183
+Versions.HOENN_CARD = {
+  gHoennTrainerCard_Gfx = { 0xE998CC, 0x4C0 },
+  gHoennTrainerCardBg_Tilemap = { 0x3CCE30, 0x98 },
+  gHoennTrainerCardFront_Tilemap = { 0x3CC4DC, 0x214 },
+  gHoennTrainerCardBack_Tilemap = { 0x3CC8A8, 0xDC },
+  gHoennTrainerCardGreen_Pal = { 0xE9986C, 0x60 },
+  sHoennTrainerCardBronze_Pal = { 0x3CCF80, 0x60 },
+  sHoennTrainerCardCopper_Pal = { 0x3CD040, 0x60 },
+  sHoennTrainerCardSilver_Pal = { 0x3CD100, 0x60 },
+  sHoennTrainerCardGold_Pal = { 0x3CD1C0, 0x60 },
+  sHoennTrainerCardFemaleBg_Pal = { 0x3CD280, 0x20 },
+  sHoennTrainerCardBadges_Gfx = { 0x3CD3A0, 0x248 },
+  sHoennTrainerCardBadges_Pal = { 0x3CD2C0, 0x20 },
+  sTrainerCardStar_Pal = { 0x3CD300, 0x20 },
+}
 Versions.TRAINER_PIC_RED = 135
 Versions.TRAINER_PIC_LEAF = 136
 Versions.SHOP_BG_GFX = 0xE85DC8                 -- gBuyMenuFrame_Gfx
@@ -1728,6 +1747,8 @@ Versions.WIRELESS_ICON_GFX = 0x43EEE0
 Versions.WIRELESS_STATUS_PALS = 0x46F4D0
 Versions.WIRELESS_STATUS_GFX = 0x46F6D0
 Versions.WIRELESS_STATUS_TILEMAP = 0x46F8E0
+-- src/wireless_communication_status_screen.c:264
+Versions.WIRELESS_STATUS_LAYOUT = { title_y = 6, label_x = 24, label_y = 10, row_step = 30, count_x = 204, total_y = 100 }
 -- src/union_room_chat_display.c:1262, src/union_room_chat_objects.c:30
 Versions.UR_CHAT_BG_PAL = 0xEA1700
 Versions.UR_CHAT_BG_GFX = 0xEA1720

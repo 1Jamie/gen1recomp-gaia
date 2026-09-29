@@ -717,7 +717,43 @@ end
 
 -- pokeemerald/src/contest.c:1632
 function UI:taskSelectedMove(tid)
-  self.c:chooseMoves(self.c.contest.playerMoveChoice)
+  local c = self.c
+  if c.link and c:isLink() then
+    local me = c.playerIndex
+    self.linkMove = c:isTurnDisabled(me) and 0 or (c.mons[me].moves[c.contest.playerMoveChoice] or 0)
+    self:printLinkStandby()
+    self:setBottomSliderHeartsInvisibility(false)
+    self:setFunc(tid, "taskCommunicateMoveSelections")
+    return
+  end
+  c:chooseMoves(c.contest.playerMoveChoice)
+  self:setFunc(tid, "taskHideMoveSelectScreen")
+end
+
+-- pokeemerald/src/contest.c:3668
+function UI:printLinkStandby()
+  self.bgY[0], self.bgY[2] = 0, 0
+  self:clearGeneralText()
+  self:startText(UI.has("gText_LinkStandby4") and "gText_LinkStandby4" or "gText_LinkStandby", {}, false)
+end
+
+-- pokeemerald/src/contest_link.c:276
+function UI:taskCommunicateMoveSelections(tid)
+  local c = self.c
+  local CL = require("src.core.game3.link.contest_link")
+  self:runText(self.inp)
+  local moves, err = CL.exchangeMoves(c, self.linkMove)
+  if err then
+    self.linkError = err
+    moves = {}
+  end
+  if not moves then return end
+  c.linkMoves = {}
+  for i = 0, (c.linkPlayers or N) - 1 do c.linkMoves[i] = moves[i] or 0 end
+  c.linkMoves[c.playerIndex] = self.linkMove or 0
+  c:chooseMoves(c.contest.playerMoveChoice)
+  c.linkMoves = nil
+  -- pokeemerald/src/contest.c:1653
   self:setFunc(tid, "taskHideMoveSelectScreen")
 end
 
@@ -1495,6 +1531,14 @@ end
 
 -- pokeemerald/src/contest.c:2711
 function UI:taskTryCommunicateFinalStandings(tid, d)
+  local c = self.c
+  if c.link and c:isLink() and not self.finalShared then
+    local CL = require("src.core.game3.link.contest_link")
+    local ok, err = CL.exchangeFinalStandings(c)
+    if err then self.linkError = err end
+    if not (ok or err) then return end
+    self.finalShared = true
+  end
   local v = d[0]
   d[0] = v + 1
   if v >= 50 then

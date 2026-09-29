@@ -37,14 +37,7 @@ local function build()
   FUNCS[F.PARTNER_MSG] = function(ctx, adapters, s) Tower().partnerMessage(ctx, adapters, s) end
   -- pokeemerald/src/battle_tower.c:2570
   FUNCS[F.LOAD_LINK_OPPONENTS] = function(ctx, adapters, s)
-    local D = require("src.core.game3.rse.frontier.trainers")
-    local mode = Rse.var("VAR_FRONTIER_BATTLE_MODE", s)
-    if Rse.specialVar(ctx, Util.VAR_RESULT) == 0 then
-      if mode == D.MODE.LINK_MULTIS then
-        Rse.missing("frontierLink", "LoadLinkMultiOpponentsData", adapters and adapters.log)
-      end
-      Util.setResult(ctx, 6)
-    end
+    require("src.core.game3.link.tower_link").loadLinkMultiOpponents(ctx, s, adapters)
   end
   -- pokeemerald/src/battle_tower.c:2659
   FUNCS[F.TRY_CLOSE_LINK] = function() end
@@ -87,5 +80,7 @@ NativesTowerRse.BY_NAME = {
   -- pokeemerald/src/battle_tower.c:901
   CallBattleTowerFunc = function(ctx, adapters) return NativesTowerRse.call(ctx, adapters) end,
 }
+
+require("src.core.game3.link.tower_link")
 
 return NativesTowerRse

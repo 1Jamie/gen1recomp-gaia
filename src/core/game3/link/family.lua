@@ -70,6 +70,56 @@ Family.GROUP_ACTIVITY = {
   },
 }
 
+local COMMON_WIRES = {
+  battle_single = "BATTLE_SINGLE", battle_double = "BATTLE_DOUBLE", battle_multi = "BATTLE_MULTI",
+  trade = "TRADE", chat = "CHAT", card = "CARD", minigame_jump = "POKEMON_JUMP",
+  minigame_crush = "BERRY_CRUSH", minigame_pick = "BERRY_PICK",
+}
+
+Family.WIRES = {
+  -- pokefirered/src/data/union_room.h:43
+  frlg = {},
+  -- pokeemerald/src/data/union_room.h:641
+  rse = {
+    record_corner = "RECORD_CORNER", berry_blender = "BERRY_BLENDER",
+    contest_cool = "CONTEST_COOL", contest_beauty = "CONTEST_BEAUTY", contest_cute = "CONTEST_CUTE",
+    contest_smart = "CONTEST_SMART", contest_tough = "CONTEST_TOUGH",
+    battle_tower = "BATTLE_TOWER", battle_tower_open = "BATTLE_TOWER_OPEN",
+  },
+}
+for _, map in pairs(Family.WIRES) do
+  for wire, name in pairs(COMMON_WIRES) do map[wire] = name end
+end
+
+local wireCache = {}
+
+function Family.wires(version)
+  local family = Family.of(version)
+  local cached = wireCache[family]
+  if cached then return cached end
+  local acts = Family.activity(version)
+  local byWire, byActivity = {}, {}
+  for wire, name in pairs(Family.WIRES[family] or Family.WIRES.frlg) do
+    local id = acts[name]
+    if id then
+      byWire[wire] = id
+      byActivity[id] = wire
+    end
+  end
+  cached = { byWire = byWire, byActivity = byActivity }
+  wireCache[family] = cached
+  return cached
+end
+
+function Family.activityForWire(version, wire)
+  return Family.wires(version).byWire[wire]
+end
+
+function Family.wireForActivity(version, activity)
+  local raw = math.floor(tonumber(activity) or 0) % 0x40
+  return Family.wires(version).byActivity[raw]
+end
+
 Family.PROGRESS_FLAG = {
   -- pokefirered/src/link.c:353
   frlg = "FLAG_SYS_CAN_LINK_WITH_RS",
@@ -177,6 +227,38 @@ end
 
 function Family.species(version, name)
   return constants(version or Family.activeVersion()):require("species", name)
+end
+
+Family.LINK_PLAYER_GFX = {
+  -- pokefirered/src/overworld.c:3516 CreateLinkPlayerSprite
+  frlg = {
+    frlg = { "OBJ_EVENT_GFX_RED_NORMAL", "OBJ_EVENT_GFX_GREEN_NORMAL" },
+    rs = { "OBJ_EVENT_GFX_RS_BRENDAN", "OBJ_EVENT_GFX_RS_MAY" },
+    emerald = { "OBJ_EVENT_GFX_RS_BRENDAN", "OBJ_EVENT_GFX_RS_MAY" },
+  },
+  -- pokeemerald/src/overworld.c:3167 CreateLinkPlayerSprite
+  rse = {
+    frlg = { "OBJ_EVENT_GFX_RED", "OBJ_EVENT_GFX_LEAF" },
+    rs = { "OBJ_EVENT_GFX_LINK_RS_BRENDAN", "OBJ_EVENT_GFX_LINK_RS_MAY" },
+    emerald = { "OBJ_EVENT_GFX_RIVAL_BRENDAN_NORMAL", "OBJ_EVENT_GFX_RIVAL_MAY_NORMAL" },
+  },
+}
+
+local function partnerKind(partnerVersion)
+  local code = Family.cartVersion(Family.isGame3(partnerVersion) and partnerVersion or nil)
+  if partnerVersion == "ruby" or partnerVersion == "sapphire" then return "rs" end
+  if not Family.isGame3(partnerVersion) then return "frlg" end
+  if code == Family.VERSION.FIRE_RED or code == Family.VERSION.LEAF_GREEN then return "frlg" end
+  if code == Family.VERSION.EMERALD then return "emerald" end
+  return "rs"
+end
+
+function Family.linkPlayerGfx(viewerVersion, partnerVersion, gender)
+  viewerVersion = viewerVersion or Family.activeVersion()
+  local row = Family.LINK_PLAYER_GFX[Family.of(viewerVersion)] or Family.LINK_PLAYER_GFX.frlg
+  local pair = row[partnerKind(partnerVersion)] or row.frlg
+  local name = pair[tonumber(gender) == 1 and 2 or 1]
+  return constants(viewerVersion):require("event_objects", name), name
 end
 
 function Family.linkBattleSongs(version)
@@ -388,6 +470,119 @@ function Family.canTradeSelectedMon(version, party, monIdx, opts)
     return canTradeRse(party, monIdx, opts, version)
   end
   return require("src.core.game3.scripting.natives_trade").canTradeSelectedMon(party, monIdx, opts)
+end
+
+
+local UR_TEXT_RSE = {
+  "AskTrainerToMakeTrade", "AwaitingPlayersResponse", "BattleChallenge", "CancelRegistrationOfEgg",
+  "CancelRegistrationOfMon", "ChatInvitation", "ChooseJoinCancel", "ChooseRequestedMonType", "Colon",
+  "DontHaveEggTrainerWants", "DontHaveTypeTrainerWants", "EggTrade", "Exit", "Exit2", "ID",
+  "LinkWithFriendDropped", "NameWantedOfferLv", "OfferDeclined1", "OfferDeclined2", "OfferToTradeEgg",
+  "OfferToTradeMon", "PlayerContactedYouAddToMembers", "PlayerContactedYouForXAccept",
+  "PlayerHasBeenAskedToRegisterYouPleaseWait", "RegisterMonAtTradingBoard", "RegistrationCanceled",
+  "RegistrationCanceled2", "ShowTrainerCard", "TradeOfferRejected", "TradingBoardInfo",
+  "TrainerAppearsBusy", "TrainerBattleBusy", "WhichMonWillYouOffer", "XCheckedTradingBoard",
+  "Greetings", "Battle", "Chat2", "Info", "AnOKWasSentToPlayer", "AreTheseMembersOK",
+}
+
+Family.TEXT_KEYS = {
+  frlg = {},
+  -- pokeemerald/src/data/union_room.h:1
+  rse = {
+    gText_UR_RegistraionCompleted = "sText_RegistrationCompleted",
+    CableClub_Text_PleaseWaitBCancel = "gText_PleaseWaitForLink",
+    gText_ExitingTheChat = "gText_ExitingChat",
+    gText_LeaderHasLeftEndingChat = "gText_LeaderLeftEndingChat",
+    gText_IfLeaderLeavesChatWillEnd = "gText_IfLeaderLeavesChatEnds",
+    gText_RegisteredTextChanged_AlreadySavedFile = "gText_AlreadySavedFile_Chat",
+    gText_RegisteredTextChanged_OKtoSave = "gText_RegisteredTextChangedOKToSave",
+    gText_RegisteredTextChanged_SavedTheGame = "gText_PlayerSavedGame_Chat",
+    gText_RegisteredTextChanged_SavingDontTurnOff = "gText_SavingDontTurnOffPower",
+    gText_WirelessCommunicationStatus = "gText_WirelessCommStatus",
+    -- pokeemerald/src/union_room_chat.c:746
+    sKeyboardSwapTexts = "sKeyboardPageTitleTexts",
+    gTexts_UR_BattleDeclined = "sBattleDeclinedTexts",
+    gTexts_UR_CantTransmitToTrainer = "sCantTransmitToTrainerTexts",
+    gTexts_UR_BattleReaction = "sBattleReactionTexts",
+    gTexts_UR_ChatDeclined = "sChatDeclinedTexts",
+    gTexts_UR_ChatReaction = "sChatReactionTexts",
+    gTexts_UR_ChooseTrainer = "sChooseTrainerTexts",
+    gTexts_UR_CommunicatingWait = "sCommunicatingWaitTexts",
+    gTexts_UR_DeclineChat = "sDeclineChatTexts",
+    gTexts_UR_IfYouWantToDoSomething = "sIfYouWantToDoSomethingTexts",
+    gTexts_UR_PlayerDisconnected = "sPlayerDisconnectedTexts",
+    gTexts_UR_ShowTrainerCardDeclined = "sShowTrainerCardDeclinedTexts",
+    gTexts_UR_TradeReaction = "sTradeReactionTexts",
+    gTexts_UR_TrainerCardReaction = "sTrainerCardReactionTexts",
+    gTexts_UR_WaitOrShowCard = "sText_WaitOrShowCardTexts",
+    -- pokeemerald/src/data/union_room.h:795
+    ["sListMenuItems_InviteToActivity[0]"] = "sText_Greetings",
+    ["sListMenuItems_InviteToActivity[1]"] = "sText_Battle",
+    ["sListMenuItems_InviteToActivity[2]"] = "sText_Chat2",
+    ["sListMenuItems_InviteToActivity[3]"] = "sText_Exit",
+    -- pokeemerald/src/data/union_room.h:833
+    ["sListMenuItems_RegisterForTrade[0]"] = "gText_Register",
+    ["sListMenuItems_RegisterForTrade[1]"] = "sText_Info",
+    ["sListMenuItems_RegisterForTrade[2]"] = "sText_Exit",
+  },
+}
+for _, name in ipairs(UR_TEXT_RSE) do
+  if Family.TEXT_KEYS.rse["gText_UR_" .. name] == nil then
+    Family.TEXT_KEYS.rse["gText_UR_" .. name] = "sText_" .. name
+  end
+end
+-- pokeemerald/src/data/union_room.h:870
+local TRADE_TYPE_IDS = { 0, 10, 11, 13, 12, 15, 4, 5, 2, 14, 1, 3, 6, 7, 16, 8, 17 }
+for i, typeId in ipairs(TRADE_TYPE_IDS) do
+  Family.TEXT_KEYS.rse[("sListMenuItems_TypeNames[%d]"):format(i - 1)] = ("gTypeNames[%d]"):format(typeId)
+end
+
+function Family.textKey(key, version)
+  if type(key) ~= "string" then return key end
+  local map = Family.TEXT_KEYS[Family.of(version)]
+  if not map then return key end
+  local exact = map[key]
+  if exact then return exact end
+  local base, rest = key:match("^([^%[]+)(%[.*)$")
+  local to = base and map[base]
+  if to then return to .. rest end
+  return key
+end
+
+local activeRomText
+
+local function romTextModule()
+  return package.loaded["src.core.game3.rom_text"] or require("src.core.game3.rom_text")
+end
+
+local function textKeyOf(name, i, j)
+  local key = romTextModule().key
+  if key then return key(name, i, j) end
+  if j ~= nil then return string.format("%s[%d][%d]", name, i, j) end
+  return string.format("%s[%d]", name, i)
+end
+
+function Family.romText(version)
+  if version == nil and activeRomText then return activeRomText end
+  local function k(key) return Family.textKey(key, version) end
+  local proxy = {}
+  for _, name in ipairs({ "ir", "has", "box", "plain", "ascii", "count", "list" }) do
+    proxy[name] = function(key, ...) return romTextModule()[name](k(key), ...) end
+  end
+  proxy.key = textKeyOf
+  function proxy.at(name, i, j, ctx) return romTextModule().plain(k(textKeyOf(name, i, j)), ctx) end
+  function proxy.lazy(map, ctx)
+    return setmetatable({}, {
+      __index = function(_, key)
+        local v = map[key]
+        if v == nil then return nil end
+        return romTextModule().plain(k(v), ctx)
+      end,
+    })
+  end
+  setmetatable(proxy, { __index = function(_, name) return romTextModule()[name] end })
+  if version == nil then activeRomText = proxy end
+  return proxy
 end
 
 return Family

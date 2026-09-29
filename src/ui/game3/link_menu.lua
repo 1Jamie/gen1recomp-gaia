@@ -121,6 +121,7 @@ function LinkMenu.loadArt()
     banks = raw and palette_banks(raw, banks) or nil,
     animFirst = tonumber(pals.anim_first) or LinkMenu.ANIM_FIRST,
     animCount = tonumber(pals.anim_count) or LinkMenu.ANIM_COUNT,
+    layout = type(manifest.layout) == "table" and manifest.layout or nil,
   }
   return LinkMenu._art
 end
@@ -264,6 +265,17 @@ end
 LinkMenu.countText = count_text
 
 -- pokefirered/src/wireless_communication_status_screen.c:264 PrintHeaderTexts
+LinkMenu.LAYOUT = { title_y = 6, label_x = 24, label_y = 10, row_step = 30, count_x = 204, total_y = 100 }
+
+function LinkMenu.layout()
+  local art = LinkMenu._art
+  local L = art and art.layout
+  if not L then return LinkMenu.LAYOUT end
+  local out = {}
+  for k, v in pairs(LinkMenu.LAYOUT) do out[k] = tonumber(L[k]) or v end
+  return out
+end
+
 function LinkMenu.draw()
   if not (LinkMenu.open and love and love.graphics) then return end
   local art = LinkMenu._art
@@ -279,14 +291,17 @@ function LinkMenu.draw()
     Window.stdFrame(LinkMenu.COUNT_TEMPLATE)
   end
 
+  local L = LinkMenu.layout()
   local title = Status.HEADER[0]
   local titleW = FrlgFont.measure and FrlgFont.measure(title) or (#title * 5)
-  Window.printPx(title, 24 + math.floor((192 - titleW) / 2), 6, LinkMenu.OPT.TITLE)
+  Window.printPx(title, 24 + math.floor((192 - titleW) / 2), L.title_y, LinkMenu.OPT.TITLE)
   for i, row in ipairs(LinkMenu.rows) do
-    local y = 32 + 30 * (i - 1) + 10
+    local y = 32 + L.row_step * (i - 1) + L.label_y
     local opt = row.total and LinkMenu.OPT.TOTAL or LinkMenu.OPT.NORMAL
-    Window.printPx(row.label, 24, y, opt)
-    Window.printPx(count_text(row.count), 204, y, opt)
+    Window.printPx(row.label, L.label_x, y, opt)
+    local countY = y
+    if row.total then countY = 32 + L.total_y end
+    Window.printPx(count_text(row.count), L.count_x, countY, opt)
   end
 end
 
@@ -329,7 +344,7 @@ Direct.modes = nil
 Direct.list = nil
 Direct._refresh = 0
 
-local function RomText() return require("src.core.game3.rom_text") end
+local function RomText() return require("src.core.game3.link.family").romText() end
 local function ListMenu() return require("src.ui.game3.list_menu") end
 local function Message() return require("src.ui.game3.message") end
 local function Choice() return require("src.ui.game3.choice") end

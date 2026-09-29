@@ -17,7 +17,7 @@ Sim.SE = setmetatable({}, {
   __index = function(_, k) return require("src.core.game3.se_ids")["SE_" .. tostring(k)] end,
 })
 -- pokefirered/include/constants/songs.h:281
-require("src.core.game3.song_fields")(Sim)
+require("src.core.game3.minigames.songs").fields(Sim)
 -- pokefirered/include/constants/game_stat.h:55
 Sim.GAME_STAT_BERRY_CRUSH_POINTS = 51
 

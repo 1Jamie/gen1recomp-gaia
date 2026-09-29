@@ -172,11 +172,17 @@ function LB.seedFromRelay()
   return nil
 end
 
+function LB.mapSeat(seat)
+  local map = LB._virtual and LB._virtual.seatMap
+  if map and seat ~= nil and map[seat] ~= nil then return map[seat] end
+  return seat
+end
+
 function LB.relaySeat()
   local t = LB.transport()
   if t and type(t.seat) == "function" then
     local ok, seat = pcall(t.seat, t)
-    if ok and tonumber(seat) then return math.floor(tonumber(seat)) end
+    if ok and tonumber(seat) then return LB.mapSeat(math.floor(tonumber(seat))) end
   end
   local spec = LB._arena
   if spec and tonumber(spec.seat) then return math.floor(tonumber(spec.seat)) end
@@ -190,6 +196,7 @@ end
 LB.LINK_LEVEL = 50
 
 function LB.unpackOpts()
+  if LB._virtual and LB._virtual.unpack then return LB._virtual.unpack end
   local spec = LB._arena or (LB._spec and LB._spec.spec)
   local rule = spec and spec.profile and spec.profile.rule
   if not spec then return { strict = true, forceLevel = LB.LINK_LEVEL } end
@@ -491,7 +498,7 @@ function LB.multiplayerId()
   local seat = LB.onRelay() and LB.relaySeat() or nil
   if seat then return seat end
   local lk = link().link
-  return (lk and lk.role == "guest") and 1 or 0
+  return LB.mapSeat((lk and lk.role == "guest") and 1 or 0)
 end
 
 -- pokefirered/src/battle_main.c:909 BATTLE_TYPE_IS_MASTER
@@ -697,9 +704,10 @@ local function setupInfo(setup)
 end
 
 -- pokefirered/src/battle_main.c:1196
-function LB.beginMulti(setups, onDone)
+function LB.beginMulti(setups, onDone, opts)
   local L = link()
-  local mySeat = LB.relaySeat() or tonumber(LB.seat) or 0
+  opts = opts or {}
+  local mySeat = LB.relaySeat() or LB.mapSeat(tonumber(LB.seat)) or 0
   local mine, mineWhy = LB.myParty()
   if not mine then return LB.refuse(mineWhy, onDone) end
   if #mine > LB.MULTI_PARTY_SIZE or not hasLiving(mine) then return LB.refuse("no_mons", onDone) end
@@ -732,14 +740,15 @@ function LB.beginMulti(setups, onDone)
   resetTurnState()
   LB._relay = LB.onRelay()
   LB._started = true
-  if not LB._arena then
+  if not (LB._arena or opts.offField) then
     -- pokefirered/src/cable_club.c:669
     local okT, Tower = pcall(require, "src.core.game3.trainer_tower")
     if okT and Tower and Tower.reducePartyToThree then Tower.reducePartyToThree(session()) end
   end
+  LB._offField = opts.offField and true or nil
   local BattleBridge = require("src.core.game3.battle_bridge")
   local rt = package.loaded["src.core.game3.runtime"]
-  local ok, started, err = pcall(BattleBridge.start, rt and rt._mod, L.game(), foe, {
+  local battleOpts = {
     link = true,
     linkParty = playerParty,
     linkFlags = LB.battleFlags(L.USING.MULTI_BATTLE),
@@ -762,7 +771,9 @@ function LB.beginMulti(setups, onDone)
       LB.finish(result)
       if onDone then onDone(LB.resultWord(result)) end
     end,
-  })
+  }
+  for k, v in pairs(type(opts.battle) == "table" and opts.battle or {}) do battleOpts[k] = v end
+  local ok, started, err = pcall(BattleBridge.start, rt and rt._mod, L.game(), foe, battleOpts)
   if not ok or not started then
     LB._started = false
     return LB.refuse(ok and (err or "battle_start_failed") or started, onDone)
@@ -1052,11 +1063,34 @@ function LB.sendMultiAction(turn, action, target)
   return true
 end
 
+local function virtualSeat(seat)
+  local v = LB._virtual
+  return v and v.seats and v.seats[seat] or nil
+end
+
+-- pokeemerald/src/battle_controller_opponent.c:1567
 function LB.seatAction(seat, turn)
   LB.pumpActions()
   turn = math.floor(tonumber(turn) or 0)
   local rows = LB._spec and LB._spec.actions[seat] or LB._seatActions[seat]
-  return rows and rows[turn] or nil
+  local got = rows and rows[turn] or nil
+  local v = got == nil and virtualSeat(seat) or nil
+  if v and type(v.action) == "function" then
+    local msg = v.action(turn)
+    if type(msg) == "table" then
+      msg = wireAction(msg)
+      msg.target = tonumber(msg.target)
+      msg.type = LB.MSG.ACTION
+      msg.turn = turn
+      msg.forSeat = seat
+      LB._seatActions[seat] = LB._seatActions[seat] or {}
+      LB._seatActions[seat][turn] = msg
+      local lk = link().link
+      if lk and lk:isOpen() then lk:send(msg) end
+      got = msg
+    end
+  end
+  return got
 end
 
 function LB.forgetSeatAction(seat, turn)
@@ -1067,7 +1101,14 @@ end
 function LB.seatSwitch(seat)
   LB.pumpActions()
   local q = LB._spec and LB._spec.switches[seat] or LB._seatSwitches[seat]
-  if not q or #q == 0 then return nil end
+  if not q or #q == 0 then
+    local v = virtualSeat(seat)
+    local slot = v and type(v.switch) == "function" and tonumber(v.switch()) or nil
+    if not slot then return nil end
+    local lk = link().link
+    if lk and lk:isOpen() then lk:send({ type = LB.MSG.SWITCH, slot = slot, forSeat = seat }) end
+    return slot
+  end
   return table.remove(q, 1)
 end
 
@@ -1129,7 +1170,7 @@ end
 
 local function isOwn(msg)
   if type(msg) ~= "table" then return false end
-  local seat = tonumber(msg.seat)
+  local seat = LB.mapSeat(tonumber(msg.seat))
   if seat == nil or not LB.onRelay() then return false end
   local mine = LB.relaySeat()
   return mine ~= nil and seat == mine
@@ -1159,7 +1200,7 @@ function LB.pumpActions()
   while msg do
     if not isOwn(msg) then
       local turn = math.floor(tonumber(msg.turn) or 0)
-      local seat = tonumber(msg.seat)
+      local seat = tonumber(msg.forSeat) or LB.mapSeat(tonumber(msg.seat))
       if multi then
         if seat then
           LB._seatActions[seat] = LB._seatActions[seat] or {}
@@ -1175,7 +1216,7 @@ function LB.pumpActions()
   while sw do
     if not isOwn(sw) then
       local slot = math.floor(tonumber(sw.slot) or 1)
-      local seat = tonumber(sw.seat)
+      local seat = tonumber(sw.forSeat) or LB.mapSeat(tonumber(sw.seat))
       if multi then
         if seat then
           local q = LB._seatSwitches[seat] or {}
@@ -1190,18 +1231,18 @@ function LB.pumpActions()
   end
   local h = lk:take(LB.MSG.HASH)
   while h do
-    if not isOwn(h) then noteHash(h, tonumber(h.seat) or 1) end
+    if not isOwn(h) then noteHash(h, LB.mapSeat(tonumber(h.seat)) or 1) end
     h = lk:take(LB.MSG.HASH)
   end
   local o = lk:take(LB.MSG.OUTCOME)
   while o do
-    if not isOwn(o) then noteOutcome(o, tonumber(o.seat) or 1) end
+    if not isOwn(o) then noteOutcome(o, LB.mapSeat(tonumber(o.seat)) or 1) end
     o = lk:take(LB.MSG.OUTCOME)
   end
   local f = lk:take(LB.MSG.FORFEIT)
   if f and not isOwn(f) then
     note("peer forfeited: %s", tostring(f.reason))
-    local seat, mine = tonumber(f.seat), LB.relaySeat()
+    local seat, mine = LB.mapSeat(tonumber(f.seat)), LB.relaySeat()
     LB.peerForfeit = (multi and seat and mine and seat % 2 == mine % 2) and "lose" or "win"
   end
   LB.checkHashes()
@@ -1388,11 +1429,11 @@ function LB.finish(result)
   local outcome = LB.outcomeCode(result)
   local recorded = LB.recordOutcome(outcome)
   LB.outcome = outcome
-  local offField = LB._arena ~= nil or LB._spec ~= nil
+  local offField = LB._arena ~= nil or LB._spec ~= nil or LB._offField == true
   if not offField then
     local ctx, adapters = L.vmCtx()
     -- pokefirered/src/load_save.c:170
-    L.callSpecial(ctx, adapters, 0x28)
+    L.callSpecialNamed(ctx, adapters, "LoadPlayerParty")
     -- pokefirered/src/load_save.c:239
     L.savePlayerBag()
     if s then s.battleOutcome = recorded end
@@ -1422,7 +1463,7 @@ function LB.finish(result)
       end
     end
   end
-  LB.report(REPORT_WORD[outcome] or "draw")
+  if not LB._offField then LB.report(REPORT_WORD[outcome] or "draw") end
   LB.pumpActions()
   LB.compareOutcome()
   LB.state = "done"
@@ -1720,8 +1761,8 @@ function LB.startUnionRoomBattle(onDone)
   end
   local ctx, adapters = L.vmCtx()
   -- pokefirered/src/union_room.c:1812 HealPlayerParty / SavePlayerParty / LoadPlayerBag
-  L.callSpecial(ctx, adapters, 0x00)
-  L.callSpecial(ctx, adapters, 0x27)
+  L.callSpecialNamed(ctx, adapters, "HealPlayerParty")
+  L.callSpecialNamed(ctx, adapters, "SavePlayerParty")
   L.loadPlayerBag()
   LB._onSetup = onDone or function() end
   sendSetup()
@@ -2165,7 +2206,16 @@ function LB.reset()
   LB._arenaDone = nil
   LB._arenaSetup = nil
   LB._spec = nil
+  LB._virtual = nil
+  LB._offField = nil
   LB.freshBattle()
+end
+
+LB.VIRTUAL_SEATS = true
+
+-- pokeemerald/src/battle_main.c:1161 CB2_HandleStartMultiPartnerBattle
+function LB.setVirtual(spec)
+  LB._virtual = spec
 end
 
 return LB

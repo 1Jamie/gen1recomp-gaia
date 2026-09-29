@@ -25,6 +25,8 @@ NativesContest.linkFlags = 0
 NativesContest.ui = {}
 
 local function Util() return require("src.core.game3.rse.contest_util") end
+local function ContestLink() return require("src.core.game3.link.contest_link") end
+local function Link() return require("src.core.game3.link.init") end
 local function Natives() return require("src.core.game3.scripting.natives") end
 local function session() return Rse.session() end
 
@@ -60,6 +62,8 @@ end
 function NativesContest.reset()
   NativesContest.partyIndex = 0
   NativesContest.linkFlags = 0
+  local CL = package.loaded["src.core.game3.link.contest_link"]
+  if CL then CL.reset() end
 end
 
 -- pokeemerald/src/contest_util.c:61
@@ -197,16 +201,79 @@ function NativesContest.onResultsShown(c, sess)
   NativesContest.curSaveIdx = U.winnerSaveIdx(sess, U.SAVE_FOR_ARTIST, c.category, false)
 end
 
+local function isLink()
+  return NativesContest.linkFlags % 2 == 1
+end
+
+local function isWireless()
+  return math.floor(NativesContest.linkFlags / 2) % 2 == 1
+end
+
+local function linkSession()
+  local CL = ContestLink()
+  return isLink() and CL.active or nil
+end
+
+-- pokeemerald/src/contest_util.c:2164
+function NativesContest.contestLinkTransfer(vm)
+  local ctx, adapters = vm.ctx, vm.adapters
+  local CL = ContestLink()
+  local lk = Link().link
+  local sess = session()
+  local mon = sess and sess.party and sess.party[NativesContest.partyIndex + 1]
+  if not (lk and lk:isOpen() and mon) then
+    setVar(ctx, VAR_0x8004, CL.RESULT.ERROR)
+    return false
+  end
+  local Natives = Natives()
+  if not Natives.yieldHost(ctx, adapters, function() end) then return false end
+  local job
+  local category = var(ctx, VAR_CONTEST_CATEGORY)
+  ctx.nativePoll = function()
+    local live = Link().link
+    if not (live and live:isOpen()) then
+      setVar(ctx, VAR_0x8004, CL.RESULT.ERROR)
+      return true
+    end
+    if not job then
+      if live.isReady and not live:isReady() then return false end
+      -- pokeemerald/src/contest_link.c:74
+      local flags = CL.FLAG.IS_LINK + (CL.wireless and CL.FLAG.IS_WIRELESS or 0)
+      local s = CL.newSession(live, { flags = flags })
+      local contestant = Util().contestantFromMon(mon, sess)
+      if contestant.nickname == nil or contestant.nickname == "" then
+        local Pokemon = require("src.core.game3.pokemon")
+        contestant.nickname = Pokemon.displayName and Pokemon.displayName(mon) or Pokemon.name(contestant.species)
+      end
+      local okF, cleared = pcall(Rse.flag, "FLAG_SYS_GAME_CLEAR", sess)
+      job = CL.beginTransfer({ session = s, category = category, partyMon = mon, contestant = contestant,
+        gameCleared = okF and cleared == true })
+    end
+    local code = job:step()
+    if code == nil then return false end
+    setVar(ctx, VAR_0x8004, code)
+    if code == CL.RESULT.OK then
+      local s = job.session
+      NativesContest.linkFlags = s.flags
+      CL.active = s
+      Util().state = { contest = job.contest, partyIndex = NativesContest.partyIndex,
+        category = job.contest.category, rank = job.contest.rank, link = s }
+      -- pokeemerald/src/contest_util.c:2268
+      if sess then sess.dynamicWarp = { map = sess.map, warpId = 0xFF } end
+    else
+      job.session:abort()
+    end
+    return true
+  end
+  return true
+end
+
 NativesContest.SYSTEM = {
   choosecontestmon = function(vm) return NativesContest.chooseContestMon(vm) end,
   startcontest = function(vm) return NativesContest.startContest(vm) end,
   showcontestresults = function(vm) return NativesContest.showContestResults(vm) end,
   -- pokeemerald/src/contest_util.c:2164
-  contestlinktransfer = function(vm)
-    Rse.missing("contestLink", "contestlinktransfer", logger(vm and vm.adapters))
-    Rse.setSpecialVar(vm and vm.ctx, VAR_0x8004, 2)
-    return false
-  end,
+  contestlinktransfer = function(vm) return NativesContest.contestLinkTransfer(vm) end,
   contestMonPartyIndex = function() return NativesContest.partyIndex end,
 }
 
@@ -214,12 +281,30 @@ NativesContest.PAINTING = {
   show = function(vm, winnerId) return NativesContest.showContestPainting(vm, winnerId) end,
 }
 
-local function linkup(name)
+local function linkup(min, max, linkType)
   return function(ctx, adapters)
-    Rse.missing("contestLink", name, logger(adapters))
-    setVar(ctx, VAR_RESULT, LINKUP_FAILED)
-    return false
+    local CL = ContestLink()
+    CL.wireless = false
+    local okB, LinkBattle = pcall(require, "src.core.game3.link.battle")
+    if not (okB and LinkBattle and LinkBattle.createLinkupTask) then
+      setVar(ctx, VAR_RESULT, LINKUP_FAILED)
+      return false
+    end
+    return LinkBattle.createLinkupTask(ctx, adapters, { min = min, max = max, linkType = CL.LINKTYPE[linkType] })
   end
+end
+
+-- pokeemerald/src/contest_util.c:2718
+function NativesContest.linkContestWaitForConnection(ctx, adapters)
+  local s = linkSession()
+  if not (s and isWireless()) then return false, 0 end
+  local Natives = Natives()
+  if not Natives.yieldHost(ctx, adapters, function() end) then return false, 1 end
+  ctx.nativePoll = function()
+    local ok, err = s:standby()
+    return ok == true or err ~= nil
+  end
+  return true, 1
 end
 
 NativesContest.BY_NAME = {
@@ -354,7 +439,15 @@ NativesContest.BY_NAME = {
     return NativesContest.showContestPainting(vm, NativesContest.curSaveIdx and NativesContest.curSaveIdx + 1 or 0)
   end,
   -- pokeemerald/src/contest_util.c:2484
-  SetLinkContestPlayerGfx = function() return false end,
+  SetLinkContestPlayerGfx = function()
+    local c = current()
+    if not (c and isLink()) then return false end
+    for i = 0, 3 do
+      local m = c.mons[i]
+      if m then Rse.setVar("VAR_OBJ_GFX_ID_" .. i, tonumber(m.trainerGfxId) or 0, session()) end
+    end
+    return false
+  end,
   -- pokeemerald/src/contest_util.c:2509
   LoadLinkContestPlayerPalettes = function() return false end,
   -- pokeemerald/src/contest_util.c:2572
@@ -374,18 +467,31 @@ NativesContest.BY_NAME = {
   end,
   -- pokeemerald/src/contest_util.c:2670
   GetContestMultiplayerId = function(ctx)
-    setVar(ctx, VAR_RESULT, MAX_LINK_PLAYERS)
+    local s = linkSession()
+    if s and s.count == MAX_LINK_PLAYERS and not isWireless() then
+      setVar(ctx, VAR_RESULT, s.seat)
+    else
+      setVar(ctx, VAR_RESULT, MAX_LINK_PLAYERS)
+    end
     return false
   end,
   -- pokeemerald/src/contest_util.c:2680
   GenerateContestRand = function(ctx)
     local modulo = var(ctx, VAR_RESULT)
-    local r = require("src.core.game3.rng").Random() % 65536
+    local s = linkSession()
+    local r
+    if s and s.contestRng then
+      r = s.contestRng.next()
+    else
+      r = require("src.core.game3.rng").Random() % 65536
+    end
     setVar(ctx, VAR_RESULT, modulo ~= 0 and (r % modulo) or 0)
     return false
   end,
   -- pokeemerald/src/contest_util.c:2705
-  LinkContestWaitForConnection = function() return false, 0 end,
+  LinkContestWaitForConnection = function(ctx, adapters)
+    return NativesContest.linkContestWaitForConnection(ctx, adapters)
+  end,
   -- pokeemerald/src/contest_util.c:2742
   LinkContestTryShowWirelessIndicator = function() return false end,
   -- pokeemerald/src/contest_util.c:2754
@@ -395,23 +501,26 @@ NativesContest.BY_NAME = {
   -- pokeemerald/src/contest_util.c:2771
   ClearLinkContestFlags = function()
     NativesContest.linkFlags = 0
+    ContestLink().active = nil
     return false
   end,
   -- pokeemerald/src/contest_util.c:2776
-  IsWirelessContest = function() return false, 0 end,
+  IsWirelessContest = function() return false, isWireless() and 1 or 0 end,
   -- pokeemerald/src/field_screen_effect.c:755
   DoContestHallWarp = function(ctx, adapters)
     return NativesContest.doContestHallWarp(ctx, adapters)
   end,
   -- pokeemerald/src/cable_club.c:710
-  TryContestGModeLinkup = linkup("TryContestGModeLinkup"),
+  TryContestGModeLinkup = linkup(4, 4, "GMODE"),
   -- pokeemerald/src/cable_club.c:717
-  TryContestEModeLinkup = linkup("TryContestEModeLinkup"),
+  TryContestEModeLinkup = linkup(2, 4, "EMODE"),
 }
 
 Rse.register("contest", NativesContest.SYSTEM)
 Rse.register("contestPainting", NativesContest.PAINTING)
 
 Std.legacyHandlers(NativesContest)
+
+ContestLink()
 
 return NativesContest

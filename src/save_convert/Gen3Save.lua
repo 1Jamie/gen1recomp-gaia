@@ -1222,6 +1222,14 @@ local function build(L)
       },
       meta = { mods = {} },
     }
+    if L.DEFAULT_EASY_CHAT and type(c.easyChatBattle) == "table" then
+      -- pokeemerald/include/global.h:1050
+      for k, f in pairs({ start = "easyChatBattleStart", won = "easyChatBattleWon", lost = "easyChatBattleLost" }) do
+        local list = {}
+        for i = 1, L.EASY_CHAT_BATTLE.count do list[i] = (c.easyChatBattle[k] or {})[i] or L.EC_WORD_UNDEFINED end
+        save[f] = list
+      end
+    end
     if hofTime and hofTime ~= 0 then
       save.hofDebutHours = math.floor(hofTime / 65536)
       save.hofDebutMinutes = math.floor(hofTime / 256) % 256
@@ -1747,6 +1755,18 @@ local function build(L)
       c.clearLinkRecords = true
     else
       c.easyChatBattle, c.clearLinkRecords = nil, nil
+    end
+    if L.DEFAULT_EASY_CHAT and type(save.easyChatBattleStart) == "table" then
+      local base = c.easyChatBattle or {}
+      local out = {}
+      for k, f in pairs({ start = "easyChatBattleStart", won = "easyChatBattleWon", lost = "easyChatBattleLost" }) do
+        out[k] = {}
+        for i = 1, L.EASY_CHAT_BATTLE.count do
+          local w = type(save[f]) == "table" and save[f][i]
+          out[k][i] = num(w, (base[k] or {})[i] or L.EC_WORD_UNDEFINED)
+        end
+      end
+      c.easyChatBattle = out
     end
 
     local r = save.roamer

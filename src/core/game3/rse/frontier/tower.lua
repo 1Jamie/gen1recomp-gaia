@@ -632,8 +632,7 @@ function Tower.doTowerBattle(ctx, adapters, sess)
       frontierOpponentB = tonumber(sess.frontierOpponentB) or 0,
     }
   else
-    Rse.missing("frontierLink", "Battle Tower link multi", adapters and adapters.log)
-    return false
+    return require("src.core.game3.link.tower_link").startBattle(ctx, adapters, sess)
   end
   return Tower.startBattle(ctx, adapters, sess, "tower", {
     party = party,

@@ -64,7 +64,8 @@ function Adapter.fill(st, extra)
     f.link = st.link or nil
     f.double = st.double or nil
     f.unionRoom = st.unionRoom or nil
-    f.linkOpponent = (st.link and not st.unionRoom) or nil
+    f.linkOpponent = (st.link and not st.unionRoom and not st.towerLinkMulti) or nil
+    f.towerLinkMulti = st.towerLinkMulti or nil
     f.ghost = st.ghostBattle or nil
     f.ghostUnveiled = st.ghostUnveiled or nil
     f.legendary = st.legendary or nil

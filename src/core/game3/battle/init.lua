@@ -625,6 +625,8 @@ function Battle.start(opts)
   st.eReader = opts.eReader or false
   -- src/battle_tower.c:895-933
   st.battleTower = opts.battleTower or false
+  -- pokeemerald/include/constants/battle.h:82
+  st.towerLinkMulti = (opts.link and opts.towerLinkMulti) and true or nil
   st.secretBase = opts.secretBase or false
   local trainerInfo = nil
   -- pokefirered/src/battle_message.c:2043 the tower and e-reader trainers are not gTrainers rows
@@ -671,11 +673,11 @@ function Battle.start(opts)
       class = tonumber(infoB.class), className = infoB.className, name = infoB.name, pic = infoB.pic,
       defeatText = opts.defeatTextB or (infoB.dialogs and infoB.dialogs.defeat),
     }
-  elseif opts.twoOpponents and type(opts.frontierTrainerB) == "table" and not st.wild then
+  elseif (opts.twoOpponents or st.towerLinkMulti) and type(opts.frontierTrainerB) == "table" and not st.wild then
     -- pokeemerald/src/battle_tower.c:1620
     local fb = opts.frontierTrainerB
     st.trainerB = { class = tonumber(fb.class), className = fb.className, name = fb.name, pic = fb.pic,
-      defeatText = opts.defeatTextB }
+      defeatText = opts.defeatTextB, victoryText = opts.victoryTextB }
   end
   st.trainerClass = trainerInfo and tonumber(trainerInfo.class) or tonumber(opts.trainerClass)
   st.trainerClassName = trainerInfo and trainerInfo.className or opts.trainerClassName
@@ -697,7 +699,7 @@ function Battle.start(opts)
     st.trainerName = ft.name or st.trainerName
   end
   -- pokefirered/src/battle_message.c:394 the link opponent is named, never classed
-  if st.link and not st.unionRoom and st.peerName then
+  if st.link and not st.unionRoom and not st.towerLinkMulti and st.peerName then
     st.trainerClass = nil
     st.trainerClassName = ""
     st.trainerName = st.peerName
@@ -1528,6 +1530,12 @@ end
 
 -- pokefirered/src/battle_main.c:3781
 function D.pushBattleLost(st)
+  if st and st.link and st.towerLinkMulti and st.trainerB then
+    -- pokeemerald/data/battle_scripts_1.s:2980 BattleScript_FrontierLinkBattleLost
+    if st.victoryText and st.victoryText ~= "" then Ui.push(st.victoryText) end
+    if st.trainerB.victoryText and st.trainerB.victoryText ~= "" then Ui.push(st.trainerB.victoryText) end
+    return
+  end
   if st and st.link then
     -- pokefirered/data/battle_scripts_1.s:2984 BattleScript_LinkBattleWonOrLost
     Ui.push(Battle.linkEndText(st, "lose"))
@@ -1782,6 +1790,32 @@ local function begin_trainer_win(st)
       end
     end
     Prize.pickup(st.playerParty or (session and session.party), nil, pickupRules)
+  end
+
+  if st.link and st.towerLinkMulti and st.trainerB then
+    -- pokeemerald/data/battle_scripts_1.s:3009 BattleScript_TowerLinkBattleWon
+    Ui.push(Battle.linkEndText(st, "win"))
+    local function lose_text_b()
+      if st.trainerB.defeatText and st.trainerB.defeatText ~= "" then Ui.push(st.trainerB.defeatText) end
+    end
+    if Battle._headless then
+      if st.defeatText and st.defeatText ~= "" then Ui.push(st.defeatText) end
+      lose_text_b()
+      begin_evo_or_end()
+      return
+    end
+    SwitchSeq.beginTrainerSlideIn(st, {
+      headless = false,
+      trainerB = st.trainerB,
+      loseTextA = st.defeatText,
+      pushMsg = function(t) Ui.push(t) end,
+      onDone = function()
+        lose_text_b()
+        begin_evo_or_end()
+      end,
+    })
+    Battle._phase = "switching"
+    return
   end
 
   if st.link then
