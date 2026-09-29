@@ -375,7 +375,7 @@ pack_game_love() {
                   tools/save-editor/Kit.lua tools/save-editor/panels/Party.lua \
                   src/ui/kit/Kit.lua \
                   $MANIFESTS; do
-    printf '%s\n' "$archive_entries" | grep -qx "$required" \
+    grep -qx "$required" <<< "$archive_entries" \
       || fail "game.love is missing $required"
   done
   say "game.love: $(du -h "$LOVE_FILE" | cut -f1) -> $LOVE_FILE"
