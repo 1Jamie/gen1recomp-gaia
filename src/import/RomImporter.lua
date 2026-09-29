@@ -448,6 +448,10 @@ local function commandOutput(command)
   return result ~= "" and result or nil
 end
 
+local function pfs()
+  return require("src.core.SaveData").persistenceFs(love.filesystem)
+end
+
 local IMPORTS_DIR = "imports"
 local BASE_ROMS_DIR = "baseroms"
 local MODS_INBOX_DIR = "imports/mods"
@@ -510,11 +514,12 @@ function RomImporter.mtpHintPath(saveDir)
 end
 
 function RomImporter:ensureImportsDir()
-  local info = love.filesystem.getInfo(IMPORTS_DIR)
+  local fs = pfs()
+  local info = fs.getInfo(IMPORTS_DIR)
   if info and info.type == "directory" then return true end
   if info then return false end
-  if love.filesystem.createDirectory then
-    return love.filesystem.createDirectory(IMPORTS_DIR)
+  if fs.createDirectory then
+    return fs.createDirectory(IMPORTS_DIR)
   end
   return false
 end
@@ -523,22 +528,24 @@ end
 -- love.filesystem.createDirectory does not create nested parents.
 function RomImporter:ensureCartsInboxDir()
   self:ensureImportsDir()
-  local info = love.filesystem.getInfo(CARTS_INBOX_DIR)
+  local fs = pfs()
+  local info = fs.getInfo(CARTS_INBOX_DIR)
   if info and info.type == "directory" then return true end
   if info then return false end
-  if love.filesystem.createDirectory then
-    return love.filesystem.createDirectory(CARTS_INBOX_DIR)
+  if fs.createDirectory then
+    return fs.createDirectory(CARTS_INBOX_DIR)
   end
   return false
 end
 
 function RomImporter:ensureModsInboxDir()
   self:ensureImportsDir()
-  local info = love.filesystem.getInfo(MODS_INBOX_DIR)
+  local fs = pfs()
+  local info = fs.getInfo(MODS_INBOX_DIR)
   if info and info.type == "directory" then return true end
   if info then return false end
-  if love.filesystem.createDirectory then
-    return love.filesystem.createDirectory(MODS_INBOX_DIR)
+  if fs.createDirectory then
+    return fs.createDirectory(MODS_INBOX_DIR)
   end
   return false
 end
@@ -548,21 +555,22 @@ end
 -- Creates all three version folders so MTP browsing shows where each game goes.
 function RomImporter:ensureSavesInboxDir(version)
   self:ensureImportsDir()
-  local info = love.filesystem.getInfo(SAVES_INBOX_DIR)
+  local fs = pfs()
+  local info = fs.getInfo(SAVES_INBOX_DIR)
   if info and info.type ~= "directory" then return false end
   if not info then
-    if not (love.filesystem.createDirectory
-        and love.filesystem.createDirectory(SAVES_INBOX_DIR)) then
+    if not (fs.createDirectory
+        and fs.createDirectory(SAVES_INBOX_DIR)) then
       return false
     end
   end
   for _, v in ipairs(SecretGames.order(self)) do
     local dir = savesInboxDir(v)
-    local vInfo = love.filesystem.getInfo(dir)
+    local vInfo = fs.getInfo(dir)
     if vInfo and vInfo.type ~= "directory" then return false end
     if not vInfo then
-      if not (love.filesystem.createDirectory
-          and love.filesystem.createDirectory(dir)) then
+      if not (fs.createDirectory
+          and fs.createDirectory(dir)) then
         return false
       end
     end
@@ -623,15 +631,27 @@ function RomImporter:_setNxSavesInboxNotice(version)
   }
 end
 
+local function listFs(dir)
+  if dir == "" or dir == "/" then return love.filesystem end
+  return pfs()
+end
+
+local function readListed(path)
+  local dir = path:match("^(.*)/[^/]+$") or ""
+  local data = listFs(dir).read(path)
+  return type(data) == "string" and data or nil
+end
+
 local function listRomPaths(dir)
   local paths = {}
-  for _, name in ipairs(love.filesystem.getDirectoryItems(dir) or {}) do
+  local fs = listFs(dir)
+  for _, name in ipairs(fs.getDirectoryItems(dir) or {}) do
     -- Skip AppleDouble / hidden junk from Mac MTP (._cart.gb ends in .gb
     -- but is not a ROM -- rescan would try it first and block the real dump).
     if name:sub(1, 1) ~= "." then
       local path = (dir == "" or dir == "/") and name or (dir .. "/" .. name)
       if isRomFilename(name)
-          and love.filesystem.getInfo(path, "file") then
+          and fs.getInfo(path, "file") then
         paths[#paths + 1] = path
       end
     end
@@ -663,9 +683,9 @@ function RomImporter:_stepBaseRomScan()
     return
   end
   if scan.state == "queued" then
-    local info = love.filesystem.getInfo(BASE_ROMS_DIR)
-    if not info and love.filesystem.createDirectory then
-      love.filesystem.createDirectory(BASE_ROMS_DIR)
+    local info = pfs().getInfo(BASE_ROMS_DIR)
+    if not info and pfs().createDirectory then
+      pfs().createDirectory(BASE_ROMS_DIR)
     end
     scan.paths = listRomPaths(BASE_ROMS_DIR)
     table.sort(scan.paths)
@@ -679,9 +699,9 @@ function RomImporter:_stepBaseRomScan()
   end
   scan.index = scan.index + 1
 
-  local info = love.filesystem.getInfo(path, "file")
+  local info = pfs().getInfo(path, "file")
   if info and isAcceptedRomSize(info.size) then
-    local data = love.filesystem.read(path)
+    local data = pfs().read(path)
     if type(data) == "string" and isAcceptedRomSize(#data) then
       local version = self:_versionForSha1(sha1(data))
       if version and not self.ready[version] and not self.baseRoms[version] then
@@ -700,13 +720,14 @@ end
 
 local function listZipPaths(dir)
   local paths = {}
-  for _, name in ipairs(love.filesystem.getDirectoryItems(dir) or {}) do
+  local fs = listFs(dir)
+  for _, name in ipairs(fs.getDirectoryItems(dir) or {}) do
     -- Skip AppleDouble / hidden junk from Mac MTP (._foo.zip ends in .zip
     -- but is not a PhysFS archive -- mount fails with "could not be opened").
     if name:sub(1, 1) ~= "." then
       local path = (dir == "" or dir == "/") and name or (dir .. "/" .. name)
       if name:lower():match("%.zip$")
-          and love.filesystem.getInfo(path, "file") then
+          and fs.getInfo(path, "file") then
         paths[#paths + 1] = path
       end
     end
@@ -716,13 +737,14 @@ end
 
 local function listSavPaths(dir)
   local paths = {}
-  for _, name in ipairs(love.filesystem.getDirectoryItems(dir) or {}) do
+  local fs = listFs(dir)
+  for _, name in ipairs(fs.getDirectoryItems(dir) or {}) do
     -- Skip AppleDouble / hidden junk from Mac MTP (._foo.sav ends in .sav
     -- but is not a real battery save -- import would fail and invent noise).
     if name:sub(1, 1) ~= "." then
       local path = (dir == "" or dir == "/") and name or (dir .. "/" .. name)
       if name:lower():match("%.sav$")
-          and love.filesystem.getInfo(path, "file") then
+          and fs.getInfo(path, "file") then
         paths[#paths + 1] = path
       end
     end
@@ -750,11 +772,12 @@ end
 
 local function listCartPaths(dir)
   local paths = {}
-  for _, name in ipairs(love.filesystem.getDirectoryItems(dir) or {}) do
+  local fs = listFs(dir)
+  for _, name in ipairs(fs.getDirectoryItems(dir) or {}) do
     if name:sub(1, 1) ~= "." then
       local path = (dir == "" or dir == "/") and name or (dir .. "/" .. name)
       if name:lower():match("%.g1rcart$")
-          and love.filesystem.getInfo(path, "file") then
+          and fs.getInfo(path, "file") then
         paths[#paths + 1] = path
       end
     end
@@ -777,7 +800,7 @@ end
 
 local function loadImportedSavHashes(version)
   local set = {}
-  local raw = love.filesystem.read(savesImportedHashesPath(version))
+  local raw = pfs().read(savesImportedHashesPath(version))
   if type(raw) ~= "string" then return set end
   for line in raw:gmatch("[^\r\n]+") do
     local h = line:match("^(%x+)$")
@@ -789,22 +812,23 @@ end
 local function appendImportedSavHash(version, hash)
   if type(hash) ~= "string" or hash == "" then return end
   local path = savesImportedHashesPath(version)
-  local prev = love.filesystem.read(path) or ""
+  local prev = pfs().read(path) or ""
   if prev:find(hash, 1, true) then return end
-  love.filesystem.write(path, prev .. hash .. string.char(10))
+  pfs().write(path, prev .. hash .. string.char(10))
 end
 
 -- Keep bytes for the player (MTP recovery) but stop matching %.sav$ on rescan.
 local function retireImportedSav(path)
   if type(path) ~= "string" or path == "" then return false end
-  local data = love.filesystem.read(path)
+  local fs = pfs()
+  local data = fs.read(path)
   if type(data) ~= "string" then return false end
   local dest = path .. ".imported"
-  if love.filesystem.getInfo(dest) then
+  if fs.getInfo(dest) then
     dest = path .. ".imported." .. tostring(os.time())
   end
-  if not love.filesystem.write(dest, data) then return false end
-  love.filesystem.remove(path)
+  if not fs.write(dest, data) then return false end
+  fs.remove(path)
   return true
 end
 
@@ -870,7 +894,7 @@ function RomImporter:rescanSavesAction(version)
   local lastOk, lastFail = nil, nil
   local gameLabel = GameVersion.info(version).displayName
   for _, path in ipairs(candidates) do
-    local data = love.filesystem.read(path)
+    local data = readListed(path)
     local hash = (type(data) == "string" and data ~= "") and sha1(data) or nil
     if hash and seenHashes[hash] then
       skipCount = skipCount + 1
@@ -938,7 +962,7 @@ function RomImporter:rescanAction(version)
   local sawOtherVersion = false
   local junkData, junkName = nil, nil
   for _, path in ipairs(candidates) do
-    local data = love.filesystem.read(path)
+    local data = readListed(path)
     local displayName = path:match("[^/\\]+$") or path
     if type(data) ~= "string" then
       self:setError("The file could not be read: " .. displayName, version)
@@ -1618,6 +1642,14 @@ function RomImporter.new(onComplete, opts)
   end
   if GameVersion.VERSIONS[self.tab] and not SecretGames.shown(self, self.tab) then
     self.tab = "red"
+  end
+  local portableErr = CacheFs.portableError()
+  if portableErr then
+    self.notice = {
+      version = self.tab or "red",
+      status = Strings("Portable folder unavailable"),
+      detail = portableErr,
+    }
   end
   RomImporter.syncAndroidShortcuts()
   Transition.reset()
@@ -2933,12 +2965,13 @@ function RomImporter:chooseRequiredImport(modId, importId)
 
   if self.isNX then
     local inbox = "imports/baseroms"
-    love.filesystem.createDirectory(inbox)
+    local fs = pfs()
+    fs.createDirectory(inbox)
     local lastError
-    for _, name in ipairs(love.filesystem.getDirectoryItems(inbox) or {}) do
+    for _, name in ipairs(fs.getDirectoryItems(inbox) or {}) do
       if name:sub(1, 1) ~= "." then
         local path = inbox .. "/" .. name
-        local info = love.filesystem.getInfo(path, "file")
+        local info = fs.getInfo(path, "file")
         local RequiredImports = require("src.mods.RequiredImports")
         local sizeErr = info
           and RequiredImports.sizeError(spec, info.size, false)
@@ -2946,7 +2979,7 @@ function RomImporter:chooseRequiredImport(modId, importId)
             and info.size > RequiredImports.LARGE_WARN_BYTES then
           return self:_importRequiredSource(modId, importId, path)
         end
-        local data = not sizeErr and love.filesystem.read(path) or nil
+        local data = not sizeErr and fs.read(path) or nil
         if data and self:_importRequiredData(modId, importId, data) then return end
         if sizeErr then lastError = sizeErr
         elseif self.requiredImportNotice

@@ -166,10 +166,17 @@ function TextBox.new(game, text, onDone, opts)
   self.textX = (self.boxTx + 1) * 8
   self.line1Y = (self.boxTy + 2) * 8
   self.line2Y = (self.boxTy + 4) * 8
+  local doubleLine = game and game.data and game.data.text
+    and text == game.data.text._OaksLabGivePokeballsExplanationText
   text = TextBox.substitute(game, text)
   local marks
   text, marks = stripPauses(text)
-  self.pages = TextBox.paginate(text, self.maxCols)
+  local save = game and game.save
+  local gen1 = doubleLine
+    and not (save and (save.generation == 2 or save.generation == 3
+      or save.version == "gold"))
+    and require("src.core.GameVersion").generation() == 1
+  self.pages = TextBox.paginate(text, self.maxCols, gen1)
   -- opts.pauseSounds[i] is the sfx the i-th marker fires once its wait is
   -- over (text_asm SFX_SWAP, engine/pokemon/learn_move.asm:210-213)
   self.pauseSounds = opts and opts.pauseSounds
@@ -286,7 +293,7 @@ end
 -- additional lines on the same page (the box scrolls them).
 -- pages.contBefore[p][i] is true when line i was preceded by \v (cont):
 -- pokered ContText waits for A/B + ▼ before scrolling that line in.
-function TextBox.paginate(text, maxCols)
+function TextBox.paginate(text, maxCols, gen1)
   maxCols = maxCols or (Theme.textBox and Theme.textBox.maxCols) or MAX_COLS
   text = TextBox.strip(text)
   -- maxCols is a column count, so the budget is that many vanilla 8px
@@ -320,18 +327,31 @@ function TextBox.paginate(text, maxCols)
     table.insert(lines, line)
     table.insert(conts, wait)
   end
+  local function overlay(base, over)
+    local b, o = Font.split(base), Font.split(over)
+    if #o >= #b then return over end
+    return over .. base:sub(b[#o].to + 1)
+  end
   for pageText in (text .. "\f"):gmatch("(.-)\f") do
     if pageText ~= "" then
       local lines, conts = {}, {}
-      local pos, waitNext = 1, false
+      local pos, waitNext, afterNl = 1, false, false
+      local function addSegment(seg)
+        if gen1 and afterNl and #lines == 2 and not conts[2] then
+          lines[2] = overlay(lines[2], seg) -- home/text.asm:76-81
+        else
+          pushLine(lines, conts, seg, waitNext)
+        end
+      end
       while true do
         local npos = pageText:find("[\n\v]", pos)
         if not npos then
-          pushLine(lines, conts, pageText:sub(pos), waitNext)
+          addSegment(pageText:sub(pos))
           break
         end
-        pushLine(lines, conts, pageText:sub(pos, npos - 1), waitNext)
+        addSegment(pageText:sub(pos, npos - 1))
         waitNext = pageText:sub(npos, npos) == "\v"
+        afterNl = not waitNext
         pos = npos + 1
       end
       if lines[#lines] == "" then

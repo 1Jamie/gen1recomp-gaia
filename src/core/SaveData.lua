@@ -68,55 +68,328 @@ local SEP = package.config:sub(1, 1)
 local portableChecked = false
 local portableBase = false      -- resolved base dir when active, else false
 local portableFsCache = nil
+local portableTried = {}
+
+local IS_WIN = SEP == "\\"
+local NON_ASCII = "[\128-\255]"
+
+local winApi = nil
+local function loadWinApi()
+  if winApi ~= nil then return winApi end
+  winApi = false
+  if not IS_WIN then return winApi end
+  local okFfi, ffi = pcall(require, "ffi")
+  if not (okFfi and ffi.os == "Windows") then return winApi end
+  pcall(ffi.cdef, [[
+    int MultiByteToWideChar(uint32_t cp, uint32_t flags, const char *s, int n, uint16_t *w, int wn);
+    int WideCharToMultiByte(uint32_t cp, uint32_t flags, const uint16_t *w, int wn, char *s, int n, const char *def, int *used);
+    uint32_t GetFileAttributesW(const uint16_t *path);
+    int CreateDirectoryW(const uint16_t *path, void *sec);
+    int DeleteFileW(const uint16_t *path);
+    void *CreateFileW(const uint16_t *path, uint32_t access, uint32_t share, void *sec, uint32_t disp, uint32_t flags, void *tmpl);
+    int ReadFile(void *h, void *buf, uint32_t n, uint32_t *got, void *ov);
+    int WriteFile(void *h, const void *buf, uint32_t n, uint32_t *put, void *ov);
+    int CloseHandle(void *h);
+    int SetFilePointerEx(void *h, int64_t dist, int64_t *newpos, uint32_t method);
+    typedef struct {
+      uint32_t attrs; uint32_t ct[2]; uint32_t at[2]; uint32_t wt[2];
+      uint32_t sizeHigh; uint32_t sizeLow; uint32_t r0; uint32_t r1;
+      uint16_t name[260]; uint16_t alt[14];
+    } PP_FIND_DATA_W;
+    void *FindFirstFileW(const uint16_t *pattern, PP_FIND_DATA_W *data);
+    int FindNextFileW(void *h, PP_FIND_DATA_W *data);
+    int FindClose(void *h);
+  ]])
+  local C = ffi.C
+  if not pcall(function()
+    return C.FindFirstFileW, C.CreateFileW, C.SetFilePointerEx, C.CreateDirectoryW, C.DeleteFileW
+  end) then
+    return winApi
+  end
+
+  local function wide(s)
+    local n = C.MultiByteToWideChar(65001, 0, s, #s, nil, 0)
+    if n <= 0 then return nil end
+    local buf = ffi.new("uint16_t[?]", n + 1)
+    C.MultiByteToWideChar(65001, 0, s, #s, buf, n)
+    buf[n] = 0
+    return buf
+  end
+  local function narrow(w)
+    local n = C.WideCharToMultiByte(65001, 0, w, -1, nil, 0, nil, nil)
+    if n <= 1 then return "" end
+    local buf = ffi.new("char[?]", n)
+    C.WideCharToMultiByte(65001, 0, w, -1, buf, n, nil, nil)
+    return ffi.string(buf, n - 1)
+  end
+  local function validHandle(h)
+    return tonumber(ffi.cast("intptr_t", h)) ~= -1
+  end
+
+  local api = {}
+  function api.attrs(p)
+    local w = wide(p)
+    if not w then return nil end
+    local a = C.GetFileAttributesW(w)
+    if a == 0xFFFFFFFF then return nil end
+    return a
+  end
+  function api.mkdir(p)
+    local w = wide(p)
+    if w then C.CreateDirectoryW(w, nil) end
+  end
+  function api.remove(p)
+    local w = wide(p)
+    if not w then return false end
+    return C.DeleteFileW(w) ~= 0
+  end
+
+  local handle = {}
+  handle.__index = handle
+  function handle:read(fmt)
+    if type(fmt) == "number" then
+      if fmt == 0 then return "" end
+      local buf = ffi.new("uint8_t[?]", fmt)
+      local got = ffi.new("uint32_t[1]")
+      if C.ReadFile(self.h, buf, fmt, got, nil) == 0 or got[0] == 0 then return nil end
+      return ffi.string(buf, got[0])
+    end
+    local parts = {}
+    local chunk = 1048576
+    local buf = ffi.new("uint8_t[?]", chunk)
+    local got = ffi.new("uint32_t[1]")
+    while C.ReadFile(self.h, buf, chunk, got, nil) ~= 0 and got[0] > 0 do
+      parts[#parts + 1] = ffi.string(buf, got[0])
+    end
+    return table.concat(parts)
+  end
+  function handle:write(...)
+    local put = ffi.new("uint32_t[1]")
+    for i = 1, select("#", ...) do
+      local s = tostring((select(i, ...)))
+      local off = 0
+      while off < #s do
+        local n = math.min(#s - off, 1048576)
+        if C.WriteFile(self.h, ffi.cast("const char *", s) + off, n, put, nil) == 0 or put[0] == 0 then
+          return nil, "write failed"
+        end
+        off = off + put[0]
+      end
+    end
+    return self
+  end
+  function handle:seek(whence, off)
+    local method = ({ set = 0, cur = 1, ["end"] = 2 })[whence or "cur"] or 1
+    local np = ffi.new("int64_t[1]")
+    if C.SetFilePointerEx(self.h, off or 0, np, method) == 0 then return nil, "seek failed" end
+    return tonumber(np[0])
+  end
+  function handle:flush() return self end
+  function handle:close()
+    if self.h then C.CloseHandle(self.h); self.h = nil end
+    return true
+  end
+  function api.open(p, mode)
+    local w = wide(p)
+    if not w then return nil, "bad path" end
+    local writing = mode:find("[wa]") ~= nil
+    local h = C.CreateFileW(w, writing and 0x40000000 or 0x80000000, 3, nil,
+      writing and 2 or 3, 0x80, nil)
+    if not validHandle(h) then return nil, "cannot open " .. p end
+    local f = setmetatable({ h = h }, handle)
+    if mode:find("a") then f:seek("end", 0) end
+    return f
+  end
+
+  function api.list(p)
+    local out = {}
+    local w = wide((p:gsub("/", "\\")) .. "\\*")
+    if not w then return out end
+    local data = ffi.new("PP_FIND_DATA_W[1]")
+    local h = C.FindFirstFileW(w, data)
+    if not validHandle(h) then return out end
+    repeat
+      local name = narrow(data[0].name)
+      if name ~= "." and name ~= ".." and name ~= "" then out[#out + 1] = name end
+    until C.FindNextFileW(h, data) == 0
+    C.FindClose(h)
+    return out
+  end
+
+  winApi = api
+  return winApi
+end
+
+local posixApi = nil
+local function loadPosixApi()
+  if posixApi ~= nil then return posixApi end
+  posixApi = false
+  if IS_WIN then return posixApi end
+  local okFfi, ffi = pcall(require, "ffi")
+  if not okFfi then return posixApi end
+  local osx = ffi.os == "OSX"
+  local osxIntel = osx and ffi.arch == "x64"
+  pcall(ffi.cdef, "int mkdir(const char *pathname, unsigned int mode);")
+  pcall(ffi.cdef, "void *opendir(const char *name);")
+  pcall(ffi.cdef, "int closedir(void *dirp);")
+  pcall(ffi.cdef, "void *readdir(void *dirp);")
+  if osxIntel then
+    pcall(ffi.cdef, 'void *pp_readdir64(void *dirp) __asm__("readdir$INODE64");')
+  end
+  local C = ffi.C
+  if not pcall(function() return C.mkdir end) then return posixApi end
+
+  local api = {}
+  function api.mkdir(p) pcall(C.mkdir, p, 493) end
+
+  local readdirFn = nil
+  local nameOff = nil
+  if osxIntel then
+    local okR, fn = pcall(function() return C.pp_readdir64 end)
+    if okR then readdirFn = fn end
+    nameOff = 21
+  elseif osx then
+    local okR, fn = pcall(function() return C.readdir end)
+    if okR then readdirFn = fn end
+    nameOff = 21
+  elseif ffi.os == "Linux" and ffi.abi("64bit") then
+    local okR, fn = pcall(function() return C.readdir end)
+    if okR then readdirFn = fn end
+    nameOff = 19
+  end
+  if readdirFn and pcall(function() return C.opendir, C.closedir end) then
+    function api.list(p)
+      local out = {}
+      local d = C.opendir(p)
+      if d == nil then return out end
+      while true do
+        local ent = readdirFn(d)
+        if ent == nil then break end
+        local name = ffi.string(ffi.cast("const char *", ent) + nameOff)
+        if name ~= "." and name ~= ".." then out[#out + 1] = name end
+      end
+      C.closedir(d)
+      return out
+    end
+  end
+  posixApi = api
+  return posixApi
+end
+
+local function nativeOpen(path, mode)
+  mode = mode or "rb"
+  local w = loadWinApi()
+  if w and path:find(NON_ASCII) then return w.open(path, mode) end
+  return io.open(path, mode)
+end
+
+local function nativeRemove(path)
+  local w = loadWinApi()
+  if w and path:find(NON_ASCII) then return w.remove(path) end
+  return os.remove(path)
+end
+
+local function nativeStat(path)
+  local w = loadWinApi()
+  if w then
+    local a = w.attrs(path)
+    if not a then return nil end
+    if a % 32 >= 16 then return { type = "directory" } end
+    local f = w.open(path, "rb")
+    local size = nil
+    if f then size = f:seek("end"); f:close() end
+    return { type = "file", size = size }
+  end
+  local f = io.open(path, "rb")
+  if not f then return nil end
+  local okRead, _, rerr = pcall(f.read, f, 0)
+  local isDir = okRead and rerr ~= nil
+  local size = nil
+  if not isDir then size = f:seek("end") end
+  f:close()
+  return { type = isDir and "directory" or "file", size = size }
+end
+
+local function nativeMkdirp(path)
+  if type(path) ~= "string" or path == "" then return false end
+  local function isDir(p)
+    local st = nativeStat(p)
+    return st ~= nil and st.type == "directory"
+  end
+  if isDir(path) then return true end
+  local api = loadWinApi() or loadPosixApi()
+  if not api then return false end
+  local norm = path:gsub("\\", "/")
+  local cur = norm:sub(1, 1) == "/" and "" or nil
+  for part in norm:gmatch("[^/]+") do
+    cur = cur == nil and part or (cur .. "/" .. part)
+    if not cur:match("^%a:$") and not isDir(cur) then api.mkdir(cur) end
+  end
+  return isDir(path)
+end
+
+local function nativeList(path)
+  local api = loadWinApi() or loadPosixApi()
+  if not (api and api.list) then return nil end
+  return api.list(path)
+end
 
 local function pathExists(path)
-  local f = io.open(path, "rb")
-  if not f then return false end
-  f:close()
-  return true
+  return nativeStat(path) ~= nil
 end
+
+SaveData.openNative = nativeOpen
+SaveData.removeNative = nativeRemove
+SaveData.statNative = nativeStat
+SaveData.mkdirNative = nativeMkdirp
+SaveData.listNative = nativeList
 
 -- an io.* filesystem exposing the love.filesystem subset the save/options
 -- round-trip needs (getInfo/read/write/remove), rooted at `dir`
 local function makePortableFs(dir)
   local function full(name) return dir .. SEP .. name end
   return {
-    getInfo = function(name)
-      if not pathExists(full(name)) then return nil end
-      return { type = "file" }
+    getInfo = function(name, filter)
+      local st = nativeStat(full(name))
+      if not st then return nil end
+      if filter and filter ~= st.type then return nil end
+      return st
+    end,
+    getDirectoryItems = function(name)
+      local items = nativeList(full(name))
+      if not items then
+        items = {}
+        if love and love.filesystem and love.filesystem.getDirectoryItems then
+          items = love.filesystem.getDirectoryItems(name)
+        end
+      end
+      table.sort(items)
+      return items
     end,
     read = function(name)
-      local f = io.open(full(name), "rb")
+      local f = nativeOpen(full(name), "rb")
       if not f then return nil, "no file: " .. name end
       local data = f:read("*a")
       f:close()
       return data
     end,
     write = function(name, data)
-      local f, err = io.open(full(name), "wb")
+      local f, err = nativeOpen(full(name), "wb")
       if not f then return false, err end
       f:write(data)
       f:close()
       return true
     end,
     remove = function(name)
-      os.remove(full(name))
+      nativeRemove(full(name))
       return true
     end,
     createDirectory = function(name)
-      -- portable mode writes real files through io.*, which will not
-      -- create missing parent directories; mkdir the tree so a slot path
-      -- like "saves/red" exists before a write lands inside it
-      if type(name) ~= "string" or name:find("[^%w%._%-%/]") or name:find("%.%.") then
+      if type(name) ~= "string" or name == "" or name:find("[%c\\:*?\"<>|]")
+          or name:find("%.%.") or name:sub(1, 1) == "/" then
         return false
       end
-      local osPath = full(name):gsub("/", SEP)
-      if SEP == "\\" then
-        os.execute('mkdir "' .. osPath .. '" 2>nul')
-      else
-        os.execute('mkdir -p "' .. osPath .. '" 2>/dev/null')
-      end
-      return true
+      return nativeMkdirp(full(name))
     end,
   }
 end
@@ -185,11 +458,11 @@ local function dirIsWritable(dir)
     local name = string.format(".write_probe_%d_%d.tmp",
       os.time() % 100000000, math.random(0, 999999))
     local path = dir .. SEP .. name
-    local f, err = io.open(path, "wb")
+    local f = nativeOpen(path, "wb")
     if not f then return false end
     local wrote = f:write("ok")
     f:close()
-    pcall(os.remove, path)
+    pcall(nativeRemove, path)
     return wrote ~= nil
   end)
   return ok and writable == true
@@ -203,17 +476,36 @@ local function detectPortable()
   if type(os.getenv) == "function" and os.getenv("FLATPAK_ID") then
     return portableBase
   end
+  portableTried = {}
   for _, base in ipairs(SaveData.gameFolders()) do
     local markerOk = false
     pcall(function()
       markerOk = pathExists(base .. SEP .. PORTABLE_MARKER)
     end)
-    if markerOk and dirIsWritable(base) then
+    local writable = markerOk and dirIsWritable(base) or false
+    local reason = nil
+    if not markerOk then
+      reason = "no portable.txt"
+    elseif not writable then
+      reason = "folder not writable"
+    end
+    portableTried[#portableTried + 1] = {
+      path = base, marker = markerOk, writable = writable, reason = reason,
+    }
+    if markerOk and not writable then
+      require("src.core.Logger").warn("portable rejected %s: %s", tostring(base), reason)
+    end
+    if markerOk and writable then
       portableBase = base
       break
     end
   end
   return portableBase
+end
+
+function SaveData.portableStatus()
+  local base = detectPortable()
+  return { base = base or nil, tried = portableTried }
 end
 
 -- Soft-reset cache so tests can re-run detect after env changes.

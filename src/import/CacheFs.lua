@@ -29,6 +29,9 @@
 
 local CacheFs = {}
 local Platform = require("src.core.Platform")
+local SaveData = setmetatable({}, {
+  __index = function(_, k) return require("src.core.SaveData")[k] end,
+})
 
 local SEP = package.config:sub(1, 1)
 
@@ -58,34 +61,9 @@ local function resolveMkdir()
   if mkdirFn ~= nil then return mkdirFn end
   mkdirFn = false
   if Platform.isUWP() then return mkdirFn end
-  local ok, ffi = pcall(require, "ffi")
+  local ok = pcall(require, "ffi")
   if not ok then return mkdirFn end
-  if ffi.os == "Windows" then
-    -- kernel32 is reliably resolvable through ffi.C on Windows (the engine
-    -- already binds it in DiscordPresence); CreateDirectoryA returns
-    -- nonzero on success and 0 when the directory already exists -- both
-    -- fine, the result is ignored.
-    pcall(ffi.cdef,
-      "int CreateDirectoryA(const char *lpPathName, void *lpSecurityAttributes);")
-    local resolved = pcall(function() return ffi.C.CreateDirectoryA end)
-    if resolved then
-      mkdirFn = function(path) pcall(ffi.C.CreateDirectoryA, path, nil) end
-    end
-  else
-    pcall(ffi.cdef, "int mkdir(const char *pathname, unsigned int mode);")
-    local resolved = pcall(function() return ffi.C.mkdir end)
-    if resolved then
-      mkdirFn = function(path) pcall(ffi.C.mkdir, path, 493) end -- 0755
-    else
-      local okl, clib = pcall(ffi.load, "c")
-      if okl and clib then
-        local okm = pcall(function() return clib.mkdir end)
-        if okm then
-          mkdirFn = function(path) pcall(clib.mkdir, path, 493) end
-        end
-      end
-    end
-  end
+  mkdirFn = function(path) return SaveData.mkdirNative(path) end
   return mkdirFn
 end
 
@@ -235,14 +213,17 @@ end
 -- desktop portable install (SaveData) and a working windowless mkdir.
 local portableRoot = nil
 local portableResolved = false
+local portableFailure = nil
 local function resolvePortableRoot()
   if portableResolved then return portableRoot end
   portableResolved = true
   portableRoot = nil
-  if not resolveMkdir() then return nil end
+  portableFailure = nil
   local base = require("src.core.SaveData").portableBaseDir()
   if not base then return nil end
-  if type(love.filesystem) == "table" and love.filesystem.getSource
+  if not resolveMkdir() then
+    portableFailure = "portable mode is on (" .. base .. ") but no folder-creation call is available"
+  elseif type(love.filesystem) == "table" and love.filesystem.getSource
       and base == love.filesystem.getSource() then
     -- source run: the folder is already the physfs source
     portableRoot = base
@@ -250,12 +231,28 @@ local function resolvePortableRoot()
     -- fused build: base is next to the executable; mount it so io.* writes
     -- there are visible to love.filesystem/require/newImage
     portableRoot = base
+  else
+    portableFailure = "portable mode is on (" .. base .. ") but the folder could not be mounted"
+  end
+  if portableFailure then
+    require("src.core.Logger").warn("%s", portableFailure)
   end
   return portableRoot
 end
 
 function CacheFs.root()
   return resolvePortableRoot()
+end
+
+function CacheFs.portableError()
+  resolvePortableRoot()
+  return portableFailure
+end
+
+function CacheFs._resetPortableForTests()
+  portableRoot = nil
+  portableResolved = false
+  portableFailure = nil
 end
 
 local function realPath(root, rel)
@@ -290,6 +287,7 @@ end
 local function resolveWriteRoot()
   local root = CacheFs.root()
   if root then return root end
+  if portableFailure then return nil, portableFailure end
   if Platform.isNX and Platform.isNX() then return nil end
   if Platform.isUWP and Platform.isUWP() then return nil end
   if love and (love._version or love.getVersion) and love.filesystem and love.filesystem.getSaveDirectory then
@@ -322,10 +320,11 @@ end
 function CacheFs.write(rel, data)
   rel = withPrefix(rel)
   if unsafe_rel(rel) then return false, "unsafe cache path" end
-  local root = resolveWriteRoot()
+  local root, rootErr = resolveWriteRoot()
+  if not root and rootErr then return false, rootErr end
   if root then
     ensureParents(root, rel)
-    local f, err = io.open(realPath(root, rel), "wb")
+    local f, err = SaveData.openNative(realPath(root, rel), "wb")
     if not f then return false, err end
     f:write(data)
     f:close()
@@ -346,10 +345,11 @@ end
 function CacheFs.openWrite(rel)
   rel = withPrefix(rel)
   if unsafe_rel(rel) then return nil, "unsafe cache path" end
-  local root = resolveWriteRoot()
+  local root, rootErr = resolveWriteRoot()
+  if not root and rootErr then return nil, rootErr end
   if root then
     ensureParents(root, rel)
-    local f, err = io.open(realPath(root, rel), "wb")
+    local f, err = SaveData.openNative(realPath(root, rel), "wb")
     if not f then return nil, err end
     return {
       write = function(_, data)
@@ -381,7 +381,7 @@ function CacheFs.readAt(rel)
   if unsafe_rel(rel) then return nil end
   local root = CacheFs.root()
   if root then
-    local f = io.open(realPath(root, rel), "rb")
+    local f = SaveData.openNative(realPath(root, rel), "rb")
     if not f then return nil end
     local data = f:read("*a")
     f:close()
@@ -447,7 +447,7 @@ function CacheFs.existsAt(rel)
   if unsafe_rel(rel) then return false end
   local root = CacheFs.root()
   if root then
-    local f = io.open(realPath(root, rel), "rb")
+    local f = SaveData.openNative(realPath(root, rel), "rb")
     if not f then return false end
     f:close()
     return true
@@ -469,7 +469,7 @@ function CacheFs.remove(rel)
   if unsafe_rel(rel) then return false end
   local root = CacheFs.root()
   if root then
-    os.remove(realPath(root, rel))
+    SaveData.removeNative(realPath(root, rel))
     return
   end
   if love and love.filesystem and love.filesystem.remove then
@@ -516,7 +516,7 @@ function CacheFs.removeTree(rel)
         walk(r .. "/" .. child)
       end
     else
-      os.remove(realPath(root, r))
+      SaveData.removeNative(realPath(root, r))
     end
   end
   walk(rel)
@@ -603,7 +603,7 @@ function CacheFs.migrateLegacyRedCache()
   local root = CacheFs.root()
   if root and not (fs.getSource and root == fs.getSource()) then
     local function rootHas(rel)
-      local f = io.open(realPath(root, rel), "rb")
+      local f = SaveData.openNative(realPath(root, rel), "rb")
       if f then f:close() return true end
       return false
     end
@@ -673,7 +673,7 @@ function CacheFs.mountVersion(version)
   -- Portable / desktop fused: absolute PHYSFS_mount of the version folder.
   if sub ~= "" then
     local base = CacheFs.root()
-    if not base and love.filesystem.getSaveDirectory then
+    if not base and not portableFailure and love.filesystem.getSaveDirectory then
       base = love.filesystem.getSaveDirectory()
     end
     if base then

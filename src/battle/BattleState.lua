@@ -2917,19 +2917,26 @@ function BattleState:residualFor(b, opp)
   -- engine/battle/core.asm:435-473
   if b.residualDone then return end
   b.residualDone = true
-  local msgs = Status.residual(b, opp, self)
+  local msgs = Status.residualStatus(b, opp, self)
   local rec = Status.recordFor(self.data and self.data.statuses, b.mon.status)
   for _, m in ipairs(msgs) do self:sayNext(prefixEnemy(m, b)) end
   -- engine/battle/core.asm:490-493
   if rec and rec.residual then
     self:animNext("BURN_PSN_ANIM", b.isPlayer)
   end
-  if b.leechSeeded and b.mon.hp > 0 then
-    -- the drain plays the ABSORB animation from the healing side
-    -- (core.asm:506-517 flips hWhoseTurn before PlayMoveAnimation)
+  if #msgs > 0 then self:drainNext() end
+  self:actNext(function() self:residualSeedFor(b, opp) end)
+end
+
+-- engine/battle/core.asm:497-530
+function BattleState:residualSeedFor(b, opp)
+  local msgs = Status.residualSeed(b, opp, self)
+  if #msgs > 0 then
     self:animNext("ABSORB", opp.isPlayer)
+    self:drainNext()
+    for _, m in ipairs(msgs) do self:sayNext(prefixEnemy(m, b)) end
   end
-  if #msgs > 0 then self:drainNext() end -- poison/burn/seed HP moved
+  if b.mon.hp <= 0 then self:waitNext(20) end
   self.sideToxic = self.sideToxic or {}
   if b.toxicCounter then
     self.sideToxic[b.isPlayer and "player" or "enemy"] = b.toxicCounter
@@ -4002,7 +4009,9 @@ function BattleState:executeAction(user, target, action)
         end
       end
       self:drainNext()
-      require("src.core.Sound").play(self.data, "Heal_Ailment")
+      if TrainerAI.playsRestoringSfx(action.item) then
+        require("src.core.Sound").play(self.data, "Heal_Ailment")
+      end
       return
     end
     if action.special == "aiSwitch" then
@@ -4974,8 +4983,24 @@ function BattleState:learnMove(mon, moveId)
   -- ordered insert so multi-level gains keep each level's checks
   -- between its own stat box and the next "grew to level" text
   self:uiNext(function()
-    return self:buildScreen("MoveLearnMenu", mon, moveId, nil, "Level_Up")
+    return self:buildScreen("MoveLearnMenu", mon, moveId, function(learned)
+      local name = mon.nickname or self.data.pokemon[mon.species].name
+      self:holdPage(learned
+        and self:romText("_LearnedMove1Text", "%s learned\n%s!", name, mdef.name)
+        or self:romText("_DidNotLearnText", "%s\ndid not learn\v%s!", name, mdef.name))
+    end, "Level_Up")
   end)
+end
+
+-- engine/pokemon/learn_move.asm:87-95
+function BattleState:holdPage(text)
+  local lines = {}
+  for chunk in (require("src.render.TextBox").strip(text) .. "\n"):gmatch("([^\n\v]*)[\n\v]") do
+    lines[#lines + 1] = Font.encode(chunk)
+  end
+  self.shown = {}
+  for i = math.max(1, #lines - 1), #lines do self.shown[#self.shown + 1] = lines[i] end
+  self.current, self.msgHold, self.msgPrompt, self.msgWaiting = nil, true, nil, nil
 end
 
 -- Map the battle was fought on (overworld wins; save.player.map is fallback).

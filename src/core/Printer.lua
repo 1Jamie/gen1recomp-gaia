@@ -60,12 +60,23 @@ function Printer.save(name, w, h, drawFn)
   local data
   ok, data = pcall(canvas.newImageData, canvas)
   if not ok then return nil, tostring(data) end
-  love.filesystem.createDirectory("prints")
+  local pfs = require("src.core.SaveData").portableFs()
   local path = ("prints/%s_%s.png"):format(name, os.date("%Y-%m-%d_%H%M%S"))
-  local encOk, err = pcall(data.encode, data, "png", path)
-  if not encOk then return nil, tostring(err) end
-  Logger.info("printed %s -> %s/%s",
-    name, love.filesystem.getSaveDirectory(), path)
+  local root
+  if pfs then
+    pfs.createDirectory("prints")
+    local encOk, fd = pcall(data.encode, data, "png")
+    if not encOk then return nil, tostring(fd) end
+    local wrote, werr = pfs.write(path, fd:getString())
+    if not wrote then return nil, tostring(werr) end
+    root = require("src.core.SaveData").portableBaseDir()
+  else
+    love.filesystem.createDirectory("prints")
+    local encOk, err = pcall(data.encode, data, "png", path)
+    if not encOk then return nil, tostring(err) end
+    root = love.filesystem.getSaveDirectory()
+  end
+  Logger.info("printed %s -> %s/%s", name, root, path)
   exportToAndroidGallery(path)
   return path
 end

@@ -83,6 +83,10 @@ function RomSources.keptPath(version)
   return RomSources.KEEP_DIR .. "/" .. keptName(version)
 end
 
+local function pfs()
+  return SaveData.persistenceFs(love.filesystem)
+end
+
 local function nativePath(path)
   local prefix = RomSources.PRIVATE_PREFIX
   if path:sub(1, #prefix) == prefix then
@@ -98,13 +102,13 @@ function RomSources.readKept(path)
   if type(path) ~= "string" then return nil end
   local native = nativePath(path)
   if native then
-    local file = io.open(native, "rb")
+    local file = SaveData.openNative(native, "rb")
     if not file then return nil end
     local data = file:read("*a")
     file:close()
     return data
   end
-  local data = love.filesystem.read(path)
+  local data = pfs().read(path)
   return type(data) == "string" and data or nil
 end
 
@@ -112,35 +116,36 @@ function RomSources.keptExists(path)
   if type(path) ~= "string" then return false end
   local native = nativePath(path)
   if native then
-    local file = io.open(native, "rb")
+    local file = SaveData.openNative(native, "rb")
     if not file then return false end
     file:close()
     return true
   end
-  return love.filesystem.getInfo(path, "file") ~= nil
+  return pfs().getInfo(path, "file") ~= nil
 end
 
 function RomSources.removeKept(path)
   if type(path) ~= "string" then return end
   local native = nativePath(path)
   if native then
-    os.remove(native)
+    SaveData.removeNative(native)
   elseif path:sub(1, #RomSources.PRIVATE_PREFIX) ~= RomSources.PRIVATE_PREFIX then
-    love.filesystem.remove(path)
+    pfs().remove(path)
   end
 end
 
 local function writeKept(path, data)
   local native = nativePath(path)
   if native then
-    local file = io.open(native, "wb")
+    local file = SaveData.openNative(native, "wb")
     if not file then return false end
     local ok = file:write(data)
     file:close()
     return ok ~= nil
   end
-  love.filesystem.createDirectory(RomSources.KEEP_DIR)
-  return love.filesystem.write(path, data) == true
+  local fs = pfs()
+  fs.createDirectory(RomSources.KEEP_DIR)
+  return fs.write(path, data) == true
 end
 
 function RomSources.get(version, opts)
@@ -182,7 +187,7 @@ function RomSources.migrateKept(opts)
     end
   end
   if changed then
-    local fs = love.filesystem
+    local fs = pfs()
     if fs.getInfo(RomSources.KEEP_DIR, "directory")
         and #fs.getDirectoryItems(RomSources.KEEP_DIR) == 0 then
       fs.remove(RomSources.KEEP_DIR)
@@ -211,11 +216,12 @@ function RomSources.forgetAll(opts)
     local path = RomSources.keptPath(version)
     if nativePath(path) then RomSources.removeKept(path) end
   end
-  if love.filesystem.getInfo(RomSources.KEEP_DIR, "directory") then
-    for _, name in ipairs(love.filesystem.getDirectoryItems(RomSources.KEEP_DIR)) do
-      love.filesystem.remove(RomSources.KEEP_DIR .. "/" .. name)
+  local fs = pfs()
+  if fs.getInfo(RomSources.KEEP_DIR, "directory") then
+    for _, name in ipairs(fs.getDirectoryItems(RomSources.KEEP_DIR)) do
+      fs.remove(RomSources.KEEP_DIR .. "/" .. name)
     end
-    love.filesystem.remove(RomSources.KEEP_DIR)
+    fs.remove(RomSources.KEEP_DIR)
   end
   opts.romSources = nil
 end

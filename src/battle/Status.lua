@@ -409,6 +409,15 @@ end
 -- End-of-turn residual damage; opponent is needed for Leech Seed.
 -- Returns messages.
 function Status.residual(battler, opponent, battle)
+  local msgs = Status.residualStatus(battler, opponent, battle)
+  for _, m in ipairs(Status.residualSeed(battler, opponent, battle)) do
+    msgs[#msgs + 1] = m
+  end
+  return msgs
+end
+
+-- engine/battle/core.asm:482-495
+function Status.residualStatus(battler, opponent, battle)
   local msgs = {}
   local mon = battler.mon
   -- the Haze move-forfeit only covers the turn Haze was used; if this
@@ -421,6 +430,13 @@ function Status.residual(battler, opponent, battle)
       msgs[#msgs + 1] = m
     end
   end
+  return msgs
+end
+
+-- engine/battle/core.asm:497-523
+function Status.residualSeed(battler, opponent, battle)
+  local msgs = {}
+  local mon = battler.mon
   if battler.leechSeeded and mon.hp > 0 and opponent.mon.hp > 0 then
     -- the shared Toxic counter multiplies (and advances on) the seed
     -- drain too -- the Gen 1 Leech Seed glitch

@@ -29,7 +29,7 @@ local function realFullPath(rel, fallbackDir)
     if ok and type(root) == "string" and root ~= "" then
       local sep = package.config:sub(1, 1)
       local path = (root:gsub("[/\\]+$", "")) .. sep .. rel
-      local f = io.open(path, "rb")
+      local f = SaveData.openNative(path, "rb")
       if f then
         f:close()
         return path
@@ -43,7 +43,7 @@ function ShaderFX.list()
   local dir = ShaderFX.presetDir()
   if not dir then return {} end
   pcall(function() require("src.import.CacheFs").root() end)
-  love.filesystem.createDirectory("shaders")
+  SaveData.persistenceFs(love.filesystem).createDirectory("shaders")
   local out = {}
   local function scan(relPath)
     local items = love.filesystem.getDirectoryItems(relPath)
@@ -74,7 +74,7 @@ end
 
 -- A real OS path outside any love.filesystem mount, so io.open, not getInfo.
 function ShaderFX.isConverted(entry)
-  local f = io.open(ShaderFX.artifactPath(entry), "rb")
+  local f = SaveData.openNative(ShaderFX.artifactPath(entry), "rb")
   if not f then return false end
   f:close()
   return true
@@ -259,7 +259,7 @@ function ShaderFX.installDownloaded(notModified)
   if notModified then
     return 0, nil, true
   end
-  love.filesystem.createDirectory("shaders")
+  SaveData.persistenceFs(love.filesystem).createDirectory("shaders")
   if not love.filesystem.mount(DOWNLOAD_ZIP_REL, DOWNLOAD_MOUNT) then
     return nil, "could not open the downloaded archive"
   end
@@ -323,7 +323,7 @@ local function saveDir()
 end
 
 local function fileReadable(path)
-  local f = io.open(path, "rb")
+  local f = SaveData.openNative(path, "rb")
   if not f then return false end
   f:close()
   return true
@@ -474,7 +474,7 @@ end
 -- love.graphics.newImage cannot open an absolute path outside LOVE's own
 -- mounts, which is where a preset's LUTs live, so read the bytes by hand.
 function ShaderFX.loadImageFromPath(path)
-  local f, err = io.open(path, "rb")
+  local f, err = SaveData.openNative(path, "rb")
   if not f then return nil, "io.open failed: " .. tostring(err) end
   local bytes = f:read("*a")
   f:close()
@@ -856,7 +856,7 @@ local function doConvert(entry, es)
   local buf = {}
   serializeLua(preset, buf)
   local path = ShaderFX.artifactPath(entry)
-  local f, ferr = io.open(path, "wb")
+  local f, ferr = SaveData.openNative(path, "wb")
   if not f then return false, "io.open failed: " .. tostring(ferr) end
   f:write("return ")
   f:write(table.concat(buf))
@@ -905,10 +905,11 @@ function ShaderFX.recordError(presetName, message)
   errs[#errs + 1] = line
   while #errs > MAX_ERRORS do table.remove(errs, 1) end
   require("src.core.Logger").error("ShaderFX: %s", line)
-  if love.filesystem and love.filesystem.write then
+  local pfs = love.filesystem and SaveData.persistenceFs(love.filesystem)
+  if pfs and pfs.write then
     local head = ("es=%s glsl3=%s renderer=%s\n\n"):format(
       tostring(defaultEs()), glsl3Supported(), rendererInfo())
-    pcall(love.filesystem.write, ShaderFX.ERROR_LOG_REL, head .. table.concat(errs, "\n\n") .. "\n")
+    pcall(pfs.write, ShaderFX.ERROR_LOG_REL, head .. table.concat(errs, "\n\n") .. "\n")
   end
   return line
 end

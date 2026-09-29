@@ -87,8 +87,8 @@ do
   T.check(animIdx ~= nil, "the drain plays the ABSORB animation")
   T.check(animIdx ~= nil and rows[animIdx].attackerIsPlayer == true,
     "played from the healing side (hWhoseTurn flipped)")
-  T.check(animIdx ~= nil and animIdx > seedIdx and animIdx < tackleIdx,
-    "and it rides with the drain, between the two moves")
+  T.check(animIdx ~= nil and animIdx > scratchIdx and animIdx < seedIdx,
+    "and it plays before the seed text (core.asm:506-523)")
 end
 
 -- ---------------------------------------------------------------------
