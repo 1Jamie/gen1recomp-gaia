@@ -54,14 +54,16 @@ function ItemsData.applyProfile(version)
   return bag
 end
 
-function ItemsData.ensureModel()
-  local bag = require("src.core.game3.profile").active().bag
+function ItemsData.ensureModel(sessionOrVersion)
+  local row = sessionOrVersion and require("src.core.game3.profile").forSession(sessionOrVersion)
+      or require("src.core.game3.profile").active()
+  local bag = row.bag
   if bag ~= ItemsData._bagModel then
     ItemsData._pack = nil
     ItemsData._byId = nil
     ItemsData._byName = nil
     ItemsData._logged = false
-    ItemsData.applyProfile(nil)
+    ItemsData.applyProfile(row.id)
   end
 end
 
@@ -216,7 +218,7 @@ function ItemsData.installPack(pack)
 end
 
 local function load_pack()
-  ItemsData.ensureModel()
+  if not ItemsData._bagModel then ItemsData.ensureModel() end
   if ItemsData._byId then return ItemsData._byId end
   local src = read_bytes("data/generated/gba/items/pack.lua")
   if src then
@@ -311,7 +313,7 @@ function ItemsData.info(id)
   if h then
     return {
       id = s,
-      name = byId[h.frlg].name,
+      name = byId[h.frlg] and byId[h.frlg].name or s:gsub("_", " "),
       pocket = h.pocket,
       fieldUse = h.fieldUse,
       frlg = h.frlg,

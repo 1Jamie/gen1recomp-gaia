@@ -267,7 +267,7 @@ function RseBag.handleInput(input, Bag)
   if Bag.mode == "list" then
     local lr = require("src.core.game3.options").lrMode(Bag._session)
     local dir = 0
-    if Bag._location ~= "itempc" then
+    if Bag._location ~= "itempc" and Bag._location ~= "berry_tree" and Bag._location ~= "blender" then
       if input:wasPressed("left") or (lr and input:wasPressed("l")) then dir = -1
       elseif input:wasPressed("right") or (lr and input:wasPressed("r")) then dir = 1 end
     end
@@ -523,8 +523,10 @@ function RseBag.draw(Bag)
   if Bag.mode == "list" and not switching then
     local t = st.k
     -- pokeemerald/src/item_menu.c:360
-    BagChrome.drawArrow("left", 28, 16, t)
-    BagChrome.drawArrow("right", 100, 16, t)
+    if Bag._location ~= "itempc" and Bag._location ~= "berry_tree" and Bag._location ~= "blender" then
+      BagChrome.drawArrow("left", 28, 16, t)
+      BagChrome.drawArrow("right", 100, 16, t)
+    end
     -- pokeemerald/src/item_menu.c:1027
     local n = #rows + 1
     if scroll > 0 then BagChrome.drawArrow("up", 172, 12, t) end
@@ -558,11 +560,11 @@ function RseBag.reset()
 end
 
 -- pokeemerald/src/item_menu.c:576
-function RseBag.chooseBerry(_, done, location)
+function RseBag.chooseBerry(ctx, done, location)
   local Rse = require("src.core.game3.rse.init")
-  local sess = Rse.session()
+  local sess = (type(ctx) == "table" and (ctx.session or (ctx.bag and ctx))) or Rse.session()
   local Bag = require("src.ui.game3.screens").get("bag", sess)
-  Bag.show(sess and sess.bag, { session = sess, location = location or "berry_tree", pocket = "BERRY_POUCH",
+  Bag.show(sess and sess.bag, { session = sess, location = location or "berry_tree", pocket = "BERRIES",
     onChoose = done })
 end
 

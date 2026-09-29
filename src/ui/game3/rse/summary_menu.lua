@@ -207,6 +207,13 @@ local function moveList(Sm, mon)
     local e = mon.moves and mon.moves[i]
     local id = type(e) == "table" and (e.id or e.move or e.moveId) or e
     id = tonumber(id)
+    if not id and type(e) == "string" then
+      local C = require("src.core.game3.constants").of(Sm._playerState or Sm._session)
+      id = C and C:id("moves", e)
+    end
+    if not id and type(e) == "string" and Pokemon.battleMoveId then
+      id = Pokemon.battleMoveId(e)
+    end
     if id and id > 0 then
       local pp = type(e) == "table" and e.pp or (mon.pp and mon.pp[i])
       local def = Pokemon.battleMove(id)
@@ -214,10 +221,20 @@ local function moveList(Sm, mon)
       out[i] = { id = id, pp = tonumber(pp) or maxPp, maxPp = maxPp, def = def }
     end
   end
-  if Sm._mode == "select_move" and Sm._moveToLearn then
+  if (Sm._mode == "select_move" or Sm._moveToLearn) and Sm._moveToLearn then
     local id = tonumber(Sm._moveToLearn)
+    if not id and type(Sm._moveToLearn) == "string" then
+      local C = require("src.core.game3.constants").of(Sm._playerState or Sm._session)
+      id = C and C:id("moves", Sm._moveToLearn)
+    end
+    if not id and type(Sm._moveToLearn) == "string" and Pokemon.battleMoveId then
+      id = Pokemon.battleMoveId(Sm._moveToLearn)
+    end
     local def = id and Pokemon.battleMove(id)
-    if id then out[5] = { id = id, pp = def and def.pp or 0, maxPp = def and def.pp or 0, def = def } end
+    if id then
+      local pp = (def and def.pp) or 5
+      out[5] = { id = id, pp = pp, maxPp = pp, def = def }
+    end
   end
   return out
 end
@@ -266,7 +283,7 @@ local function drawTypeIcon(m, typeId, x, y)
   drawFrame(m.moveTypes, typeId, x, y)
 end
 
-local function drawPortrait(m, Sm, mon, egg)
+local function drawPortrait(m, Sm, mon, egg, detail, page)
   local front = Pokemon.monFrontPic(mon)
   if front and front.image then
     local iw, ih = front.w or 64, front.h or 64
@@ -290,14 +307,17 @@ local function drawPortrait(m, Sm, mon, egg)
   if m.markings then
     drawFrame(m.markings, (tonumber(mon.markings) or 0) % 16, 60 - 16, 26 - 4)
   end
-  -- pokeemerald/src/pokemon_summary_screen.c:4074
-  local okB, Ui = pcall(require, "src.core.game3.battle.ui")
-  if okB and Ui.ballQuad then
-    local BallOpen = require("src.core.game3.battle.ball_open")
-    local ok2, img, q = pcall(Ui.ballQuad, BallOpen.ballIdForItem(not egg and mon.pokeball or 0), 0)
-    if ok2 and img then
-      love.graphics.setColor(1, 1, 1, 1)
-      love.graphics.draw(img, q, 16 - 8, 136 - 8)
+  local inMoveDetail = (detail == true) and (page ~= nil and page >= 2)
+  -- pokeemerald/src/pokemon_summary_screen.c:4074 (hidden in move detail mode)
+  if not inMoveDetail then
+    local okB, Ui = pcall(require, "src.core.game3.battle.ui")
+    if okB and Ui.ballQuad then
+      local BallOpen = require("src.core.game3.battle.ball_open")
+      local ok2, img, q = pcall(Ui.ballQuad, BallOpen.ballIdForItem(not egg and mon.pokeball or 0), 0)
+      if ok2 and img then
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(img, q, 16 - 8, 136 - 8)
+      end
     end
   end
   local session = Sm._playerState
@@ -311,13 +331,16 @@ local function drawPortrait(m, Sm, mon, egg)
     local shiny = SummaryData.isShiny(mon)
     put(m, win(m, W.DEX), RomText.plain("gText_NumberClear01") .. string.format("%03d", nat), 0, 1, shiny and 7 or 1)
   end
-  local sp = win(m, W.SPECIES)
-  put(m, sp, RomText.plain("gText_LevelSymbol") .. tostring(tonumber(mon.level) or 1), 24, 17, 1)
   put(m, win(m, W.NICK), Pokemon.displayName(mon), 0, 1, 1)
-  put(m, sp, "/" .. (Pokemon.name(Pokemon.speciesOf(mon)) or ""), 0, 1, 1)
-  local g = SummaryData.gender(mon)
-  if g == "M" then put(m, sp, "gText_MaleSymbol", 57, 17, 3)
-  elseif g == "F" then put(m, sp, "gText_FemaleSymbol", 57, 17, 4) end
+  -- pokeemerald/src/pokemon_summary_screen.c:2320 PSS_LABEL_WINDOW_PORTRAIT_SPECIES is cleared in move detail mode
+  if not inMoveDetail then
+    local sp = win(m, W.SPECIES)
+    put(m, sp, RomText.plain("gText_LevelSymbol") .. tostring(tonumber(mon.level) or 1), 24, 17, 1)
+    put(m, sp, "/" .. (Pokemon.name(Pokemon.speciesOf(mon)) or ""), 0, 1, 1)
+    local g = SummaryData.gender(mon)
+    if g == "M" then put(m, sp, "gText_MaleSymbol", 57, 17, 3)
+    elseif g == "F" then put(m, sp, "gText_FemaleSymbol", 57, 17, 4) end
+  end
 end
 
 -- pokeemerald/src/pokemon_summary_screen.c:2838
@@ -455,7 +478,8 @@ local function drawMoves(m, Sm, mon, contest, detail)
   local moves = moveList(Sm, mon)
   local nw, pw = pageWin(m, "moves", 0), pageWin(m, "moves", 1)
   local _, cmData = contestMove(0)
-  for i = 1, 4 do
+  local count = (Sm._mode == "select_move" and moves[5]) and 5 or 4
+  for i = 1, count do
     local mv = moves[i]
     local y = (i - 1) * 16 + 1
     if mv then
@@ -549,17 +573,7 @@ function RseSummary.draw(Sm)
   if Sm._mode == "select_move" then minPage, maxPage = 2, 3 end
   drawPagination(m, page, minPage, maxPage)
   drawTitles(m, page, detail, Sm)
-  if not (detail and page >= 2) then
-    drawPortrait(m, Sm, mon, egg)
-  else
-    local icon = Pokemon.monIcon(mon)
-    if icon and icon.image then
-      love.graphics.setColor(1, 1, 1, 1)
-      if icon.quads and icon.quads[0] then love.graphics.draw(icon.image, icon.quads[0], 8, 16)
-      else love.graphics.draw(icon.image, 8, 16) end
-    end
-    put(m, win(m, W.NICK), Pokemon.displayName(mon), 0, 1, 1)
-  end
+  drawPortrait(m, Sm, mon, egg, detail, page)
   if page == 0 then drawInfo(m, Sm, mon, egg)
   elseif page == 1 then drawSkills(m, Sm, mon)
   else drawMoves(m, Sm, mon, page == 3, detail) end

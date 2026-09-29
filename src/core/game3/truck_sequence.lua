@@ -48,7 +48,11 @@ local function defaultHost()
   end
   function H.lock(on)
     local Field = require("src.core.game3.field")
-    Field.locked = on and true or false
+    if on then
+      Field.lock("truck")
+    else
+      Field.unlock("truck")
+    end
   end
   function H.setCameraPanning(x, y)
     require("src.core.game3.field_view").setCameraPanning(x, y)
@@ -276,6 +280,8 @@ end
 function Truck.reset()
   state.running = false
   state.seq = nil
+  local Field = package.loaded["src.core.game3.field"]
+  if Field and Field.unlock then Field.unlock("truck") end
 end
 
 function Truck.registerStepCallback()

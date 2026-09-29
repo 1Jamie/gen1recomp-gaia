@@ -181,6 +181,16 @@ function Space.attachEventsToMaps(maps, bundle)
         end
         def.objects = objs
       end
+      if (mapId == "EM_ROUTE101" or mapId == "MAP_ROUTE101" or mapId == "ROUTE101") and def.objects then
+        for _, obj in ipairs(def.objects) do
+          local lid = tonumber(obj.localId or obj.index)
+          if (lid == 2 or lid == 4 or obj.flag == "FLAG_HIDE_ROUTE_101_BIRCH_ZIGZAGOON_BATTLE" or obj.flag == "FLAG_HIDE_ROUTE_101_ZIGZAGOON")
+              and ((obj.x == 9 and obj.y == 13) or (obj.x == 10 and obj.y == 13)) then
+            obj.x = -100
+            obj.y = -100
+          end
+        end
+      end
       if type(ev.bgEvents) == "table" then def.bgEvents = ev.bgEvents end
       if type(ev.coordEvents) == "table" then def.coordEvents = ev.coordEvents end
       if type(ev.mapScripts) == "table" then def.mapScripts = ev.mapScripts end
