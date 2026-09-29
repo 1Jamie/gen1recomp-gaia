@@ -100,6 +100,21 @@ function Data.build(ctx)
   return list, kind
 end
 
+-- pokeemerald/src/script_menu.c:687
+function Data.tutorialEntries(ctx)
+  local entry = function(id) return Data.entry(id, ctx) end
+  return {
+    entry("pokedex"),
+    entry("pokemon"),
+    entry("bag"),
+    entry("pokenav"),
+    entry("trainer"),
+    entry("save"),
+    entry("option"),
+    entry("exit"),
+  }, "tutorial"
+end
+
 -- pokeemerald/src/start_menu.c:408
 function Data.extraWindow(kind, ctx)
   if kind == "safari" then

@@ -197,6 +197,8 @@ function Player.reset(x, y, facing)
   Player.currentElevation = 0
   Player.moveDir = Player.facing
   Player.facingLocked = false
+  Player.fixedPriority = nil
+  Player.subpriority = nil
   Player.action = nil
   Player.jumpType = nil
   Player.acroAnim = nil

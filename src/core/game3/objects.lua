@@ -248,8 +248,18 @@ local function newEventObject(def, neighbor)
   local Coll = Collision()
   local elev = (def.elevation and def.elevation ~= 0 and def.elevation)
     or (Coll and Coll.elevationAt and Coll.elevationAt(x, y)) or 0
+  local MapCatalog = package.loaded["src.import.gba.map_catalog"]
+    or (pcall(require, "src.import.gba.map_catalog") and package.loaded["src.import.gba.map_catalog"])
+  local mg, mn = nil, nil
+  if MapCatalog and MapCatalog.groupNumFor and (def.mapId or Objects._mapId) then
+    mg, mn = MapCatalog.groupNumFor(def.mapId or Objects._mapId)
+  end
   local eo = {
     localId = lid,
+    originLocalId = tonumber(def.originLocalId or def.localId or def.index) or lid,
+    originMapId = def.originMapId or def.mapId or Objects._mapId,
+    originMapGroup = tonumber(def.originMapGroup or def.mapGroup) or mg,
+    originMapNum = tonumber(def.originMapNum or def.mapNum) or mn,
     def = def,
     cellX = x,
     cellY = y,
@@ -514,9 +524,19 @@ local function resolveContextualMapObjects(mapId)
   end
 end
 
--- src/event_object_movement.c:1312
 local function spawnFromTemplate(def, mapId)
   local eo = newEventObject(def)
+  if mapId and (not eo.originMapGroup or not eo.originMapNum) then
+    local okC, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+    if okC and MapCatalog and MapCatalog.groupNumFor then
+      local g, n = MapCatalog.groupNumFor(mapId)
+      if g and n then
+        eo.originMapGroup = g
+        eo.originMapNum = n
+      end
+    end
+    eo.originMapId = mapId
+  end
   if eo.localId > 0 then
     applyPerm(eo, mapId)
     local tmt = Objects._templateMt[eo.localId]
@@ -633,6 +653,18 @@ function Objects.carryOut(dx, dy)
       shiftObject(eo, dx, dy)
       eo.foreignMap = eo.foreignMap or Objects._mapId
       eo.foreignLid = eo.foreignLid or lid
+      eo.originLocalId = eo.originLocalId or lid
+      eo.originMapId = eo.originMapId or eo.foreignMap
+      if not eo.originMapGroup or not eo.originMapNum then
+        local okC, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+        if okC and MapCatalog and MapCatalog.groupNumFor then
+          local g, n = MapCatalog.groupNumFor(eo.originMapId)
+          if g and n then
+            eo.originMapGroup = g
+            eo.originMapNum = n
+          end
+        end
+      end
       carry.list[#carry.list + 1] = { eo = eo, track = tr }
     end
   end
@@ -667,6 +699,38 @@ function Objects.find(localId)
   return Objects._byId[localId]
 end
 
+-- src/event_object_movement.c:1234-1249 GetObjectEventIdByLocalIdAndMap / TryGetObjectEventIdByLocalIdAndMap
+function Objects.findObjectByLocalIdAndMap(localId, mapGroup, mapNum)
+  localId = tonumber(localId) or 0
+  if Objects.isPlayer(localId) then
+    return Player()
+  end
+  local g = tonumber(mapGroup)
+  local n = tonumber(mapNum)
+  local okC, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+  local targetMapId = (okC and MapCatalog and g ~= nil and n ~= nil and MapCatalog.mapIdFor(g, n)) or nil
+
+  for _, lid in ipairs(Objects._order) do
+    local eo = Objects._byId[lid]
+    if eo then
+      local idMatch = (eo.localId == localId) or (eo.originLocalId == localId) or (eo.foreignLid == localId)
+      if idMatch then
+        if g ~= nil and n ~= nil then
+          if (eo.originMapGroup == g and eo.originMapNum == n)
+              or (targetMapId and (eo.originMapId == targetMapId or eo.foreignMap == targetMapId)) then
+            return eo
+          elseif not eo.foreignMap and Objects._mapId == targetMapId and eo.localId == localId then
+            return eo
+          end
+        else
+          return eo
+        end
+      end
+    end
+  end
+  return nil
+end
+
 -- src/event_object_movement.c:2089-2116
 local function on_named_map(mapGroup, mapNum)
   if mapGroup == nil or mapNum == nil then return true end
@@ -677,22 +741,40 @@ local function on_named_map(mapGroup, mapNum)
   return engineId == Objects._mapId
 end
 
--- src/event_object_movement.c:2089-2101, scrcmd.c:1130
+-- src/event_object_movement.c:1967, scrcmd.c:1139
 function Objects.setSubpriority(localId, mapGroup, mapNum, subpriority)
-  local eo = Objects._byId[tonumber(localId) or -1]
+  localId = tonumber(localId) or 0
+  if Objects.isPlayer(localId) then
+    local P = Player()
+    if P then
+      P.fixedPriority = true
+      P.subpriority = tonumber(subpriority) or 0
+      return true
+    end
+  end
+  local eo = Objects.findObjectByLocalIdAndMap(localId, mapGroup, mapNum)
+    or Objects._byId[localId]
   if not eo then return false end
-  if not on_named_map(mapGroup, mapNum) then return false end
   eo.fixedPriority = true
   eo.subpriority = tonumber(subpriority) or 0
   eo.fixedClass = nil
   return true
 end
 
--- src/event_object_movement.c:2104-2116
+-- src/event_object_movement.c:1982, scrcmd.c:1149
 function Objects.resetSubpriority(localId, mapGroup, mapNum)
-  local eo = Objects._byId[tonumber(localId) or -1]
+  localId = tonumber(localId) or 0
+  if Objects.isPlayer(localId) then
+    local P = Player()
+    if P then
+      P.fixedPriority = nil
+      P.subpriority = nil
+      return true
+    end
+  end
+  local eo = Objects.findObjectByLocalIdAndMap(localId, mapGroup, mapNum)
+    or Objects._byId[localId]
   if not eo then return false end
-  if not on_named_map(mapGroup, mapNum) then return false end
   eo.fixedPriority = nil
   eo.subpriority = nil
   eo.fixedClass = nil
@@ -2031,25 +2113,53 @@ function Objects.removeObject(localId)
   return true
 end
 
--- src/event_object_movement.c:2059
-local function setObjectInvisibility(localId, state)
-  local lid = tonumber(localId) or 0
-  if lid >= Objects.PLAYER_LOCAL_ID then
-    Player().setVisible(not state)
+-- pokeemerald/src/event_object_movement.c:1939 SetObjectInvisibility
+function Objects.hideObjectAt(localId, mapGroup, mapNum)
+  localId = tonumber(localId) or 0
+  if Objects.isPlayer(localId) then
+    local P = Player()
+    if P and P.setVisible then P.setVisible(false) end
     return true
   end
-  local eo = Objects._byId[lid]
+  local eo = Objects.findObjectByLocalIdAndMap(localId, mapGroup, mapNum)
+    or Objects._byId[localId]
   if not eo then return false end
-  eo.invisible = state
+  eo.invisible = true
+  eo.hidden = true
+  eo.visible = false
+  if eo.def then eo.def.hidden = true end
+  Objects._tracks[eo.localId] = nil
+  return true
+end
+
+function Objects.showObjectAt(localId, mapGroup, mapNum)
+  localId = tonumber(localId) or 0
+  if Objects.isPlayer(localId) then
+    local P = Player()
+    if P and P.setVisible then P.setVisible(true) end
+    return true
+  end
+  local eo = Objects.findObjectByLocalIdAndMap(localId, mapGroup, mapNum)
+    or Objects._byId[localId]
+  if not eo then
+    if on_named_map(mapGroup, mapNum) then
+      return Objects.addObject(localId)
+    end
+    return false
+  end
+  eo.invisible = false
+  eo.hidden = false
+  eo.visible = true
+  if eo.def then eo.def.hidden = false end
   return true
 end
 
 function Objects.hideObject(localId)
-  return setObjectInvisibility(localId, true)
+  return Objects.hideObjectAt(localId, nil, nil)
 end
 
 function Objects.showObject(localId)
-  return setObjectInvisibility(localId, false)
+  return Objects.showObjectAt(localId, nil, nil)
 end
 
 function Objects.turnObject(localId, dir)

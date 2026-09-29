@@ -1080,18 +1080,22 @@ local function dispatch(vm, row)
     return false
   elseif op == "hideobjectat" or op == "showobjectat" then
     local lid = var_get(store, ctx, row.localId or row[1])
-    local foreign = (tonumber(lid) or 0) < 0xFF and not objectat_same_map(store, ctx, row, 2)
-      and objectat_foreign(store, ctx, row, 2)
-    if foreign then lid = foreign end
-    -- src/event_object_movement.c:1258
-    if not foreign and (tonumber(lid) or 0) < 0xFF and not objectat_same_map(store, ctx, row, 2) then
-      if a.log then
-        a.log("[game3] " .. op .. " targets another map — skipped")
+    local group = row[2]
+    local num = row[3]
+    local Objects = package.loaded["src.core.game3.objects"]
+      or require("src.core.game3.objects")
+    if op == "hideobjectat" then
+      if Objects.hideObjectAt then
+        Objects.hideObjectAt(lid, group, num)
+      elseif a.hideObject then
+        a.hideObject(lid)
       end
-    elseif op == "hideobjectat" and a.hideObject then
-      a.hideObject(lid)
-    elseif op == "showobjectat" and a.showObject then
-      a.showObject(lid)
+    else
+      if Objects.showObjectAt then
+        Objects.showObjectAt(lid, group, num)
+      elseif a.showObject then
+        a.showObject(lid)
+      end
     end
     return false
   elseif op == "applymovementat" or op == "waitmovementat"

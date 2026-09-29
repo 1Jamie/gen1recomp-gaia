@@ -118,18 +118,18 @@ NativesMatchCall.BY_NAME = {
     local sess = session()
     setResult(ctx, 0xFF)
     return Natives.yieldHost(ctx, adapters, function(done)
-      local RomText = require("src.core.game3.rom_text")
-      local labels = {}
-      for i, key in ipairs({ "gText_MenuOptionPokedex", "gText_MenuOptionPokemon", "gText_MenuOptionBag",
-          "gText_MenuOptionPokenav", false, "gText_MenuOptionSave", "gText_MenuOptionOption", "gText_MenuOptionExit" }) do
-        labels[i] = key and RomText.plain(key) or tostring(sess and (sess.name or sess.playerName) or "")
-      end
-      local Choice = require("src.ui.game3.choice")
-      -- pokeemerald/src/script_menu.c:689
-      Choice.multi(labels, 0, function(sel)
-        setResult(ctx, (sel == nil or sel < 0) and MULTI_B_PRESSED or sel)
-        done()
-      end, { left = 22, top = 1, maxRight = 29, ignoreBPress = false })
+      local StartMenu = require("src.ui.game3.start_menu")
+      local Runtime = package.loaded["src.core.game3.runtime"]
+      local game = (sess and sess.game) or (Runtime and Runtime._game)
+      StartMenu.show({
+        session = sess,
+        game = game,
+        tutorial = true,
+        onTutorialSelect = function(sel)
+          setResult(ctx, (sel == nil or sel < 0) and MULTI_B_PRESSED or sel)
+          done()
+        end,
+      })
     end)
   end,
   -- pokeemerald/src/pokenav.c:333
