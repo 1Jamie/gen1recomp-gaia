@@ -1697,7 +1697,8 @@ function OverworldState:handleInput()
   -- the edge outright made START a coin flip on the Cycling Road roll,
   -- where the pull below re-arms a step on the single idle frame in
   -- bikeStepFrames (#525).
-  if self.player.moving then
+  -- engine/gfx/screen_effects.asm:7-8
+  if self.player.moving or (self.poisonFlash or 0) > 0 then
     local held = self.joyLatch
     if not held then held = {}; self.joyLatch = held end
     if input:wasPressed("a") then held.a = true end
