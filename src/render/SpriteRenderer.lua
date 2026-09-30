@@ -40,8 +40,21 @@ end
 -- hardware, where sprite palette index 0 is unconditionally transparent
 -- (same rule TileRenderer's getColor0KeyShader documents for tall grass).
 local obpCache = {}
+-- obpCache is keyed by the string `path .. "#obp" .. group`; this indexes the
+-- same entries by path then group, so a draw that hits the cache (every draw
+-- after the first) builds no key string.  A numeric group is looked up by
+-- its string form, since the concatenation cannot tell 1 from "1" either.
+local obpByPath = {}
+local groupStrings = {}
 
 local function getObpImage(path, colors, group)
+  local byGroup = type(path) == "string" and obpByPath[path]
+  if byGroup then
+    local g = group
+    if type(g) == "number" then g = groupStrings[g] end
+    local hit = g ~= nil and byGroup[g]
+    if hit then return hit end
+  end
   local key = path .. "#obp" .. group
   if not obpCache[key] then
     local img
@@ -59,7 +72,24 @@ local function getObpImage(path, colors, group)
     end
     obpCache[key] = img
   end
-  return obpCache[key]
+  local img = obpCache[key]
+  -- only string/number groups get here: concatenating anything else raised
+  if group ~= group or type(path) ~= "string" then return img end -- NaN key
+  if type(group) == "number" then
+    local g = groupStrings[group]
+    if not g then
+      g = "" .. group
+      groupStrings[group] = g
+    end
+    group = g
+  end
+  byGroup = obpByPath[path]
+  if not byGroup then
+    byGroup = {}
+    obpByPath[path] = byGroup
+  end
+  byGroup[group] = img
+  return img
 end
 
 SpriteRenderer.obpImage = getObpImage
@@ -69,6 +99,7 @@ SpriteRenderer.obpImage = getObpImage
 function SpriteRenderer.invalidate()
   imageCache = {}
   obpCache = {}
+  obpByPath = {}
 end
 
 Assets.register(SpriteRenderer.invalidate)

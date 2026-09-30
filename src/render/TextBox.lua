@@ -437,7 +437,21 @@ function TextBox:moneyVisible()
   return not self.moneyWithChoice or not not self.choicePushed
 end
 
+local step
+
+-- One logic frame.  The ScrollTextUpOneLine slide advances here, after the
+-- step (so a line begun this frame is first drawn 2px into its slide, as it
+-- was when draw advanced it), and not in draw, whose rate follows the
+-- display's refresh rather than the 60Hz logic clock.
 function TextBox:update(dt)
+  step(self, dt)
+  if self.scrollPx and self.scrollPx > 0 then
+    self.scrollPx = self.scrollPx - 2
+    if self.scrollPx <= 0 then self.scrollPx = nil end
+  end
+end
+
+function step(self, dt)
   local input = self.game.input
   self.blink = (self.blink + 1) % 480
   -- home/text.asm:506
@@ -722,10 +736,6 @@ function TextBox:draw()
     Font.drawBox(self.boxTx, self.boxTy, self.boxTw, self.boxTh, paper)
     love.graphics.setColor(0, 0, 0, 1)
   end
-  if self.scrollPx and self.scrollPx > 0 then
-    self.scrollPx = self.scrollPx - 2
-    if self.scrollPx <= 0 then self.scrollPx = nil end
-  end
   -- Only the retained line carries the offset: it slides up from where it
   -- already sat (line2Y) to line1Y.  The incoming line is drawn at its home
   -- row instead, because offsetting it too put fresh glyphs 8px low -- on the
@@ -757,14 +767,24 @@ function TextBox:draw()
       love.graphics.rectangle("fill", 13 * 8, 0, 5 * 8, 8)
       love.graphics.setColor(0, 0, 0, 1)
       local cap = 13 * 8
-      for _, code in ipairs(Font.encode("MONEY")) do
+      if not self.moneyLabel or self.moneyRev ~= Font.revision then
+        self.moneyLabel, self.moneyAmount = Font.encode("MONEY"), nil
+        self.moneyRev = Font.revision
+      end
+      for _, code in ipairs(self.moneyLabel) do
         drawGlyph(code, cap, 0)
         cap = cap + Font.advanceOf(code)
       end
     end
-    local money = ("¥%d"):format(self.money() or 0)
-    local pen = 152 - Font.width(money)
-    for _, code in ipairs(Font.encode(money)) do
+    -- formatted and encoded only when the amount (or the font) changes
+    local amount = self.money() or 0
+    if amount ~= self.moneyAmount or self.moneyRev ~= Font.revision then
+      local money = ("¥%d"):format(amount)
+      self.moneyAmount, self.moneyRev = amount, Font.revision
+      self.moneyCodes, self.moneyWidth = Font.encode(money), Font.width(money)
+    end
+    local pen = 152 - self.moneyWidth
+    for _, code in ipairs(self.moneyCodes) do
       drawGlyph(code, pen, 8)
       pen = pen + Font.advanceOf(code)
     end

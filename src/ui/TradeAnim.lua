@@ -328,6 +328,31 @@ local function skipAllowed()
   return envSkipAllowed or _G.POKEPORT_DEV_MODE == true
 end
 
+-- sheet -> tile index -> 8x8 quad.  The frame blocks redraw every frame
+-- the trade machine is on screen; a tile's quad never changes, so it is
+-- built once (it may also sit in PaletteFX's UI redraw list, read-only).
+local tileQuads = setmetatable({}, { __mode = "k" })
+local function tileQuad(sheet, tile, iw, ih)
+  local byTile = tileQuads[sheet]
+  if not byTile then
+    byTile = {}
+    tileQuads[sheet] = byTile
+  end
+  local q = byTile[tile]
+  if not q then
+    q = love.graphics.newQuad((tile % 16) * 8, math.floor(tile / 16) * 8,
+                              8, 8, iw, ih)
+    byTile[tile] = q
+  end
+  return q
+end
+
+-- markUiSpriteRedraw's flip opts (it only reads sx / sy off them)
+local FLIP_OPTS = {
+  [1] = { [1] = { sx = 1, sy = 1 }, [-1] = { sx = 1, sy = -1 } },
+  [-1] = { [1] = { sx = -1, sy = 1 }, [-1] = { sx = -1, sy = -1 } },
+}
+
 -- engine/movie/trade.asm:20
 function TradeAnim:skipHeld()
   if not skipAllowed() then return false end
@@ -343,9 +368,7 @@ function TradeAnim:drawFrameBlock(blockId, x, y)
     local P = baked and require("src.render.PaletteFX")
     local iw, ih = sheet:getDimensions()
     for _, tile in ipairs(block) do
-      local tx = (tile.tile % 16) * 8
-      local ty = math.floor(tile.tile / 16) * 8
-      local quad = love.graphics.newQuad(tx, ty, 8, 8, iw, ih)
+      local quad = tileQuad(sheet, tile.tile, iw, ih)
       local sx = tile.xflip and -1 or 1
       local sy = tile.yflip and -1 or 1
       local ox = tile.xflip and 8 or 0
@@ -353,7 +376,7 @@ function TradeAnim:drawFrameBlock(blockId, x, y)
       love.graphics.draw(sheet, quad, x + tile.dx + ox, y + tile.dy + oy, 0, sx, sy)
       if P then
         P.markUiSpriteRedraw(sheet, quad, x + tile.dx + ox, y + tile.dy + oy,
-                             { sx = sx, sy = sy })
+                             FLIP_OPTS[sx][sy])
       end
     end
   else
@@ -764,9 +787,20 @@ local function drawCableHoriz(self, y, x0, x1)
   love.graphics.setColor(1, 1, 1, 1)
   if self.img.cableHoriz then
     local iw, ih = self.img.cableHoriz:getDimensions()
+    -- one quad per run width, kept on the instance (the last run of a
+    -- span is usually the only partial one)
+    local quads = self.cableQuads
+    if not quads or quads.img ~= self.img.cableHoriz then
+      quads = { img = self.img.cableHoriz }
+      self.cableQuads = quads
+    end
     for x = x0, x1 - 1, iw do
       local drawW = math.min(iw, x1 - x)
-      local quad = love.graphics.newQuad(0, 0, drawW, ih, iw, ih)
+      local quad = quads[drawW]
+      if not quad then
+        quad = love.graphics.newQuad(0, 0, drawW, ih, iw, ih)
+        quads[drawW] = quad
+      end
       love.graphics.draw(self.img.cableHoriz, quad, x, y)
     end
   elseif self.img.cableSeg then

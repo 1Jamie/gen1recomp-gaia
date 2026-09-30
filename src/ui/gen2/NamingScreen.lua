@@ -501,11 +501,19 @@ function NamingScreen:drawPanel()
   if self.iconImage then
     G.setColor(1, 1, 1, 1)
     local w, h = self.iconImage:getDimensions()
-    local quad = love.graphics.newQuad(0, 0, math.min(16, w), math.min(16, h),
-      w, h)
+    -- Cut once per icon image rather than every frame.
+    local quad = self.iconQuad
+    if not quad or self.iconQuadImage ~= self.iconImage then
+      quad = love.graphics.newQuad(0, 0, math.min(16, w), math.min(16, h),
+        w, h)
+      self.iconQuad, self.iconQuadImage = quad, self.iconImage
+    end
     if self.iconColors and GbcPalette.available() then
-      GbcPalette.with(self.iconColors,
-        function() G.draw(self.iconImage, quad, 16, 16) end)
+      -- GbcPalette.with without the closure: set, draw, restore.
+      local previous = G.getShader and G.getShader() or nil
+      GbcPalette.use(self.iconColors)
+      G.draw(self.iconImage, quad, 16, 16)
+      G.setShader(previous)
     else
       G.draw(self.iconImage, quad, 16, 16)
     end

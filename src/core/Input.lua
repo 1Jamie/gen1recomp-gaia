@@ -331,6 +331,11 @@ local function anyPadDown(pads, button)
   return false
 end
 
+-- a joystick was added or removed: rebuild pollPads' list on the next poll
+function Input:joysticksChanged()
+  self._pollPads = nil
+end
+
 -- pokefirered/src/main.c:296
 function Input:pollPads()
   local js = love and love.joystick
@@ -341,7 +346,24 @@ function Input:pollPads()
     return
   end
   local pads = self._pollPads
-  if not pads or self._pollPadCount ~= count then
+  -- The count alone cannot see one controller swapped for another between
+  -- two polls; a cached pad that has gone away forces the rebuild too (and
+  -- main.lua's joystickadded/removed drop the cache via
+  -- Input:joysticksChanged).
+  local stale = not pads or self._pollPadCount ~= count
+  if not stale then
+    for k = 1, #pads do
+      local j = pads[k]
+      if j.isConnected then
+        local okConn, connected = pcall(j.isConnected, j)
+        if okConn and not connected then
+          stale = true
+          break
+        end
+      end
+    end
+  end
+  if stale then
     pads = {}
     local ok, list = pcall(js.getJoysticks)
     if ok and type(list) == "table" then
@@ -390,9 +412,24 @@ function Input:pollPads()
   end
 end
 
+-- step's two per-step tables are recycled rather than reallocated, but only
+-- while they are still the ones step itself installed: a test or driver that
+-- assigns its own `pressed` / `pressQueue` gets a fresh table afterwards,
+-- exactly as before, and never sees its own table emptied.
+local function ownedCleared(self, field, ownKey)
+  local own = self[ownKey]
+  if own ~= nil and self[field] == own then
+    for k in pairs(own) do own[k] = nil end
+  else
+    own = {}
+    self[ownKey] = own
+  end
+  self[field] = own
+end
+
 function Input:step()
   self:pollPads()
-  self.pressed = {}
+  ownedCleared(self, "pressed", "_ownPressed")
   for _, btn in ipairs(self.pressQueue) do
     self.pressed[btn] = true
     local sources = self.sources[btn]
@@ -409,7 +446,7 @@ function Input:step()
       self.sources[btn] = nil
     end
   end
-  self.pressQueue = {}
+  ownedCleared(self, "pressQueue", "_ownPressQueue")
   -- pokefirered/src/main.c:325
   local aliases = self.aliases
   local held = nil

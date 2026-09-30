@@ -722,6 +722,25 @@ local function sameColors(a, b)
   return true
 end
 
+-- one OAM tile at its screen rect (rx, ry), honoring the X/Y flips
+local function blitTile(g, img, quad, s, rx, ry)
+  g.draw(img, quad,
+         rx + (s.xf and 8 or 0),
+         ry + (s.yf and 8 or 0),
+         0,
+         s.xf and -1 or 1,
+         s.yf and -1 or 1)
+end
+
+-- the shade-remap uniforms; c0 is the transparent color-0 slot, so it just
+-- takes color 1
+local function sendTriple(shader, colors)
+  shader:send("c0", colors[1])
+  shader:send("c1", colors[1])
+  shader:send("c2", colors[2])
+  shader:send("c3", colors[3])
+end
+
 -- Draw one compiled step's OAM sprites.  With colorFn, each sprite is
 -- drawn through the PaletteFX shade-remap shader.  The SGB colorized
 -- the finished DMG picture per 8x8 screen cell (the ATTR_BLK regions
@@ -730,14 +749,22 @@ end
 -- once per attribute cell the 8x8 tile touches (up to 4), and cells
 -- that resolve to a different palette than the first are repainted
 -- through a scissor clipped to the cell.
+--
+-- Per-frame cost: no closures per tile, and the uniforms are only re-sent
+-- when the colors differ from the last ones this call sent (colorFn
+-- memoizes, so equal colors are usually the same table).  The first send
+-- of every call is unconditional -- other passes share the shader.
 function AnimPlayer:drawSprites(sprites, colorFn)
   local g = love and love.graphics
-  local shader
+  local PaletteFX, shader
   if colorFn and g and g.setShader then
-    shader = require("src.render.PaletteFX").shader()
+    PaletteFX = require("src.render.PaletteFX")
+    shader = PaletteFX.shader()
   end
   local slices = shader and g.getScissor and g.intersectScissor
                  and g.setScissor
+  local sent -- the triple the shader currently holds (this call)
+  local floor = math.floor
   for i = 1, #sprites do
     local s = sprites[i]
     -- hardware hides sprites at the OAM extremes (y=0/y>=160, x=0/x>=168);
@@ -747,51 +774,48 @@ function AnimPlayer:drawSprites(sprites, colorFn)
       local quad = img and self:tileQuad(s.ts, s.tile)
       if quad then
         local rx, ry = s.x - 8, s.y - 16 -- screen-space rect of the tile
-        local function blit()
-          g.draw(img, quad,
-                 rx + (s.xf and 8 or 0),
-                 ry + (s.yf and 8 or 0),
-                 0,
-                 s.xf and -1 or 1,
-                 s.yf and -1 or 1)
-        end
         -- the attribute cell holding the tile's top-left pixel
-        local cx = math.floor(rx / 8) * 8
-        local cy = math.floor(ry / 8) * 8
+        local cx = floor(rx / 8) * 8
+        local cy = floor(ry / 8) * 8
         local colors = shader and colorFn(s, cx, cy)
         if colors then
           g.setShader(shader)
-          -- c0 is the transparent color-0 slot; send anything
-          shader:send("c0", colors[1])
-          shader:send("c1", colors[1])
-          shader:send("c2", colors[2])
-          shader:send("c3", colors[3])
+          if not (sent and sameColors(sent, colors)) then
+            sendTriple(shader, colors)
+            sent = colors
+          end
         end
-        blit()
+        blitTile(g, img, quad, s, rx, ry)
         if colors and slices and (cx ~= rx or cy ~= ry) then
           -- unaligned: the tile spills into up to 3 more cells; repaint
           -- the ones whose zone palette differs (opaque overdraw -- GB
           -- tiles have binary alpha)
-          local function slice(px, py)
-            if px < 0 or py < 0 or px >= 160 or py >= 144 then
-              return -- fully off-canvas
+          local cx2 = floor((rx + 7) / 8) * 8
+          local cy2 = floor((ry + 7) / 8) * 8
+          for n = 1, 3 do
+            local px, py
+            if n == 1 then
+              if cx2 ~= cx then px, py = cx2, cy end
+            elseif n == 2 then
+              if cy2 ~= cy then px, py = cx, cy2 end
+            elseif cx2 ~= cx and cy2 ~= cy then
+              px, py = cx2, cy2
             end
-            local cc = colorFn(s, px, py)
-            if not cc or sameColors(cc, colors) then return end
-            local s1, s2, s3, s4 = g.getScissor()
-            g.intersectScissor(px, py, 8, 8)
-            shader:send("c0", cc[1])
-            shader:send("c1", cc[1])
-            shader:send("c2", cc[2])
-            shader:send("c3", cc[3])
-            blit()
-            if s1 then g.setScissor(s1, s2, s3, s4) else g.setScissor() end
+            -- skip cells fully off-canvas
+            if px and px >= 0 and py >= 0 and px < 160 and py < 144 then
+              local cc = colorFn(s, px, py)
+              if cc and not sameColors(cc, colors) then
+                local s1, s2, s3, s4 = g.getScissor()
+                g.intersectScissor(px, py, 8, 8)
+                if not sameColors(sent, cc) then
+                  sendTriple(shader, cc)
+                  sent = cc
+                end
+                blitTile(g, img, quad, s, rx, ry)
+                if s1 then g.setScissor(s1, s2, s3, s4) else g.setScissor() end
+              end
+            end
           end
-          local cx2 = math.floor((rx + 7) / 8) * 8
-          local cy2 = math.floor((ry + 7) / 8) * 8
-          if cx2 ~= cx then slice(cx2, cy) end
-          if cy2 ~= cy then slice(cx, cy2) end
-          if cx2 ~= cx and cy2 ~= cy then slice(cx2, cy2) end
         end
         if colors then
           g.setShader()
@@ -799,6 +823,8 @@ function AnimPlayer:drawSprites(sprites, colorFn)
       end
     end
   end
+  -- the direct sends above bypass sendColors' last-sent record
+  if sent then PaletteFX.forgetSent(shader) end
 end
 
 return AnimPlayer

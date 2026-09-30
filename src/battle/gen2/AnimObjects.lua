@@ -42,6 +42,7 @@ local NUM_STRUCTS = 10 -- NUM_BATTLE_ANIM_STRUCTS
 -- wShadowOAM is 40 objects; BattleAnimOAMUpdate returns carry once it is full
 -- and BattleAnim_UpdateOAM_All stops walking the structs.
 local OAM_LIMIT = 40
+local EMPTY = {}
 
 local OAM_PRIO, OAM_YFLIP, OAM_XFLIP = 0x80, 0x40, 0x20
 local OAM_FLAG_MASK = 0xe0
@@ -332,22 +333,31 @@ function Pool:updateOam(st)
   local tileId = u8(buf.tileId + (set.vtile or 0))
   local yFlip = bit.band(buf.oamFlags, OAM_YFLIP) ~= 0
   local xFlip = bit.band(buf.oamFlags, OAM_XFLIP) ~= 0
-  for _, entry in ipairs(set.sprites or {}) do
-    if #self.oam >= OAM_LIMIT then return true end
+  local oam = self.oam
+  local pool = self.oamPool
+  for _, entry in ipairs(set.sprites or EMPTY) do
+    local n = #oam
+    if n >= OAM_LIMIT then return true end
     -- GetSpriteOAMAttr: the frame's flip/priority flags toggle the entry's;
     -- OAM_PAL1 passes through from the entry, and the palette slot comes from
     -- the struct.
     local attr = bit.band(bit.bxor(entry.attr or 0, buf.oamFlags), OAM_FLAG_MASK)
     attr = attr + bit.band(entry.attr or 0, OAM_PAL1)
-    self.oam[#self.oam + 1] = {
-      y = u8(buf.y + buf.yOffset + mirror(entry.y or 0, yFlip)),
-      x = u8(buf.x + buf.xOffset + mirror(entry.x or 0, xFlip)),
-      -- BATTLEANIM_BASE_TILE is added here on the cart and subtracted again by
-      -- every sheet lookup, so the port keeps tiles in sheet-relative space.
-      tile = u8(tileId + (entry.tile or 0)),
-      attr = attr,
-      palette = buf.palette,
-    }
+    -- Shadow OAM slots are recycled frame to frame (playFrame), the way the
+    -- cart rewrites wShadowOAM in place: the 40 tables are made once.
+    local out = pool and pool[n + 1]
+    if not out then
+      out = {}
+      if pool then pool[n + 1] = out end
+    end
+    out.y = u8(buf.y + buf.yOffset + mirror(entry.y or 0, yFlip))
+    out.x = u8(buf.x + buf.xOffset + mirror(entry.x or 0, xFlip))
+    -- BATTLEANIM_BASE_TILE is added here on the cart and subtracted again by
+    -- every sheet lookup, so the port keeps tiles in sheet-relative space.
+    out.tile = u8(tileId + (entry.tile or 0))
+    out.attr = attr
+    out.palette = buf.palette
+    oam[n + 1] = out
   end
   return false
 end
@@ -356,8 +366,18 @@ end
 -- write its OAM entries.  A struct that deinitialises itself inside its
 -- function still draws this frame, because the ASM calls BattleAnimOAMUpdate
 -- unconditionally.
+--
+-- The OAM list and its entries are reused from frame to frame: what a frame
+-- returns is valid until the next playFrame, which is all the draw needs.
 function Pool:playFrame()
-  self.oam = {}
+  local oam = self.oamList
+  if not oam then
+    oam = {}
+    self.oamList = oam
+    self.oamPool = {}
+  end
+  for i = #oam, 1, -1 do oam[i] = nil end
+  self.oam = oam
   for slot = 1, NUM_STRUCTS do
     local st = self.structs[slot]
     if st.index ~= 0 then

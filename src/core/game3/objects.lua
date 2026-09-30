@@ -1514,6 +1514,13 @@ local function pick(t)
   return t[(idleRng.Random() % #t) + 1]
 end
 
+-- tostring(movement):upper(), memoised (idleTick runs per object per frame).
+local UPPER_MOVEMENT = setmetatable({}, { __index = function(t, k)
+  local v = tostring(k):upper()
+  t[k] = v
+  return v
+end })
+
 local function idleTick(eo, game, ctx)
   if eo.frozen or eo.scriptBusy or eo.moving or eo.hidden or not eo.visible then
     return
@@ -1527,7 +1534,7 @@ local function idleTick(eo, game, ctx)
     return
   end
 
-  local mv = tostring(eo.movement or "STAY"):upper()
+  local mv = UPPER_MOVEMENT[eo.movement or "STAY"]
   if mv == "STAY" then return end
   if mv == "IN_PLACE" then
     -- pokeemerald/src/event_object_movement.c:4422

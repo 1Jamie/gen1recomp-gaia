@@ -517,12 +517,34 @@ function Bag.set(bag, id, qty)
   return Bag.get(bag, id)
 end
 
+-- listPocket rows per bag and pocket, rebuilt only when the pocket's
+-- (id, qty) slots or the loaded item pack change.  Bag menus call listPocket
+-- every frame; each row costs three ItemsData.info lookups.
+local rowCache = setmetatable({}, { __mode = "k" })
+
+local function rows_match(entry, slots, byId)
+  if entry.byId ~= byId then return false end
+  local ids, qtys, n = entry.ids, entry.qtys, entry.n
+  for i = 1, n do
+    local slot = slots[i]
+    if slot == nil or slot.id ~= ids[i] or slot.qty ~= qtys[i] then return false end
+  end
+  return slots[n + 1] == nil
+end
+
 --- Ordered list of { id, qty, name, info } for a pocket (bag UI).
+-- The returned rows are shared between calls until the pocket changes, so
+-- callers must not modify them.
 function Bag.listPocket(bag, pocket)
   bag = ensure(bag)
   pocket = pocket or "ITEMS"
+  local slots = bag.pockets[pocket] or {}
+  local byId = ItemsData._byId
+  local perBag = rowCache[bag]
+  local entry = perBag and perBag[pocket]
+  if entry and byId and rows_match(entry, slots, byId) then return entry.rows end
   local rows = {}
-  for _, slot in ipairs(bag.pockets[pocket] or {}) do
+  for _, slot in ipairs(slots) do
     local qty = tonumber(slot.qty) or 0
     if slot.id and qty > 0 then
       rows[#rows + 1] = {
@@ -533,6 +555,20 @@ function Bag.listPocket(bag, pocket)
         description = ItemsData.description(slot.id),
       }
     end
+  end
+  byId = ItemsData._byId
+  if byId then
+    local n = 0
+    local ids, qtys = {}, {}
+    for i, slot in ipairs(slots) do
+      n = i
+      ids[i], qtys[i] = slot.id, slot.qty
+    end
+    if not perBag then
+      perBag = {}
+      rowCache[bag] = perBag
+    end
+    perBag[pocket] = { byId = byId, n = n, ids = ids, qtys = qtys, rows = rows }
   end
   return rows
 end

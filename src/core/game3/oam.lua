@@ -119,6 +119,7 @@ function Oam.reset()
     s.anims, s.animQuads, s.affineAnim = nil, nil, nil
   end
   Oam._buffer = nil
+  Oam._sorted = nil
   Oam._clip = nil
   Oam._fx = nil
   Oam._blend = nil
@@ -295,7 +296,14 @@ end
 --- Begin frame (pret: clear shadow OAM build).
 function Oam.resetFrame()
   ensure_pool()
-  Oam._buffer = {}
+  -- Empty this frame's draw list in place; the sorted order survives in
+  -- Oam._sorted so buildOamBuffer can skip re-sorting an unchanged scene.
+  local buf = Oam._buffer
+  if buf == nil or buf == Oam._sorted then
+    Oam._buffer = {}
+  else
+    for i = #buf, 1, -1 do buf[i] = nil end
+  end
 end
 
 Oam._layer = "ui"
@@ -504,25 +512,44 @@ function Oam.buildOamBuffer(pretOrder)
     end
   end
   local cmp = pretOrder and sort_sprites_pret or sort_sprites
-  local cached = Oam._buffer
-  if cached and #cached == n then
-    local ok = true
+  -- Cache: last frame's sorted list.  Same length, every entry still drawable
+  -- and still in order means it holds exactly this frame's sprites (entries
+  -- are distinct pool slots), so the sort can be skipped.
+  local sorted = Oam._sorted
+  local ok = false
+  if sorted and #sorted == n and Oam._sortedPool == Oam._sprites then
+    ok = true
     for i = 1, n do
-      local s = cached[i]
+      local s = sorted[i]
       if not (s.inUse and not s.invisible and s.image) then ok = false break end
-      if i < n and cmp(cached[i + 1], s) then ok = false break end
-    end
-    if ok then return cached end
-  end
-  local buf = {}
-  for i = 0, Oam.MAX_SPRITES - 1 do
-    local s = Oam._sprites[i]
-    if s.inUse and not s.invisible and s.image then
-      buf[#buf + 1] = s
+      local nx = sorted[i + 1]
+      if nx then
+        if cmp(nx, s) then ok = false break end
+        -- equal keys: keep pool order (pret's insertion sort is stable)
+        if not cmp(s, nx) and (s._id or 0) > (nx._id or 0) then ok = false break end
+      end
     end
   end
-  table.sort(buf, cmp)
-  Oam._buffer = buf
+  if not ok then
+    sorted = sorted or {}
+    for i = #sorted, 1, -1 do sorted[i] = nil end
+    for i = 0, Oam.MAX_SPRITES - 1 do
+      local s = Oam._sprites[i]
+      if s.inUse and not s.invisible and s.image then
+        sorted[#sorted + 1] = s
+      end
+    end
+    table.sort(sorted, cmp)
+    Oam._sorted = sorted
+    Oam._sortedPool = Oam._sprites
+  end
+  local buf = Oam._buffer
+  if buf == nil or buf == sorted then
+    buf = {}
+    Oam._buffer = buf
+  end
+  for i = 1, n do buf[i] = sorted[i] end
+  for i = #buf, n + 1, -1 do buf[i] = nil end
   return buf
 end
 
@@ -560,11 +587,12 @@ local function blit_sprite(s)
   local blend = s.blend or Oam._blend
   local clip = s.clip or Oam._clip
   if clip and (clip.w <= 0 or clip.h <= 0) then return end
-  local draw = s.affineScale and function() blit_affine(s) end or function() blit_plain(s) end
+  local affine = s.affineScale
   if not fx and not blend and not clip then
-    draw()
+    if affine then blit_affine(s) else blit_plain(s) end
     return
   end
+  local draw = affine and function() blit_affine(s) end or function() blit_plain(s) end
   Fx.withClip(clip, function() Fx.draw(draw, fx, blend) end)
 end
 

@@ -803,6 +803,7 @@ function Audio._seRawClear()
   Audio._seRaw = {}
   Audio._seRawFrames = 0
   Audio._seRawTick = 0
+  if Audio._seSourceClear then Audio._seSourceClear() end
 end
 
 function Audio._seRawGet(id)
@@ -833,6 +834,72 @@ function Audio._seRawPut(id, loop, rawL, rawR, loopStart)
     Audio._seRawFrames = Audio._seRawFrames - Audio._seRaw[oldId].frames
     Audio._seRaw[oldId] = nil
   end
+end
+
+-- Static Sources for one-shot / looping SEs, keyed by everything baked into
+-- their PCM (id, pan, master gain, mono, loop).  A repeat SE (wall bump, ball
+-- placement, menu cursor) used to rebuild its SoundData sample by sample and
+-- upload a new Source on every play; now a cached Source is rewound and
+-- replayed, or cloned (shares the uploaded buffer) while the cached one is
+-- still live on another player slot.  Entries are tied to the memoized raw
+-- PCM tables, so an evicted/rebaked SE never reuses a stale Source.
+Audio.SE_SOURCE_CACHE_MAX = 32
+
+function Audio._seSourceClear()
+  Audio._seSrcCache = {}
+  Audio._seSrcCount = 0
+  Audio._seSrcTick = 0
+end
+
+function Audio._seSourceFor(id, rawL, rawR, master, pan, mono, loop)
+  if not (love and love.audio and love.audio.newSource) then return nil end
+  local hit = Audio._seRaw and Audio._seRaw[id]
+  local cacheable = hit and hit.rawL == rawL and hit.rawR == rawR
+  local key = cacheable and table.concat({ tostring(id), tostring(pan),
+    tostring(master), mono and "m" or "s", loop and "l" or "o" }, ":")
+  if not Audio._seSrcCache then Audio._seSourceClear() end
+  local entry = key and Audio._seSrcCache[key]
+  if entry and entry.rawL == rawL then
+    Audio._seSrcTick = Audio._seSrcTick + 1
+    entry.tick = Audio._seSrcTick
+    local src = entry.src
+    if Audio._seMeta[src] then
+      -- still tracked as a live SE: play a copy rather than cut it off
+      local ok, copy = pcall(function() return src:clone() end)
+      src = ok and copy or nil
+    end
+    if src then
+      pcall(function() src:stop() end)
+      if loop then pcall(function() src:setLooping(true) end) end
+      return src
+    end
+    key = nil -- no clone support: build a one-off, keep the cached entry
+  end
+  local sd = Audio._buildSeSoundData(rawL, rawR, master, pan, mono)
+  if not sd then return nil end
+  local src = love.audio.newSource(sd, "static")
+  if loop then
+    pcall(function() src:setLooping(true) end)
+  end
+  if key then
+    if not Audio._seSrcCache[key] then
+      Audio._seSrcCount = Audio._seSrcCount + 1
+    end
+    Audio._seSrcTick = Audio._seSrcTick + 1
+    Audio._seSrcCache[key] = { src = src, rawL = rawL, tick = Audio._seSrcTick }
+    while Audio._seSrcCount > Audio.SE_SOURCE_CACHE_MAX do
+      local oldKey, oldTick
+      for k, e in pairs(Audio._seSrcCache) do
+        if k ~= key and (oldTick == nil or e.tick < oldTick) then
+          oldKey, oldTick = k, e.tick
+        end
+      end
+      if oldKey == nil then break end
+      Audio._seSrcCache[oldKey] = nil
+      Audio._seSrcCount = Audio._seSrcCount - 1
+    end
+  end
+  return src
 end
 
 function Audio.playSe(id, opts)
@@ -898,12 +965,8 @@ function Audio.playSe(id, opts)
   if loop and loopStart and love and love.audio and love.audio.newQueueableSource then
     src, body = Audio._newIntroLoopSource(rawL, rawR, loopStart, master, pan, Audio._mono)
   end
-  local sd = not src and Audio._buildSeSoundData(rawL, rawR, master, pan, Audio._mono)
-  if sd and love and love.audio and love.audio.newSource then
-    src = love.audio.newSource(sd, "static")
-    if loop then
-      pcall(function() src:setLooping(true) end)
-    end
+  if not src then
+    src = Audio._seSourceFor(id, rawL, rawR, master, pan, Audio._mono, loop)
   end
   if src then
     src:setVolume(1)

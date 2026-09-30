@@ -438,6 +438,25 @@ function UnownPuzzle:fillCell(cell, tile)
   end
 end
 
+-- One reusable quad per role, re-aimed per draw rather than a new Quad each
+-- frame (which churns the GC).  nil only when the backend cannot make one.
+local function reusedQuad(owner, slot, x, y, w, h, sw, sh)
+  local quads = owner.reusedQuads
+  if not quads then
+    quads = {}
+    owner.reusedQuads = quads
+  end
+  local quad = quads[slot]
+  if quad then
+    quad:setViewport(x, y, w, h, sw, sh)
+    return quad
+  end
+  local ok, made = pcall(love.graphics.newQuad, x, y, w, h, sw, sh)
+  if not ok then return nil end
+  quads[slot] = made
+  return made
+end
+
 -- .Corners is `piece -> corner tile` on a 12-tile-wide sheet; as a quad that is
 -- just the panel's row and column in the 4x4 picture.
 function UnownPuzzle:drawPiece(piece, tx, ty)
@@ -447,7 +466,7 @@ function UnownPuzzle:drawPiece(piece, tx, ty)
     local sx = (index % UnownPuzzle.PIECES_WIDE) * size
     local sy = math.floor(index / UnownPuzzle.PIECES_WIDE) * size
     local w, h = self.picture:getDimensions()
-    local quad = love.graphics.newQuad(sx, sy, size, size, w, h)
+    local quad = reusedQuad(self, "piece", sx, sy, size, size, w, h)
     love.graphics.setColor(1, 1, 1, 1)
     -- The four pictures are drawn out of colours 1 and 2 alone, so binding BG
     -- palette 0 here is what turns the panels tan and dark brown.
@@ -496,7 +515,7 @@ function UnownPuzzle:drawCursor(tx, ty)
     for _, spec in ipairs(CURSOR_CELLS) do
       local col, tile, row, flipX, flipY = spec[1], spec[2], spec[3], spec[4],
         spec[5]
-      local quad = love.graphics.newQuad(tile * 8, 0, 8, 8, w, h)
+      local quad = reusedQuad(self, "cursor", tile * 8, 0, 8, 8, w, h)
       local sx, sy = flipX and -1 or 1, flipY and -1 or 1
       local ox = (tx + col) * 8 + (flipX and 8 or 0)
       local oy = (ty + row) * 8 + (flipY and 8 or 0)

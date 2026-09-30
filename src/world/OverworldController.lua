@@ -63,6 +63,9 @@ OverworldState.withOverrideMirror = withOverrideMirror
 
 local Game -- set on enter (avoids circular require at load time)
 
+-- handleInput's d-pad poll order (a constant: it runs every frame)
+local INPUT_DIRS = { "up", "down", "left", "right" }
+
 local mapScripts -- registry of hand-ported map scripts
 
 local COMPASS = { up = "north", down = "south", left = "west", right = "east" }
@@ -535,7 +538,12 @@ function OverworldState:setMap(mapId, x, y, facing, opts)
   elseif fromMapId ~= mapId then
     for _, obj in ipairs(self.map.def.objects or {}) do
       local npc = self.npcPool[mapId .. "_obj_" .. obj.index]
-      if npc then npc.pendingSpawnReset = true end
+      if npc then
+        npc.pendingSpawnReset = true
+        -- lets applyPendingSpawnResets skip its whole-pool scan while
+        -- nothing is armed (it runs every frame)
+        self.spawnResetsArmed = true
+      end
     end
   end
   self.npcs = {}
@@ -794,6 +802,9 @@ end
 -- the deferred half of the seam re-seed armed in setMap (#1755): the cart's
 -- connected map has no sprites to be seen snapping -- home/overworld.asm:2133
 function OverworldState:applyPendingSpawnResets()
+  -- setMap is the only place that arms a re-seed; nothing armed since the
+  -- last scan came up empty -> no pool walk this frame
+  if not self.spawnResetsArmed then return end
   local pool = self.npcPool
   if not (pool and self.camera) then return end
   local due
@@ -803,7 +814,10 @@ function OverworldState:applyPendingSpawnResets()
       due[npc] = true
     end
   end
-  if not due then return end
+  if not due then
+    self.spawnResetsArmed = nil
+    return
+  end
   local cam = self.camera
   local vw, vh = Game.renderer:worldViewSize()
   local function onCamera(px, py)
@@ -1545,7 +1559,6 @@ function OverworldState:update(dt)
                    or (self.hopLand or 0) > 0
                    or self.engaging or self.emote or self.teleportOut
                    or self.flyAnim or self.flyArrive or self.spinArrive
-               or self.holeFall or self.holeArrive
                    or self.holeFall or self.holeArrive
                    or self.cutAnim
                    or (self.dustAnim and self.dustAnim.boulder)
@@ -1719,7 +1732,7 @@ function OverworldState:handleInput()
     return
   end
 
-  for _, dir in ipairs({ "up", "down", "left", "right" }) do
+  for _, dir in ipairs(INPUT_DIRS) do
     if input:isDown(dir) then
       if not self.player.moving and self.player.facing == dir then
         if self:checkEdgeExit(dir) then return end
@@ -1785,13 +1798,25 @@ function OverworldState:handleInput()
 end
 
 -- JoypadOverworld both make -- home/overworld.asm:382
+-- slopeMaps list -> { n = #list, ids = { [mapId] = true } }: update() asks
+-- every frame, so the list is indexed once instead of scanned per call.
+-- Keyed weakly on the list itself (a data reload brings a new one) and
+-- rebuilt if its length changes.
+local slopeSets = setmetatable({}, { __mode = "k" })
+
 function OverworldState:onSlopeMap(mapId)
   local fm = Game.data.field.forcedMovement
   mapId = mapId or (self.map and self.map.id)
-  for _, m in ipairs((fm and fm.slopeMaps) or {}) do
-    if m == mapId then return true end
+  local list = fm and fm.slopeMaps
+  if not list or mapId == nil then return false end
+  local entry = slopeSets[list]
+  if not entry or entry.n ~= #list then
+    local ids = {}
+    for _, m in ipairs(list) do ids[m] = true end
+    entry = { n = #list, ids = ids }
+    slopeSets[list] = entry
   end
-  return false
+  return entry.ids[mapId] == true
 end
 
 -- Strength boulders (engine/overworld/push_boulder.asm TryPushingBoulder):
@@ -5829,7 +5854,7 @@ end
 -- sprite through the tile's white gaps) over the plain one (sprites, FX
 -- overlays).  drawFn issues the actual draws in flat world-canvas coordinates;
 -- the transform just slides them from the flat foot onto the projected anchor.
-function OverworldState:billboard(fx, fy, vw, vh, colors, keyed, drawFn)
+function OverworldState:billboard(fx, fy, vw, vh, colors, keyed, drawFn, ...)
   local sx, sy = Tilt.groundPoint(fx, fy, vw, vh)
   local shader = colors and (keyed and PaletteFX.keyedShader()
                              or PaletteFX.shader()) or nil
@@ -5839,9 +5864,319 @@ function OverworldState:billboard(fx, fy, vw, vh, colors, keyed, drawFn)
   end
   love.graphics.push()
   love.graphics.translate(sx - fx, sy - fy)
-  drawFn()
+  drawFn(...) -- extra billboard args (the FX bodies take self, cam)
   love.graphics.pop()
   if shader then love.graphics.setShader() end
+end
+
+-- === shared FX draw bodies ==========================================
+-- Each draws at flat world-canvas offsets; the tilt path wraps the
+-- standing ones in an upright billboard, the flat path calls them inline
+-- in their historical order.  (Bodies are byte-identical to the pre-tilt
+-- inline code, so the flat draw sequence is unchanged.)  Module-level and
+-- handed (self, cam) so drawWorld does not build six closures per frame;
+-- the pipeline path wraps them for its no-argument ctx.fx contract.
+
+-- the Pokémon Center heal machine (PokeCenterOAMData): the monitor
+-- tile over the machine's screen and one ball per healed mon in two
+-- mirrored columns, all blinking during the jingle flash.  The GB
+-- draws it at fixed screen coords with the player's cell BG-aligned
+-- at (64,64); anchoring those coords to where the player stood keeps
+-- the overlay on the machine at any zoom.
+local function fxHeal(self, cam)
+  if not self.healAnim then return end
+  local ha = self.healAnim
+  local fxDef = Game.data.field.overworldFx
+  if self.healMachineImg == nil and fxDef and fxDef.healMachine then
+    local ok, img = pcall(love.graphics.newImage, fxDef.healMachine.path)
+    self.healMachineImg = ok and img or false
+  end
+  local img = self.healMachineImg
+  if img then
+    if not self.healMachineQuads then
+      local w, h = img:getWidth(), img:getHeight()
+      self.healMachineQuads = {
+        love.graphics.newQuad(0, 0, 8, 8, w, h), -- monitor ($7c)
+        love.graphics.newQuad(0, 8, 8, 8, w, h), -- ball ($7d)
+      }
+    end
+    local shader, redrawColors = healMachineShader(ha.visible)
+    local mark = redrawColors and PaletteFX.spriteRedrawPassActive()
+    -- TileRenderer windows with -floor(cam), so the overlay must use the
+    -- same snap or a fractional camera (odd fill/tilt view sizes) parks
+    -- the balls a pixel off the machine tiles
+    local ox = ha.px - 64 - math.floor(cam.x)
+    local oy = ha.py - 64 - math.floor(cam.y)
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(img, self.healMachineQuads[1], ox + 44, oy + 20)
+    if mark then
+      PaletteFX.markSpriteRedraw(img, self.healMachineQuads[1],
+                                 ox + 44, oy + 20, 1, redrawColors)
+    end
+    for i = 1, math.min(ha.lit, #HEAL_BALL_XY) do
+      local b = HEAL_BALL_XY[i]
+      if b[3] then -- right column: OAM_XFLIP
+        love.graphics.draw(img, self.healMachineQuads[2],
+                           ox + b[1] + 8, oy + b[2], 0, -1, 1)
+        if mark then
+          PaletteFX.markSpriteRedraw(img, self.healMachineQuads[2],
+                                     ox + b[1] + 8, oy + b[2], -1, redrawColors)
+        end
+      else
+        love.graphics.draw(img, self.healMachineQuads[2],
+                           ox + b[1], oy + b[2])
+        if mark then
+          PaletteFX.markSpriteRedraw(img, self.healMachineQuads[2],
+                                     ox + b[1], oy + b[2], 1, redrawColors)
+        end
+      end
+    end
+    if shader then love.graphics.setShader() end
+  end
+end
+
+-- the Cut/boulder dust puff: the smoke tile drawn 2x2 over the cell,
+-- flickering (AnimateBoulderDust XORs the OBJ palette every step)
+local function fxDust(self, cam)
+  if not self.dustAnim then return end
+  local fxDef = Game.data.field.overworldFx
+  local smoke = fxDef and fxDef.smoke
+  if smoke then
+    if self.smokeImg == nil then
+      local ok, img = pcall(love.graphics.newImage, smoke.path)
+      self.smokeImg = ok and img or false
+    end
+    if self.smokeImg then
+      local da = self.dustAnim
+      local dx = da.x * 16 + (da.ox or 0) - cam.x
+      local dy = da.y * 16 + (da.oy or 0) - cam.y
+      local flicker = math.floor(da.frames / 4) % 2 == 0
+      if da.boulder then flicker = not da.faded end
+      love.graphics.setColor(1, 1, 1, flicker and 1 or 0.55)
+      for i = 0, 1 do
+        for j = 0, 1 do
+          love.graphics.draw(self.smokeImg, dx + i * 8, dy + j * 8)
+        end
+      end
+      love.graphics.setColor(1, 1, 1, 1)
+    end
+  end
+end
+
+-- the cut tree splitting apart (AnimCut): top half slides right,
+-- bottom half slides left, 1px per frame, flickering as they go
+local function fxCutTree(self, cam)
+  if not self.cutAnim then return end
+  local fxDef = Game.data.field.overworldFx
+  local tree = fxDef and fxDef.cutTree
+  if not tree then return end
+  if self.cutTreeImg == nil then
+    local ok, img = pcall(love.graphics.newImage, tree.path)
+    self.cutTreeImg = ok and img or false
+  end
+  local img = self.cutTreeImg
+  if not img then return end
+  if not self.cutTreeQuads then
+    local w, h = img:getWidth(), img:getHeight()
+    self.cutTreeQuads = {
+      love.graphics.newQuad(0, 0, 16, 8, w, h), -- top half
+      love.graphics.newQuad(0, 8, 16, 8, w, h), -- bottom half
+    }
+  end
+  local ca = self.cutAnim
+  local off = (ca.total or 8) - ca.frames
+  local dx = ca.x * 16 - cam.x
+  local dy = ca.y * 16 - cam.y
+  local flicker = ca.frames % 2 == 0
+  love.graphics.setColor(1, 1, 1, flicker and 1 or 0.55)
+  love.graphics.draw(img, self.cutTreeQuads[1], dx + off, dy)
+  love.graphics.draw(img, self.cutTreeQuads[2], dx - off, dy + 8)
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
+-- the "!" bubble above a trainer who spotted the player
+local function fxEmote(self, cam)
+  if not (self.emote and self.emote.npc) then return end
+  -- bubble = false is a silent hold (a Pikachu emotion that plays a
+  -- cry with no bubble still pauses the world for its beat)
+  if self.emote.bubble == false then return end
+  local npc = self.emote.npc
+  -- engine/overworld/emotion_bubbles.asm:41
+  local ex = npc.px - cam.x
+  local ey = npc.py - cam.y - 20
+  local bubble = Game.data.field.emotionBubbles
+  local drawn = false
+  if bubble and bubble.path then
+    local ok, img = pcall(function()
+      self.emoteImg = self.emoteImg or obpEmoteImage(bubble.path)
+      return self.emoteImg
+    end)
+    -- EXCLAMATION_BUBBLE is index 0 -> first crop; the emote command
+    -- picks question/happy crops instead
+    local bi = self.emote.bubble or 1
+    local rect = bubble.bubbles and bubble.bubbles[bi]
+    if ok and img and rect then
+      love.graphics.setColor(1, 1, 1, 1)
+      -- one Quad per bubble crop, cached: this draws every frame the "!"
+      -- (or the emote-command crops) is up, so a fresh Quad here churned
+      -- the GC.  The bubble set is small and fixed, so the cache is bounded.
+      self.emoteQuads = self.emoteQuads or {}
+      local q = self.emoteQuads[bi]
+      if not q then
+        q = love.graphics.newQuad(rect.x, rect.y, rect.w, rect.h,
+                                  img:getDimensions())
+        self.emoteQuads[bi] = q
+      end
+      love.graphics.draw(img, q, ex, ey)
+      -- engine/overworld/emotion_bubbles.asm:18
+      if PaletteFX.usesSpriteObp() and PaletteFX.spriteRedrawPassActive() then
+        PaletteFX.markSpriteRedraw(img, q, ex, ey, 1)
+      end
+      drawn = true
+    end
+  end
+  if not drawn then
+    local Font = require("src.render.Font")
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.rectangle("fill", ex, ey, 10, 12)
+    love.graphics.setColor(0, 0, 0, 1)
+    love.graphics.rectangle("line", ex + 0.5, ey + 0.5, 10, 12)
+    Font.draw("!", ex + 1, ey + 2)
+    love.graphics.setColor(1, 1, 1, 1)
+  end
+end
+
+-- the FLY bird sweeping off with the player
+local function fxBird(self, cam)
+  local anim = self.flyAnim or self.flyArrive
+  if not anim then return end
+  local birdId = FieldDefaults.fieldValue(Game.data, "playerSprites", "fly")
+  if not self.birdSprite and birdId and Game.data.sprites[birdId] then
+    local SR = require("src.render.SpriteRenderer")
+    self.birdSprite = SR.new(Game.data.sprites[birdId])
+  end
+  if not self.birdSprite then return end
+  -- DoFlyAnimation: the bird flaps its wings every Delay3; each path is
+  -- anchored on the player's cell (FLY_ANCHOR / FLY_ARRIVE_ANCHOR) so
+  -- the flight rides any screen position, and it faces its travel
+  -- direction (rightward travel flips the left-drawn sheet)
+  local phase = anim.phase or "arrive"
+  if phase == "hold" then return end -- parked off screen between paths
+  local path, anchor, facing
+  if phase == "path1" then
+    path, anchor, facing = FLY_PATH1, FLY_ANCHOR, "right"
+  elseif phase == "path2" then
+    path, anchor, facing = FLY_PATH2, FLY_ANCHOR, "left"
+  elseif phase == "arrive" then
+    path, anchor, facing = FLY_PATH_IN, FLY_ARRIVE_ANCHOR, "left"
+  end
+  local step = math.floor(anim.t / 3)
+  local sx, sy
+  if path then
+    local pair = path[math.min(#path, step + 1)]
+    sx, sy = pair[2] - anchor[2], pair[1] - anchor[1]
+  else
+    sx, sy = 0, 0 -- the in-place flap sits on the player
+    facing = "right"
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+  self.birdSprite:draw(self.player.px + sx, self.player.py + sy,
+                       cam.x, cam.y, facing, step % 2, false)
+end
+
+-- fishing pose: the rod tile over the faced water (gfx/fishing.asm)
+local function fxRod(self, cam)
+  if not self.fishing then return end
+  -- engine/overworld/player_animations.asm:424
+  if self.fishing.hideRod then return end
+  local fx = Game.data.field.overworldFx
+  local rod = fx and fx.fishingRod
+  if rod then
+    if self.rodImg == nil then
+      local ok, img = pcall(love.graphics.newImage, rod.path)
+      self.rodImg = ok and img or false
+    end
+    if self.rodImg then
+      local p = self.player
+      local oam = ROD_OAM[self.fishing.facing] or ROD_OAM.down
+      if not self.rodQuads then
+        -- one quad per 8x8 tile of the stacked sheet (ROD_OAM.tile)
+        local iw, ih = self.rodImg:getDimensions()
+        self.rodQuads = {}
+        for i = 0, math.floor(ih / 8) - 1 do
+          self.rodQuads[i] = love.graphics.newQuad(0, i * 8, 8, 8, iw, ih)
+        end
+      end
+      local quad = self.rodQuads[oam.tile]
+      -- Place the rod against the active sprite's anchored top-left.  The
+      -- vanilla result is still (px-cam, py-cam-4), while custom larger
+      -- sheets keep the rod attached to their feet.
+      -- Fishing always uses the on-foot player sheet; read its fields
+      -- directly so this FX pass does not advance pose-side animation.
+      local sprite, px, py = p.sprite, p.px, p.py
+      local sx, sy = sprite:getScreenOrigin(px, py, cam.x, cam.y)
+      local rx = sx + oam.dx
+      -- engine/overworld/player_animations.asm:453
+      local ry = sy + oam.dy + (p.fishShakeDy or 0)
+      love.graphics.setColor(1, 1, 1, 1)
+      if quad and oam.flip then
+        love.graphics.draw(self.rodImg, quad, rx + 8, ry, 0, -1, 1)
+      elseif quad then
+        love.graphics.draw(self.rodImg, quad, rx, ry)
+      end
+    end
+  end
+end
+
+-- drawWorld's y-sort orders, hoisted so a frame builds no comparators
+local function ghostDrawOrder(a, b)
+  return a.npc.py + a.oy < b.npc.py + b.oy
+end
+
+local function entityDrawOrder(a, b)
+  if a.py ~= b.py then return a.py < b.py end
+  -- a fresh warp spawn parks the follower on the player's own cell
+  -- until it trails out; the tie must draw it under him, never on
+  -- top (#863)
+  return a.pikachuFollower == true and b.pikachuFollower ~= true
+end
+
+-- Tall-grass feet overdraw queue for the flat path: each distinct grass
+-- cell an entity stands on or steps into, in first-queued order.  A
+-- scratch pair of coordinate arrays reused every frame (the queue holds a
+-- few cells, so the duplicate check is a short linear scan) instead of a
+-- "cx:cy" string key and a { cx, cy } table per cell per frame.
+local function queueGrass(self, q, cx, cy)
+  if cx == nil or cy == nil or not self.map:isGrassCell(cx, cy) then
+    return
+  end
+  local n = q.n
+  local xs, ys = q.x, q.y
+  for i = 1, n do
+    if xs[i] == cx and ys[i] == cy then return end
+  end
+  n = n + 1
+  xs[n], ys[n] = cx, cy
+  q.n = n
+end
+
+-- Is a neighbour map's ghost NPC wholly outside the vw x vh view?  The
+-- rect is the sprite's frame at its anchored origin, padded by a tile on
+-- every side (hop shadows, multi-part cells), so only NPCs that could not
+-- put a pixel on screen are skipped.
+local GHOST_CULL_PAD = 16
+local function ghostOffscreen(g, camX, camY, vw, vh)
+  local npc = g.npc
+  local sprite = npc and npc.sprite
+  if not (sprite and sprite.getScreenOrigin and vw and vh) then
+    return false
+  end
+  local sx, sy = sprite:getScreenOrigin(npc.px, npc.py, camX, camY)
+  local fw = sprite.frameWidth or 16
+  local fh = sprite.frameHeight or 16
+  local pad = GHOST_CULL_PAD
+  return sx + fw + pad < 0 or sy + fh + pad < 0
+      or sx - pad > vw or sy - pad > vh
 end
 
 function OverworldState:drawWorld()
@@ -5908,11 +6243,12 @@ function OverworldState:drawWorld()
   -- advance the water/flower tile animation (runs under dialogs too).
   -- TileRenderer.tick uses wall-clock 60Hz steps so display refresh rate
   -- does not speed or slow the cycle (issue #4).
-  require("src.render.TileRenderer").tick()
+  local TileRenderer = require("src.render.TileRenderer")
+  TileRenderer.tick()
   -- let the renderer know whether a spinner puzzle is currently sliding
   -- the player, so it can flicker the arrow tiles between the blur and
   -- static graphic (engine/overworld/spinners.asm LoadSpinnerArrowTiles)
-  require("src.render.TileRenderer").setSpinning(self.spinnerSliding or false)
+  TileRenderer.setSpinning(self.spinnerSliding or false)
   local cam = self.camera
   -- ShakeElevator's oscillation (engine/overworld/elevator.asm) writes
   -- hSCY, which scrolls the BG layer only -- tiles bounce while OAM
@@ -5957,272 +6293,8 @@ function OverworldState:drawWorld()
   local zones = tilt and self.sgbWorldZones and self:sgbWorldZones() or nil
 
   -- ghost NPCs on neighbor maps, y-sorted among themselves
-  table.sort(self.ghosts,
-             function(a, b) return a.npc.py + a.oy < b.npc.py + b.oy end)
-  table.sort(self.entities, function(a, b)
-    if a.py ~= b.py then return a.py < b.py end
-    -- a fresh warp spawn parks the follower on the player's own cell
-    -- until it trails out; the tie must draw it under him, never on
-    -- top (#863)
-    return a.pikachuFollower == true and b.pikachuFollower ~= true
-  end)
-
-  -- === shared FX draw bodies ==========================================
-  -- Each draws at flat world-canvas offsets; the tilt path wraps the
-  -- standing ones in an upright billboard, the flat path calls them inline
-  -- in their historical order.  (Bodies are byte-identical to the pre-tilt
-  -- inline code, so the flat draw sequence is unchanged.)
-
-  -- the Pokémon Center heal machine (PokeCenterOAMData): the monitor
-  -- tile over the machine's screen and one ball per healed mon in two
-  -- mirrored columns, all blinking during the jingle flash.  The GB
-  -- draws it at fixed screen coords with the player's cell BG-aligned
-  -- at (64,64); anchoring those coords to where the player stood keeps
-  -- the overlay on the machine at any zoom.
-  local function fxHeal()
-    if not self.healAnim then return end
-    local ha = self.healAnim
-    local fxDef = Game.data.field.overworldFx
-    if self.healMachineImg == nil and fxDef and fxDef.healMachine then
-      local ok, img = pcall(love.graphics.newImage, fxDef.healMachine.path)
-      self.healMachineImg = ok and img or false
-    end
-    local img = self.healMachineImg
-    if img then
-      if not self.healMachineQuads then
-        local w, h = img:getWidth(), img:getHeight()
-        self.healMachineQuads = {
-          love.graphics.newQuad(0, 0, 8, 8, w, h), -- monitor ($7c)
-          love.graphics.newQuad(0, 8, 8, 8, w, h), -- ball ($7d)
-        }
-      end
-      local shader, redrawColors = healMachineShader(ha.visible)
-      local mark = redrawColors and PaletteFX.spriteRedrawPassActive()
-      -- TileRenderer windows with -floor(cam), so the overlay must use the
-      -- same snap or a fractional camera (odd fill/tilt view sizes) parks
-      -- the balls a pixel off the machine tiles
-      local ox = ha.px - 64 - math.floor(cam.x)
-      local oy = ha.py - 64 - math.floor(cam.y)
-      love.graphics.setColor(1, 1, 1, 1)
-      love.graphics.draw(img, self.healMachineQuads[1], ox + 44, oy + 20)
-      if mark then
-        PaletteFX.markSpriteRedraw(img, self.healMachineQuads[1],
-                                   ox + 44, oy + 20, 1, redrawColors)
-      end
-      for i = 1, math.min(ha.lit, #HEAL_BALL_XY) do
-        local b = HEAL_BALL_XY[i]
-        if b[3] then -- right column: OAM_XFLIP
-          love.graphics.draw(img, self.healMachineQuads[2],
-                             ox + b[1] + 8, oy + b[2], 0, -1, 1)
-          if mark then
-            PaletteFX.markSpriteRedraw(img, self.healMachineQuads[2],
-                                       ox + b[1] + 8, oy + b[2], -1, redrawColors)
-          end
-        else
-          love.graphics.draw(img, self.healMachineQuads[2],
-                             ox + b[1], oy + b[2])
-          if mark then
-            PaletteFX.markSpriteRedraw(img, self.healMachineQuads[2],
-                                       ox + b[1], oy + b[2], 1, redrawColors)
-          end
-        end
-      end
-      if shader then love.graphics.setShader() end
-    end
-  end
-
-  -- the Cut/boulder dust puff: the smoke tile drawn 2x2 over the cell,
-  -- flickering (AnimateBoulderDust XORs the OBJ palette every step)
-  local function fxDust()
-    if not self.dustAnim then return end
-    local fxDef = Game.data.field.overworldFx
-    local smoke = fxDef and fxDef.smoke
-    if smoke then
-      if self.smokeImg == nil then
-        local ok, img = pcall(love.graphics.newImage, smoke.path)
-        self.smokeImg = ok and img or false
-      end
-      if self.smokeImg then
-        local da = self.dustAnim
-        local dx = da.x * 16 + (da.ox or 0) - cam.x
-        local dy = da.y * 16 + (da.oy or 0) - cam.y
-        local flicker = math.floor(da.frames / 4) % 2 == 0
-        if da.boulder then flicker = not da.faded end
-        love.graphics.setColor(1, 1, 1, flicker and 1 or 0.55)
-        for i = 0, 1 do
-          for j = 0, 1 do
-            love.graphics.draw(self.smokeImg, dx + i * 8, dy + j * 8)
-          end
-        end
-        love.graphics.setColor(1, 1, 1, 1)
-      end
-    end
-  end
-
-  -- the cut tree splitting apart (AnimCut): top half slides right,
-  -- bottom half slides left, 1px per frame, flickering as they go
-  local function fxCutTree()
-    if not self.cutAnim then return end
-    local fxDef = Game.data.field.overworldFx
-    local tree = fxDef and fxDef.cutTree
-    if not tree then return end
-    if self.cutTreeImg == nil then
-      local ok, img = pcall(love.graphics.newImage, tree.path)
-      self.cutTreeImg = ok and img or false
-    end
-    local img = self.cutTreeImg
-    if not img then return end
-    if not self.cutTreeQuads then
-      local w, h = img:getWidth(), img:getHeight()
-      self.cutTreeQuads = {
-        love.graphics.newQuad(0, 0, 16, 8, w, h), -- top half
-        love.graphics.newQuad(0, 8, 16, 8, w, h), -- bottom half
-      }
-    end
-    local ca = self.cutAnim
-    local off = (ca.total or 8) - ca.frames
-    local dx = ca.x * 16 - cam.x
-    local dy = ca.y * 16 - cam.y
-    local flicker = ca.frames % 2 == 0
-    love.graphics.setColor(1, 1, 1, flicker and 1 or 0.55)
-    love.graphics.draw(img, self.cutTreeQuads[1], dx + off, dy)
-    love.graphics.draw(img, self.cutTreeQuads[2], dx - off, dy + 8)
-    love.graphics.setColor(1, 1, 1, 1)
-  end
-
-  -- the "!" bubble above a trainer who spotted the player
-  local function fxEmote()
-    if not (self.emote and self.emote.npc) then return end
-    -- bubble = false is a silent hold (a Pikachu emotion that plays a
-    -- cry with no bubble still pauses the world for its beat)
-    if self.emote.bubble == false then return end
-    local npc = self.emote.npc
-    -- engine/overworld/emotion_bubbles.asm:41
-    local ex = npc.px - cam.x
-    local ey = npc.py - cam.y - 20
-    local bubble = Game.data.field.emotionBubbles
-    local drawn = false
-    if bubble and bubble.path then
-      local ok, img = pcall(function()
-        self.emoteImg = self.emoteImg or obpEmoteImage(bubble.path)
-        return self.emoteImg
-      end)
-      -- EXCLAMATION_BUBBLE is index 0 -> first crop; the emote command
-      -- picks question/happy crops instead
-      local bi = self.emote.bubble or 1
-      local rect = bubble.bubbles and bubble.bubbles[bi]
-      if ok and img and rect then
-        love.graphics.setColor(1, 1, 1, 1)
-        -- one Quad per bubble crop, cached: this draws every frame the "!"
-        -- (or the emote-command crops) is up, so a fresh Quad here churned
-        -- the GC.  The bubble set is small and fixed, so the cache is bounded.
-        self.emoteQuads = self.emoteQuads or {}
-        local q = self.emoteQuads[bi]
-        if not q then
-          q = love.graphics.newQuad(rect.x, rect.y, rect.w, rect.h,
-                                    img:getDimensions())
-          self.emoteQuads[bi] = q
-        end
-        love.graphics.draw(img, q, ex, ey)
-        -- engine/overworld/emotion_bubbles.asm:18
-        if PaletteFX.usesSpriteObp() and PaletteFX.spriteRedrawPassActive() then
-          PaletteFX.markSpriteRedraw(img, q, ex, ey, 1)
-        end
-        drawn = true
-      end
-    end
-    if not drawn then
-      local Font = require("src.render.Font")
-      love.graphics.setColor(1, 1, 1, 1)
-      love.graphics.rectangle("fill", ex, ey, 10, 12)
-      love.graphics.setColor(0, 0, 0, 1)
-      love.graphics.rectangle("line", ex + 0.5, ey + 0.5, 10, 12)
-      Font.draw("!", ex + 1, ey + 2)
-      love.graphics.setColor(1, 1, 1, 1)
-    end
-  end
-
-  -- the FLY bird sweeping off with the player
-  local function fxBird()
-    local anim = self.flyAnim or self.flyArrive
-    if not anim then return end
-    local birdId = FieldDefaults.fieldValue(Game.data, "playerSprites", "fly")
-    if not self.birdSprite and birdId and Game.data.sprites[birdId] then
-      local SR = require("src.render.SpriteRenderer")
-      self.birdSprite = SR.new(Game.data.sprites[birdId])
-    end
-    if not self.birdSprite then return end
-    -- DoFlyAnimation: the bird flaps its wings every Delay3; each path is
-    -- anchored on the player's cell (FLY_ANCHOR / FLY_ARRIVE_ANCHOR) so
-    -- the flight rides any screen position, and it faces its travel
-    -- direction (rightward travel flips the left-drawn sheet)
-    local phase = anim.phase or "arrive"
-    if phase == "hold" then return end -- parked off screen between paths
-    local path, anchor, facing
-    if phase == "path1" then
-      path, anchor, facing = FLY_PATH1, FLY_ANCHOR, "right"
-    elseif phase == "path2" then
-      path, anchor, facing = FLY_PATH2, FLY_ANCHOR, "left"
-    elseif phase == "arrive" then
-      path, anchor, facing = FLY_PATH_IN, FLY_ARRIVE_ANCHOR, "left"
-    end
-    local step = math.floor(anim.t / 3)
-    local sx, sy
-    if path then
-      local pair = path[math.min(#path, step + 1)]
-      sx, sy = pair[2] - anchor[2], pair[1] - anchor[1]
-    else
-      sx, sy = 0, 0 -- the in-place flap sits on the player
-      facing = "right"
-    end
-    love.graphics.setColor(1, 1, 1, 1)
-    self.birdSprite:draw(self.player.px + sx, self.player.py + sy,
-                         cam.x, cam.y, facing, step % 2, false)
-  end
-
-  -- fishing pose: the rod tile over the faced water (gfx/fishing.asm)
-  local function fxRod()
-    if not self.fishing then return end
-    -- engine/overworld/player_animations.asm:424
-    if self.fishing.hideRod then return end
-    local fx = Game.data.field.overworldFx
-    local rod = fx and fx.fishingRod
-    if rod then
-      if self.rodImg == nil then
-        local ok, img = pcall(love.graphics.newImage, rod.path)
-        self.rodImg = ok and img or false
-      end
-      if self.rodImg then
-        local p = self.player
-        local oam = ROD_OAM[self.fishing.facing] or ROD_OAM.down
-        if not self.rodQuads then
-          -- one quad per 8x8 tile of the stacked sheet (ROD_OAM.tile)
-          local iw, ih = self.rodImg:getDimensions()
-          self.rodQuads = {}
-          for i = 0, math.floor(ih / 8) - 1 do
-            self.rodQuads[i] = love.graphics.newQuad(0, i * 8, 8, 8, iw, ih)
-          end
-        end
-        local quad = self.rodQuads[oam.tile]
-        -- Place the rod against the active sprite's anchored top-left.  The
-        -- vanilla result is still (px-cam, py-cam-4), while custom larger
-        -- sheets keep the rod attached to their feet.
-        -- Fishing always uses the on-foot player sheet; read its fields
-        -- directly so this FX pass does not advance pose-side animation.
-        local sprite, px, py = p.sprite, p.px, p.py
-        local sx, sy = sprite:getScreenOrigin(px, py, cam.x, cam.y)
-        local rx = sx + oam.dx
-        -- engine/overworld/player_animations.asm:453
-        local ry = sy + oam.dy + (p.fishShakeDy or 0)
-        love.graphics.setColor(1, 1, 1, 1)
-        if quad and oam.flip then
-          love.graphics.draw(self.rodImg, quad, rx + 8, ry, 0, -1, 1)
-        elseif quad then
-          love.graphics.draw(self.rodImg, quad, rx, ry)
-        end
-      end
-    end
-  end
+  table.sort(self.ghosts, ghostDrawOrder)
+  table.sort(self.entities, entityDrawOrder)
 
   if pipelineId then
     -- === PIPELINE PATH: a mod owns the world pass. ======================
@@ -6234,6 +6306,13 @@ function OverworldState:drawWorld()
     -- copy of every effect: the closures above are the ones that run.
     local _, _, pw, ph = Game.renderer:playfieldRect()
     local pscale = Zoom.scale(Game.renderer:fitScale())
+    -- the mod-facing ctx.fx draw bodies take no arguments
+    local fxHealFn = function() return fxHeal(self, cam) end
+    local fxDustFn = function() return fxDust(self, cam) end
+    local fxCutTreeFn = function() return fxCutTree(self, cam) end
+    local fxEmoteFn = function() return fxEmote(self, cam) end
+    local fxBirdFn = function() return fxBird(self, cam) end
+    local fxRodFn = function() return fxRod(self, cam) end
     local ctx = {
       state = self, cam = cam, vw = vw, vh = vh, bgY = bgY,
       width = pw, height = ph, scale = pscale,
@@ -6247,8 +6326,8 @@ function OverworldState:drawWorld()
         if PaletteFX.usesGbcPack() then return nil end
         return PaletteFX.pal(Game.data, self:paletteNameFor(map or self.map))
       end,
-      fx = { heal = fxHeal, dust = fxDust, cutTree = fxCutTree,
-             emote = fxEmote, bird = fxBird, rod = fxRod },
+      fx = { heal = fxHealFn, dust = fxDustFn, cutTree = fxCutTreeFn,
+             emote = fxEmoteFn, bird = fxBirdFn, rod = fxRodFn },
     }
     -- Draw every active field FX into the finished scene.  `project(wx, wy)`
     -- maps a world point to canvas pixels (nil when it is behind the
@@ -6283,23 +6362,23 @@ function OverworldState:drawWorld()
         -- ground-hugging effects sit on the cell they belong to
         if self.dustAnim then
           local da = self.dustAnim
-          at(fxDust, da.x * 16 + 8 + (da.ox or 0), da.y * 16 + 8 + (da.oy or 0))
+          at(fxDustFn, da.x * 16 + 8 + (da.ox or 0), da.y * 16 + 8 + (da.oy or 0))
         end
         if self.cutAnim then
-          at(fxCutTree, self.cutAnim.x * 16 + 8, self.cutAnim.y * 16 + 16)
+          at(fxCutTreeFn, self.cutAnim.x * 16 + 8, self.cutAnim.y * 16 + 16)
         end
         if self.healAnim then
-          at(fxHeal, self.healAnim.px + 8, self.healAnim.py + 16)
+          at(fxHealFn, self.healAnim.px + 8, self.healAnim.py + 16)
         end
         -- standing effects anchor at the foot of whoever they belong to
         if self.emote and self.emote.npc then
-          at(fxEmote, self.emote.npc.px + 8, self.emote.npc.py + 16)
+          at(fxEmoteFn, self.emote.npc.px + 8, self.emote.npc.py + 16)
         end
         if self.flyAnim then
-          at(fxBird, self.player.px + 8, self.player.py + 16)
+          at(fxBirdFn, self.player.px + 8, self.player.py + 16)
         end
         if self.fishing then
-          at(fxRod, self.player.px + 8, self.player.py + 16)
+          at(fxRodFn, self.player.px + 8, self.player.py + 16)
         end
       end)
     end
@@ -6337,44 +6416,45 @@ function OverworldState:drawWorld()
     local grassColors = PaletteFX.usesSpriteObp()
       and PaletteFX.pal(Game.data, self:paletteNameFor(self.map)) or nil
     local boulderDust = self.dustAnim and self.dustAnim.boulder
-    local grassCells, grassSeen = {}, {}
-    local function queueGrass(cx, cy)
-      if cx == nil or cy == nil or not self.map:isGrassCell(cx, cy) then
-        return
-      end
-      local key = tostring(cx) .. ":" .. tostring(cy)
-      if grassSeen[key] then return end
-      grassSeen[key] = true
-      grassCells[#grassCells + 1] = { cx, cy }
+    local grass = self.grassScratch
+    if not grass then
+      grass = { n = 0, x = {}, y = {} }
+      self.grassScratch = grass
     end
-    if boulderDust then fxDust() end
+    grass.n = 0
+    if boulderDust then fxDust(self, cam) end
     for _, g in ipairs(self.ghosts) do
       if self.battleOamKeep == nil then
-        g.npc:draw(cam.x - g.ox, cam.y - g.oy)
+        local gx, gy = cam.x - g.ox, cam.y - g.oy
+        if not ghostOffscreen(g, gx, gy, vw, vh) then
+          g.npc:draw(gx, gy)
+        end
       end
     end
     for _, e in ipairs(self.entities) do
       if not ((self.flyAnim or self.flyArrive or self.playerHidden)
               and e == self.player) and not self:oamCulled(e) then
         e:draw(cam.x, cam.y)
-        queueGrass(e.cellX, e.cellY)
-        queueGrass(e.targetX, e.targetY)
+        queueGrass(self, grass, e.cellX, e.cellY)
+        queueGrass(self, grass, e.targetX, e.targetY)
       end
     end
     love.graphics.setColor(1, 1, 1, 1)
-    for _, cell in ipairs(grassCells) do
-      self.map.renderer:drawCellBottom(cell[1], cell[2], cam.x, bgY)
+    local gxs, gys = grass.x, grass.y
+    for i = 1, grass.n do
+      local cx, cy = gxs[i], gys[i]
+      self.map.renderer:drawCellBottom(cx, cy, cam.x, bgY)
       if grassColors then
-        self.map.renderer:markCellBottomRedraw(cell[1], cell[2],
+        self.map.renderer:markCellBottomRedraw(cx, cy,
                                                cam.x, bgY, grassColors)
       end
     end
-    fxHeal()
-    if not boulderDust then fxDust() end
-    fxCutTree()
-    fxEmote()
-    fxBird()
-    fxRod()
+    fxHeal(self, cam)
+    if not boulderDust then fxDust(self, cam) end
+    fxCutTree(self, cam)
+    fxEmote(self, cam)
+    fxBird(self, cam)
+    fxRod(self, cam)
   else
     -- === TILT PATH: ground-hugging FX stay on the projected ground, all
     -- standing things billboard upright over it in a separate pass. ======
@@ -6384,9 +6464,9 @@ function OverworldState:drawWorld()
     -- draws them last, over the sprites, in the same canvas; here the two
     -- layers are separate and composited ground-under-upright, so drawing
     -- them now into the still-active ground canvas is order-equivalent.
-    fxHeal()
-    fxDust()
-    fxCutTree()
+    fxHeal(self, cam)
+    fxDust(self, cam)
+    fxCutTree(self, cam)
 
     Game.renderer:beginUprightPass()
 
@@ -6451,17 +6531,20 @@ function OverworldState:drawWorld()
     if self.emote and self.emote.npc then
       local fx = self.emote.npc.px - cam.x + 8
       local fy = self.emote.npc.py - cam.y + 16
-      self:billboard(fx, fy, vw, vh, zoneColorsAt(zones, fx, fy), false, fxEmote)
+      self:billboard(fx, fy, vw, vh, zoneColorsAt(zones, fx, fy), false, fxEmote,
+                     self, cam)
     end
     if self.flyAnim or self.flyArrive then
       local fx = self.player.px - cam.x + 8
       local fy = self.player.py - cam.y + 16
-      self:billboard(fx, fy, vw, vh, zoneColorsAt(zones, fx, fy), false, fxBird)
+      self:billboard(fx, fy, vw, vh, zoneColorsAt(zones, fx, fy), false, fxBird,
+                     self, cam)
     end
     if self.fishing then
       local fx = self.player.px - cam.x + 8
       local fy = self.player.py - cam.y + 16
-      self:billboard(fx, fy, vw, vh, zoneColorsAt(zones, fx, fy), false, fxRod)
+      self:billboard(fx, fy, vw, vh, zoneColorsAt(zones, fx, fy), false, fxRod,
+                     self, cam)
     end
 
     Game.renderer:endUprightPass()

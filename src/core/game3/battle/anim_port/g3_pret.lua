@@ -1416,13 +1416,22 @@ local function overlayResources()
   return overlayRes
 end
 
+-- One quad re-pointed per draw (draw reads the viewport immediately).
+local windowSpriteQuad = nil
+
 local function drawWindowSprite(sp)
   local img = sp.image
   if not img or sp.invisible or not sp.active then return end
   local bw = sp._baseW or sp.w or 32
   local bh = sp._baseH or sp.h or 32
   local iw, ih = img:getDimensions()
-  local q = love.graphics.newQuad(sp.quadX or 0, sp.quadY or 0, bw, bh, iw, ih)
+  local q = windowSpriteQuad
+  if q then
+    q:setViewport(sp.quadX or 0, sp.quadY or 0, bw, bh, iw, ih)
+  else
+    q = love.graphics.newQuad(sp.quadX or 0, sp.quadY or 0, bw, bh, iw, ih)
+    windowSpriteQuad = q
+  end
   local sx = (sp.scaleX or 1) * (sp.hFlip and -1 or 1)
   local sy = (sp.scaleY or 1) * (sp.vFlip and -1 or 1)
   love.graphics.draw(img, q, math.floor(sp.x + (sp.ox or 0) + 0.5), math.floor(sp.y + (sp.oy or 0) + 0.5),

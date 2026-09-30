@@ -92,7 +92,11 @@ end
 local function put(t, x, y, tint)
   if not t then return end
   local r, g, b, a = love.graphics.getColor()
-  love.graphics.setColor(tint or { 1, 1, 1, 1 })
+  if tint then
+    love.graphics.setColor(tint)
+  else
+    love.graphics.setColor(1, 1, 1, 1)
+  end
   love.graphics.draw(t.img, t.quad, x, y)
   love.graphics.setColor(r, g, b, a)
 end
@@ -159,6 +163,19 @@ end
 -- caller that is animating the bar between two HP values
 -- (UpdateHPBar_AnimateHPBar); it scales with `segments` like the color
 -- thresholds do.  Without it the length comes from mon.hp as before.
+-- The fill tint for a bar colour, kept per colour table (the bar palettes
+-- are a handful of fixed tables) and rebuilt if its values ever differ.
+-- put() only reads it.
+local fillTints = setmetatable({}, { __mode = "k" })
+local function fillTint(c)
+  local t = fillTints[c]
+  if t and t.r == c[1] and t.g == c[2] and t.b == c[3] then return t end
+  t = { math.min(1, c[1] / 170), math.min(1, c[2] / 170),
+        math.min(1, c[3] / 170), 1, r = c[1], g = c[2], b = c[3] }
+  fillTints[c] = t
+  return t
+end
+
 function HudTiles.drawHPBar(data, tx, ty, mon, barType, grayFill, segments, pixels)
   local x, y = tx * 8, ty * 8
   segments = math.max(1, math.floor(segments or 6))
@@ -182,8 +199,7 @@ function HudTiles.drawHPBar(data, tx, ty, mon, barType, grayFill, segments, pixe
       local c = colors[3] -- GB color 2 is the fill shade
       -- the fill pixels are the 2/3-gray shade; divide so they land on
       -- the palette color exactly (the black outline stays black)
-      tint = { math.min(1, c[1] / 170), math.min(1, c[2] / 170),
-               math.min(1, c[3] / 170), 1 }
+      tint = fillTint(c)
     end
   end
   for i = 0, segments - 1 do

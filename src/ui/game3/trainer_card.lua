@@ -28,6 +28,11 @@ local _cards = nil
 local _cardEdge = {}
 local _screens = nil
 local _assetsTried = false
+-- RSE front pics keyed by trainer pic id (false = load failed), and the
+-- badge quads keyed by the badge sheet they were built for.
+local _rsePics = {}
+local _rseBadgeQuads = nil
+local _rseBadgeQuadsImg = nil
 
 local function read_cache_file(path)
   local ok, CacheFs = pcall(require, "src.import.CacheFs")
@@ -997,7 +1002,11 @@ local function drawRse(c)
   else
     -- pokeemerald/src/trainer_card.c:1895
     local picId = c.female and m.pics.female or m.pics.male
-    local pic = load_rgba_image({ string.format("data/generated/gba/trainers/front/%d.rgba", picId) }, 64, 64)
+    local pic = _rsePics[picId]
+    if pic == nil then
+      pic = load_rgba_image({ string.format("data/generated/gba/trainers/front/%d.rgba", picId) }, 64, 64) or false
+      _rsePics[picId] = pic
+    end
     if pic then
       love.graphics.draw(pic, (19 + m.picOffset[1]) * 8, (5 + m.picOffset[2]) * 8)
     end
@@ -1009,10 +1018,17 @@ local function drawRse(c)
     end
     local badges = Kit.image(m.badges.png)
     if badges then
-      local bw, bh = badges:getDimensions()
+      if _rseBadgeQuadsImg ~= badges then
+        local bw, bh = badges:getDimensions()
+        _rseBadgeQuads = {}
+        for i = 1, 8 do
+          _rseBadgeQuads[i] = love.graphics.newQuad((i - 1) * 16, 0, 16, 16, bw, bh)
+        end
+        _rseBadgeQuadsImg = badges
+      end
       for i = 1, 8 do
         if c.badges[i] then
-          love.graphics.draw(badges, love.graphics.newQuad((i - 1) * 16, 0, 16, 16, bw, bh), (4 + (i - 1) * 3) * 8, 15 * 8)
+          love.graphics.draw(badges, _rseBadgeQuads[i], (4 + (i - 1) * 3) * 8, 15 * 8)
         end
       end
     end

@@ -77,17 +77,50 @@ function TileSheet:draw(tile, tx, ty)
   G.setColor(1, 1, 1, 1)
   local colors = self.palette
   if self.paletteFor then colors = self.paletteFor(tile, tx, ty) or colors end
-  local function body() G.draw(image, quad, tx * 8, ty * 8) end
+  local batch = self.batch
   if colors and GbcPalette.available() then
-    if self.raw then
-      GbcPalette.withRaw(colors, body)
+    if batch then
+      -- Inside begin/finish: the shader only changes when the palette does.
+      if batch.active ~= colors then
+        if self.raw then GbcPalette.useRaw(colors) else GbcPalette.use(colors) end
+        batch.active = colors
+      end
+      G.draw(image, quad, tx * 8, ty * 8)
     else
-      GbcPalette.with(colors, body)
+      -- GbcPalette.with / withRaw without the closure: set, draw, restore.
+      local previous = G.getShader and G.getShader() or nil
+      if self.raw then GbcPalette.useRaw(colors) else GbcPalette.use(colors) end
+      G.draw(image, quad, tx * 8, ty * 8)
+      G.setShader(previous)
     end
   else
-    body()
+    if batch then self:suspend() end
+    G.draw(image, quad, tx * 8, ty * 8)
   end
   return true
+end
+
+-- Batch a pass of draws: between begin and finish the palette shader is set
+-- once per run of tiles sharing a palette rather than once per tile, and the
+-- caller's shader comes back at finish.  Anything drawn between two tiles
+-- that is not a sheet tile (a flat rect, text) calls suspend first so it
+-- draws under the caller's shader, as it would have outside the batch.
+function TileSheet:begin()
+  local G = love.graphics
+  self.batch = { previous = G.getShader and G.getShader() or nil, active = nil }
+end
+
+function TileSheet:suspend()
+  local batch = self.batch
+  if batch and batch.active then
+    love.graphics.setShader(batch.previous)
+    batch.active = nil
+  end
+end
+
+function TileSheet:finish()
+  self:suspend()
+  self.batch = nil
 end
 
 -- A run of consecutive ids, left to right: the shape most of these routines

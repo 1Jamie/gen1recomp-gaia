@@ -78,6 +78,9 @@ function TrainerSight.getTrainerId(eo)
   local scripts = Sp and Sp.bundle and Sp.bundle.scripts
   local list = scripts and scripts[scriptKey]
   if type(list) == "table" then
+    -- negative cache: this exact script list was already scanned without a
+    -- trainerbattle (a script swapped in under the key rescans)
+    if eo._trainerIdMiss == list then return nil end
     for _, row in ipairs(list) do
       if row.op == "trainerbattle" or row.op == "dotrainerbattle" then
         local tid = tonumber(row.trainer or row[1])
@@ -88,6 +91,7 @@ function TrainerSight.getTrainerId(eo)
         end
       end
     end
+    eo._trainerIdMiss = list
   end
   return nil
 end
@@ -633,6 +637,8 @@ end
 -- @param game game instance
 -- @param specificTrainer optional specific EventObject to check (e.g. from spinning NPC turn update)
 -- @return boolean true if an encounter was triggered
+local approachFound = {}
+
 function TrainerSight.check(game, specificTrainer)
   local F = Field()
   if F.locked then return false end
@@ -681,7 +687,8 @@ function TrainerSight.check(game, specificTrainer)
   local order = Objs._order or {}
   if twoTrainerApproach() then
     -- pokeemerald/src/trainer_see.c:191
-    local found = {}
+    local found = approachFound
+    for i = #found, 1, -1 do found[i] = nil end
     local doubles = canDouble()
     for _, lid in ipairs(order) do
       local eo = Objs.find(lid)

@@ -161,9 +161,18 @@ function NativeTileset.ready(pair)
     and cache:exists(NATIVE .. "/" .. pair .. "/palettes.bin")
 end
 
+local animMod
+local function tilesetAnim()
+  if animMod == nil then
+    local okA, TilesetAnim = pcall(require, "src.core.game3.tileset_anim")
+    animMod = okA and TilesetAnim or false
+  end
+  return animMod or nil
+end
+
 local function bind_anim(pair, atlas)
-  local okA, TilesetAnim = pcall(require, "src.core.game3.tileset_anim")
-  if okA and TilesetAnim and TilesetAnim.bindPair then
+  local TilesetAnim = tilesetAnim()
+  if TilesetAnim and TilesetAnim.bindPair then
     TilesetAnim.bindPair(pair, atlas)
   end
 end
@@ -172,6 +181,9 @@ function NativeTileset.get(pair)
   if not pair then return nil end
   local cached = NativeTileset._pairs[pair]
   if cached then
+    -- Cheap for a bound pair (no manifest read): marks it visible and
+    -- catches its atlas up to the current anim frames before a draw.
+    -- FieldView reads cached atlases directly and does not come here per frame.
     bind_anim(pair, cached)
     return cached
   end

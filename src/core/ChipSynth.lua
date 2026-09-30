@@ -1407,12 +1407,68 @@ function Engine:sampleChannel(number)
   return analogOut(self, selected, "hpfCap", "lpf")
 end
 
--- render `samples` frames into a fresh SoundData (mono or stereo).  love.sound
--- is available on worker threads, so this is the hand-off unit the worker
--- produces and the main thread queues.
-local function soundData(engine, samples, channels)
-  local result = love.sound.newSoundData(samples, SAMPLE_RATE, 16, channels)
-  for index = 0, samples - 1 do
+-- Bulk PCM writes.  SoundData:setSample is a C call per sample (two per
+-- stereo frame); at 44100 Hz that was a large slice of every rendered buffer.
+-- Where LuaJIT's ffi and Data:getFFIPointer exist, samples go straight into
+-- the SoundData's int16 storage instead.  LOVE 11.5's 16-bit setSample stores
+-- (int16)(value * 32767) in double precision (truncating, no clamp), which is
+-- exactly what an ffi int16 store of `value * 32767` does, so the PCM is
+-- bit-identical to the setSample path (tests/chip_synth_bulk_pcm_test.lua,
+-- plus a real-LOVE comparison over 2M values incl. out-of-range and NaN).
+-- The setSample path stays as the fallback (headless stub, no ffi).
+local ffiOk, ffi = pcall(require, "ffi")
+local bulkWrites = true
+
+function ChipSynth._setBulkWritesForTest(enabled)
+  bulkWrites = not not enabled
+end
+
+local function int16Pointer(sd)
+  if not (bulkWrites and ffiOk and ffi and sd.getFFIPointer) then return nil end
+  if sd.getBitDepth then
+    local okDepth, depth = pcall(sd.getBitDepth, sd)
+    if not okDepth or depth ~= 16 then return nil end
+  end
+  local ok, pointer = pcall(sd.getFFIPointer, sd)
+  if not ok or pointer == nil then return nil end
+  return ffi.cast("int16_t *", pointer)
+end
+ChipSynth._int16Pointer = int16Pointer
+
+-- does this runtime's SoundData expose writable int16 storage?  Probed once
+-- (a 1-frame buffer) so renderEffectData can pick its path before rendering.
+local pointerSupport
+
+local function bulkAvailable()
+  if not (bulkWrites and ffiOk and ffi) then return false end
+  if pointerSupport == nil then
+    local ok, probe = pcall(love.sound.newSoundData, 1, SAMPLE_RATE, 16, 2)
+    pointerSupport = (ok and probe and int16Pointer(probe)) and true or false
+  end
+  return pointerSupport
+end
+
+-- render `count` frames from `engine` into an existing SoundData starting at
+-- frame `offset`.  The synchronous music fallback fills one buffer a slice at
+-- a time across frames (ChipAudio fillSync) so its per-frame cost is flat.
+local function renderInto(engine, result, offset, count, channels)
+  local last = offset + count - 1
+  local pointer = int16Pointer(result)
+  if pointer then
+    if channels == 2 then
+      for index = offset, last do
+        local left, right = engine:sampleStereo()
+        pointer[index * 2] = left * 32767
+        pointer[index * 2 + 1] = right * 32767
+      end
+    else
+      for index = offset, last do
+        pointer[index] = engine:sample() * 32767
+      end
+    end
+    return result
+  end
+  for index = offset, last do
     if channels == 2 then
       local left, right = engine:sampleStereo()
       result:setSample(index, 1, left)
@@ -1424,6 +1480,34 @@ local function soundData(engine, samples, channels)
   return result
 end
 
+local function newBuffer(samples, channels)
+  return love.sound.newSoundData(samples, SAMPLE_RATE, 16, channels)
+end
+
+-- render `samples` frames into a fresh SoundData (mono or stereo).  love.sound
+-- is available on worker threads, so this is the hand-off unit the worker
+-- produces and the main thread queues.
+local function soundData(engine, samples, channels)
+  local result = newBuffer(samples, channels)
+  return renderInto(engine, result, 0, samples, channels)
+end
+
+-- reusable int16 scratch for renderEffectData's bulk path: the effect length
+-- is only known once the engine finishes, so samples are converted as they
+-- are produced and copied (duplicated to both channels) at the end, instead
+-- of growing a Lua table of doubles per render
+local scratch, scratchSize = nil, 0
+
+local function ensureScratch(size)
+  if scratchSize >= size then return scratch end
+  local grown = math.max(size, scratchSize * 2, 4096)
+  local fresh = ffi.new("int16_t[?]", grown)
+  if scratch and scratchSize > 0 then
+    ffi.copy(fresh, scratch, scratchSize * 2)
+  end
+  scratch, scratchSize = fresh, grown
+  return scratch
+end
 
 local function renderEffectData(data, header, options)
   if not header then return nil end
@@ -1433,14 +1517,38 @@ local function renderEffectData(data, header, options)
   local engine = Engine.new(data, header, options)
   -- audio/sfx/pokeflute.asm:20
   local maximum = SAMPLE_RATE * (options.maxSeconds or 12)
+  local minimum = math.floor(SAMPLE_RATE / 100)
+  if bulkAvailable() then
+    local values = ensureScratch(SAMPLE_RATE)
+    local count = 0
+    while count < maximum and not engine:finished() do
+      if count >= scratchSize then values = ensureScratch(count + 1) end
+      values[count] = engine:sample() * 32767
+      count = count + 1
+    end
+    if count < minimum then return nil end
+    local result = newBuffer(count, 2)
+    local pointer = int16Pointer(result)
+    if pointer then
+      for index = 0, count - 1 do
+        local value = values[index]
+        pointer[index * 2] = value
+        pointer[index * 2 + 1] = value
+      end
+      return result
+    end
+    -- the probe said yes but this buffer has no pointer: re-render through
+    -- setSample below (truncated int16s cannot be turned back into floats)
+    engine = Engine.new(data, header, options)
+  end
   local values = {}
   local count = 0
   while count < maximum and not engine:finished() do
     count = count + 1
     values[count] = engine:sample()
   end
-  if count < math.floor(SAMPLE_RATE / 100) then return nil end
-  local result = love.sound.newSoundData(count, SAMPLE_RATE, 16, 2)
+  if count < minimum then return nil end
+  local result = newBuffer(count, 2)
   for index = 1, count do
     local value = values[index]
     result:setSample(index - 1, 1, value)
@@ -1451,6 +1559,8 @@ end
 
 ChipSynth.newEngine = Engine.new
 ChipSynth.soundData = soundData
+ChipSynth.renderInto = renderInto
+ChipSynth.newBuffer = newBuffer
 ChipSynth.renderEffectData = renderEffectData
 
 function ChipSynth.applyStereo(engine)

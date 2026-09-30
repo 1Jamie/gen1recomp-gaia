@@ -613,6 +613,26 @@ local function effective_z(vm, s)
   return AnimCoords.layerZ(sub, vm._monbg, vm._bgPrio)
 end
 
+-- Last uniforms sent to the shared blend shader. Every send goes through
+-- send_blend so the cache always matches what the shader holds (the anim bg
+-- and sprites share one shader).
+local _lastBlendShader = nil
+local _lastBlendCoeff = nil
+local _lastBlendR = nil
+local _lastBlendG = nil
+local _lastBlendB = nil
+
+local function send_blend(sh, coeff, r, g, b)
+  if sh ~= _lastBlendShader or coeff ~= _lastBlendCoeff or r ~= _lastBlendR
+      or g ~= _lastBlendG or b ~= _lastBlendB then
+    _lastBlendShader = sh
+    _lastBlendCoeff, _lastBlendR, _lastBlendG, _lastBlendB = coeff, r, g, b
+    pcall(sh.send, sh, "coeff", coeff)
+    pcall(sh.send, sh, "target", { r, g, b })
+  end
+end
+AnimVm._sendBlend = send_blend
+
 local function draw_anim_bg(vm)
   local id = vm._animBgId
   local tintBg = vm._animBgBlend
@@ -638,10 +658,7 @@ local function draw_anim_bg(vm)
       local sh = tint and (tint.coeff or 0) > 0 and blend_shader()
       if sh then
         local c = tonumber(tint.color) or 0
-        pcall(function()
-          sh:send("coeff", tint.coeff)
-          sh:send("target", { band(c, 31), band(rshift(c, 5), 31), band(rshift(c, 10), 31) })
-        end)
+        send_blend(sh, tint.coeff, band(c, 31), band(rshift(c, 5), 31), band(rshift(c, 10), 31))
         love.graphics.setShader(sh)
       end
       love.graphics.draw(img, vm._bgQuad, 0, 0)
@@ -656,11 +673,6 @@ local function draw_anim_bg(vm)
   end
   love.graphics.setColor(1, 1, 1, 1)
 end
-
-local _lastBlendCoeff = nil
-local _lastBlendR = nil
-local _lastBlendG = nil
-local _lastBlendB = nil
 
 local function particle_sort_cmp(a, b)
   if a._drawZ ~= b._drawZ then return a._drawZ < b._drawZ end
@@ -694,12 +706,7 @@ local function draw_sprite(self, s, a)
     local sh = (not pimg) and tint and blend_shader()
     if sh then
       local r, g, b = band(tint.color, 31), band(rshift(tint.color, 5), 31), band(rshift(tint.color, 10), 31)
-      local coeff = tint.coeff
-      if coeff ~= _lastBlendCoeff or r ~= _lastBlendR or g ~= _lastBlendG or b ~= _lastBlendB then
-        _lastBlendCoeff, _lastBlendR, _lastBlendG, _lastBlendB = coeff, r, g, b
-        pcall(sh.send, sh, "coeff", coeff)
-        pcall(sh.send, sh, "target", { r, g, b })
-      end
+      send_blend(sh, tint.coeff, r, g, b)
       love.graphics.setShader(sh)
     end
     local q = sprite_source_quad(s, bw, bh)
@@ -712,44 +719,115 @@ local function draw_sprite(self, s, a)
   end
 end
 
+-- Blend mode currently set by AnimVm:draw (reset to "alpha" per call).
+local _activeBlend = "alpha"
+local function set_blend_mode(mode)
+  if mode ~= _activeBlend then
+    if mode == "add" then
+      love.graphics.setBlendMode("add", "alphamultiply")
+    else
+      love.graphics.setBlendMode("alpha", "alphamultiply")
+    end
+    _activeBlend = mode
+  end
+end
+
+-- Every active, visible sprite with its effective z, sorted once. The sort
+-- is a strict total order (z, then pool index), so slicing this list by a z
+-- band gives the same order as sorting that band on its own.
+local function build_sorted_sprites(self, list)
+  for i = #list, 1, -1 do list[i] = nil end
+  AnimSprites.init()
+  local pool = AnimSprites._pool
+  local n = 0
+  for i = 1, AnimSprites.MAX do
+    local s = pool[i]
+    s._poolIndex = i
+    if s.active and s.visible ~= false then
+      s._drawZ = effective_z(self, s)
+      n = n + 1
+      list[n] = s
+    end
+  end
+  if n > 1 then table.sort(list, particle_sort_cmp) end
+  return list
+end
+
+local function any_task_draw()
+  if not (AnimTasks and AnimTasks._pool) then return false end
+  local pool = AnimTasks._pool
+  for i = 1, AnimTasks.MAX do
+    local t = pool[i]
+    if t and t.active and t.draw then return true end
+  end
+  return false
+end
+
+--- Bracket the z-band draws of one frame (battle ui). Between begin and end
+--- the sorted sprite list and the task scan are built once and reused by
+--- every AnimVm:draw band call; outside a bracket each call rebuilds them.
+function AnimVm:beginDrawFrame()
+  self._inDrawFrame = true
+  self._frameSorted = false
+  self._frameTasks = nil
+end
+
+function AnimVm:endDrawFrame()
+  self._inDrawFrame = false
+  self._frameSorted = false
+  self._frameTasks = nil
+end
+
 function AnimVm:draw(minZ, maxZ)
   if not (love and love.graphics) then return end
 
   if (minZ or 0) <= 0 then draw_anim_bg(self) end
 
   if AnimTasks and AnimTasks.draw then
-    AnimTasks.draw(minZ, maxZ, self)
+    local hasTasks = true
+    if self._inDrawFrame then
+      if self._frameTasks == nil then self._frameTasks = any_task_draw() end
+      hasTasks = self._frameTasks
+    end
+    if hasTasks then AnimTasks.draw(minZ, maxZ, self) end
   end
 
-  local list = self._drawList
-  for i = #list, 1, -1 do list[i] = nil end
-  AnimSprites.init()
-  for i = 1, AnimSprites.MAX do
-    local s = AnimSprites._pool[i]
-    s._poolIndex = i
-    if s.active and s.visible ~= false then
-      local z = effective_z(self, s)
+  local sorted = self._drawList
+  if not (self._inDrawFrame and self._frameSorted) then
+    build_sorted_sprites(self, sorted)
+    self._frameSorted = self._inDrawFrame and true or false
+  end
+  if #sorted == 0 then
+    love.graphics.setColor(1, 1, 1, 1)
+    return
+  end
+  local list = sorted
+  if minZ or maxZ then
+    list = self._bandList
+    if not list then
+      list = {}
+      self._bandList = list
+    end
+    for i = #list, 1, -1 do list[i] = nil end
+    local n = 0
+    for i = 1, #sorted do
+      local s = sorted[i]
+      local z = s._drawZ
       if (not minZ or z >= minZ) and (not maxZ or z <= maxZ) then
-        s._drawZ = z
-        list[#list + 1] = s
+        n = n + 1
+        list[n] = s
       end
     end
+    if n == 0 then
+      love.graphics.setColor(1, 1, 1, 1)
+      return
+    end
   end
-  table.sort(list, particle_sort_cmp)
 
-  local activeBlend = "alpha"
+  _activeBlend = "alpha"
   local bld = self.bldAlpha
-  local function setMode(mode)
-    if mode ~= activeBlend then
-      if mode == "add" then
-        love.graphics.setBlendMode("add", "alphamultiply")
-      else
-        love.graphics.setBlendMode("alpha", "alphamultiply")
-      end
-      activeBlend = mode
-    end
-  end
-  for _, s in ipairs(list) do
+  for i = 1, #list do
+    local s = list[i]
     local a = s.alpha or 1
     local eva, evb = nil, nil
     if s.objBlend and bld then
@@ -758,12 +836,12 @@ function AnimVm:draw(minZ, maxZ)
     end
     if eva and eva + evb ~= 16 and s.image and AnimPal.indexImage(s.image) then
       -- pokefirered/src/battle_anim.c:630
-      setMode("alpha")
+      set_blend_mode("alpha")
       AnimPal.blackPass = true
       s._drawAlpha = a * (1 - evb / 16)
       draw_sprite(self, s, s._drawAlpha)
       AnimPal.blackPass = nil
-      setMode("add")
+      set_blend_mode("add")
       s._drawAlpha = a * eva / 16
       draw_sprite(self, s, s._drawAlpha)
     else
@@ -772,14 +850,15 @@ function AnimVm:draw(minZ, maxZ)
         if evb >= 16 and eva < 16 then desiredBlend = "add" end
         a = a * eva / 16
       end
-      setMode(desiredBlend)
+      set_blend_mode(desiredBlend)
       s._drawAlpha = a
       draw_sprite(self, s, a)
     end
   end
 
-  if activeBlend ~= "alpha" then
+  if _activeBlend ~= "alpha" then
     love.graphics.setBlendMode("alpha", "alphamultiply")
+    _activeBlend = "alpha"
   end
   love.graphics.setColor(1, 1, 1, 1)
 end

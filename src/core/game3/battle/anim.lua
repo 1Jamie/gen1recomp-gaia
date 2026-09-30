@@ -1066,4 +1066,16 @@ function Anim.drawParticles(minZ, maxZ)
   if Anim._vm then Anim._vm:draw(minZ, maxZ) end
 end
 
+--- Bracket one frame's z-band drawParticles calls so the VM sorts its
+--- sprites once per frame instead of once per band.
+function Anim.beginParticleFrame()
+  local vm = Anim._vm
+  if vm and vm.beginDrawFrame then vm:beginDrawFrame() end
+end
+
+function Anim.endParticleFrame()
+  local vm = Anim._vm
+  if vm and vm.endDrawFrame then vm:endDrawFrame() end
+end
+
 return Anim

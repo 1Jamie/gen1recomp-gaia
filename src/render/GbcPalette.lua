@@ -377,13 +377,42 @@ end
 -- The same, ignoring the COLOR mode.  The present pass needs it: it IS the
 -- mode, so running its own palette back through resolve would flatten the
 -- green ramp to grey and the mode would do nothing.
+-- The pal0..pal3 uniforms each shader last received, weak-keyed so a
+-- recompiled shader (see compiler) starts with no record.  Nothing outside
+-- this file sends pal0..pal3 to these shaders, so a uniform whose value is
+-- unchanged is skipped: a send to the active shader flushes LOVE's batch.
+-- The {r,g,b} arrays are scratch; shader:send copies the values.
+local PAL_UNIFORMS = { [0] = "pal0", "pal1", "pal2", "pal3" }
+local palScratch = { [0] = { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 } }
+local palSent = setmetatable({}, { __mode = "k" })
+
+local function sendPalette(sh, colors)
+  local rec = palSent[sh]
+  if not rec then
+    rec = { valid = false }
+    palSent[sh] = rec
+  end
+  -- only trusted once all four sends landed (an error propagates as before)
+  local valid = rec.valid
+  rec.valid = false
+  for i = 0, 3 do
+    local r, g, b = channel(colors, i + 1)
+    local k = i * 3
+    if not (valid and rec[k + 1] == r and rec[k + 2] == g
+            and rec[k + 3] == b) then
+      local v = palScratch[i]
+      v[1], v[2], v[3] = r, g, b
+      sh:send(PAL_UNIFORMS[i], v)
+      rec[k + 1], rec[k + 2], rec[k + 3] = r, g, b
+    end
+  end
+  rec.valid = true
+end
+
 function GbcPalette.useRaw(colors)
   local sh = GbcPalette.shader()
   if not sh then return false end
-  for i = 0, 3 do
-    local r, g, b = channel(colors, i + 1)
-    sh:send("pal" .. i, { r, g, b })
-  end
+  sendPalette(sh, colors)
   love.graphics.setShader(sh)
   return true
 end
@@ -391,11 +420,8 @@ end
 function GbcPalette.useKeyed(colors)
   local sh = GbcPalette.keyedShader()
   if not sh then return false end
-  local resolved = GbcPalette.remap(GbcPalette.resolve(colors), GbcPalette.bgp)
-  for i = 0, 3 do
-    local r, g, b = channel(resolved, i + 1)
-    sh:send("pal" .. i, { r, g, b })
-  end
+  sendPalette(sh,
+    GbcPalette.remap(GbcPalette.resolve(colors), GbcPalette.bgp))
   love.graphics.setShader(sh)
   return true
 end

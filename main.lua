@@ -12,9 +12,10 @@ local SwitchDiagnostics = require("src.debug.SwitchDiagnostics")
 
 -- Global emergency quit: holding Start + Select for 5 seconds forcefully terminates LOVE.
 local emergencyQuitTimer = 0
--- getJoysticks() allocates a fresh table every call; this runs once (twice)
--- per frame, so cache the list and refresh it once a second instead.  The 5s
--- hold requirement makes a 1s hotplug delay irrelevant.
+-- getJoysticks() allocates a fresh table every call; this runs once per
+-- frame (from love.run, before love.update), so cache the list and refresh
+-- it once a second instead.  The 5s hold requirement makes a 1s hotplug
+-- delay irrelevant.
 local cachedJoysticks = nil
 local joystickCacheAge = 1
 
@@ -929,7 +930,8 @@ function love.load(args)
 end
 
 function love.update(dt)
-  checkEmergencyQuit(dt)
+  -- checkEmergencyQuit runs from love.run each frame; calling it here too
+  -- would double-count dt and fire the 5s hold after 2.5s.
   HostDisplay.update(dt)
   SwitchDiagnostics.maybeFlush(false)
   -- NX only (no-op elsewhere): follow dock/undock without waiting for SDL.
@@ -1242,8 +1244,20 @@ function love.joystickhat(joystick, hat, direction)
   Game:joystickhat(joystick, hat, direction)
 end
 
+-- The joystick lists cached for polling (checkEmergencyQuit's, Input's
+-- pollPads) are only refreshed on a count change or a timer otherwise, which
+-- a controller swapped for another can slip past.
+local function noteJoysticksChanged()
+  cachedJoysticks = nil
+  local input = Game and Game.input
+  if type(input) == "table" and input.joysticksChanged then
+    input:joysticksChanged()
+  end
+end
+
 function love.joystickadded(joystick)
   SwitchDiagnostics.onJoystickEvent("joystickadded", joystick)
+  noteJoysticksChanged()
   if editorMode or TouchEditor or Studio then return end
   if Importer then return end
   if not Game then return end
@@ -1252,6 +1266,7 @@ end
 
 function love.joystickremoved(joystick)
   SwitchDiagnostics.onJoystickEvent("joystickremoved", joystick)
+  noteJoysticksChanged()
   if editorMode or TouchEditor or Studio then return end
   if Importer then return end
   if not Game then return end

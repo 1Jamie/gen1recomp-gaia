@@ -869,6 +869,24 @@ function PartyMenu:iconBob(index)
   return (math.floor(self.clock / 16) % 2 == 1) and -2 or 0
 end
 
+-- One reusable quad per role, re-aimed per draw: an icon draws every frame
+-- and a fresh Quad per tile would churn the GC.
+local function reusedQuad(self, slot, x, y, w, h, sw, sh)
+  local quads = self.iconQuads
+  if not quads then
+    quads = {}
+    self.iconQuads = quads
+  end
+  local quad = quads[slot]
+  if quad then
+    quad:setViewport(x, y, w, h, sw, sh)
+  else
+    quad = love.graphics.newQuad(x, y, w, h, sw, sh)
+    quads[slot] = quad
+  end
+  return quad
+end
+
 function PartyMenu:drawIcon(mon, px, py)
   local image, frame = self:iconFor(mon)
   if not image then return end
@@ -876,7 +894,19 @@ function PartyMenu:drawIcon(mon, px, py)
   local iw, ih = image:getDimensions()
   local markerRow = PartyMenu.heldMarkerRow(mon)
   local marker = markerRow and self:heldMarkerImage() or nil
-  local paint
+  G.setColor(1, 1, 1, 1)
+  -- Every party icon OAM entry is PAL_OW_RED (data/sprite_anims/oam.asm:315-355)
+  -- and InitPartyMenuOBPals loads PartyMenuOBPals into OBJ 0 for the whole list,
+  -- species and EGG alike (engine/gfx/color.asm:593-598, :1228-1229).
+  local pals = self.palettes and self.palettes.partyMenu
+  local colors = pals and pals[1] or nil
+  local shaded = colors and GbcPalette.available()
+  local previous
+  if shaded then
+    -- GbcPalette.with without the closure: set, draw, restore.
+    previous = G.getShader and G.getShader() or nil
+    GbcPalette.use(colors)
+  end
   if marker then
     -- The _WITH_ITEM / _WITH_MAIL OAM sets (data/sprite_anims/oam.asm) are the
     -- ordinary four quadrants with the `dbsprite -1, 0` entry -- the bottom
@@ -886,31 +916,19 @@ function PartyMenu:drawIcon(mon, px, py)
     -- Both of the frameset's oamframes name the same marker tile, so it must
     -- not be indexed by `frame`: the icon bobs, the marker does not.
     local mw, mh = marker:getDimensions()
-    local topLeft = G.newQuad(0, frame * 16, 8, 8, iw, ih)
-    local topRight = G.newQuad(8, frame * 16, 8, 8, iw, ih)
-    local bottomRight = G.newQuad(8, frame * 16 + 8, 8, 8, iw, ih)
-    local held = G.newQuad(0, markerRow * 8, 8, 8, mw, mh)
-    paint = function()
-      G.draw(image, topLeft, px, py)
-      G.draw(image, topRight, px + 8, py)
-      G.draw(image, bottomRight, px + 8, py + 8)
-      G.draw(marker, held, px, py + 8)
-    end
+    G.draw(image, reusedQuad(self, "topLeft", 0, frame * 16, 8, 8, iw, ih),
+      px, py)
+    G.draw(image, reusedQuad(self, "topRight", 8, frame * 16, 8, 8, iw, ih),
+      px + 8, py)
+    G.draw(image, reusedQuad(self, "bottomRight", 8, frame * 16 + 8, 8, 8,
+      iw, ih), px + 8, py + 8)
+    G.draw(marker, reusedQuad(self, "held", 0, markerRow * 8, 8, 8, mw, mh),
+      px, py + 8)
   else
-    local quad = G.newQuad(0, frame * 16, 16, 16, iw, ih)
-    paint = function() G.draw(image, quad, px, py) end
+    G.draw(image, reusedQuad(self, "whole", 0, frame * 16, 16, 16, iw, ih),
+      px, py)
   end
-  G.setColor(1, 1, 1, 1)
-  -- Every party icon OAM entry is PAL_OW_RED (data/sprite_anims/oam.asm:315-355)
-  -- and InitPartyMenuOBPals loads PartyMenuOBPals into OBJ 0 for the whole list,
-  -- species and EGG alike (engine/gfx/color.asm:593-598, :1228-1229).
-  local pals = self.palettes and self.palettes.partyMenu
-  local colors = pals and pals[1] or nil
-  if colors and GbcPalette.available() then
-    GbcPalette.with(colors, paint)
-  else
-    paint()
-  end
+  if shaded then G.setShader(previous) end
 end
 
 -- PlacePartyHPBar calls DrawBattleHPBar (home/pokemon.asm) with `ld d, $6`, and

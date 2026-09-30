@@ -69,23 +69,48 @@ Ghosts._contextFor = contextFor
 
 local ctxCache = setmetatable({}, { __mode = "k" })
 
-function Ghosts.sync()
-  local M = Map()
-  local placed = {}
-  for _, entry in ipairs(M.world or {}) do
-    placed[entry.id] = true
-    if not Ghosts._pools[entry.id] then
-      local defs = defsFor(entry.id, entry.def)
-      if defs then
-        Ghosts._pools[entry.id] = Objects().spawnFromDefs(defs, entry.def, entry.id)
-      end
-    end
+local EMPTY = {}
+local syncPlaced = {}
+
+-- True when the last rebuild still describes Map.world and the pool table:
+-- same world list, a pool for every placed map and no extra pools.
+local function syncCurrent(world)
+  if Ghosts._syncWorld ~= world or Ghosts._syncPools ~= Ghosts._pools then return false end
+  local n = 0
+  for _, entry in ipairs(world) do
+    if not Ghosts._pools[entry.id] then return false end
+    n = n + 1
   end
   for id in pairs(Ghosts._pools) do
-    if not placed[id] and id ~= Ghosts._held then
-      Ghosts._pools[id] = nil
-    end
+    if not syncPlaced[id] and id ~= Ghosts._held then return false end
+    n = n - 1
   end
+  return n == 0 or (Ghosts._held ~= nil and n == -1)
+end
+
+function Ghosts.sync()
+  local M = Map()
+  local world = M.world or EMPTY
+  if not syncCurrent(world) then
+    local placed = syncPlaced
+    for id in pairs(placed) do placed[id] = nil end
+    for _, entry in ipairs(world) do
+      placed[entry.id] = true
+      if not Ghosts._pools[entry.id] then
+        local defs = defsFor(entry.id, entry.def)
+        if defs then
+          Ghosts._pools[entry.id] = Objects().spawnFromDefs(defs, entry.def, entry.id)
+        end
+      end
+    end
+    for id in pairs(Ghosts._pools) do
+      if not placed[id] and id ~= Ghosts._held then
+        Ghosts._pools[id] = nil
+      end
+    end
+    Ghosts._syncWorld, Ghosts._syncPools = world, Ghosts._pools
+  end
+  local placed = syncPlaced
   if Ghosts._held and not placed[Ghosts._held] then
     Ghosts._heldGrace = (Ghosts._heldGrace or 0) + 1
     if Ghosts._heldGrace > 2 then
@@ -98,12 +123,44 @@ function Ghosts.sync()
   end
 end
 
+-- Neighbour NPCs only step while their map is near the camera (one screen of
+-- margin past the view); farther pools hold still (pret only runs object
+-- events spawned around the camera, TrySpawnObjectEvents).  Raise
+-- TICK_MARGIN_SCREENS (math.huge = tick every pool) to widen it.
+Ghosts.TICK_MARGIN_SCREENS = 1
+
+local function tickRect()
+  local P = package.loaded["src.core.game3.player"]
+  local px, py = P and tonumber(P.cellX), P and tonumber(P.cellY)
+  if not (px and py) then return nil end
+  local FieldView = package.loaded["src.core.game3.field_view"]
+  local Display = package.loaded["src.core.game3.display"]
+  local vw = (FieldView and FieldView._viewW) or (Display and Display.W) or 240
+  local vh = (FieldView and FieldView._viewH) or (Display and Display.H) or 160
+  local cols, rows = math.ceil(vw / 16), math.ceil(vh / 16)
+  local mx = math.ceil(cols / 2) + 1 + cols * Ghosts.TICK_MARGIN_SCREENS
+  local my = math.ceil(rows / 2) + 1 + rows * Ghosts.TICK_MARGIN_SCREENS
+  -- cull rect in current-map cells
+  return px - mx, py - my, px + mx, py + my
+end
+
+local function nearView(entry, x0, y0, x1, y1)
+  if not x0 then return true end
+  local layout = entry.def and entry.def.midLayout
+  local w = layout and layout.width
+  local h = layout and layout.height
+  if not (w and h) then return true end
+  local ox, oy = entry.ox or 0, entry.oy or 0
+  return ox + w > x0 and ox <= x1 and oy + h > y0 and oy <= y1
+end
+
 function Ghosts.update(game)
   local M = Map()
   local Obj = Objects()
-  for _, entry in ipairs(M.world or {}) do
+  local x0, y0, x1, y1 = tickRect()
+  for _, entry in ipairs(M.world or EMPTY) do
     local pool = Ghosts._pools[entry.id]
-    if pool then
+    if pool and nearView(entry, x0, y0, x1, y1) then
       local c = ctxCache[entry]
       if not c or c.pool ~= pool or c.def ~= entry.def or c.layout ~= (entry.def and entry.def.midLayout) or c.ox ~= entry.ox or c.oy ~= entry.oy then
         c = { pool = pool, def = entry.def, layout = entry.def and entry.def.midLayout, ox = entry.ox, oy = entry.oy, ctx = contextFor(entry, pool) }

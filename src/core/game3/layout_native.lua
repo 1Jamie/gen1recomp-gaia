@@ -109,7 +109,11 @@ function LayoutNative:applyOverride(x, y, mid, coll, elev)
   }
   local FieldView = package.loaded["src.core.game3.field_view"]
   if FieldView then
-    FieldView._nativeDirty = true
+    if FieldView.invalidateLayoutCell then
+      FieldView.invalidateLayoutCell(self, x, y)
+    else
+      FieldView._nativeDirty = true
+    end
   end
 end
 
@@ -117,6 +121,22 @@ local function markDirty()
   local FieldView = package.loaded["src.core.game3.field_view"]
   if FieldView then
     FieldView._nativeDirty = true
+  end
+end
+
+-- Re-sample only the written cells when there are few of them (per-frame
+-- metatile animations); bulk writes rebuild the whole view.
+local MAX_CELL_INVALIDATIONS = 64
+
+local function markCellsDirty(layout, cells, n)
+  local FieldView = package.loaded["src.core.game3.field_view"]
+  if not FieldView then return end
+  if not FieldView.invalidateLayoutCell or n > MAX_CELL_INVALIDATIONS then
+    FieldView._nativeDirty = true
+    return
+  end
+  for i = 1, n * 2, 2 do
+    FieldView.invalidateLayoutCell(layout, cells[i], cells[i + 1])
   end
 end
 
@@ -145,6 +165,7 @@ end
 -- pokeemerald/src/fieldmap.c:357
 function LayoutNative:setMetatiles(rows)
   local n = 0
+  local cells = {}
   for _, r in ipairs(rows or {}) do
     local x, y = tonumber(r.x) or 0, tonumber(r.y) or 0
     local cur = self:cellAt(x, y)
@@ -154,8 +175,9 @@ function LayoutNative:setMetatiles(rows)
       elev = r.elev ~= nil and r.elev or cur.elev or 0,
     }
     n = n + 1
+    cells[n * 2 - 1], cells[n * 2] = x, y
   end
-  if n > 0 then markDirty() end
+  if n > 0 then markCellsDirty(self, cells, n) end
   return n
 end
 

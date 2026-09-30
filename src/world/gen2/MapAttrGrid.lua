@@ -58,15 +58,30 @@ function MapAttrGrid.cellAt(map, tileset, mx, my)
   return { tileId = tileId, rawTileId = raw, attr = attr }
 end
 
--- Full map grid keyed by "mx,my" for fast lookup during overdraw.
+-- Full map grid for fast lookup during overdraw: a flat array indexed by
+-- 8x8 cell (row-major, `cols` cells to a row), so a lookup is two divides and
+-- an index rather than a string key built per tile per entity per frame.
+-- Cells with the same raw tile id share one read-only cell table: the
+-- normalization depends only on (raw id, tileset).
 function MapAttrGrid.build(map, tileset)
-  local grid = {}
+  local grid = { cols = 0, rows = 0, cells = {} }
   if not (map and tileset) then return grid end
-  local pw, ph = map.width * 32, map.height * 32
-  for my = 0, ph - 1, 8 do
-    for mx = 0, pw - 1, 8 do
-      local cell = MapAttrGrid.cellAt(map, tileset, mx, my)
-      if cell then grid[mx .. "," .. my] = cell end
+  local cols, rows = map.width * 4, map.height * 4
+  grid.cols, grid.rows = cols, rows
+  local cells = grid.cells
+  local byRaw = {}
+  for cy = 0, rows - 1 do
+    for cx = 0, cols - 1 do
+      local raw = MapAttrGrid.tileAt(map, tileset, cx * 8, cy * 8)
+      if raw ~= nil then
+        local cell = byRaw[raw]
+        if not cell then
+          local tileId, attr = MapAttrGrid.normalizeTile(raw, tileset)
+          cell = { tileId = tileId, rawTileId = raw, attr = attr }
+          byRaw[raw] = cell
+        end
+        cells[cy * cols + cx + 1] = cell
+      end
     end
   end
   return grid
@@ -74,9 +89,13 @@ end
 
 function MapAttrGrid.lookup(grid, mx, my)
   if not grid then return nil end
-  local tx = math.floor(mx / 8) * 8
-  local ty = math.floor(my / 8) * 8
-  return grid[tx .. "," .. ty]
+  local cx = math.floor(mx / 8)
+  local cy = math.floor(my / 8)
+  local cols = grid.cols
+  if not cols or cx < 0 or cy < 0 or cx >= cols or cy >= grid.rows then
+    return nil
+  end
+  return grid.cells[cy * cols + cx + 1]
 end
 
 return MapAttrGrid
