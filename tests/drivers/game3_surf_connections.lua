@@ -61,7 +61,7 @@ return function(game)
       and session.x == x and session.y == y, label)
   end
   local function shot(name)
-    return result(U.shot(game, DIR .. "/2394_" .. name .. ".png"), "shot_" .. name)
+    return result(U.still(game, DIR .. "/2394_" .. name .. ".png"), "shot_" .. name)
   end
   local function phases(name)
     U.wait(90)

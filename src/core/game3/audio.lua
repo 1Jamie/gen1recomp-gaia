@@ -421,6 +421,8 @@ function Audio.playSong(id, opts)
   opts = opts or {}
   id = Audio.resolveSong(id)
   if id == nil or id == 0 or id == 0xFFFF then
+    Audio._fadeOut, Audio._fadeIn = nil, nil
+    Audio._fanfareRestore, Audio._fanfareDeferred = nil, nil
     stop_bgm_source()
     Audio._currentSong = nil
     return true
@@ -428,7 +430,8 @@ function Audio.playSong(id, opts)
   if opts.fanfare or (Audio.songInfo(id) and Audio.songInfo(id).kind == "fanfare") or (fanfare_entry(id) ~= nil) then
     return Audio.playFanfare(id)
   end
-  if not opts.restart and Audio._currentSong and Audio._currentSong.id == id then
+  if not opts.restart and not Audio._fadeOut and Audio._currentSong and Audio._currentSong.id == id then
+    if Audio._fanfareActive then Audio._fanfareDeferred = nil end
     return true
   end
   local info = Audio.songInfo(id) or {}
@@ -488,8 +491,11 @@ function Audio.playSong(id, opts)
 end
 
 function Audio.currentMapMusic()
-  local pending = Audio._fadeOut and Audio._fadeOut.nextSong
-  return pending or (Audio._currentSong and Audio._currentSong.id) or 0
+  if Audio._fanfareActive and Audio._fanfareDeferred ~= nil then
+    return Audio._fanfareDeferred
+  end
+  if Audio._fadeOut then return Audio._fadeOut.nextSong or 0 end
+  return (Audio._currentSong and Audio._currentSong.id) or 0
 end
 
 local function play_policy_song(id, fadeOut, fadeIn)
@@ -630,9 +636,7 @@ function Audio.changeMusicTo(id)
     if t then return Audio.fadeOutAndPlay(t.song, t.fadeOut) end
     return true
   end
-  local cur = Audio._currentSong and Audio._currentSong.id
-  local pending = Audio._fadeOut and Audio._fadeOut.nextSong
-  if (pending or cur) == id then return true end
+  if Audio.currentMapMusic() == id then return true end
   return Audio.fadeOutAndPlay(id, 8)
 end
 
@@ -671,9 +675,8 @@ function Audio.bikeMusic(on, forced)
   end
   Audio.setSavedSong(nil)
   local id = Audio.specialMapSong()
-  local pending = Audio._fadeOut and Audio._fadeOut.nextSong
-  if id and id ~= (pending or (Audio._currentSong and Audio._currentSong.id)) then
-    Audio.playSong(id)
+  if id and id ~= Audio.currentMapMusic() then
+    play_policy_song(id)
   end
 end
 
@@ -693,7 +696,8 @@ end
 function Audio.fadeDefaultBgm(speed)
   if rse_policy() then return Audio.changeMusicToDefault() end
   local id = Audio._mapSong
-  if id and Audio._currentSong and Audio._currentSong.id == id then return true end
+  if id and Audio.currentMapMusic() == id then return true end
+  if Audio._fanfareActive then return play_policy_song(id) end
   Audio.fadeOutBgm(speed)
   if id then return Audio.playSong(id) end
   return true

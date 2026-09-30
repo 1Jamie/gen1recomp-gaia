@@ -21,8 +21,8 @@ SaveData.loadOptions = function()
 end
 SaveData.saveOptions = function(opts)
   local tc = type(opts) == "table" and type(opts.touchControls) == "table"
-    and opts.touchControls or {}
-  stored.enabled, stored.skin = tc.enabled, tc.skin
+    and opts.touchControls
+  if tc then stored.enabled, stored.skin = tc.enabled, tc.skin end
   return true
 end
 

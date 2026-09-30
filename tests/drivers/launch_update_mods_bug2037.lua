@@ -84,12 +84,15 @@ return function(game)
   end
 
   local imp
-  local pending = nil
+  local drawSerial = 0
+  local Transition = require("src.ui.kit.Transition")
+  local realDraw = love.draw
   love.draw = function()
     if imp then imp:draw() end
-    if pending then
-      local path = pending
-      pending = nil
+    drawSerial = drawSerial + 1
+    if game.capturePath then
+      local path = game.capturePath
+      game.capturePath = nil
       love.graphics.captureScreenshot(function(imagedata)
         local f = io.open(path, "wb")
         if f then f:write(imagedata:encode("png"):getString()) f:close() end
@@ -107,15 +110,10 @@ return function(game)
     end
   end
   local function shot(name)
-    pending = dir .. "/" .. name
-    for _ = 1, 30 do
-      if not pending then break end
-      step(1)
-    end
-    step(2)
-    local f = io.open(dir .. "/" .. name, "rb")
-    U.log(f and "shot" or "FAIL shot", name)
-    if f then f:close() end
+    local before, deadline = drawSerial, love.timer.getTime() + 3
+    while love.timer.getTime() < deadline and (drawSerial == before or Transition.active()) do U.wait(1) end
+    expect(drawSerial > before and not Transition.active(), "shot draw settled " .. name)
+    expect(U.still(game, dir .. "/" .. name), "shot " .. name)
   end
 
   imp = newLauncher()
@@ -182,6 +180,7 @@ return function(game)
   LauncherMods.checkDependencies = realDeps
   Platform.canFetchRemote = realRemote
   imp = nil
+  love.draw = realDraw
   U.log("done")
   love.event.quit(failed and 1 or 0)
 end

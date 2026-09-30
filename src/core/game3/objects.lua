@@ -804,7 +804,7 @@ function Objects.forDraw()
     local eo = Objects._byId[lid]
     -- src/event_object_movement.c:8014
     if eo and eo.visible and not eo.hidden and not eo.invisible
-        and not offMap(Objects._bounds, eo) then
+        and (eo.foreignMap ~= nil or not offMap(Objects._bounds, eo)) then
       n = n + 1
       list[n] = eo
     end
@@ -1622,10 +1622,22 @@ local function idleTick(eo, game, ctx)
   end
 end
 
+local trackIds, trackRefs, trackActors = {}, {}, {}
+
 function Objects.update(game)
-  -- Advance script tracks then motion + idle.
+  local count = 0
   for lid, tr in pairs(Objects._tracks) do
-    advanceTrack(lid, tr, game)
+    count = count + 1
+    trackIds[count], trackRefs[count], trackActors[count] = lid, tr, Objects.find(lid)
+  end
+  -- pokeemerald/src/event_object_movement.c:2167
+  for i = 1, count do
+    local tr, eo = trackRefs[i], trackActors[i]
+    local lid = (eo and eo.localId) or trackIds[i]
+    trackIds[i], trackRefs[i], trackActors[i] = nil, nil, nil
+    if Objects._tracks[lid] == tr and (not eo or Objects.find(lid) == eo) then
+      advanceTrack(lid, tr, game)
+    end
   end
   for _, lid in ipairs(Objects._order) do
     local eo = Objects._byId[lid]

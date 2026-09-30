@@ -1702,6 +1702,50 @@ function Field.flyDestination(section)
   return baked[id]
 end
 
+-- pokefirered/src/overworld.c:289
+local function resetCyclingRoadAfterTravel()
+  local session = Field._session
+  if not session then return end
+  local Profile = require("src.core.game3.profile")
+  local Flags = require("src.core.game3.scripting.flags")
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  local Space = package.loaded["src.core.game3.scripting.space"]
+  local profile = Profile.forSession(session)
+  local defs = Flags.forVersion(profile.id)
+  local roadName = profile.family == "rse"
+    and "FLAG_SYS_CYCLING_ROAD" or "FLAG_SYS_ON_CYCLING_ROAD"
+  local road = assert(defs.IDS[roadName])
+  local scene = profile.family ~= "rse" and assert(defs.VAR_IDS.VAR_MAP_SCENE_ROUTE16)
+  local live = Runtime and Runtime.getSession and Runtime.getSession()
+  local seen = {}
+  for _, store in ipairs({ session, session.store or false, Space and Space.store or false,
+      live or false, live and live.store or false }) do
+    if store and not seen[store] then
+      seen[store] = true
+      Flags.setFlag(store, nil, road, false)
+      if store.flags then store.flags[roadName] = nil end
+      if scene then
+        Flags.setVar(store, nil, scene, 0)
+        if store.vars then
+          store.vars[tostring(scene)] = nil
+          store.vars[string.format("0x%X", scene)] = nil
+          store.vars.VAR_MAP_SCENE_ROUTE16 = nil
+        end
+      end
+    end
+  end
+  Player.biking, Player.bikeType = false, nil
+  Player.surfing, Player.surfHopping = false, false
+  for _, s in ipairs({ session, live or false }) do
+    if s then s.biking, s.bikeType = false, nil end
+  end
+  local save = Field._game and Field._game.save
+  if save then
+    save.biking, save.bikeType = false, nil
+    if save.position then save.position.biking = false end
+  end
+end
+
 -- pokefirered/src/field_effect.c:1065 ReturnToFieldFromFlyMapSelect
 function Field.flyTo(section, mon, info)
   local dest = (info and info.dest)
@@ -1716,6 +1760,7 @@ function Field.flyTo(section, mon, info)
   local FieldEffects = require("src.core.game3.field_effects")
   local function land()
     local Map = require("src.core.game3.map")
+    resetCyclingRoadAfterTravel()
     Map.load(Field._mod, Field._game, dest.map, {
       x = dest.x, y = dest.y, facing = "down", depth1Connections = true,
     })
@@ -1895,6 +1940,7 @@ end
 function Field.respawnAtHeal(opts)
   local session = Field._session
   if not session then return end
+  resetCyclingRoadAfterTravel()
   local HealLocations = require("src.core.game3.heal_locations")
   HealLocations.normalizeSession(session)
   local whiteOut = not (opts and opts.fieldMove)

@@ -1961,6 +1961,11 @@ function RomImporter:_versionForSha1(hash)
 end
 
 function RomImporter:_logoTap()
+  if SecretGames.update() then
+    self._secretPopup = nil
+    self._logoTaps = nil
+    return
+  end
   if self._secretPopup or not SecretGames.anyLocked() then return end
   self._logoTaps = (self._logoTaps or 0) + 1
   if self._logoTaps >= SecretGames.TAPS then
@@ -3452,6 +3457,12 @@ function RomImporter:_pollPickedFiles(dt)
 end
 
 function RomImporter:update(dt)
+  local released, changed = SecretGames.update()
+  if released then
+    self._secretPopup = nil
+    self._logoTaps = nil
+    if changed then self._headerChrome = nil end
+  end
   self.pulse = self.pulse + dt
   if self._importerJob then self:_stepImporter() end
   if not Transition.armed then

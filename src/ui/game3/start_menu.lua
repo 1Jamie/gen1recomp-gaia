@@ -253,7 +253,7 @@ function StartMenu.confirm()
         or (Runtime and Runtime._game)
         or StartMenu._game
       if game and game.returnToTitle then
-        game:returnToTitle()
+        game:returnToTitle({ skipIntro = true })
       end
     else -- NO
       StartMenu._confirmExit = false

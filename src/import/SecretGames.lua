@@ -4,6 +4,7 @@ local SecretGames = {}
 
 SecretGames.GAMES = { emerald = "secretEmerald" }
 SecretGames.TAPS = 20
+SecretGames.EMERALD_RELEASE_AT = 1790856000
 SecretGames.rev = 0
 
 local unlocked
@@ -25,7 +26,7 @@ end
 
 function SecretGames.visible(id)
   if not SecretGames.GAMES[id] then return true end
-  if not unlocked then load() end
+  SecretGames.update()
   return unlocked[id] == true
 end
 
@@ -58,6 +59,14 @@ function SecretGames.unlock()
   for id in pairs(SecretGames.GAMES) do unlocked[id] = true end
   SecretGames.rev = SecretGames.rev + 1
   return saved
+end
+
+function SecretGames.update(now)
+  if not unlocked then load() end
+  local due = (now or os.time()) >= SecretGames.EMERALD_RELEASE_AT
+  local changed = due and unlocked.emerald ~= true
+  if changed then SecretGames.unlock() end
+  return due, changed
 end
 
 return SecretGames

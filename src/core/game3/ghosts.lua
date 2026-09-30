@@ -146,7 +146,7 @@ function Ghosts.capture(mapId)
   local pool = { byId = {}, order = {}, bounds = snap.bounds }
   for _, lid in ipairs(snap.order or {}) do
     local eo = snap.byId[lid]
-    if eo then
+    if eo and eo.foreignMap == nil then
       pool.byId[lid] = eo
       pool.order[#pool.order + 1] = lid
       eo.scriptBusy = false

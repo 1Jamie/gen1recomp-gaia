@@ -36,6 +36,7 @@ body:
         - Silver
         - Crystal
         - FireRed
+        - Emerald
         - N/A
     validations:
       required: true

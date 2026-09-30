@@ -1246,7 +1246,8 @@ local function clearFieldScreens()
   FieldView.setCameraPanning(0, 0)
 end
 
-function Game3:returnToTitle()
+function Game3:returnToTitle(opts)
+  opts = opts or {}
   self.questPlayback=nil
   Help.reset()
   Audio.stopAll()
@@ -1285,7 +1286,8 @@ function Game3:returnToTitle()
   end
   Boot.setSaveStatus(self.boot, saveStatus)
   Boot.setTextSpeed(self.boot, Options.block(self.options).textSpeed)
-  if not self.boot.custom then
+  if not self.boot.custom or opts.skipIntro then
+    if self.boot.custom then self.boot.custom.coldBoot = false end
     self.boot.phase = Boot.PHASE.TITLE
     self.boot.timer = 0
     Boot.enterTitle(self.boot)

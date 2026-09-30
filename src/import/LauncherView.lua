@@ -1547,6 +1547,7 @@ end
 -- one visited, else Red.  Kept as a function so the mods/find/skins panels
 -- still answer "for which game" without a game tab being open.
 local function gameTabs(imp)
+  SecretGames.update()
   local launcher = type(imp) ~= "table" or imp.launcher and true or false
   local c = imp and imp._gameTabs
   if c and c.rev == SecretGames.rev and c.launcher == launcher then

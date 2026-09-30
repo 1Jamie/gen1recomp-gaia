@@ -167,6 +167,7 @@ function Message.show(text, opts)
   end
 
   -- Prefer session options text speed when not overridden.
+  local instant = tonumber(opts.speed) == 0
   local speed = opts.speed
   if speed == nil then
     local ok, Options = pcall(require, "src.core.game3.options")
@@ -182,10 +183,6 @@ function Message.show(text, opts)
   Message._speedIdx = tonumber(speed) or 1
   if Message._speedIdx < 0 then Message._speedIdx = 0 end
   if Message._speedIdx > 2 then Message._speedIdx = 2 end
-  if tonumber(speed) == 0 then
-    -- Instant print (Oak repeat question)
-    Message._speedIdx = 0
-  end
 
   local _, _, dlgW = Chrome.dialogueWindow()
   local maxW = (opts.frame == "battle" or opts.battle) and 212 or dlgW * Display.TILE
@@ -204,7 +201,7 @@ function Message.show(text, opts)
   Message._pages = split_pages(plain)
   Message._page = 1
   beginPage()
-  if tonumber(speed) == 0 then
+  if instant then
     Message.skipReveal()
   end
   return Message

@@ -221,7 +221,28 @@ local dismountAction = Gen2Bike.tryBike({
 })
 check(dismountAction == "dismount", "Gen 2 Bike.tryBike allows dismount in INDOOR environment")
 
+local Field = require("src.core.game3.field")
+session = Runtime.getSession() or session
+session.version = "firered"
+session.flags = session.flags or {}
+session.vars = session.vars or {}
+session.store = session.store or { flags = {}, vars = {} }
+Space.store = session.store
+Field._game, Field._session = game, session
+local defs = Flags.forVersion("firered")
+local road, scene = defs.IDS.FLAG_SYS_ON_CYCLING_ROAD, defs.VAR_IDS.VAR_MAP_SCENE_ROUTE16
+Flags.setFlag(session.store, nil, road, true)
+Flags.setFlag(session, nil, road, true)
+Flags.setVar(session.store, nil, scene, 1)
+Player.biking, session.biking, game.save.biking = true, true, true
+Field.flyTo(nil, nil, { dest = { map = "FR_SAFFRON_CITY", x = 18, y = 22 } })
+check(not Flags.getFlag(session.store, nil, road) and not Flags.getFlag(session, nil, road),
+  "Cycling Road Fly clears every road flag store")
+check(Flags.getVar(session.store, nil, scene) == 0, "Cycling Road Fly resets Route 16 scene")
+Map.load(nil, game, "FR_SILPH_CO_1F", { x = 18, y = 21, facing = "up" })
+check(not Player.biking and not session.biking and not game.save.biking,
+  "indoor entry after Cycling Road Fly keeps avatar session and save on foot")
+
 print(string.format("=== RESULTS: %d passed, %d failed ===", passed, failed))
 if failed > 0 then os.exit(1) end
-
 

@@ -90,7 +90,7 @@ return function(game)
     "Naomi wanders up and down from the sealed band at (14,5)")
 
   U.wait(20)
-  U.shot(game, DIR .. "/collision_npc_edge_01_naomi_on_the_band.png")
+  U.still(game, DIR .. "/collision_npc_edge_01_naomi_on_the_band.png")
 
   local visited = {}
   local shotSouth = false
@@ -99,7 +99,7 @@ return function(game)
     visited[naomi.cellX .. "," .. naomi.cellY] = true
     visited[naomi.targetX .. "," .. naomi.targetY] = true
     if not shotSouth and naomi.cellY == 6 and not naomi.moving then
-      U.shot(game, DIR .. "/collision_npc_edge_02_naomi_stepped_south.png")
+      U.still(game, DIR .. "/collision_npc_edge_02_naomi_stepped_south.png")
       shotSouth = true
     end
   end
