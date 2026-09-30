@@ -745,7 +745,14 @@ P.tagInfo = tag_info
 
 local function quad_for(img, sx, sy, w, h)
   local iw, ih = img:getDimensions()
-  local key = sx .. ":" .. sy .. ":" .. w .. ":" .. h
+  -- Numeric key for whole-pixel rects (13+13+10+10 bits), string otherwise.
+  local key
+  if sx >= 0 and sx < 8192 and sy >= 0 and sy < 8192 and w >= 0 and w < 1024 and h >= 0 and h < 1024
+      and sx % 1 == 0 and sy % 1 == 0 and w % 1 == 0 and h % 1 == 0 then
+    key = ((sx * 8192 + sy) * 1024 + w) * 1024 + h
+  else
+    key = sx .. ":" .. sy .. ":" .. w .. ":" .. h
+  end
   local c = SHEET_CACHE[img]
   if not c then c = {}; SHEET_CACHE[img] = c end
   local q = c[key]

@@ -2130,6 +2130,19 @@ local function rse_window_colors(fgIdx, shadowIdx)
   }
 end
 
+-- The default (13, 15) window colours, rebuilt only when the manifest's
+-- palette table changes.  Callers must not modify the returned table
+-- (rse_pp_colors, which does, builds its own with rse_window_colors).
+local _defaultWinColors, _defaultWinPal = nil, nil
+local function rse_default_colors()
+  local pal = BattleChrome.manifest().windowTextPal or nil
+  if not _defaultWinColors or pal ~= _defaultWinPal then
+    _defaultWinColors = rse_window_colors()
+    _defaultWinPal = pal
+  end
+  return _defaultWinColors
+end
+
 -- pokeemerald/src/battle_message.c:3033
 local function rse_pp_colors(pp, maxPp)
   local pp2 = BattleChrome.manifest().ppTextPal or {}
@@ -2147,7 +2160,7 @@ local function rse_text(win, text, dx, opts)
   local useNarrow = opts.narrow == nil and narrow or opts.narrow
   F.draw(tostring(text or ""), x + (dx or 0), y, {
     font = useNarrow and "narrow" or nil,
-    colors = opts.colors or rse_window_colors(),
+    colors = opts.colors or rse_default_colors(),
   })
 end
 
@@ -2161,10 +2174,10 @@ local function draw_action_menu_rse(st)
   local mx, my = BattleChrome.textOrigin(W.ACTION_MENU)
   local c = Ui._menuIndex - 1
   local col, row = c % 2, math.floor(c / 2)
-  Window.cursorPx(8 * (7 * col + 16), my + 16 * row, { colors = rse_window_colors() })
+  Window.cursorPx(8 * (7 * col + 16), my + 16 * row, { colors = rse_default_colors() })
   for i = 1, 4 do
     local cc, rr = (i - 1) % 2, math.floor((i - 1) / 2)
-    battle_font().draw(tostring(labels[i] or ""), mx + 56 * cc, my + 16 * rr, { colors = rse_window_colors() })
+    battle_font().draw(tostring(labels[i] or ""), mx + 56 * cc, my + 16 * rr, { colors = rse_default_colors() })
   end
 end
 
@@ -2175,7 +2188,7 @@ local function draw_move_menu_rse(st)
   local mon = ab and ab.mon
   local c = Ui._moveIndex - 1
   local _, cy = BattleChrome.textOrigin(W.MOVE_NAME_1)
-  Window.cursorPx(8 * (9 * (c % 2) + 1), cy + 16 * math.floor(c / 2), { colors = rse_window_colors() })
+  Window.cursorPx(8 * (9 * (c % 2) + 1), cy + 16 * math.floor(c / 2), { colors = rse_default_colors() })
   for i = 1, 4 do
     local mv = mon and mon.moves and mon.moves[i]
     local label = "-"
@@ -2537,6 +2550,7 @@ function Ui.draw(w, h)
   -- 4. Player Mon (Z: 200)
   -- 5. In front of Player & Global Foreground (Z: 201 .. 999)
   local dbl = st and is_double(st)
+  if Anim.beginParticleFrame then Anim.beginParticleFrame() end
   if dbl then
     draw_double_mons(st, stage, Anim, screenFxActive)
   else
@@ -2556,6 +2570,7 @@ function Ui.draw(w, h)
   if screenFxActive then Anim.beginScreenEffect() end
   Anim.drawParticles(201, 999)
   end
+  if Anim.endParticleFrame then Anim.endParticleFrame() end
   draw_intro_ball(stage)
   -- pokefirered/src/pokeball.c:770
   BallOpen.draw()

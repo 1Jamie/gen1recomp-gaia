@@ -827,6 +827,45 @@ function Sound.playCry(data, species, pikaClip)
   return src
 end
 
+-- Prewarm: the first play of a chip cry/SFX synthesizes it on the calling
+-- frame (~10-25 ms for a cry, far more for a long jingle), which is the hitch
+-- at a battle's first cry.  These hand that render to the chip audio worker
+-- ahead of time (ChipAudio.prewarmCry/prewarmSfx); the play that follows
+-- builds its Source from the finished PCM, identical to a fresh render.  Call
+-- at an idle point before the sound is needed (battle creation / the
+-- transition, for both species).  Returns true when a render was queued or
+-- the sound is already cached; never renders on the calling thread, and a
+-- play that comes first simply renders as before.
+function Sound.prewarmCry(data, species)
+  if not love.audio or deviceSuspended() then return false end
+  if cache["cry:" .. tostring(species)] ~= nil then return true end
+  local audio = data and data.audio
+  local def = audio and audio.cries and audio.cries[species]
+  if not def then return false end
+  -- pokeyellow/home/pokemon.asm:140 -- voiced by a PCM clip instead
+  if species == "PIKACHU" and audio.pikaCries then return false end
+  local resolved = resolveCry(data, def, 0)
+  if type(resolved) ~= "table" or not (resolved.header or resolved.chip) then
+    return false
+  end
+  local ok, queued = pcall(
+    require("src.core.ChipAudio").prewarmCry, data, species, resolved)
+  return ok and queued or false
+end
+
+-- the plain Sound.play variant of `name` (no pitch/tempo modifiers)
+function Sound.prewarmSfx(data, name)
+  if not love.audio or deviceSuspended() then return false end
+  name = Sound.resolve(data, name)
+  if cache[name] ~= nil then return true end
+  local sfx = data and data.audio and data.audio.sfx
+  local def = sfx and sfx[name]
+  if not isChipDef(def) then return false end
+  local ok, queued = pcall(
+    require("src.core.ChipAudio").prewarmSfx, data, name, nil, nil, def, nil)
+  return ok and queued or false
+end
+
 -- GROWL/ROAR are the only two moves that play a cry (IsCryMove checks
 -- wAnimationID); GetMoveSound still adds their own MoveSoundTable pitch/
 -- tempo bytes on top of the cry's species modifiers before the tempo

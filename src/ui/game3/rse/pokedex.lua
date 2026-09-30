@@ -213,8 +213,25 @@ local function bgPal(s)
   return Gfx.bgPalette(paletteSet(s))
 end
 
+-- Read-only bg palettes for per-frame draws, rebuilt when the manifest
+-- changes.  bgPal returns a fresh copy for callers that edit it.
+local _readPals, _readPalsMan = {}, nil
+local function bgPalRead(s)
+  local man = Gfx.manifest()
+  if man ~= _readPalsMan then
+    _readPals, _readPalsMan = {}, man
+  end
+  local set = paletteSet(s)
+  local pal = _readPals[set]
+  if not pal then
+    pal = Gfx.bgPalette(set)
+    _readPals[set] = pal
+  end
+  return pal
+end
+
 local function textColors(s, fgIdx, shIdx)
-  local pal = bgPal(s)
+  local pal = bgPalRead(s)
   return { fg = Gfx.color(pal[fgIdx or 15]), shadow = Gfx.color(pal[shIdx or 3]), bg = { 0, 0, 0, 0 } }
 end
 
@@ -2130,7 +2147,7 @@ end
 local function listRowsText(s)
   local colors = textColors(s, 15, 3)
   local vofs = s.bg2vofs or 0
-  local pal = bgPal(s)
+  local pal = bgPalRead(s)
   local ball = Gfx.sprite("caught_ball", 0, 8, 16, { pal[0], pal[1], pal[2], pal[3], pal[4], pal[5], pal[6], pal[7], pal[8],
     pal[9], pal[10], pal[11], pal[12], pal[13], pal[14], pal[15] })
   -- pokeemerald/src/pokedex.c:847

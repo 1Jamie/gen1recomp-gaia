@@ -19,6 +19,9 @@ local function finish()
 end
 
 return function(game)
+  -- the Fuchsia check waits on a Route 17 biker ~150 cells away wandering
+  -- into line; tick every ghost pool, not just those near the view
+  require("src.core.game3.ghosts").TICK_MARGIN_SCREENS = math.huge
   for _ = 1, 600 do
     if game.phase == "boot" and game.boot then break end
     U.wait(1)

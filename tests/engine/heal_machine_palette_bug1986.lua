@@ -51,7 +51,11 @@ for i = 1, 4 do
         "shade " .. (i - 1) .. " is not a DMG gray")
 end
 
+-- the heal overlay body is a module-level function drawWorld calls
+-- (fxHeal), not an inline closure; look through it as well
 local healShader = upvalue(OW.drawWorld, "healMachineShader")
+  or upvalue(upvalue(OW.drawWorld, "fxHeal") or function() end,
+             "healMachineShader")
 check(type(healShader) == "function",
       "the heal overlay picks its palette through healMachineShader")
 

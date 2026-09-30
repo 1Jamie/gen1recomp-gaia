@@ -99,7 +99,37 @@ function RomText.box(key, ctx)
   return TextIR.toTextBox(RomText.translate(RomText.ir(key), ctx, key), ctx)
 end
 
+-- Segment types whose expansion reads nothing but the segment itself.  An IR
+-- made only of these expands to the same plain string every time.
+local PURE_SEG = { text = true, tag = true, nl = true, para = true, scroll = true, eos = true, ext = true }
+
+-- plain() results for pure IRs, keyed by the IR table itself (false = not
+-- pure).  Keying on the IR follows overrides, profile aliases and bundle
+-- reloads for free: each resolves to a different table.
+local plainCache = setmetatable({}, { __mode = "k" })
+
+local function pure_ir(ir)
+  if type(ir) ~= "table" then return false end
+  for i = 1, #ir do
+    local seg = ir[i]
+    if type(seg) ~= "table" or not PURE_SEG[seg.t] then return false end
+  end
+  return true
+end
+
 function RomText.plain(key, ctx)
+  if ctx == nil and not Strings.active() then
+    local ir = RomText.ir(key)
+    local hit = plainCache[ir]
+    if hit then return hit end
+    if hit == nil then
+      local pure = pure_ir(ir)
+      local out = TextIR.toPlain(ir, {})
+      plainCache[ir] = pure and out or false
+      return out
+    end
+    return TextIR.toPlain(ir, {})
+  end
   ctx = ctx or {}
   return TextIR.toPlain(RomText.translate(RomText.ir(key), ctx, key), ctx)
 end

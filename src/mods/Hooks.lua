@@ -28,7 +28,28 @@ function Hooks:wrap(name, callback, priority, owner)
     for i, candidate in ipairs(chain) do
       if candidate == entry then table.remove(chain, i) break end
     end
+    -- an empty chain is dropped, as removeOwner does, so Runtime.wantsHook
+    -- goes back to false; only if it is still the live chain for the name
+    -- (a later wrap after removeOwner may have started a new one)
+    if #chain == 0 and self.chains[name] == chain then
+      self.chains[name] = nil
+    end
   end
+end
+
+-- vanilla's pcall results, unpacked without a pack table: its values, or
+-- the PASS-wrapped error
+local function vanillaResult(ok, ...)
+  if ok then return ... end
+  error({ [PASS] = (...) }, 0)
+end
+
+-- the outermost pcall's results: the chain's values, or its error unwrapped
+local function finish(ok, ...)
+  if ok then return ... end
+  local err = (...)
+  if type(err) == "table" and err[PASS] ~= nil then error(err[PASS], 0) end
+  error(err, 0)
 end
 
 -- each link runs under pcall: a throwing wrapper is logged and skipped and
@@ -46,9 +67,7 @@ function Hooks:call(name, vanilla, ...)
   local function run(index)
     if index > #chain then
       ranVanilla = true
-      local res = pack(pcall(vanilla, unpack(args, 1, args.n)))
-      if res[1] then return unpack(res, 2, res.n) end
-      error({ [PASS] = res[2] }, 0)
+      return vanillaResult(pcall(vanilla, unpack(args, 1, args.n)))
     end
     local entry = chain[index]
     local downstream
@@ -81,11 +100,7 @@ function Hooks:call(name, vanilla, ...)
       tostring(entry.owner or "?"), name, tostring(err))
     return run(index + 1)
   end
-  local res = pack(pcall(run, 1))
-  if res[1] then return unpack(res, 2, res.n) end
-  local err = res[2]
-  if type(err) == "table" and err[PASS] ~= nil then error(err[PASS], 0) end
-  error(err, 0)
+  return finish(pcall(run, 1))
 end
 
 -- drops every wrap a mod made; used by entry-chunk rollback

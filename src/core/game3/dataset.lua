@@ -92,9 +92,14 @@ local function loveCache()
   }
 end
 
+-- The cache object is stateless (every read resolves CacheFs, love.filesystem
+-- and Dataset.cacheRootOverride at call time), so one instance is shared.
+local sharedCache = nil
+
 --- Shared firered CacheFs-backed cache for standalone Game3 (mod.cache is nil).
 function Dataset.cache()
-  return loveCache()
+  if not sharedCache then sharedCache = loveCache() end
+  return sharedCache
 end
 
 local dsLoadWarned = false

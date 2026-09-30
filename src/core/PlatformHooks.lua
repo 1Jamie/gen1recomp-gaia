@@ -7,8 +7,11 @@ local ModRuntime = require("src.mods.Runtime")
 
 local PlatformHooks = {}
 
+-- hoisted: update runs every frame, and the vanilla step closes over nothing
+local function vanillaUpdate(g, d) g:update(d) end
+
 function PlatformHooks.update(game, dt)
-  return ModRuntime.call("core.update", function(g, d) g:update(d) end, game, dt)
+  return ModRuntime.call("core.update", vanillaUpdate, game, dt)
 end
 
 function PlatformHooks.quitToLauncher(vanilla)

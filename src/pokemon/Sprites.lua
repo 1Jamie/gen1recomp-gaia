@@ -125,6 +125,9 @@ function Sprites.iconPath(data, mon, vanillaPath, opts)
   if not vanillaPath and not Runtime.wantsHook("pokemon.icon") then
     return vanillaPath, trueColor
   end
+  -- checked before the ctx table: party menus ask every drawn frame, and
+  -- an unhooked call must not allocate
+  if not Runtime.wantsHook("pokemon.icon") then return vanillaPath, trueColor end
   local species = mon and mon.species
   local ctx = {
     species = species,
@@ -134,7 +137,6 @@ function Sprites.iconPath(data, mon, vanillaPath, opts)
     kind = "icon",
     trueColor = trueColor,
   }
-  if not Runtime.wantsHook("pokemon.icon") then return vanillaPath, trueColor end
   local hooked = Runtime.call("pokemon.icon", samePath, vanillaPath, ctx)
   trueColor = ctx.trueColor and true or false
   if type(hooked) == "string" and hooked ~= "" then return hooked, trueColor end

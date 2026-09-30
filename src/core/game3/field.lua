@@ -207,6 +207,9 @@ function Field.update(_dt)
   local Ghosts = require("src.core.game3.ghosts")
   Ghosts.sync()
   Ghosts.update(game)
+  -- pre-load tileset pairs queued by a seamless world refresh, one per frame
+  local MapMod = package.loaded["src.core.game3.map"]
+  if MapMod and MapMod._warmQueue and MapMod.stepWarm then MapMod.stepWarm() end
 
   Field.pollMapChange(game)
   -- pokefirered/src/safari_zone.c:60 CB2_EndSafariBattle
@@ -2102,9 +2105,16 @@ function Field.setMetatile(x, y, metatile, isImpassable)
     layout:applyOverride(x, y, mid, coll, layout:elevAt(x, y))
     Field._overrideLayouts[mapId] = layout
     local Collision = require("src.core.game3.collision")
-    Collision.bindMap(game, mapId, mapDef)
+    if not (Collision.patchCell and Collision.patchCell(mapId, mapDef, x, y)) then
+      Collision.bindMap(game, mapId, mapDef)
+    end
+    -- applyOverride already invalidated the view cell (FieldView.invalidateLayoutCell).
     local FieldView = package.loaded["src.core.game3.field_view"]
-    if FieldView then FieldView._nativeDirty = true end
+    local LayoutNative = package.loaded["src.core.game3.layout_native"]
+    if FieldView and not (FieldView.invalidateLayoutCell and LayoutNative
+        and layout.applyOverride == LayoutNative.applyOverride) then
+      FieldView._nativeDirty = true
+    end
   end
   local world = game and (game.overworld or game.world)
   if world and world.map and world.map.setBlock then

@@ -82,13 +82,18 @@ function BattleHud:image(key)
 end
 
 -- One 8x8 tile out of a horizontal strip, cached per (sheet, index).
+-- Nested by image then index, so a lookup builds no string.
 function BattleHud:quad(image, index)
-  local key = tostring(image) .. ":" .. index
-  local quad = self.quads[key]
+  local byImage = self.quads[image]
+  if not byImage then
+    byImage = {}
+    self.quads[image] = byImage
+  end
+  local quad = byImage[index]
   if not quad then
     local w, h = image:getDimensions()
     quad = love.graphics.newQuad(index * 8, 0, 8, 8, w, h)
-    self.quads[key] = quad
+    byImage[index] = quad
   end
   return quad
 end
@@ -120,20 +125,26 @@ function BattleHud:drawTile(key, firstTile, tile, tx, ty, colors, mirror)
   if index < 0 then return false end
   local G = love.graphics
   G.setColor(1, 1, 1, 1)
-  local function body()
-    if mirror then
-      -- Flip in place: the origin moves a tile right and x scales by -1.
-      G.draw(image, self:quad(image, index), tx * 8 + 8, ty * 8, 0, -1, 1)
-    else
-      G.draw(image, self:quad(image, index), tx * 8, ty * 8)
-    end
-  end
+  local quad = self:quad(image, index)
   -- home/fade.asm:35 (RotateThreePalettesRight)
-  if GbcPalette.available() then
-    GbcPalette.with(colors or GbcPalette.DMG_SHADES, body)
+  -- GbcPalette.with without the per-tile closure: set, draw, restore.
+  local shaded = GbcPalette.available()
+  local previous
+  if shaded then
+    previous = G.getShader and G.getShader() or nil
+    GbcPalette.use(colors or GbcPalette.DMG_SHADES)
   else
     G.setColor(0, 0, 0, 1)
-    body()
+  end
+  if mirror then
+    -- Flip in place: the origin moves a tile right and x scales by -1.
+    G.draw(image, quad, tx * 8 + 8, ty * 8, 0, -1, 1)
+  else
+    G.draw(image, quad, tx * 8, ty * 8)
+  end
+  if shaded then
+    G.setShader(previous)
+  else
     G.setColor(1, 1, 1, 1)
   end
   return true

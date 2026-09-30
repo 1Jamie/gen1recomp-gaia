@@ -25,6 +25,8 @@ local Palettes = require("src.world.gen2.Palettes")
 local BattleAnimView = {}
 BattleAnimView.__index = BattleAnimView
 
+local EMPTY = {}
+
 local SCREEN_W, SCREEN_H = 160, 144
 
 -- An OBJ at OAM (x, y) draws at (x - 8, y - 16).
@@ -64,14 +66,19 @@ function BattleAnimView:image(path)
   return cached or nil
 end
 
+-- Nested by sheet then index, so a lookup builds no string.
 function BattleAnimView:quad(sheetName, index, wide, image)
-  local key = sheetName .. ":" .. index
-  local quad = self.quads[key]
+  local bySheet = self.quads[sheetName]
+  if not bySheet then
+    bySheet = {}
+    self.quads[sheetName] = bySheet
+  end
+  local quad = bySheet[index]
   if not quad then
     local w, h = image:getDimensions()
     quad = love.graphics.newQuad(
       (index % wide) * 8, math.floor(index / wide) * 8, 8, 8, w, h)
-    self.quads[key] = quad
+    bySheet[index] = quad
   end
   return quad
 end
@@ -93,30 +100,55 @@ end
 -- colours; the other six are the fixed block from
 -- gfx/battle_anims/battle_anims.pal, which the extractor reads into
 -- palettes.battleObjects.
+-- Palettes.monColors, memoized per (palettes, species, shiny): it builds five
+-- tables a call and this runs per OAM object per frame.  The answer is a pure
+-- function of those three, and the shader only reads it.
+function BattleAnimView:monColors(species, shiny)
+  local cache = self.monColorCache
+  if not cache or cache.palettes ~= self.palettes then
+    cache = { palettes = self.palettes, [true] = {}, [false] = {} }
+    self.monColorCache = cache
+  end
+  local byShiny = cache[shiny and true or false]
+  local colors = byShiny[species]
+  if colors == nil then
+    if species == nil then return Palettes.monColors(self.palettes, species, shiny) end
+    colors = Palettes.monColors(self.palettes, species, shiny) or false
+    byShiny[species] = colors
+  end
+  return colors or nil
+end
+
 function BattleAnimView:objPalette(name, battle)
   if name == "PAL_BATTLE_OB_ENEMY" then
     local enemy = battle and battle.enemy
-    return enemy and Palettes.monColors(self.palettes, enemy.species, enemy.shiny)
+    return enemy and self:monColors(enemy.species, enemy.shiny)
   end
   if name == "PAL_BATTLE_OB_PLAYER" then
     local player = battle and battle.player
-    return player and Palettes.monColors(self.palettes, player.species, player.shiny)
+    return player and self:monColors(player.species, player.shiny)
   end
   local set = self.palettes and self.palettes.battleObjects
   return set and set[name] or nil
 end
 
--- One frame's OBJ layer.
+-- One frame's OBJ layer.  The palette shader is set once per run of objects
+-- sharing a palette and the caller's shader restored once at the end: what
+-- GbcPalette.with did per object, without the closure and pcall each.
 function BattleAnimView:drawObjects(runner, battle)
   local G = love.graphics
   G.setColor(1, 1, 1, 1)
+  local shaded = GbcPalette.available()
+  local previous = shaded and G.getShader and G.getShader() or nil
+  local active = nil
+  local gfx = self.data.gfx or EMPTY
   for _, obj in ipairs(runner:oam()) do
     local entry, index = sheetForTile(runner, obj.tile)
     -- The two battler-pic pseudo-sheets are the mons' own tiles; nothing in
     -- the cache holds them as a sheet, so they are simply not drawn rather
     -- than drawn from the wrong image.
     if entry and not entry.battler then
-      local sheet = (self.data.gfx or {})[entry.gfx]
+      local sheet = gfx[entry.gfx]
       local image = sheet and self:image(sheet.image)
       if image then
         local wide = sheet.wide or 8
@@ -132,19 +164,17 @@ function BattleAnimView:drawObjects(runner, battle)
           local syScale = bit.band(obj.attr, OAM_YFLIP) ~= 0 and -1 or 1
           local ox = sxScale < 0 and 8 or 0
           local oy = syScale < 0 and 8 or 0
-          local colors = self:objPalette(obj.palette, battle)
-          local function body()
-            G.draw(image, quad, x + ox, y + oy, 0, sxScale, syScale)
+          local colors = shaded and self:objPalette(obj.palette, battle) or nil
+          if colors ~= active then
+            if colors then GbcPalette.use(colors) else G.setShader(previous) end
+            active = colors
           end
-          if colors and GbcPalette.available() then
-            GbcPalette.with(colors, body)
-          else
-            body()
-          end
+          G.draw(image, quad, x + ox, y + oy, 0, sxScale, syScale)
         end
       end
     end
   end
+  if active then G.setShader(previous) end
 end
 
 -- True when the BG layer needs the scanline treatment at all; a plain
@@ -269,24 +299,34 @@ end
 BattleAnimView.bgpBands = bgpBands
 
 -- engine/battle_anims/bg_effects.asm:2638
+--
+-- One scanline's source row and x shift, or nil when the row shows nothing.
+local function scanline(bg, scy, row)
+  local dx, src = 0, row + scy
+  -- home/lcd.asm:12
+  local inWindow = bg.lcdc and bg.lcdc ~= "BGP"
+    and row > bg.lyStart and row <= bg.lyEnd
+  local byte = inWindow and (bg.lyBackup[row - 1] or 0) or 0
+  if inWindow then
+    local value = signed(byte)
+    if bg.lcdc == "SCX" then dx = -value else src = src + value end
+    -- home/lcd.asm:3
+    if byte ~= 0x90 and scy == 0 then
+      if src < 0 then src = 0 elseif src >= SCREEN_H then src = SCREEN_H - 1 end
+    end
+  end
+  if (not inWindow or byte ~= 0x90) and src >= 0 and src < SCREEN_H then
+    return src, dx
+  end
+  return nil
+end
+
 function BattleAnimView.scanlines(bg)
   local lines = {}
   local scy = signed(bg.scy)
   for row = 0, SCREEN_H - 1 do
-    local dx, src = 0, row + scy
-    -- home/lcd.asm:12
-    local inWindow = bg.lcdc and bg.lcdc ~= "BGP"
-      and row > bg.lyStart and row <= bg.lyEnd
-    local byte = inWindow and (bg.lyBackup[row - 1] or 0) or 0
-    if inWindow then
-      local value = signed(byte)
-      if bg.lcdc == "SCX" then dx = -value else src = src + value end
-      -- home/lcd.asm:3
-      if byte ~= 0x90 and scy == 0 then
-        if src < 0 then src = 0 elseif src >= SCREEN_H then src = SCREEN_H - 1 end
-      end
-    end
-    if (not inWindow or byte ~= 0x90) and src >= 0 and src < SCREEN_H then
+    local src, dx = scanline(bg, scy, row)
+    if src then
       lines[#lines + 1] = { src = src, dest = row, dx = dx }
     end
   end
@@ -339,8 +379,11 @@ function BattleAnimView:present(runner, drawBg, battle)
   -- hSCX / hSCY move the whole background; the per-scanline overrides only
   -- apply inside the effect's own window.
   local baseX = -signed(bg.scx)
-  for _, line in ipairs(BattleAnimView.scanlines(bg)) do
-    self:blitRowAt(line.src, line.dest, baseX + line.dx)
+  -- BattleAnimView.scanlines row by row, without a table per scanline.
+  local scy = signed(bg.scy)
+  for row = 0, SCREEN_H - 1 do
+    local src, dx = scanline(bg, scy, row)
+    if src then self:blitRowAt(src, row, baseX + dx) end
   end
   -- Shaderless boot: the panel is raw grayscale, so there are no palettes to
   -- permute and the entry's BRIGHTNESS is the only thing left to reproduce.

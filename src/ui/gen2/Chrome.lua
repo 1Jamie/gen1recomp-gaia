@@ -13,6 +13,9 @@
 local Font = require("src.render.Font")
 local GbcPalette = require("src.render.GbcPalette")
 
+local WHITE = { 255, 255, 255 }
+local BLACK = { 0, 0, 0 }
+
 local Chrome = {}
 
 -- charmap.asm: ▶ is the menu cursor, ▷ its hollow "held" form, ▼ the
@@ -32,7 +35,11 @@ function Chrome.paletteFill(px, py, pw, ph, palette)
   local G = love.graphics
   G.setColor(1, 1, 1, 1)
   if GbcPalette.available() then
-    GbcPalette.with(palette, function() G.rectangle("fill", px, py, pw, ph) end)
+    -- GbcPalette.with without the closure: set, draw, restore.
+    local previous = G.getShader and G.getShader() or nil
+    GbcPalette.use(palette)
+    G.rectangle("fill", px, py, pw, ph)
+    G.setShader(previous)
   else
     G.rectangle("fill", px, py, pw, ph)
   end
@@ -160,8 +167,14 @@ Chrome.DEFAULT_BOX_PALETTE = {
 function Chrome.paletteBox(tx, ty, tw, th, palette)
   palette = palette or Chrome.DEFAULT_BOX_PALETTE
   if GbcPalette.available() then
-    love.graphics.setColor(1, 1, 1, 1)
-    GbcPalette.with(palette, function() Font.drawBox(tx, ty, tw, th) end)
+    local G = love.graphics
+    G.setColor(1, 1, 1, 1)
+    -- GbcPalette.with, restoring the caller's shader even if the box throws.
+    local previous = G.getShader and G.getShader() or nil
+    GbcPalette.use(palette)
+    local ok, err = pcall(Font.drawBox, tx, ty, tw, th)
+    G.setShader(previous)
+    if not ok then error(err, 0) end
   else
     Font.drawBox(tx, ty, tw, th, palette[1])
   end
@@ -278,19 +291,56 @@ function Chrome.paletteGlyphs(palette, invert, raw)
   return pal, drawGlyph, finish
 end
 
-function Chrome.printThrough(text, tx, ty, palette, invert, raw)
-  local pal, drawGlyph, finish = Chrome.paletteGlyphs(palette, invert, raw)
-  if not pal then return Chrome.print(text, tx, ty) end
-  local width = Font.width(text)
-  local paper = pal[1] or { 255, 255, 255 }
-  love.graphics.setColor(paper[1] / 255, paper[2] / 255, paper[3] / 255, 1)
-  love.graphics.rectangle("fill", tx * 8, ty * 8, width, 8)
-  local pen = tx * 8
-  for _, code in ipairs(Font.encode(text)) do
-    drawGlyph(code, pen, ty * 8)
+-- printThrough's resolved palette, or nil when it has to take the plain
+-- degrade: paletteGlyphs' own test and fold, without its two closures.
+local function glyphPalette(palette, invert, raw)
+  if not (palette and GbcPalette.available()) then return nil end
+  return raw and Chrome.rawPalette(palette, invert)
+    or Chrome.throughPalette(palette, invert)
+end
+
+-- The string's glyph codes and its width, off one encode: the width is the
+-- sum of the same advances the pen walks, which is all Font.width is.
+local function measure(text)
+  local codes = Font.encode(text)
+  local width = 0
+  for i = 1, #codes do width = width + Font.advanceOf(codes[i]) end
+  return codes, width
+end
+
+-- paper rect, then every glyph through `pal` -- paletteGlyphs' drawGlyph and
+-- finish inlined (see there for the TTF split, gen1recomp#1642).
+local function drawThrough(codes, width, x, y, pal)
+  local G = love.graphics
+  local paper = pal[1] or WHITE
+  local ink = pal[4] or BLACK
+  local previous = G.getShader()
+  G.setColor(paper[1] / 255, paper[2] / 255, paper[3] / 255, 1)
+  G.rectangle("fill", x, y, width, 8)
+  local shaded = false
+  local pen = x
+  for i = 1, #codes do
+    local code = codes[i]
+    if code >= Font.TTF_BASE then
+      if shaded then G.setShader(previous); shaded = false end
+      G.setColor(ink[1] / 255, ink[2] / 255, ink[3] / 255, 1)
+    elseif not shaded then
+      G.setColor(1, 1, 1, 1)
+      GbcPalette.useRaw(pal)
+      shaded = true
+    end
+    Font.drawCode(code, pen, y)
     pen = pen + Font.advanceOf(code)
   end
-  finish()
+  if shaded then G.setShader(previous) end
+  G.setColor(0, 0, 0, 1)
+end
+
+function Chrome.printThrough(text, tx, ty, palette, invert, raw)
+  local pal = glyphPalette(palette, invert, raw)
+  if not pal then return Chrome.print(text, tx, ty) end
+  local codes, width = measure(text)
+  drawThrough(codes, width, tx * 8, ty * 8, pal)
   return width
 end
 
@@ -317,19 +367,10 @@ function Chrome.printRight(text, txEnd, ty)
 end
 
 function Chrome.printRightThrough(text, txEnd, ty, palette, invert, raw)
-  local pal, drawGlyph, finish = Chrome.paletteGlyphs(palette, invert, raw)
+  local pal = glyphPalette(palette, invert, raw)
   if not pal then return Chrome.printRight(text, txEnd, ty) end
-  local width = Font.width(text)
-  local tx = txEnd * 8 - width
-  local paper = pal[1] or { 255, 255, 255 }
-  love.graphics.setColor(paper[1] / 255, paper[2] / 255, paper[3] / 255, 1)
-  love.graphics.rectangle("fill", tx, ty * 8, width, 8)
-  local pen = tx
-  for _, code in ipairs(Font.encode(text)) do
-    drawGlyph(code, pen, ty * 8)
-    pen = pen + Font.advanceOf(code)
-  end
-  finish()
+  local codes, width = measure(text)
+  drawThrough(codes, width, txEnd * 8 - width, ty * 8, pal)
   return width
 end
 

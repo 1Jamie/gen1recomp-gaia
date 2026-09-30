@@ -100,8 +100,12 @@ local function tileSet(spec)
   return set
 end
 
+local resetTextCaches, resetWidthCache
+
 function Font.load(data)
   loadedFrom = data
+  -- a new charmap / page set / TTF: every cached encode and width is stale
+  if resetTextCaches then resetTextCaches() end
   local def = data.font
   state = { def = def, pages = {}, order = {}, byFirstByte = {} }
   for id, page in pairs(pagesOf(def)) do
@@ -267,6 +271,8 @@ function Font.useBattleExtra(on)
   if not state then return false end
   local was = state.battleExtra or false
   state.battleExtra = on and true or false
+  -- the swapped page may carry its own advance
+  if state.battleExtra ~= was and resetWidthCache then resetWidthCache() end
   return was
 end
 
@@ -278,7 +284,9 @@ end
 -- Module state, not `state`: applyOptions runs before Font.load on boot
 -- (src/core/Game2.lua Game2:load).
 function Font.setFrame(index)
-  currentFrame = math.floor(tonumber(index) or 1)
+  local frame = math.floor(tonumber(index) or 1)
+  if frame ~= currentFrame and resetWidthCache then resetWidthCache() end
+  currentFrame = frame
 end
 
 function Font.frameIndex()
@@ -428,7 +436,7 @@ end
 -- Convert a text string into a list of glyph codes.  Unknown characters
 -- render as space (and are reported once).
 local reported = {}
-function Font.encode(text)
+local function encodeUncached(text)
   local codes = {}
   for _, span in ipairs(Font.split(text)) do
     local code = span.code
@@ -443,6 +451,65 @@ function Font.encode(text)
     codes[#codes + 1] = code
   end
   return codes
+end
+
+-- Font.width/Font.draw run for the same few strings every frame, and
+-- Font.split allocates a table per glyph.  The codes only depend on the
+-- charmap and TTF that Font.load builds, so cache them per string until the
+-- next load.  Widths also depend on which page answers a code (the frame
+-- row, the battle-extra swap), so that cache is also dropped when either of
+-- those changes.  Both are bounded: a cache past ENCODE_CACHE_MAX entries is
+-- thrown away whole rather than tracked LRU.
+local ENCODE_CACHE_MAX = 4096
+-- Bumped whenever a cached encode or width may have changed (Font.load, a
+-- frame or battle-sheet swap), for callers that keep their own copies.
+Font.revision = 0
+local encodeCache, encodeCount = {}, 0
+local stockSplit = Font.split
+local widthCache, widthCount = {}, 0
+
+function resetWidthCache()
+  widthCache, widthCount = {}, 0
+  -- anything a caller derived from encode/width is stale too
+  Font.revision = Font.revision + 1
+end
+
+function resetTextCaches()
+  encodeCache, encodeCount = {}, 0
+  resetWidthCache()
+end
+
+-- Returns the SHARED cached array: read it, never modify or keep it.
+local function cachedCodes(text)
+  -- a replaced split (a test double) is honoured and nothing is cached
+  if Font.split ~= stockSplit then return encodeUncached(text) end
+  local codes = encodeCache[text]
+  if codes then return codes end
+  codes = encodeUncached(text)
+  if type(text) == "string" then
+    if encodeCount >= ENCODE_CACHE_MAX then
+      encodeCache, encodeCount = {}, 0
+    end
+    encodeCache[text] = codes
+    encodeCount = encodeCount + 1
+  end
+  return codes
+end
+
+-- Returns a fresh array: callers (TextBox's typewriter lines) append to
+-- and keep the list, so they must never be handed the cached one.
+function Font.encode(text)
+  local src = cachedCodes(text)
+  local codes = {}
+  for i = 1, #src do codes[i] = src[i] end
+  return codes
+end
+
+local stockEncode = Font.encode
+
+-- Number of glyphs `text` draws as (#Font.split(text), without the spans).
+function Font.glyphCount(text)
+  return #cachedCodes(text)
 end
 
 function Font.drawCode(code, x, y)
@@ -481,13 +548,31 @@ function Font.advanceOf(code)
   return page and page.advance or GLYPH
 end
 
+local stockAdvanceOf = Font.advanceOf
+
 -- Pixel width of a string (glyph advances, not UTF-8 byte length).
 -- Multi-byte charmap entries like "¥" are one glyph; callers that
 -- right-align with `#text * 8` mis-place them.
 function Font.width(text)
-  local w = 0
-  for _, code in ipairs(Font.encode(text)) do
-    w = w + Font.advanceOf(code)
+  if Font.encode ~= stockEncode or Font.advanceOf ~= stockAdvanceOf
+      or Font.split ~= stockSplit then
+    -- a replaced encode/advanceOf/split (a test double, a mod) is still
+    -- what gets measured, uncached
+    local w = 0
+    for _, code in ipairs(Font.encode(text)) do w = w + Font.advanceOf(code) end
+    return w
+  end
+  local w = widthCache[text]
+  if w then return w end
+  w = 0
+  local codes = cachedCodes(text)
+  for i = 1, #codes do
+    w = w + Font.advanceOf(codes[i])
+  end
+  if type(text) == "string" then
+    if widthCount >= ENCODE_CACHE_MAX then resetWidthCache() end
+    widthCache[text] = w
+    widthCount = widthCount + 1
   end
   return w
 end
@@ -495,9 +580,11 @@ end
 -- Draw a plain single-line string at pixel (x, y).  Returns the width
 -- drawn, which is #codes * 8 for every fixed-width page.
 function Font.draw(text, x, y)
-  local codes = Font.encode(text)
+  local codes = Font.encode == stockEncode and cachedCodes(text)
+    or Font.encode(text)
   local pen = x
-  for _, code in ipairs(codes) do
+  for i = 1, #codes do
+    local code = codes[i]
     Font.drawCode(code, pen, y)
     pen = pen + Font.advanceOf(code)
   end

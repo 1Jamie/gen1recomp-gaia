@@ -258,6 +258,13 @@ function Loader:_installDevShim()
   if devShim.installed then return end
   devShim.installed = true
   local delegate = require
+  -- The stock require answers an already-loaded module straight out of
+  -- package.loaded, so once every check below has passed the shim can do the
+  -- same without the pcall.  Only when delegating to the stock C function:
+  -- a Lua wrapper in between may want to see every call.
+  local delegateIsStock = delegate == rawRequire
+    and type(delegate) == "function"
+    and (debug.getinfo(delegate, "S") or {}).what == "C"
   _G.require = function(name, ...)
     -- only the mod's own call is the mod's doing; whatever that module
     -- requires in turn is the engine wiring itself up
@@ -294,6 +301,12 @@ function Loader:_installDevShim()
           return adapter
         end
       end
+    end
+    if delegateIsStock then
+      -- a userdata here may be require's own "loading" sentinel, whose
+      -- loop error the stock path has to raise
+      local loaded = package.loaded[name]
+      if loaded and type(loaded) ~= "userdata" then return loaded end
     end
     devShim.depth = devShim.depth + 1
     local ok, result = pcall(delegate, name, ...)

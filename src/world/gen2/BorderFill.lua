@@ -259,17 +259,25 @@ BorderFill.CROSSFADE_FRAMES = 20
 -- The bookkeeping half, love-free so it can be checked without a canvas.
 -- Returns the image to draw underneath (nil on the first fill and once the
 -- dissolve is over) and the alpha the incoming image draws at.
-function BorderFill.crossfade(owner, image, key)
+--
+-- `advance` is how many 60Hz frames the dissolve moves on by (default 1, one
+-- per call).  An owner that keeps `borderTicks` (World counts its logic steps
+-- there) has BorderFill.draw pass those instead, so the fade runs on the
+-- logic clock rather than once per render frame.
+function BorderFill.crossfade(owner, image, key, advance)
   if not owner or key == nil then return nil, 1 end
   if owner.borderKey ~= key then
     -- Nothing to dissolve from on the first map of a session.
     owner.borderFrom = (owner.borderKey ~= nil) and owner.borderLast or nil
     owner.borderKey = key
     owner.borderFade = owner.borderFrom and 0 or nil
+    -- Ticks banked before the swap (a stretch with the fill not drawn at all)
+    -- belong to no dissolve: a new one starts at its first frame.
+    if advance and advance > 1 then advance = 1 end
   end
   owner.borderLast = image
   if not owner.borderFade then return nil, 1 end
-  owner.borderFade = owner.borderFade + 1
+  owner.borderFade = owner.borderFade + (advance or 1)
   if owner.borderFade >= BorderFill.CROSSFADE_FRAMES then
     owner.borderFade, owner.borderFrom = nil, nil
     return nil, 1
@@ -291,7 +299,12 @@ function BorderFill.draw(owner, image, camX, camY, w, h, s, key)
       BorderFill.SIZE, BorderFill.SIZE)
     if owner then owner.borderQuad = q end
   end
-  local from, alpha = BorderFill.crossfade(owner, image, key)
+  local advance = nil
+  if owner and owner.borderTicks ~= nil then
+    advance = owner.borderTicks
+    owner.borderTicks = 0
+  end
+  local from, alpha = BorderFill.crossfade(owner, image, key, advance)
   if from then
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.draw(from, q, sx, sy, 0, s, s)

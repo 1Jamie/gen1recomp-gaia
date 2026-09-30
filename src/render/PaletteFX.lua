@@ -67,9 +67,37 @@ function PaletteFX.darkKey() return darkWorld and "#dark" or "" end
 -- black silhouettes until FLASH (#383).  Applied to whatever 4-colour OBP the
 -- active mode resolved, with a distinct cache group so the lit and dark bakes
 -- of one sheet never collide in SpriteRenderer's obpCache.
+--
+-- It runs per sprite per frame in a dark cave, so the permuted palette is
+-- kept per source palette (and per map, should DARK_BGP ever be swapped) and
+-- the group name per group; permute's result is only ever read.
+local darkPermuted = setmetatable({}, { __mode = "k" })
+local darkGroupNames = {}
+
+-- permute(colors, map), remembered in memo[colors] while `map` stays the same
+local function permuteMemo(memo, colors, map)
+  local hit = memo[colors]
+  if hit and hit.map == map then return hit.colors end
+  local out = PaletteFX.permute(colors, map)
+  if type(colors) == "table" then memo[colors] = { map = map, colors = out } end
+  return out
+end
+
+-- tostring(group) .. suffix, remembered per group
+local function suffixedGroup(names, group, suffix)
+  if group == nil or group ~= group then return tostring(group) .. suffix end
+  local name = names[group]
+  if not name then
+    name = tostring(group) .. suffix
+    names[group] = name
+  end
+  return name
+end
+
 function PaletteFX.darkObp(colors, group)
   if not (colors and darkWorld) then return colors, group end
-  return PaletteFX.permute(colors, PaletteFX.DARK_BGP), tostring(group) .. "dark"
+  return permuteMemo(darkPermuted, colors, PaletteFX.DARK_BGP),
+    suffixedGroup(darkGroupNames, group, "dark")
 end
 
 -- the same shift folded into a baked 8-group world palette array (ADVANCED)
@@ -85,6 +113,9 @@ end
 -- home/fade.asm:52-58
 local fadeObpMap = nil
 local fadeObpGroups = setmetatable({}, { __mode = "k" })
+-- per fade map: the permuted palettes and suffixed group names (see darkObp)
+local fadePermuted = setmetatable({}, { __mode = "k" })
+local fadeGroupNames = setmetatable({}, { __mode = "k" })
 
 function PaletteFX.setFadeObp(map)
   fadeObpMap = map
@@ -98,7 +129,16 @@ function PaletteFX.fadeObp(colors, group)
              .. fadeObpMap[2] .. fadeObpMap[3]
     fadeObpGroups[fadeObpMap] = suffix
   end
-  return PaletteFX.permute(colors, fadeObpMap), tostring(group) .. suffix
+  local memo = fadePermuted[fadeObpMap]
+  local names = fadeGroupNames[fadeObpMap]
+  if not memo then
+    memo = setmetatable({}, { __mode = "k" })
+    names = {}
+    fadePermuted[fadeObpMap] = memo
+    fadeGroupNames[fadeObpMap] = names
+  end
+  return permuteMemo(memo, colors, fadeObpMap),
+    suffixedGroup(names, group, suffix)
 end
 
 -- Classic DMG pea-soup greens (#9BBC0F / #8BAC0F / #306230 / #0F380F)
@@ -369,6 +409,8 @@ end
 
 -- Active world bake tables for Advanced.  Yellow merges gbc_yellow deltas
 -- via __index so shared Red tilesets stay identical byte-for-byte.
+local yellowWorld, yellowWorldBase, yellowWorldDelta
+
 function PaletteFX.worldPack()
   local pack = PaletteFX.gbcPack()
   local w = pack and pack.world
@@ -377,7 +419,13 @@ function PaletteFX.worldPack()
   local y = PaletteFX.gbcYellowPack()
   local yw = y and y.world
   if not yw then return w end
-  return {
+  -- per sprite per frame on Yellow: build the merged view once per pair of
+  -- packs (a reload loads new tables, so identity is the whole key)
+  if yellowWorld and yellowWorldBase == w and yellowWorldDelta == yw then
+    return yellowWorld
+  end
+  yellowWorldBase, yellowWorldDelta = w, yw
+  yellowWorld = {
     tileGroups = setmetatable(yw.tileGroups or {}, { __index = w.tileGroups }),
     groupColors = setmetatable(yw.groupColors or {}, { __index = w.groupColors }),
     roofGroup = w.roofGroup,
@@ -387,6 +435,7 @@ function PaletteFX.worldPack()
       and setmetatable(yw.spritePalettes, { __index = w.spritePalettes })
       or w.spritePalettes,
   }
+  return yellowWorld
 end
 
 function PaletteFX.usesGbcPack(mode)
@@ -775,27 +824,44 @@ end
 -- (`swap a; and 3` on the sprite's OAM offset, which has no equivalent
 -- here): a stable hash instead, so the same NPC instance always shows the
 -- same one of the 4 SPR_PAL_* colors.
+local sourceKinds = {}
+local seedGroups = setmetatable({}, { __mode = "k" })
+
 function PaletteFX.spriteObp(spriteDef, seed)
   local w = PaletteFX.worldPack()
   local src = spriteDef and (spriteDef.paletteSource or spriteDef.source)
   if not (w and src) then return nil end
-  local idx = tonumber(src:match("%[(%d+)%]"))
+  -- the parse depends only on the string (per sprite per frame otherwise)
+  local parsed = sourceKinds[src]
+  if not parsed then
+    local n = tonumber(src:match("%[(%d+)%]"))
+    parsed = n or (src:find("RedBikeSprite", 1, true) and "bike")
+      or (src:find("SurfingPikachuSprite", 1, true) and "surf") or "none"
+    sourceKinds[src] = parsed
+  end
+  local idx = type(parsed) == "number" and parsed or nil
   -- RedBikeSprite and SurfingPikachuSprite load outside
   -- SpriteSheetPointerTable, so their source has no bracketed index;
   -- they wear the player's OBP palette (spriteAssignment[0]) on Red/Blue.
   -- On Yellow, Surfing Pikachu uses the Pikachu yellow OBJ group (#1639).
-  if not idx and src:find("RedBikeSprite", 1, true) then
+  if parsed == "bike" then
     idx = 0
-  elseif not idx and src:find("SurfingPikachuSprite", 1, true) then
+  elseif parsed == "surf" then
     idx = GameVersion.isYellow() and 60 or 0
   end
   local group = idx and w.spriteAssignment[idx]
   if group == nil then return nil end
   if group == "random" then
-    local h = 0
-    seed = tostring(seed or "")
-    for i = 1, #seed do h = (h * 31 + seed:byte(i)) % 4294967296 end
-    group = h % 4
+    local key = seed == nil and "" or seed
+    local h = seedGroups[key]
+    if not h then
+      h = 0
+      local str = tostring(seed or "")
+      for i = 1, #str do h = (h * 31 + str:byte(i)) % 4294967296 end
+      h = h % 4
+      if key == key then seedGroups[key] = h end
+    end
+    group = h
   end
   return PaletteFX.darkObp(w.spritePalettes[group], group)
 end
@@ -1009,15 +1075,89 @@ function PaletteFX.effectiveColors(c)
   return PaletteFX.permute(out, shadeMap)
 end
 
+local stockEffectiveColors = PaletteFX.effectiveColors
+
+-- ------- uniform sends
+--
+-- sendColors runs per zone per frame and per colored sprite, and a send to
+-- the active shader flushes LOVE's draw batch.  Remember what each shader
+-- was last given (weak-keyed, so a released or replaced shader drops its
+-- record) and only send a uniform whose value changed.  The {r,g,b} arrays
+-- are scratch: shader:send copies the values, so they are reused.
+local UNIFORMS = { "c0", "c1", "c2", "c3" }
+local scratch = { { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 } }
+local lastSent = setmetatable({}, { __mode = "k" })
+
+-- A caller that sends c0..c3 itself (AnimPlayer's per-cell OBJ colors) has
+-- to drop the record, or the next sendColors of the old colors would be
+-- skipped.  AnimPlayer:drawSprites does this after its direct sends.
+function PaletteFX.forgetSent(sh)
+  local rec = sh and lastSent[sh]
+  if rec then rec.valid = false end
+end
+
+local function sendOne(sh, rec, i, col, valid)
+  local r, g, b = col[1] / 255, col[2] / 255, col[3] / 255
+  local k = i * 3
+  if valid and rec[k - 2] == r and rec[k - 1] == g and rec[k] == b then
+    return
+  end
+  local v = scratch[i]
+  v[1], v[2], v[3] = r, g, b
+  sh:send(UNIFORMS[i], v)
+  rec[k - 2], rec[k - 1], rec[k] = r, g, b
+end
+
+local function sendFour(sh, a, b, c, d)
+  local rec = lastSent[sh]
+  if not rec then
+    rec = { valid = false }
+    lastSent[sh] = rec
+  end
+  -- An error from send propagates as the unconditional sends' did; the
+  -- record only counts once all four landed, so a raise mid-way never
+  -- leaves a half-written palette looking current.
+  local valid = rec.valid
+  rec.valid = false
+  sendOne(sh, rec, 1, a, valid)
+  sendOne(sh, rec, 2, b, valid)
+  sendOne(sh, rec, 3, c, valid)
+  sendOne(sh, rec, 4, d, valid)
+  rec.valid = true
+end
+
 -- send a 4-color (0-255 RGB) palette to the shade-remap shader, after
--- applying the active COLORS display mode
+-- applying the active COLORS display mode.  Resolves the same colors
+-- effectiveColors returns, indexing through the mode and shade maps rather
+-- than building the permuted tables.
 function PaletteFX.sendColors(shader, c)
-  c = PaletteFX.effectiveColors(c)
   if not c then return end
-  shader:send("c0", { c[1][1] / 255, c[1][2] / 255, c[1][3] / 255 })
-  shader:send("c1", { c[2][1] / 255, c[2][2] / 255, c[2][3] / 255 })
-  shader:send("c2", { c[3][1] / 255, c[3][2] / 255, c[3][3] / 255 })
-  shader:send("c3", { c[4][1] / 255, c[4][2] / 255, c[4][3] / 255 })
+  if PaletteFX.effectiveColors ~= stockEffectiveColors then
+    -- something replaced effectiveColors: honour it, as the send always did
+    c = PaletteFX.effectiveColors(c)
+    if not c then return end
+    return sendFour(shader, c[1], c[2], c[3], c[4])
+  end
+  local mode = PaletteFX.mode or "gbc"
+  local base, modeMap = c, nil
+  if PaletteFX.customRamp and not PaletteFX.pickerActive() then
+    base = PaletteFX.customRamp
+  elseif mode == "og" then
+    base = PaletteFX.GRAYS
+  elseif mode == "og_inv" then
+    base, modeMap = PaletteFX.GRAYS, INV_MAP
+  elseif mode == "classic" then
+    base = PaletteFX.CLASSIC
+  elseif mode == "gbc_inv" then
+    modeMap = INV_MAP
+  end
+  local sm = shadeMap
+  local i0, i1, i2, i3 = 0, 1, 2, 3
+  if sm then i0, i1, i2, i3 = sm[0], sm[1], sm[2], sm[3] end
+  if modeMap then
+    i0, i1, i2, i3 = modeMap[i0], modeMap[i1], modeMap[i2], modeMap[i3]
+  end
+  sendFour(shader, base[i0 + 1], base[i1 + 1], base[i2 + 1], base[i3 + 1])
 end
 
 -- The same send with NO display-mode substitution and no shade map: the four
@@ -1030,10 +1170,7 @@ function PaletteFX.sendShades(shader, c)
   -- headless (no love.graphics) leaves shader() nil; sendColors reaches the
   -- same no-op through effectiveColors returning nil for an absent palette
   if not shader or not c then return end
-  shader:send("c0", { c[1][1] / 255, c[1][2] / 255, c[1][3] / 255 })
-  shader:send("c1", { c[2][1] / 255, c[2][2] / 255, c[2][3] / 255 })
-  shader:send("c2", { c[3][1] / 255, c[3][2] / 255, c[3][3] / 255 })
-  shader:send("c3", { c[4][1] / 255, c[4][2] / 255, c[4][3] / 255 })
+  sendFour(shader, c[1], c[2], c[3], c[4])
 end
 
 return PaletteFX
