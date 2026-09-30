@@ -2,7 +2,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SLOW_DRIVERS="game3_daycare_egg game3_daycare_menu game3_daycare_deposit game3_import2_fresh_cache game3_import2_town_map game3_trade_scene game3_u8c_yesno_frame game3_u9c_catch_ball_open"
+SLOW_DRIVERS="game3_seam_walk_stress game3_daycare_egg game3_daycare_menu game3_daycare_deposit game3_import2_fresh_cache game3_import2_town_map game3_trade_scene game3_u8c_yesno_frame game3_u9c_catch_ball_open"
 REALTIME_DRIVERS="battle_fanfare_speed_bug1952_test"
 
 help_text() {

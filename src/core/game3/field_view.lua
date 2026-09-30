@@ -23,6 +23,14 @@ FieldView._nativeBatches = nil
 FieldView._nativeOverBatches = nil
 FieldView._nativeBx = nil
 FieldView._nativeBy = nil
+FieldView._nativeBaseBx = nil
+FieldView._nativeBaseBy = nil
+FieldView._nativeViewCols = nil
+FieldView._nativeViewRows = nil
+FieldView._nativeVisibleCells = nil
+FieldView._nativeFreeUnder = nil
+FieldView._nativeFreeOver = nil
+FieldView._nativeSpriteSlots = 0
 FieldView._nativePair = nil
 FieldView._nativeDirty = true
 FieldView._nativeOverOx = 0
@@ -844,6 +852,47 @@ local function ensure_batch(store, srcPair, texture, capacity)
   return batch
 end
 
+local nativeAtlasByPair = {}
+local HIDDEN_SPRITE_X, HIDDEN_SPRITE_Y = -1000000, -1000000
+
+local function nativeAtlas(NativeTileset, pair)
+  local ts = nativeAtlasByPair[pair]
+  if not ts or (NativeTileset._pairs and NativeTileset._pairs[pair] ~= ts) then
+    ts = NativeTileset.get(pair)
+    if ts then nativeAtlasByPair[pair] = ts end
+  end
+  return ts
+end
+
+local function acquireNativeSprite(store, free, key, texture, capacity, quad, x, y)
+  local batch = ensure_batch(store, key, texture, capacity)
+  local available = free[key]
+  local index
+  if available and #available > 0 then
+    index = available[#available]
+    available[#available] = nil
+    batch:set(index, quad, x, y)
+  else
+    index = batch:add(quad, x, y)
+    FieldView._nativeSpriteSlots = FieldView._nativeSpriteSlots + 1
+  end
+  return { key = key, index = index, quad = quad }
+end
+
+local function releaseNativeSprite(store, free, sprite)
+  if not sprite then return true end
+  local batch = store[sprite.key]
+  if not (batch and batch.set) then return false end
+  batch:set(sprite.index, sprite.quad, HIDDEN_SPRITE_X, HIDDEN_SPRITE_Y)
+  local available = free[sprite.key]
+  if not available then
+    available = {}
+    free[sprite.key] = available
+  end
+  available[#available + 1] = sprite.index
+  return true
+end
+
 FieldView.VOID_FADE_FRAMES = 20
 local voidKeys = setmetatable({}, { __index = function(t, pair)
   local k = "void|" .. pair
@@ -868,7 +917,8 @@ local function beginVoidFade(Map, mapDef, camX, camY, voidMode)
   FieldView._voidMapDef = mapDef
   FieldView._voidFrom = nil
   if not (prev and voidMode == "map" and FieldView._lastCamX and connectedTo(Map, prev)) then return end
-  local from = { under = {}, over = {}, bx = FieldView._nativeBx or 0, by = FieldView._nativeBy or 0,
+  local from = { under = {}, over = {}, bx = FieldView._nativeBaseBx or FieldView._nativeBx or 0,
+    by = FieldView._nativeBaseBy or FieldView._nativeBy or 0,
     dx = FieldView._lastCamX - camX, dy = FieldView._lastCamY - camY, t = 0 }
   for _, store in ipairs({ { FieldView._nativeBatches, from.under }, { FieldView._nativeOverBatches, from.over } }) do
     for k, b in pairs(store[1] or {}) do
@@ -930,127 +980,146 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
   local cy0 = math.floor(camY / CELL) - 1
   local capacity = cols * rows
 
-  FieldView._nativeBatches = FieldView._nativeBatches or {}
-  FieldView._nativeOverBatches = FieldView._nativeOverBatches or {}
-
   local Map = package.loaded["src.core.game3.map"]
     or require("src.core.game3.map")
   local VoidFill = require("src.core.game3.void_fill")
   local voidMode = VoidFill.normalize(VoidFill.mode)
   beginVoidFade(Map, mapDef, camX, camY, voidMode)
 
-  if FieldView._nativeDirty
-      or FieldView._nativeVoid ~= voidMode
-      or FieldView._nativeBx ~= cx0
-      or FieldView._nativeBy ~= cy0
-      or FieldView._nativePair ~= pair then
-    for _, batch in pairs(FieldView._nativeBatches) do
-      batch:clear()
-    end
-    for _, batch in pairs(FieldView._nativeOverBatches) do
-      batch:clear()
-    end
-    FieldView._nativeOverByRow = {}
-    for r = 0, rows - 1 do
-      FieldView._nativeOverByRow[r] = {}
-    end
-
-    local cellsByPair = FieldView._nativeCellsByPair
-    if not cellsByPair then
-      cellsByPair = {}
-      FieldView._nativeCellsByPair = cellsByPair
+  local moved = FieldView._nativeBx ~= cx0 or FieldView._nativeBy ~= cy0
+  local reset = FieldView._nativeDirty
+    or FieldView._nativeVoid ~= voidMode
+    or FieldView._nativePair ~= pair
+    or FieldView._nativeViewCols ~= cols
+    or FieldView._nativeViewRows ~= rows
+    or type(FieldView._nativeVisibleCells) ~= "table"
+    or (FieldView._nativeSpriteSlots or 0) > capacity * 4
+  if not reset and moved then
+    local dx = math.abs(cx0 - (FieldView._nativeBx or cx0))
+    local dy = math.abs(cy0 - (FieldView._nativeBy or cy0))
+    if dx >= cols or dy >= rows then
+      reset = true
     else
-      for _, list in pairs(cellsByPair) do list.n = 0 end
-    end
-
-    local voidHas, voidPrimary = nil, nil
-    if voidMode ~= "map" and voidMode ~= "black" then
-      voidHas = function(m) return NativeTileset.hasMid(pair, m) end
-      voidPrimary = VoidFill.primaryFor(pair)
-    end
-    for row = 0, rows - 1 do
-      for col = 0, cols - 1 do
-        local mid, srcPair, isVoid
-        if Map.worldMidAt then
-          mid, srcPair, isVoid = Map.worldMidAt(cx0 + col, cy0 + row, mapDef)
-          srcPair = srcPair or pair
-        else
-          mid, srcPair, isVoid = layout:midAt(cx0 + col, cy0 + row), pair, false
+      for _, store in ipairs({ FieldView._nativeBatches, FieldView._nativeOverBatches }) do
+        for _, batch in pairs(store or {}) do
+          if type(batch.set) ~= "function" then reset = true; break end
         end
-        local skip = false
-        if isVoid and voidMode ~= "map" then
-          local fill = VoidFill.fillAt(voidMode, cx0 + col, cy0 + row, voidHas, voidPrimary)
-          if fill == false then
-            skip = true
-          elseif fill then
-            mid, srcPair = fill, pair
-          end
-        end
-        if not NativeTileset.ready(srcPair) then
-          srcPair = pair
-        end
-        if not skip then
-          local key = (isVoid and voidMode == "map") and voidKeys[srcPair] or srcPair
-          local list = cellsByPair[key]
-          if not list then
-            list = { n = 0, pair = srcPair }
-            cellsByPair[key] = list
-          end
-          local n = list.n + 1
-          list.n = n
-          list[n * 3 - 2], list[n * 3 - 1], list[n * 3] = mid, col * CELL, row * CELL
-        end
+        if reset then break end
       end
     end
-    local visiblePairs = FieldView._nativeVisiblePairs
-    if not visiblePairs then
-      visiblePairs = {}
-      FieldView._nativeVisiblePairs = visiblePairs
+  end
+
+  local visibleCells = FieldView._nativeVisibleCells
+  local visiblePairs = FieldView._nativeVisiblePairs
+  local baseBx, baseBy = FieldView._nativeBaseBx, FieldView._nativeBaseBy
+  local function addCell(wx, wy)
+    local mid, srcPair, isVoid
+    if Map.worldMidAt then
+      mid, srcPair, isVoid = Map.worldMidAt(wx, wy, mapDef)
+      srcPair = srcPair or pair
     else
-      for k in pairs(visiblePairs) do visiblePairs[k] = nil end
+      mid, srcPair, isVoid = layout:midAt(wx, wy), pair, false
     end
-    for key, cells in pairs(cellsByPair) do
-      local srcPair = cells.pair
-      if cells.n > 0 then visiblePairs[srcPair] = true end
-      local ts = cells.n > 0 and NativeTileset.get(srcPair)
+    local skip = false
+    if isVoid and voidMode ~= "map" then
+      local fill = VoidFill.fillAt(voidMode, wx, wy,
+        function(m) return NativeTileset.hasMid(pair, m) end, VoidFill.primaryFor(pair))
+      if fill == false then
+        skip = true
+      elseif fill then
+        mid, srcPair = fill, pair
+      end
+    end
+    if not NativeTileset.ready(srcPair) then srcPair = pair end
+    local info = { pair = srcPair, draw = not skip }
+    if not skip then
+      local key = (isVoid and voidMode == "map") and voidKeys[srcPair] or srcPair
+      info.key = key
+      local ts = nativeAtlas(NativeTileset, srcPair)
       if ts and ts.image then
-        local batch = ensure_batch(FieldView._nativeBatches, key, ts.image, capacity)
-        batch:clear()
-        local overBatch = nil
-        if ts.layered and ts.overImage then
-          overBatch = ensure_batch(
-            FieldView._nativeOverBatches, key, ts.overImage, capacity)
-          overBatch:clear()
+        local slot = NativeTileset.slotFor(ts, mid)
+        local q = NativeTileset.quad(ts, slot)
+        if q then
+          info.under = acquireNativeSprite(FieldView._nativeBatches,
+            FieldView._nativeFreeUnder, key, ts.image, capacity, q,
+            (wx - baseBx) * CELL, (wy - baseBy) * CELL)
         end
-        for i = 1, cells.n * 3, 3 do
-          local x, y = cells[i + 1], cells[i + 2]
-          local slot = NativeTileset.slotFor(ts, cells[i])
-          local q = NativeTileset.quad(ts, slot)
-          if q then batch:add(q, x, y) end
-          if overBatch then
-            local oq = NativeTileset.overQuad(ts, slot)
-            if oq then
-              overBatch:add(oq, x, y)
-            end
+        if ts.layered and ts.overImage then
+          local oq = NativeTileset.overQuad(ts, slot)
+          if oq then
+            info.over = acquireNativeSprite(FieldView._nativeOverBatches,
+              FieldView._nativeFreeOver, key, ts.overImage, capacity, oq,
+              (wx - baseBx) * CELL, (wy - baseBy) * CELL)
           end
         end
       end
     end
+    return info
+  end
+
+  if not reset and moved then
+    for wy, row in pairs(visibleCells) do
+      for wx, info in pairs(row) do
+        if wx < cx0 or wx >= cx0 + cols or wy < cy0 or wy >= cy0 + rows then
+          if not releaseNativeSprite(FieldView._nativeBatches, FieldView._nativeFreeUnder, info.under)
+              or not releaseNativeSprite(FieldView._nativeOverBatches, FieldView._nativeFreeOver, info.over) then
+            reset = true
+            break
+          end
+          row[wx] = nil
+        end
+      end
+      if next(row) == nil then visibleCells[wy] = nil end
+      if reset then break end
+    end
+  end
+
+  if reset then
+    FieldView._nativeBatches, FieldView._nativeOverBatches = {}, {}
+    FieldView._nativeFreeUnder, FieldView._nativeFreeOver = {}, {}
+    visibleCells = {}
+    FieldView._nativeVisibleCells = visibleCells
+    visiblePairs = {}
+    FieldView._nativeVisiblePairs = visiblePairs
+    FieldView._nativeSpriteSlots = 0
+    FieldView._nativeBaseBx, FieldView._nativeBaseBy = cx0, cy0
+    FieldView._nativeViewCols, FieldView._nativeViewRows = cols, rows
+    baseBx, baseBy = cx0, cy0
+  elseif moved then
+    for k in pairs(visiblePairs) do visiblePairs[k] = nil end
+  end
+
+  for wy = cy0, cy0 + rows - 1 do
+    local row = visibleCells[wy]
+    if not row then
+      row = {}
+      visibleCells[wy] = row
+    end
+    for wx = cx0, cx0 + cols - 1 do
+      local info = row[wx]
+      if not info then
+        info = addCell(wx, wy)
+        row[wx] = info
+      end
+      if info.draw then visiblePairs[info.pair] = true end
+    end
+  end
+
+  FieldView._nativeBx, FieldView._nativeBy = cx0, cy0
+  FieldView._nativePair = pair
+  FieldView._nativeVoid = voidMode
+  FieldView._nativeDirty = false
+  if reset or moved then
     local TilesetAnim = package.loaded["src.core.game3.tileset_anim"]
       or require("src.core.game3.tileset_anim")
     if TilesetAnim and TilesetAnim.setVisiblePairs then
       TilesetAnim.setVisiblePairs(visiblePairs)
     end
-    FieldView._nativeBx = cx0
-    FieldView._nativeBy = cy0
-    FieldView._nativePair = pair
-    FieldView._nativeVoid = voidMode
-    FieldView._nativeDirty = false
   end
 
   love.graphics.setColor(1, 1, 1, 1)
-  local ox = -(camX % CELL) - CELL
-  local oy = -(camY % CELL) - CELL
+  local ox = baseBx * CELL - camX
+  local oy = baseBy * CELL - camY
   FieldView._nativeOverOx = ox
   FieldView._nativeOverOy = oy
   FieldView._nativeOverPair = pair
@@ -1561,13 +1630,22 @@ function FieldView.invalidate()
   FieldView._nativeBatch = nil
   FieldView._nativeBatches = nil
   FieldView._nativeOverBatches = nil
+  FieldView._nativeVisibleCells = nil
+  FieldView._nativeVisiblePairs = nil
+  FieldView._nativeFreeUnder, FieldView._nativeFreeOver = nil, nil
+  FieldView._nativeSpriteSlots = 0
   FieldView._voidFrom, FieldView._voidMapDef = nil, nil
   FieldView._lastCamX, FieldView._lastCamY = nil, nil
   FieldView._nativeBx = nil
   FieldView._nativeBy = nil
+  FieldView._nativeBaseBx = nil
+  FieldView._nativeBaseBy = nil
+  FieldView._nativeViewCols = nil
+  FieldView._nativeViewRows = nil
   FieldView._nativePair = nil
   FieldView._nativeOverPair = nil
   FieldView._nativeDirty = true
+  nativeAtlasByPair = {}
   FieldView._loggedNative = false
   FieldView._loggedNativeFallback = false
   FieldView._flashSpans = nil
