@@ -17,6 +17,10 @@ local function se(id)
   pcall(function() require("src.core.game3.audio").playSe(id) end)
 end
 
+local function is_rse(session)
+  return require("src.core.game3.profile").family(session) == "rse"
+end
+
 local function price_of(itemId)
   local info = ItemsData.info(itemId)
   return math.max(0, math.floor(tonumber(info and info.price) or 0))
@@ -49,20 +53,34 @@ function SellFlow.start(opts)
   self.colors = dialog_colors()
   if price_of(opts.itemId) == 0 then
     self.state = "cant"
-    self.text = RomText.box("gText_OhNoICantBuyThat", { stringVars = { self.name } })
+    if is_rse(self.session) then
+      self.text = RomText.box("gText_CantBuyKeyItem", { stringVars = { [2] = self.name } })
+    else
+      self.text = RomText.box("gText_OhNoICantBuyThat", { stringVars = { self.name } })
+    end
     self.textColors = self.colors
     return self
   end
   local owned = math.max(1, tonumber(opts.owned) or 1)
-  self.owned = math.min(99, owned)
+  self.owned = math.min(self:rseBerry() and 999 or 99, owned)
   if owned == 1 then
     self:ask()
   else
     self.state = "qty"
-    self.text = RomText.box("gText_HowManyWouldYouLikeToSell", { stringVars = { self.name } })
+    if is_rse(self.session) then
+      self.text = RomText.box("gText_HowManyToSell", { stringVars = { [2] = self.name } })
+    else
+      self.text = RomText.box("gText_HowManyWouldYouLikeToSell", { stringVars = { self.name } })
+    end
     self.textColors = self.colors
   end
   return self
+end
+
+function SellFlow:rseBerry()
+  if not is_rse(self.session) then return false end
+  local ok, BagMenu = pcall(require, "src.ui.game3.bag_menu")
+  return ok and BagMenu.currentPocket and BagMenu.currentPocket() == "BERRY_POUCH" or false
 end
 
 function SellFlow:total()
@@ -73,16 +91,24 @@ end
 function SellFlow:ask()
   self.state = "confirm"
   self.yesNo = 1
-  self.text = RomText.box("gText_ICanPayThisMuch_WouldThatBeOkay",
-    { stringVars = { [3] = tostring(self:total()) } })
+  if is_rse(self.session) then
+    self.text = RomText.box("gText_ICanPayVar1", { stringVars = { tostring(self:total()) } })
+  else
+    self.text = RomText.box("gText_ICanPayThisMuch_WouldThatBeOkay",
+      { stringVars = { [3] = tostring(self:total()) } })
+  end
   self.textColors = self.colors
 end
 
 -- src/item_menu.c:1917 Task_SellItem_Yes, :1928 Task_FinalizeSaleToShop
 function SellFlow:commit()
   local earn = self:total()
-  self.text = RomText.box("gText_TurnedOverItemsWorthYen",
-    { stringVars = { self.name, [3] = tostring(earn) } })
+  if is_rse(self.session) then
+    self.text = RomText.box("gText_TurnedOverVar1ForVar2", { stringVars = { tostring(earn), self.name } })
+  else
+    self.text = RomText.box("gText_TurnedOverItemsWorthYen",
+      { stringVars = { self.name, [3] = tostring(earn) } })
+  end
   self.textColors = FrlgFont.COLOR.NORMAL
   self.state = "done"
   se(SE.SE_SHOP)
@@ -184,9 +210,41 @@ local function draw_money_box(amount)
   Window.printPx(s, 8 + 64 - w, 8 + 12, { small = true })
 end
 
+-- pokeemerald/src/item_menu.c:2120 InitSellHowManyInput, :1201 PrintItemSoldAmount
+function SellFlow:drawRse()
+  local st = self.state
+  local Shop = require("src.ui.game3.rse.shop_menu")
+  local Chrome = require("src.ui.game3.chrome")
+  if st ~= "cant" then
+    Shop.drawMoneyBox(tonumber(self.session and self.session.money) or 0)
+  end
+  Window.dialogueFrame()
+  local w = Chrome.DLG_W * 8
+  FrlgFont.draw(FrlgFont.wrap(self.text, w), Chrome.DLG_LEFT * 8, Chrome.DLG_TOP * 8 + 1,
+    { maxWidth = w, colors = FrlgFont.COLOR.NORMAL })
+  if st == "qty" then
+    local q = Shop.WIN.qty
+    Window.stdFrame(q)
+    Window.fill(q, 1, 1, 1, 1)
+    local digits = self:rseBerry() and 3 or 2
+    Window.printPx(RomText.plain("gText_xVar1", { stringVars = { string.format("%0" .. digits .. "d", self.qty) } }),
+      q.left * 8, q.top * 8 + 1)
+    Shop.drawMoneyAmount(nil, q, self:total())
+  elseif st == "confirm" then
+    local yn = Shop.WIN.yesno
+    Window.stdFrame(yn)
+    Window.fill(yn, 1, 1, 1, 1)
+    local pitch = Window.optionHeight()
+    Window.printPx(RomText.plain("gText_Yes"), yn.left * 8 + 8, yn.top * 8 + 1)
+    Window.printPx(RomText.plain("gText_No"), yn.left * 8 + 8, yn.top * 8 + 1 + pitch)
+    Window.cursorPx(yn.left * 8, yn.top * 8 + 1 + (self.yesNo - 1) * pitch)
+  end
+end
+
 function SellFlow:draw()
   local st = self.state
   if not st then return end
+  if is_rse(self.session) then return self:drawRse() end
   local Chrome = require("src.ui.game3.chrome")
   if st ~= "cant" then
     draw_money_box(tonumber(self.session and self.session.money) or 0)

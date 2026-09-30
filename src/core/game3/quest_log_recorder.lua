@@ -3,7 +3,8 @@ local Q=require('src.core.game3.quest_log')
 local R={}
 function R.location(game,session)
   local def=game and game.data and game.data.maps and game.data.maps[session.map]
-  local info=require("src.import.gba.map_sections_extract").getInfo(def and def.regionMapSectionId,session.map,0)
+  local ok,info=pcall(require("src.import.gba.map_sections_extract").getInfo,def and def.regionMapSectionId,session.map,0)
+  if not ok then info=nil end
   if info and info.name and info.name~="???" then return info.name end
   return tostring(session.map or ''):gsub('^FR_',''):gsub('_',' ')
 end
@@ -46,6 +47,7 @@ function R.tiles(game,session,frame)
   return R.fillTiles(game,session,frame,{})
 end
 function R.event(session,key,args)
+  if not require('src.core.game3.field_modules').enabled('questLog',session) then return end
   local Runtime=package.loaded['src.core.game3.runtime']
   -- Ignore simulations/tests and sessions that aren't the active game.
   if not session or not Runtime or type(Runtime.isActive) ~= "function" or not Runtime.isActive() or (Runtime.getSession and Runtime.getSession() ~= session) then return end

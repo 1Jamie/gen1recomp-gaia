@@ -583,7 +583,8 @@ local function begin_sell(row)
     clamp_cursor()
     reshow()
   end
-  if num == ItemsData.ITEM_TM_CASE then
+  local frlgCases = require("src.core.game3.profile").family(BagMenu._session) ~= "rse"
+  if frlgCases and num == ItemsData.ITEM_TM_CASE then
     -- src/item_menu.c:1825 GoToTMCase_Sell
     open_submenu(function()
       require("src.ui.game3.tm_case").show(BagMenu._session, BagMenu._bag, {
@@ -591,7 +592,7 @@ local function begin_sell(row)
       })
     end)
     return
-  elseif num == ItemsData.ITEM_BERRY_POUCH then
+  elseif frlgCases and num == ItemsData.ITEM_BERRY_POUCH then
     -- src/item_menu.c:1830 GoToBerryPouch_Sell
     open_submenu(function()
       require("src.ui.game3.berry_pouch").show(BagMenu._session, BagMenu._bag, {
@@ -848,7 +849,8 @@ local function handle_menu_input(input)
           end
         else
           local numId = ItemsData.toNumericId(row.id)
-          if numId == ItemsData.ITEM_TM_CASE or row.id == "TM_CASE" then
+          local frlgCases = require("src.core.game3.profile").family(BagMenu._session) ~= "rse"
+          if frlgCases and (numId == ItemsData.ITEM_TM_CASE or row.id == "TM_CASE") then
             local savedState = { pocketIdx = BagMenu.pocketIdx, cursor = BagMenu.cursor, scroll = BagMenu.scroll }
             local TmCase = require("src.ui.game3.tm_case")
             open_submenu(function()
@@ -866,7 +868,7 @@ local function handle_menu_input(input)
               })
             end)
             return
-          elseif numId == ItemsData.ITEM_BERRY_POUCH or row.id == "BERRY_POUCH" then
+          elseif frlgCases and (numId == ItemsData.ITEM_BERRY_POUCH or row.id == "BERRY_POUCH") then
             local savedState = { pocketIdx = BagMenu.pocketIdx, cursor = BagMenu.cursor, scroll = BagMenu.scroll }
             local BerryPouch = require("src.ui.game3.berry_pouch")
             open_submenu(function()

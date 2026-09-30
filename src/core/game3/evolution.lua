@@ -304,6 +304,13 @@ function Evolution.apply(mon, newSpecies, session, bag, via)
   -- 2. Nickname update
   Evolution.renameMon(mon, preSpecies, newSpecies)
 
+  -- pokeemerald/src/pokemon.c:4556 GetMonAbility
+  local pair = Pokemon.abilities(newSpecies)
+  local slot = tonumber(mon.abilityNum)
+  local ability = slot and pair[slot + 1]
+  if not ability or ability == 0 then ability = Pokemon.abilityId(newSpecies, mon.personality) end
+  mon.ability, mon.abilityId = ability, ability
+
   -- 3. Recalculate stats & handle HP delta
   Pokemon.applyStats(mon)
   local newMax = tonumber(mon.maxHp) or oldMax

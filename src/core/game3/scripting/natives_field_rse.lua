@@ -1278,6 +1278,20 @@ function FieldRse.tryGainNewFanFromCounter(incrementId)
   return bit.band(fanBits(), FANCLUB_COUNTER)
 end
 
+-- pokeemerald/src/field_specials.c:4244
+function FieldRse.updateTrainerFansAfterLinkBattle(won)
+  if (tonumber(Rse.var("VAR_LILYCOVE_FAN_CLUB_STATE")) or 0) ~= 2 then return end
+  if fanFlag(FANCLUB_GOT_FIRST_FANS) then
+    FieldRse.tryLoseFansFromPlayTime()
+    Rse.setVar("VAR_FANCLUB_LOSE_FAN_TIMER", playTimeHours())
+  end
+  if won then
+    FieldRse.playerGainRandomTrainerFan()
+  else
+    FieldRse.playerLoseRandomTrainerFan()
+  end
+end
+
 -- pokeemerald/src/field_specials.c:4170
 local FAN_NAME_SOURCES = {
   [9] = { 0, 3 }, [10] = { 0, 1 }, [11] = { 1, 0 }, [12] = { 0, 4 }, [13] = { 1, 5 },

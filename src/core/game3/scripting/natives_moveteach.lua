@@ -140,7 +140,12 @@ MoveTeach.BY_NAME = {
   -- pokefirered/src/learn_move.c:367
   TeachMoveRelearnerMove = function(ctx, adapters)
     local mon, session = chosenMon(ctx)
-    local okUi, MoveRelearner = pcall(require, "src.ui.game3.move_relearner")
+    local screen = "src.ui.game3.move_relearner"
+    if require("src.core.game3.profile").family(session) == "rse" then
+      -- pokeemerald/src/move_relearner.c:373
+      screen = "src.ui.game3.rse.move_relearner"
+    end
+    local okUi, MoveRelearner = pcall(require, screen)
     if not (mon and okUi and type(MoveRelearner) == "table" and MoveRelearner.show) then
       varSet(ctx, VAR_0x8004, 0)
       return false

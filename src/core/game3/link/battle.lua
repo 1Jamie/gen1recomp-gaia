@@ -1442,9 +1442,17 @@ function LB.finish(result)
       bumpTrainerCard(s, recorded)
       LB.addOpponentRecord(s, LB.peer and LB.peer.name, LB.peer and LB.peer.trainerId, recorded)
       -- pokefirered/src/cable_club.c:782
-      local okF, TFC = pcall(require, "src.core.game3.trainer_fan_club")
-      if okF and TFC and TFC.updateTrainerFansAfterLinkBattle then
-        TFC.updateTrainerFansAfterLinkBattle(s, ctx, recorded)
+      if require("src.core.game3.profile").family(s) == "rse" then
+        -- pokeemerald/src/field_specials.c:4244
+        local okR, FieldRse = pcall(require, "src.core.game3.scripting.natives_field_rse")
+        if okR and FieldRse.updateTrainerFansAfterLinkBattle then
+          FieldRse.updateTrainerFansAfterLinkBattle(recorded == LB.B_OUTCOME.WON)
+        end
+      else
+        local okF, TFC = pcall(require, "src.core.game3.trainer_fan_club")
+        if okF and TFC and TFC.updateTrainerFansAfterLinkBattle then
+          TFC.updateTrainerFansAfterLinkBattle(s, ctx, recorded)
+        end
       end
     end
   end

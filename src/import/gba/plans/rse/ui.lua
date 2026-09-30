@@ -18,7 +18,15 @@ return {
         { name = "multichoice_extract", label = "Dialog Menus" },
       },
     },
+    {
+      id = "ui_relearner",
+      run = "steps",
+      weight = 0.01,
+      steps = {
+        { name = "move_relearner_rse_extract", label = "Move Relearner" },
+      },
+    },
   },
-  sequential = { "ui_wild", "ui_places" },
-  dirs = { "/region_map", "/scripts", "/chrome/map_popup" },
+  sequential = { "ui_wild", "ui_places", "ui_relearner" },
+  dirs = { "/region_map", "/scripts", "/chrome/map_popup", "/rse/move_relearner" },
 }

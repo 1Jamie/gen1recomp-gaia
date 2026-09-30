@@ -19,6 +19,7 @@ return function(V)
   end
 
   V.NAMED_TEXTS = offsets(Text.NAMED_TEXTS)
+  V.NAMED_TEXTS.sText_CommunicationStandby = S.off("trade.o:sText_CommunicationStandby")
   V.NAMED_BATTLE_TEXTS = offsets(Text.NAMED_BATTLE_TEXTS)
 
   local tables = {}

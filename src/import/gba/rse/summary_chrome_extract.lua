@@ -8,7 +8,7 @@ M.PAGES = { "info", "info_egg", "skills", "battle_moves", "contest_moves" }
 
 M.FILES = {
   "info.png", "info_egg.png", "skills.png", "battle_moves.png", "contest_moves.png",
-  "move_types.png", "move_select.png", "status.png", "tiles.png", "markings.png",
+  "move_types.png", "move_select.png", "status.png", "status_plate.png", "tiles.png", "markings.png",
 }
 
 -- pokeemerald/src/pokemon_summary_screen.c:2338
@@ -54,6 +54,19 @@ local function bytes(c, name)
   return out
 end
 
+-- pokeemerald/src/pokemon_summary_screen.c:2405
+local function clearStatusPlate(map)
+  local out = {}
+  for i = 1, #map do out[i] = map:sub(i, i) end
+  for row = 18, 19 do
+    for col = 0, 9 do
+      local o = (row * 32 + col) * 2
+      out[o + 1], out[o + 2] = "\1", "\0"
+    end
+  end
+  return table.concat(out)
+end
+
 function M.run(rom, cache, opts)
   local c = K.context(rom, cache, opts, M.SUB)
   local gfx = c:lz("gSummaryScreen_Gfx")
@@ -62,7 +75,9 @@ function M.run(rom, cache, opts)
   c:pal("gPPTextPalette", 15, pal, 8 * 16 + 1)
   local layers = {}
   for _, key in ipairs(M.PAGES) do
-    local idx, W, H = K.bakeText(gfx, c:lz(TILEMAPS[key]), 30, 20)
+    local map = c:lz(TILEMAPS[key])
+    if key == "info" or key == "info_egg" then map = clearStatusPlate(map) end
+    local idx, W, H = K.bakeText(gfx, map, 30, 20)
     layers[key] = c:layer({ key = key }, idx, W, H, pal)
   end
   layers.info.backdrop = pal[0]
@@ -115,6 +130,13 @@ function M.run(rom, cache, opts)
   local selSheet, selW, selH = K.stack(selFrames, 16, 16)
   c:png("move_select.png", selW, selH, selSheet, selPal, true)
 
+  -- pokeemerald/src/pokemon_summary_screen.c:369
+  local plateMap = string.char(
+    4, 0, 4, 0, 4, 0, 4, 0, 4, 0, 4, 0, 0x17, 8, 0x17, 8, 0x17, 8, 0x0b, 0,
+    4, 8, 4, 8, 4, 8, 4, 8, 4, 8, 4, 8, 0x17, 0, 0x17, 0, 0x17, 0, 0x0b, 8)
+  local plateIdx, PW, PH = K.bakeText(gfx, plateMap, 10, 2, { linear = true, mapWidth = 10 })
+  c:png("status_plate.png", PW, PH, plateIdx, pal, true)
+
   -- pokeemerald/src/pokemon_summary_screen.c:1367
   local stPal = c:pal("gStatusPal_Icons", 16, nil, 0, true)
   local stGfx = c:lz("gStatusGfx_Icons")
@@ -140,6 +162,7 @@ function M.run(rom, cache, opts)
     tiles = { png = c:path("tiles.png"), index = tileIndex },
     moveTypes = { png = c:path("move_types.png"), w = 32, h = 16, count = typeCount },
     moveSelect = { png = c:path("move_select.png"), w = 16, h = 16, count = #selFrames },
+    statusPlate = { png = c:path("status_plate.png"), x = 0, y = 144 },
     status = { png = c:path("status.png"), w = 32, h = 8, count = #stFrames },
     palette = K.palList(pal, 0, 144),
     windows = windows(c, "sSummaryTemplate"),

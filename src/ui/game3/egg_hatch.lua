@@ -374,11 +374,13 @@ function EggHatch.update(dt)
     -- pokefirered/src/daycare.c:1935 IsFanfareTaskInactive
     local quiet = (not Audio.isFanfareFinished) or Audio.isFanfareFinished()
     if quiet and EggHatch._timer > 1 then
+      -- pokefirered/src/daycare.c:1944 gText_NickHatchPrompt, pokeemerald/src/egg_hatch.c:673
+      local key = require("src.core.game3.profile").family(EggHatch._session) == "rse"
+        and "gText_NicknameHatchPrompt" or "gText_NickHatchPrompt"
+      local text = RomText.box(key, { stringVars = { EggHatch._name } })
       EggHatch._state = "nickname_msg"
       EggHatch._timer = 0
-      -- pokefirered/src/daycare.c:1944 gText_NickHatchPrompt
-      Message.show(RomText.box("gText_NickHatchPrompt", { stringVars = { EggHatch._name } }),
-        { stay = true, frame = "battle" })
+      Message.show(text, { stay = true, frame = "battle" })
     end
 
   elseif st == "nickname_msg" then

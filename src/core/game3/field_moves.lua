@@ -71,6 +71,8 @@ local FRLG_SYS_FLAGS = {
 
 -- pokeemerald/include/constants/flags.h:1398
 local RSE_SYS_FLAGS = {
+  WHITE_FLUTE_ACTIVE = "FLAG_SYS_ENC_UP_ITEM",
+  BLACK_FLUTE_ACTIVE = "FLAG_SYS_ENC_DOWN_ITEM",
   USE_STRENGTH = "FLAG_SYS_USE_STRENGTH",
   FLASH_ACTIVE = "FLAG_SYS_USE_FLASH",
 }
@@ -85,9 +87,23 @@ FieldMoves.SYS_FLAGS = setmetatable({}, {
 })
 
 -- src/event_data.c:49
-FieldMoves.TEMP_SYS_FLAGS = {
-  0x803, 0x804, 0x805,
-}
+local FRLG_TEMP_SYS_FLAGS = { "WHITE_FLUTE_ACTIVE", "BLACK_FLUTE_ACTIVE", "USE_STRENGTH" }
+
+-- pokeemerald/src/event_data.c:39
+local RSE_TEMP_SYS_FLAGS = { "WHITE_FLUTE_ACTIVE", "BLACK_FLUTE_ACTIVE", "USE_STRENGTH", "FLAG_SYS_CTRL_OBJ_DELETE",
+  "FLAG_NURSE_UNION_ROOM_REMINDER" }
+
+function FieldMoves.tempSysFlags()
+  local P = activeProfile()
+  local rse = P.family == "rse"
+  local IDS = rse and Flags.forVersion(P.id).IDS or nil
+  local out = {}
+  for _, key in ipairs(rse and RSE_TEMP_SYS_FLAGS or FRLG_TEMP_SYS_FLAGS) do
+    local id = FieldMoves.SYS_FLAGS[key] or (IDS and IDS[key])
+    if id then out[#out + 1] = id end
+  end
+  return out
+end
 
 -- Graphics IDs for interactable field objects
 local FRLG_GFX_IDS = {

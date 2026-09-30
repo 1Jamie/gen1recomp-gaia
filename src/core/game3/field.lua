@@ -512,6 +512,11 @@ end
 
 -- pokefirered/data/scripts/itemfinder.inc:1
 function Field.digUpUnderfootItem(game, hidden)
+  if require("src.core.game3.profile").family(Field._session) == "rse" then
+    -- pokeemerald/src/item_use.c:597
+    require("src.ui.game3.message").close()
+    return false
+  end
   if not hidden then return false end
   local Flags = require("src.core.game3.scripting.flags")
   local flag = hidden_flag(hidden)
@@ -552,14 +557,14 @@ function Field.useItemfinder(session, showOWMessage)
   })
 
   if not result then
-    local text = RomText.box("gText_NopeTheresNoResponse")
+    local text = RomText.box(Itemfinder.textKey("nothing", session))
     if showOWMessage then
       -- pokefirered/src/itemfinder.c:150
       Message.show(text, { session = session, done = function() Message.close() end })
     end
     return false, "itemfinder", text, nil
   end
-  local key = result.underfoot and "gText_ItemfinderShakingWildly" or "gText_ItemfinderResponding"
+  local key = Itemfinder.textKey(result.underfoot and "onTop" or "nearby", session)
   local text = RomText.box(key)
   if showOWMessage then
     Field.lock()
@@ -1849,8 +1854,7 @@ function Field.clearTempFieldEventData(game, mapId)
   local Flags = require("src.core.game3.scripting.flags")
   local Space = package.loaded["src.core.game3.scripting.space"]
   local session = Field._session
-  local ids = {}
-  for i = 1, #FieldMoves.TEMP_SYS_FLAGS do ids[i] = FieldMoves.TEMP_SYS_FLAGS[i] end
+  local ids = FieldMoves.tempSysFlags()
   local data = game and game.data and game.data.maps
   local def = mapId and data and data[mapId]
   -- pokefirered/src/overworld.c:803

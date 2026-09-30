@@ -284,6 +284,7 @@ end
 -- Do not force-hide lab Oak (43) — clearflag during the lead warp must stick.
 function Flags.ensurePalletOakHidden(store)
   if not store then return end
+  if require("src.core.game3.profile").family() ~= "frlg" then return end
   local sceneVar = Flags.VAR_IDS.MAP_SCENE_PALLET_TOWN_OAK or 0x4050
   local scene = Flags.getVar(store, nil, sceneVar)
   if scene ~= 0 then return end

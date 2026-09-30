@@ -1258,7 +1258,12 @@ function PartyMenu.enterChosenMon(slot)
     se("SE_FAILURE")
     -- pokefirered/src/party_menu.c:3769
     local key = (max == 2) and "gText_NoMoreThanTwoMayEnter" or "gText_NoMoreThanThreeMayEnter"
-    show_rom_message(key, nil, function() PartyMenu.mode = "choose_multi" end)
+    local vars = nil
+    if isRse() then
+      -- pokeemerald/src/party_menu.c:3544
+      key, vars = "gText_NoMoreThanVar1Pkmn", { tostring(max) }
+    end
+    show_rom_message(key, vars, function() PartyMenu.mode = "choose_multi" end)
     return false
   end
   se("SE_SELECT")
@@ -1798,13 +1803,19 @@ function PartyMenu.handleInput(input)
               if res.action == "dig" then
                 -- pokefirered/src/party_menu.c:3946
                 destMap = session.escapeWarp and session.escapeWarp.map
-                key = "gText_EscapeFromHereAndReturnTo"
+                key = isRse() and "gText_EscapeFromHere" or "gText_EscapeFromHereAndReturnTo"
               end
               local game = Field._game
               local def = game and game.data and game.data.maps and game.data.maps[destMap]
-              local Sections = require("src.import.gba.map_sections_extract")
-              -- pokefirered/src/region_map.c:3828 GetMapNameGeneric
-              local placeName = Sections.getPlaceName(destMap, def and def.regionMapSectionId)
+              local placeName
+              if isRse() then
+                -- pokeemerald/src/party_menu.c:3741
+                placeName = require("src.ui.game3.rse.mapsec").name(def and def.regionMapSectionId)
+              else
+                local Sections = require("src.import.gba.map_sections_extract")
+                -- pokefirered/src/region_map.c:3828 GetMapNameGeneric
+                placeName = Sections.getPlaceName(destMap, def and def.regionMapSectionId)
+              end
               -- pokefirered/src/party_menu.c:3984 DisplayFieldMoveExitAreaMessage
               PartyMenu.showYesNo(RomText.box(key, { stringVars = { placeName }, maxWidth = 216 }), function(yes)
                 if yes then

@@ -147,6 +147,17 @@ function Itemfinder.start(task)
   Itemfinder._task = task
 end
 
+local TEXT_KEYS = {
+  frlg = { nothing = "gText_NopeTheresNoResponse", nearby = "gText_ItemfinderResponding", onTop = "gText_ItemfinderShakingWildly" },
+  rse = { nothing = "gText_ItemFinderNothing", nearby = "gText_ItemFinderNearby", onTop = "gText_ItemFinderOnTop" },
+}
+
+-- pokeemerald/src/item_use.c:295
+function Itemfinder.textKey(kind, session)
+  local family = require("src.core.game3.profile").family(session)
+  return (TEXT_KEYS[family] or TEXT_KEYS.frlg)[kind]
+end
+
 function Itemfinder.isActive()
   return Itemfinder._task ~= nil
 end
@@ -167,7 +178,7 @@ function Itemfinder.runTask()
   if t.timer % 25 == 0 then
     if t.remaining == 0 then
       t.phase = "message"
-      local key = t.result.underfoot and "gText_ItemfinderShakingWildly" or "gText_ItemfinderResponding"
+      local key = Itemfinder.textKey(t.result.underfoot and "onTop" or "nearby")
       t.onMessage(key, function()
         Itemfinder._task = nil
         Itemfinder._sprites = {}

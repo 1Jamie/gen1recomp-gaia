@@ -218,6 +218,7 @@ local function writeback(session, battleParty, remap, result, save, opts)
         exp = src.exp,
         pp = src.pp,
         maxPp = src.maxPp,
+        ppBonusesPacked = src.ppBonusesPacked,
         moves = src.moves,
         species = src.species or src.speciesId,
         speciesId = src.speciesId or src.species,

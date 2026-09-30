@@ -308,7 +308,10 @@ local function flagId(name)
   local n = tonumber(name)
   if n then return n end
   local Flags = g3("scripting.flags")
-  return Flags and Flags.IDS and Flags.IDS[name] or nil
+  if not Flags then return nil end
+  local ok, t = pcall(Flags.active, session())
+  local ids = ok and t and t.IDS or Flags.IDS
+  return ids and ids[name] or nil
 end
 
 local function varId(name)
@@ -317,7 +320,10 @@ local function varId(name)
   local n = tonumber(name)
   if n then return n end
   local Flags = g3("scripting.flags")
-  return Flags and Flags.VAR_IDS and Flags.VAR_IDS[name] or nil
+  if not Flags then return nil end
+  local ok, t = pcall(Flags.active, session())
+  local ids = ok and t and t.VAR_IDS or Flags.VAR_IDS
+  return ids and ids[name] or nil
 end
 
 function Gen3Compat.getFlag(name)

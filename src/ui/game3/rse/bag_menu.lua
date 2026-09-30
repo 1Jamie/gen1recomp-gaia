@@ -505,7 +505,9 @@ function RseBag.draw(Bag)
     drawDescription(RomText.plain("gText_Var1IsSelected", { stringVars = { sel.name } }), pal)
     drawGrid(Bag, sel)
   elseif (Bag.mode == "toss" or Bag.mode == "deposit") and sel then
-    drawDescription(RomText.plain("gText_TossHowManyVar1s", { stringVars = { sel.name } }), pal)
+    -- pokeemerald/src/item_menu.c:2203
+    local key = Bag.mode == "deposit" and "gText_DepositHowManyVar1" or "gText_TossHowManyVar1s"
+    drawDescription(RomText.plain(key, { stringVars = { sel.name } }), pal)
     drawQuantity(pocket, Bag.tossQty or 1)
   elseif Bag.mode == "toss_confirm" and sel then
     drawDescription(RomText.plain("gText_ConfirmTossItems", { stringVars = { sel.name, tostring(Bag.tossQty) } }), pal)

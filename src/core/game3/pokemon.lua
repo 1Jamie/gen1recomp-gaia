@@ -1311,6 +1311,12 @@ function Pokemon.swapMoves(mon, slotA, slotB)
     mon.pp[slotB] = ppA
   end
 
+  if type(mon.maxPp) == "table" then
+    local maxA = mon.maxPp[slotA]
+    mon.maxPp[slotA] = mon.maxPp[slotB]
+    mon.maxPp[slotB] = maxA
+  end
+
   -- 4. If parallel array mon.ppBonuses / mon.ppBonus / mon.ppUp exists
   if type(mon.ppBonuses) == "table" then
     local bA = mon.ppBonuses[slotA]

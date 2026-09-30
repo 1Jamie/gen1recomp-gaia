@@ -467,6 +467,14 @@ local function draw_money_label()
   end
 end
 
+RseShop.drawMoneyBox = function(amount)
+  local m = WIN.money
+  Window.stdFrame(m)
+  Window.fill(m, 1, 1, 1, 1)
+  draw_money_label()
+  RseShop.drawMoneyAmount(nil, m, amount)
+end
+
 local iconsImage
 local blankIcons = {}
 

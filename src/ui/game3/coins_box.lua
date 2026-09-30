@@ -70,6 +70,14 @@ end
 
 function CoinsBox.draw()
   if not CoinsBox.visible then return end
+  if require("src.core.game3.profile").family() == "rse" then
+    -- pokeemerald/src/coins.c:14 PrintCoinsString, :24 ShowCoinsWindow
+    local tpl = Window.template(CoinsBox.x, CoinsBox.y, 8, 2)
+    Window.stdFrame(tpl)
+    local text = RomText.plain("gText_Coins", { stringVars = { tostring(clamp(CoinsBox._amount)) } })
+    Window.printPx(text, CoinsBox.x * 8 + 64 - FrlgFont.measure(text), CoinsBox.y * 8 + 1)
+    return
+  end
   -- pokefirered/src/coins.c:79
   local left = CoinsBox.x + 1
   local top = CoinsBox.y + 1

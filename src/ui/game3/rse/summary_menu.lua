@@ -465,12 +465,6 @@ local function drawSkills(m, Sm, mon)
     drawTile(m, "exp", t, (21 + i) * 8, 18 * 8)
     ticks = math.max(0, ticks - 8)
   end
-  -- pokeemerald/src/pokemon_summary_screen.c:1493
-  local ailment = SummaryData.statusAilment(mon)
-  if ailment and ailment > 0 then
-    put(m, win(m, W.STATUS), "gText_Status", 2, 1, 1)
-    drawFrame(m.status, ailment - 1, 64 - 16, 152 - 4)
-  end
 end
 
 -- pokeemerald/src/pokemon_summary_screen.c:3527
@@ -566,6 +560,10 @@ function RseSummary.draw(Sm)
   love.graphics.setColor(1, 1, 1, 1)
   local L = m.layers
   drawLayer(egg and L.info_egg or L.info)
+  local ailment = not egg and SummaryData.statusAilment(mon) or 0
+  if ailment > 0 and m.statusPlate then
+    drawFrame({ png = m.statusPlate.png, w = 80, h = 16 }, 0, m.statusPlate.x, m.statusPlate.y)
+  end
   if page == 1 then drawLayer(L.skills, 80, 240) end
   if page == 2 then drawLayer(L.battle_moves, detail and 0 or 80, 240) end
   if page == 3 then drawLayer(L.contest_moves, detail and 0 or 80, 240) end
@@ -574,6 +572,11 @@ function RseSummary.draw(Sm)
   drawPagination(m, page, minPage, maxPage)
   drawTitles(m, page, detail, Sm)
   drawPortrait(m, Sm, mon, egg, detail, page)
+  if ailment > 0 and not detail then
+    -- pokeemerald/src/pokemon_summary_screen.c:1493
+    put(m, win(m, W.STATUS), "gText_Status", 2, 1, 1)
+    drawFrame(m.status, ailment - 1, 64 - 16, 152 - 4)
+  end
   if page == 0 then drawInfo(m, Sm, mon, egg)
   elseif page == 1 then drawSkills(m, Sm, mon)
   else drawMoves(m, Sm, mon, page == 3, detail) end

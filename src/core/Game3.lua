@@ -1169,6 +1169,7 @@ local SOFT_RESET = {
   { "src.ui.game3.daycare_menu", closeFlag("open") },
   { "src.ui.game3.fame_checker", closeFlag("open") },
   { "src.ui.game3.move_relearner", closeFlag("open") },
+  { "src.ui.game3.rse.move_relearner", closeFlag("open") },
   { "src.ui.game3.egg_hatch", closeFlag("open") },
   { "src.ui.game3.evolution_scene", closeFlag("open") },
   { "src.ui.game3.diploma", closeFlag("open") },

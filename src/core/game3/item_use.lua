@@ -650,6 +650,12 @@ local VITAMIN_STAT_TEXT = {
   spe = "gText_ItemEffect_Speed", spa = "gText_ItemEffect_SpAtk", spd = "gText_ItemEffect_SpDef",
 }
 
+-- pokeemerald/src/party_menu.c:4338
+local VITAMIN_STAT_TEXT_RSE = {
+  hp = "gText_HP3", atk = "gText_Attack3", def = "gText_Defense3",
+  spe = "gText_Speed2", spa = "gText_SpAtk3", spd = "gText_SpDef3",
+}
+
 function ItemUse.useVitamin(session, mon, itemId)
   if not mon then return false, "none", no_pokemon_text() end
   local num = ItemsData.toNumericId(itemId) or tonumber(itemId)
@@ -667,7 +673,8 @@ function ItemUse.useVitamin(session, mon, itemId)
   end
   Pokemon.itemFriendship(mon, Pokemon.VITAMIN_FRIENDSHIP_CHANGE,
     { mapSec = Pokemon.currentMapSec(session) })
-  local t = mon_text("gText_PkmnBaseVar2StatIncreased", mon, RomText.plain(VITAMIN_STAT_TEXT[key]))
+  local statTextKey = require("src.core.game3.profile").family(session) == "rse" and VITAMIN_STAT_TEXT_RSE or VITAMIN_STAT_TEXT
+  local t = mon_text("gText_PkmnBaseVar2StatIncreased", mon, RomText.plain(statTextKey[key]))
   return true, "vitamin", t
 end
 
@@ -874,9 +881,6 @@ local ITEM_TEACHY_TV = 366
 -- pokefirered/include/constants/items.h:435 ITEM_FAME_CHECKER
 local ITEM_FAME_CHECKER = 363
 local ITEM_AWAKENING = 17
--- pokefirered/include/constants/flags.h:1330
-local FLAG_SYS_WHITE_FLUTE_ACTIVE = 0x803
-local FLAG_SYS_BLACK_FLUTE_ACTIVE = 0x804
 -- pokefirered/include/constants/songs.h:346 MUS_POKE_FLUTE
 local MUS_POKE_FLUTE = 338
 
@@ -1010,19 +1014,20 @@ end
 
 -- pokefirered/src/item_use.c:582 FieldUseFunc_BlackWhiteFlute
 function ItemUse.useBlackWhiteFlute(session, num)
+  local FieldMoves = require("src.core.game3.field_moves")
   local ctx = {
     playerName = tostring((session and (session.name or session.playerName)) or ""),
     stringVars = { [2] = ItemsData.displayName(num) },
   }
   local text
   if num == ITEM_WHITE_FLUTE then
-    sys_flag(session, FLAG_SYS_WHITE_FLUTE_ACTIVE, true)
-    sys_flag(session, FLAG_SYS_BLACK_FLUTE_ACTIVE, false)
+    sys_flag(session, FieldMoves.SYS_FLAGS.WHITE_FLUTE_ACTIVE, true)
+    sys_flag(session, FieldMoves.SYS_FLAGS.BLACK_FLUTE_ACTIVE, false)
     -- pokefirered/src/item_use.c:590
     text = RomText.box("gText_UsedVar2WildLured", ctx)
   else
-    sys_flag(session, FLAG_SYS_BLACK_FLUTE_ACTIVE, true)
-    sys_flag(session, FLAG_SYS_WHITE_FLUTE_ACTIVE, false)
+    sys_flag(session, FieldMoves.SYS_FLAGS.BLACK_FLUTE_ACTIVE, true)
+    sys_flag(session, FieldMoves.SYS_FLAGS.WHITE_FLUTE_ACTIVE, false)
     -- pokefirered/src/item_use.c:599
     text = RomText.box("gText_UsedVar2WildRepelled", ctx)
   end
@@ -1043,6 +1048,14 @@ local function useField(session, bag, id, partySlot, moveSlot)
   local info = ItemsData.info(id)
   if not info then return false, "unknown", Strings("Unknown item.") end
   local use = ItemsData.fieldUseKind(id)
+
+  if require("src.core.game3.profile").family(session) == "rse" then
+    local n = ItemsData.toNumericId(id) or tonumber(id)
+    if n == ITEM_POKE_FLUTE or n == ItemsData.ITEM_TM_CASE or n == ItemsData.ITEM_BERRY_POUCH then
+      -- pokeemerald/src/item_use.c:150 ItemUseOutOfBattle_CannotUse
+      return false, "none", not_the_time(session)
+    end
+  end
 
   if info.fieldUseName == "ItemUseOutOfBattle_PokeblockCase" then
     -- pokeemerald/src/item_use.c:609

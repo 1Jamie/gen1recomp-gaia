@@ -82,6 +82,9 @@ return {
     gText_MonLearnedMove = "gText_MoveRelearnerPkmnLearnedMove",
     gText_1_2_and_Poof = "gText_MoveRelearnerAndPoof",
     gText_StopLearningMove = "gText_MoveRelearnerStopTryingToTeachMove",
+    gText_MonIsTryingToLearnMove = "gText_MoveRelearnerPkmnTryingToLearnMove",
+    gText_WhichMoveShouldBeForgotten = "gText_MoveRelearnerWhichMoveToForget",
+    gText_MonForgotOldMoveAndMonLearnedNewMove = "gText_MoveRelearnerPkmnForgotMoveAndLearnedNew",
   },
   -- pokeemerald/src/berry_powder.c:223
   berryPowderBox = { left = 1, top = 1, width = 7, height = 4, title = "gText_Powder", titleX = 0, titleY = 1,
