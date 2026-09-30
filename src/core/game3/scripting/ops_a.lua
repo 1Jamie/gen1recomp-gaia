@@ -1218,6 +1218,11 @@ local function dispatch(vm, row)
       ctx.warpPending = true
       a.warp(group, num, warpId, x, y, function()
         ctx.warpPending = false
+        local okMsg, Message = pcall(require, "src.ui.game3.message")
+        if okMsg and Message and Message.isOpen and Message.isOpen() then
+          if a.closeMessage then a.closeMessage() end
+          Message.close()
+        end
       end, op)
     end
     return false
