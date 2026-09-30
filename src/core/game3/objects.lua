@@ -753,7 +753,7 @@ function Objects.setSubpriority(localId, mapGroup, mapNum, subpriority)
     end
   end
   local eo = Objects.findObjectByLocalIdAndMap(localId, mapGroup, mapNum)
-    or Objects._byId[localId]
+    or (on_named_map(mapGroup, mapNum) and Objects._byId[localId] or nil)
   if not eo then return false end
   eo.fixedPriority = true
   eo.subpriority = tonumber(subpriority) or 0
@@ -773,7 +773,7 @@ function Objects.resetSubpriority(localId, mapGroup, mapNum)
     end
   end
   local eo = Objects.findObjectByLocalIdAndMap(localId, mapGroup, mapNum)
-    or Objects._byId[localId]
+    or (on_named_map(mapGroup, mapNum) and Objects._byId[localId] or nil)
   if not eo then return false end
   eo.fixedPriority = nil
   eo.subpriority = nil
@@ -2122,7 +2122,7 @@ function Objects.hideObjectAt(localId, mapGroup, mapNum)
     return true
   end
   local eo = Objects.findObjectByLocalIdAndMap(localId, mapGroup, mapNum)
-    or Objects._byId[localId]
+    or (on_named_map(mapGroup, mapNum) and Objects._byId[localId] or nil)
   if not eo then return false end
   eo.invisible = true
   eo.hidden = true
@@ -2140,7 +2140,7 @@ function Objects.showObjectAt(localId, mapGroup, mapNum)
     return true
   end
   local eo = Objects.findObjectByLocalIdAndMap(localId, mapGroup, mapNum)
-    or Objects._byId[localId]
+    or (on_named_map(mapGroup, mapNum) and Objects._byId[localId] or nil)
   if not eo then
     if on_named_map(mapGroup, mapNum) then
       return Objects.addObject(localId)

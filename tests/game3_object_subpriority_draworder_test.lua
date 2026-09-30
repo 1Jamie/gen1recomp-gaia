@@ -47,7 +47,7 @@ do
   local under, over = FieldView.applyDrawOrder({ makeActor(eo) })
   check(#over == 0 and #under == 1, "elevation 0 lands in the under list")
   check(under[1].priority == 2, "dynamic class 2 from ELEVATION_TO_PRIORITY[0]")
-  check(under[1].subpriority == nil, "no subpriority on an unfrozen actor")
+  check(under[1].fixedPriority == false, "actor is not frozen without a set record")
   check(eo.fixedClass == nil, "no capture before any freeze is set")
 end
 
@@ -85,17 +85,17 @@ do
   }
   local under = FieldView.applyDrawOrder({ neighbour, makeActor(eo) })
   check(#under == 2, "both actors share the under list")
-  check(under[1].eventObject == eo, "frozen actor (83) sorts before the neighbour (sortY 100)")
-  check(under[2].priority == 2, "unfrozen neighbour still follows ELEVATION_TO_PRIORITY[3]=2")
-  check(under[2].subpriority == nil, "unfrozen neighbour keeps the pixel-Y key")
+  check(under[2].eventObject == eo, "frozen actor (83) sorts after the neighbour (software subpriority above 83)")
+  check(under[1].priority == 2, "unfrozen neighbour still follows ELEVATION_TO_PRIORITY[3]=2")
+  check(under[1].subpriority > 83, "unfrozen neighbour gets the software subpriority")
 
   local near = {
     kind = "npc", i = 8, obj = { elevation = 3 }, elevation = 3,
     x = 32, y = 10, sortY = 10,
   }
   local under2 = FieldView.applyDrawOrder({ near, makeActor(eo) })
-  check(under2[1] == near, "pixel-Y 10 still sorts before subpriority 83")
-  check(under2[2].eventObject == eo, "frozen actor falls behind the nearer neighbour")
+  check(under2[1] == near, "unfrozen neighbour sorts before subpriority 83")
+  check(under2[2].eventObject == eo, "frozen actor falls behind the neighbour")
 end
 
 print("[test] 6. reset resumes the dynamic path with no stale capture")
@@ -108,7 +108,7 @@ do
   local under, over = FieldView.applyDrawOrder({ makeActor(eo) })
   check(#over == 1 and #under == 0, "dynamic path resumed: class 0 -> over list")
   check(over[1].priority == 0, "priority follows ELEVATION_TO_PRIORITY[13] = 0 again")
-  check(over[1].subpriority == nil, "sort key back to pixel-Y")
+  check(over[1].fixedPriority == false, "sort key back to the software subpriority")
   check(eo.fixedClass == nil, "no stale fixedClass survives the reset")
 
   Objects.setSubpriority(3, nil, nil, 5 + 83)

@@ -488,9 +488,11 @@ local function applyDrawOrder(actors, underActors, overActors, camY)
     local obj = a.eventObject
     if (obj and obj.fixedPriority) or a.fixedPriority then
       a.fixedPriority = true
+      if obj and obj.fixedClass == nil then obj.fixedClass = a.priority or actorPriority(a) end
       a.subpriority = (obj and obj.subpriority) or a.subpriority or 83
       a.priority = (obj and obj.fixedClass) or a.priority or actorPriority(a)
     else
+      if obj then obj.fixedClass = nil end
       a.fixedPriority = false
       a.priority = actorPriority(a)
       local screenY = math.floor((a.y or 0) - (camY or 0))
