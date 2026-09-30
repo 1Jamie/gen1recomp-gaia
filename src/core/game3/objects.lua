@@ -1508,6 +1508,12 @@ local function followDirection(eo, follow, ctx)
   return fn(px - eo.cellX, py - eo.cellY)
 end
 
+local idleRng
+local function pick(t)
+  idleRng = idleRng or require("src.core.game3.rng")
+  return t[(idleRng.Random() % #t) + 1]
+end
+
 local function idleTick(eo, game, ctx)
   if eo.frozen or eo.scriptBusy or eo.moving or eo.hidden or not eo.visible then
     return
@@ -1573,8 +1579,6 @@ local function idleTick(eo, game, ctx)
     return
   end
 
-  local Rng = require("src.core.game3.rng")
-  local function pick(t) return t[(Rng.Random() % #t) + 1] end
 
   if mv == "LOOK" or mv == "LOOK_AROUND" or mv == "ROTATE" then
     -- src/event_object_movement.c:3044

@@ -10,9 +10,14 @@ local function Objects()
   return package.loaded["src.core.game3.objects"] or require("src.core.game3.objects")
 end
 
+local permsLoaded, permsMod
 local function permissions()
-  local ok, P = pcall(require, "src.world.gen2.Permissions")
-  return ok and P or nil
+  if not permsLoaded then
+    local ok, P = pcall(require, "src.world.gen2.Permissions")
+    permsMod = ok and P or nil
+    permsLoaded = true
+  end
+  return permsMod
 end
 
 local function defsFor(mapId, def)
@@ -62,6 +67,8 @@ end
 
 Ghosts._contextFor = contextFor
 
+local ctxCache = setmetatable({}, { __mode = "k" })
+
 function Ghosts.sync()
   local M = Map()
   local placed = {}
@@ -97,7 +104,12 @@ function Ghosts.update(game)
   for _, entry in ipairs(M.world or {}) do
     local pool = Ghosts._pools[entry.id]
     if pool then
-      Obj.tickPool(pool, game, contextFor(entry, pool))
+      local c = ctxCache[entry]
+      if not c or c.pool ~= pool or c.def ~= entry.def or c.layout ~= (entry.def and entry.def.midLayout) or c.ox ~= entry.ox or c.oy ~= entry.oy then
+        c = { pool = pool, def = entry.def, layout = entry.def and entry.def.midLayout, ox = entry.ox, oy = entry.oy, ctx = contextFor(entry, pool) }
+        ctxCache[entry] = c
+      end
+      Obj.tickPool(pool, game, c.ctx)
     end
   end
 end
