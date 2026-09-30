@@ -21,9 +21,10 @@ return {
         { name = R .. "extract_birch_rse", label = "Professor Birch" },
         { name = R .. "extract_naming_rse", label = "Naming Screen" },
         { name = R .. "extract_wallclock_rse", label = "Wall Clock" },
+        { name = R .. "reset_rtc_extract", label = "Reset RTC" },
       },
     },
   },
   sequential = { "em_boot_intro", "em_boot_screens" },
-  dirs = { "/intro/rse", "/intro/rse/scenery", "/intro/rse_extra", "/title", "/birch", "/naming", "/wallclock" },
+  dirs = { "/intro/rse", "/intro/rse/scenery", "/intro/rse_extra", "/title", "/birch", "/naming", "/wallclock", "/reset_rtc" },
 }

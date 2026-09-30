@@ -27,6 +27,22 @@ local WIN_INPUT = { left = 4, top = 9, width = 21, height = 2 }
 -- pokeemerald/src/reset_rtc_screen.c:239
 local CURSOR_X = { [SEL.DAYS] = 53, [SEL.HOURS] = 86, [SEL.MINS] = 101, [SEL.SECS] = 116, [SEL.CONFIRM] = 153 }
 
+-- pokeemerald/src/reset_rtc_screen.c:218
+local ARROW = { DOWN = 1, UP = 2, RIGHT = 3 }
+
+-- pokeemerald/src/reset_rtc_screen.c:194
+local function drawArrow(anim, cx, cy)
+  local man = Kit.manifest("reset_rtc")
+  local spr = man and man.sprites and man.sprites.arrow
+  local img = spr and Kit.image(spr.png)
+  local cmd = spr and spr.anims[anim] and spr.anims[anim][1]
+  if not (img and cmd) then return end
+  local w, h = spr.w, spr.h
+  local quad = love.graphics.newQuad(0, cmd.frame * h, w, h, img:getDimensions())
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(img, quad, cx - w / 2, cy - h / 2 + (cmd.vFlip and h or 0), 0, 1, cmd.vFlip and -1 or 1)
+end
+
 -- pokeemerald/src/event_data.c:156
 function ResetRtc.canReset(store, version)
   local C = Constants.of(version or "emerald")
@@ -236,10 +252,10 @@ function ResetRtc:draw()
     local cx = CURSOR_X[self.selection]
     if cx then
       if self.selection == SEL.CONFIRM then
-        FrlgFont.draw(RomText.plain("gText_SelectorArrow3"), cx - 4, 80 - 8, { colors = colors })
+        drawArrow(ARROW.RIGHT, cx, 80)
       else
-        Kit.glyphArrow("up", cx, 68, 0)
-        Kit.glyphArrow("down", cx, 92, 0)
+        drawArrow(ARROW.UP, cx, 68)
+        drawArrow(ARROW.DOWN, cx, 92)
       end
     end
   end
