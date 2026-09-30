@@ -295,6 +295,18 @@ function HostShell.restart()
     return
   end
 
+  if osName == "Windows" then
+    local exe = love.filesystem.isFused and love.filesystem.isFused()
+      and love.filesystem.getSource()
+    if exe and exe ~= "" then
+      local cmd = 'start "" "' .. exe:gsub("/", "\\") .. '"'
+      if os.execute(cmd) then
+        love.event.quit()
+        return
+      end
+    end
+  end
+
   love.event.quit("restart")
 end
 

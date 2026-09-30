@@ -186,6 +186,19 @@ function Boot.select(candidates, bundledEngine, bundledShell, bundledPayloadHost
   return chosen and chosen.name or nil, toDelete
 end
 
+local function badMarker(name)
+  return PAYLOAD_DIR .. "/" .. name .. ".bad"
+end
+
+local function markBad(name, err)
+  love.filesystem.createDirectory(PAYLOAD_DIR)
+  love.filesystem.write(badMarker(name), tostring(err))
+end
+
+function Boot.isBad(name)
+  return love.filesystem.getInfo(badMarker(name)) ~= nil
+end
+
 -- Mount the chosen payload and hand control to it.  Returns true when the
 -- payload is live and has completed its own love.load; false (with full
 -- rollback) on any failure, so the caller runs the bundled game instead.
@@ -224,11 +237,13 @@ local function chainload(name, args)
     -- Delete the payload too: it failed deterministically once, so leaving it
     -- would re-select and re-fail it on every boot forever.
     print("update: payload handoff failed, reverting to bundled: " .. tostring(err))
+    pcall(love.filesystem.append, PAYLOAD_DIR .. "/handoff.log",
+      name .. ": " .. tostring(err) .. "\n")
     _G.POKEPORT_PAYLOAD_MOUNTED = nil
     pcall(love.filesystem.unmount, rel)
     purgeBundledModules()
     restoreCallbacks(snapshot)
-    love.filesystem.remove(rel)
+    if not love.filesystem.remove(rel) then markBad(name, err) end
     love.filesystem.remove(PENDING)
     return false
   end
@@ -250,7 +265,9 @@ local function runInner(args)
   if pending then
     pending = pending:gsub("%s+$", "")
     if pending ~= "" then
-      love.filesystem.remove(PAYLOAD_DIR .. "/" .. pending)
+      if not love.filesystem.remove(PAYLOAD_DIR .. "/" .. pending) then
+        markBad(pending, "crash during handoff")
+      end
     end
     love.filesystem.remove(PENDING)
   end
@@ -259,7 +276,7 @@ local function runInner(args)
   local candidates = {}
   if love.filesystem.getInfo(PAYLOAD_DIR, "directory") then
     for _, entry in ipairs(love.filesystem.getDirectoryItems(PAYLOAD_DIR)) do
-      if isPayloadName(entry) then
+      if isPayloadName(entry) and not Boot.isBad(entry) then
         local info = Boot.probePayload(PAYLOAD_DIR .. "/" .. entry)
         if info then
           candidates[#candidates + 1] = {

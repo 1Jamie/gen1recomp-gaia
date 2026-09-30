@@ -267,6 +267,13 @@ local function doCheck(target)
   -- Already downloaded on a previous run?  Verify and gate it rather than
   -- pulling the bytes again.
   local finalRel = "updates/" .. rel.payloadName
+  if Boot and Boot.isBad and Boot.isBad(rel.payloadName) then
+    if love.filesystem.getInfo(finalRel) and not love.filesystem.remove(finalRel) then
+      postFullRequirement(rel, "payload_failed")
+      return
+    end
+    love.filesystem.remove(finalRel .. ".bad")
+  end
   if love.filesystem.getInfo(finalRel) then
     local sums = fetchText(rel.sums.url)
     if sums and verifyPayload(finalRel, rel.payloadName, sums) then

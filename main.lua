@@ -1543,6 +1543,10 @@ local quitToLauncher = false
 
 function love.quit()
   if launcherSplash then launcherSplash:release(); launcherSplash = nil end
+  if Importer and Importer._themeVideo then
+    pcall(Importer._themeVideo.release, Importer._themeVideo)
+    Importer._themeVideo = nil
+  end
   if Importer then
     require("src.import.LauncherWindow").observe(0)
     require("src.import.LauncherWindow").flush()
