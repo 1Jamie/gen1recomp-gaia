@@ -238,8 +238,8 @@ function ResetRtc:draw()
       if self.selection == SEL.CONFIRM then
         FrlgFont.draw(RomText.plain("gText_SelectorArrow3"), cx - 4, 80 - 8, { colors = colors })
       else
-        Kit.scrollArrow("up", cx, 68, 0)
-        Kit.scrollArrow("down", cx, 92, 0)
+        Kit.glyphArrow("up", cx, 68, 0)
+        Kit.glyphArrow("down", cx, 92, 0)
       end
     end
   end

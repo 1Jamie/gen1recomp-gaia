@@ -48,7 +48,10 @@ function M.draw(menu)
         love.graphics.setColor(1, 1, 1, 1)
         love.graphics.draw(image, love.graphics.newQuad(0, id * 24, 24, 24, 24, select(2, image:getDimensions())), 24, 80)
       end
-    elseif id then require("src.ui.game3.bag_chrome").drawItemIcon(id, 24, 80) end
+    elseif id then
+      -- pokeemerald/src/field_specials.c:3037
+      require("src.ui.game3.rse.bag_chrome").drawItemIcon(require("src.core.game3.items_data").toNumericId(id) or id, 24, 80)
+    end
   elseif M.tutorOpen and (menu.kind == 9 or menu.kind == 10) then
     local moveId = ids(menu.kind == 9 and "tutor1" or "tutor2")[menu.selection() + 1]
     local moveName = moveId and require("src.core.game3.pokemon").moveName(moveId)

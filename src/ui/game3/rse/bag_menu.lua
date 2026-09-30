@@ -387,6 +387,28 @@ local function drawDescription(text, pal)
   FrlgFont.draw(text, D.left * 8 + 3, D.top * 8 + 1, { colors = descColors(pal), maxWidth = D.width * 8 - 3 })
 end
 
+-- pokeemerald/src/item_menu.c:2548
+local function drawTmHmInfo(sel)
+  local m = BagChrome.manifest()
+  local info = m and m.menuInfo
+  local Pokemon = require("src.core.game3.pokemon")
+  local move = info and Pokemon.moveFromTmItem(sel.id)
+  local row = move and Pokemon.battleMove(move)
+  if not row then return false end
+  local I = BagChrome.MENU_INFO
+  BagChrome.drawMenuInfoIcon(I.TYPE, 8, 104)
+  BagChrome.drawMenuInfoIcon(I.POWER, 8, 116)
+  BagChrome.drawMenuInfoIcon(I.ACCURACY, 8, 128)
+  BagChrome.drawMenuInfoIcon(I.PP, 8, 140)
+  BagChrome.drawMenuInfoIcon((tonumber(row.type) or 0) + 1, 56, 104)
+  local colors = { fg = BagChrome.color(info.palette, 14), shadow = BagChrome.color(info.palette, 10), bg = { 0, 0, 0, 0 } }
+  local power, accuracy = tonumber(row.power) or 0, tonumber(row.accuracy) or 0
+  FrlgFont.draw(power <= 1 and "---" or string.format("%3d", power), 63, 116, { colors = colors })
+  FrlgFont.draw(accuracy == 0 and "---" or string.format("%3d", accuracy), 63, 128, { colors = colors })
+  FrlgFont.draw(string.format("%3d", tonumber(row.pp) or 0), 63, 140, { colors = colors })
+  return true
+end
+
 local function drawGrid(Bag, sel)
   local g = st.grid or buildGrid(Bag)
   local w
@@ -502,7 +524,9 @@ function RseBag.draw(Bag)
     end
     if desc then drawDescription(desc, pal) end
   elseif Bag.mode == "action" and sel then
-    drawDescription(RomText.plain("gText_Var1IsSelected", { stringVars = { sel.name } }), pal)
+    if not (pocket == "TM_CASE" and drawTmHmInfo(sel)) then
+      drawDescription(RomText.plain("gText_Var1IsSelected", { stringVars = { sel.name } }), pal)
+    end
     drawGrid(Bag, sel)
   elseif (Bag.mode == "toss" or Bag.mode == "deposit") and sel then
     -- pokeemerald/src/item_menu.c:2203

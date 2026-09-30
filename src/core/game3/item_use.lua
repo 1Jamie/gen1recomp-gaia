@@ -1051,7 +1051,8 @@ local function useField(session, bag, id, partySlot, moveSlot)
 
   if require("src.core.game3.profile").family(session) == "rse" then
     local n = ItemsData.toNumericId(id) or tonumber(id)
-    if n == ITEM_POKE_FLUTE or n == ItemsData.ITEM_TM_CASE or n == ItemsData.ITEM_BERRY_POUCH then
+    if n == ITEM_POKE_FLUTE or n == ItemsData.ITEM_TM_CASE or n == ItemsData.ITEM_BERRY_POUCH
+        or (info.fieldUseName == "ItemUseOutOfBattle_CannotUse" and (use == "map" or use == "vs_seeker" or use == "bike")) then
       -- pokeemerald/src/item_use.c:150 ItemUseOutOfBattle_CannotUse
       return false, "none", not_the_time(session)
     end

@@ -169,6 +169,12 @@ local arrowArt
 
 -- pokeemerald/src/list_menu.c:1052
 function Kit.scrollArrow(dir, cx, cy, t)
+  local RseBag = require("src.ui.game3.rse.bag_chrome")
+  if RseBag.ARROWS[dir] and RseBag.ready() then return RseBag.drawArrow(dir, cx, cy, t) end
+  return Kit.glyphArrow(dir, cx, cy, t)
+end
+
+function Kit.glyphArrow(dir, cx, cy, t)
   if arrowArt == nil then
     local ok = pcall(function() require("src.ui.game3.list_menu").loadArrows() end)
     arrowArt = ok

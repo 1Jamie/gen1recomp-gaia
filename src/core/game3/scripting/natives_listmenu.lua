@@ -278,8 +278,18 @@ local function arrowBob(freq)
 end
 
 -- pokefirered/src/field_specials.c:1485 Task_CreateMenuRemoveScrollIndicatorArrowPair
+local function drawRseScrollArrows()
+  local BagChrome = require("src.ui.game3.rse.bag_chrome")
+  -- pokeemerald/src/field_specials.c:2743
+  local cx = math.floor(Menu.width / 2) * 8 + 12 + (Menu.left - 1) * 8
+  local t = Menu.arrowK or 0
+  if Menu.scroll > 0 then BagChrome.drawArrow("up", cx, 8, t) end
+  if Menu.scroll < Menu.count - Menu.maxShowed then BagChrome.drawArrow("down", cx, Menu.height * 8 + 10, t) end
+end
+
 local function drawScrollArrows()
   if Menu.maxShowed == Menu.count then return end
+  if require("src.core.game3.profile").family() == "rse" then return drawRseScrollArrows() end
   local okB, BagChrome = pcall(require, "src.ui.game3.bag_chrome")
   if not (okB and BagChrome and BagChrome.drawArrow) then return end
   local x = 4 * Menu.width + 8 * Menu.left

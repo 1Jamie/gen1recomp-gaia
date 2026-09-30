@@ -184,9 +184,14 @@ function UnionRoomScreen.printBoardRow(entry, px, py, colors)
     FrlgFont.draw(RomText.plain("gText_UR_EggTrade"), ox + 68, py, { colors = colors, letterSpacing = 1 })
     return
   end
-  local okS, SummaryChrome = pcall(require, "src.ui.game3.summary_chrome")
-  if okS and SummaryChrome.drawTypeBadge then
-    SummaryChrome.drawTypeBadge(tonumber(entry.wantType) or 0, ox + 68, py + 1)
+  if require("src.core.game3.profile").family() == "rse" then
+    -- pokeemerald/src/union_room.c:4111
+    require("src.ui.game3.rse.bag_chrome").drawMenuInfoIcon((tonumber(entry.wantType) or 0) + 1, ox + 68, py + 1)
+  else
+    local okS, SummaryChrome = pcall(require, "src.ui.game3.summary_chrome")
+    if okS and SummaryChrome.drawTypeBadge then
+      SummaryChrome.drawTypeBadge(tonumber(entry.wantType) or 0, ox + 68, py + 1)
+    end
   end
   local okP, Pokemon = pcall(require, "src.core.game3.pokemon")
   local name = okP and Pokemon.name and Pokemon.name(species) or ""

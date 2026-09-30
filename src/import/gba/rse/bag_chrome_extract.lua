@@ -6,7 +6,7 @@ M.SUB = "rse/bag"
 
 M.FILES = {
   "bg.png", "bg_female.png", "indicator.png", "indicator_female.png", "bag_male.png", "bag_female.png",
-  "ball.png", "arrows.png", "hm.png", "select.png", "icons.rgba",
+  "ball.png", "arrows.png", "hm.png", "select.png", "icons.rgba", "menu_info.png",
 }
 
 M.REQUIRED = K.required(M.SUB, M.FILES)
@@ -107,6 +107,17 @@ function M.run(rom, cache, opts)
   local iconBytes, IcW, IcH, iconCount = itemIcons(c)
   c:write("icons.rgba", iconBytes)
 
+  -- pokeemerald/src/menu.c:113
+  local infoPal = c:pal("gMenuInfoElements2_Pal", 16)
+  c:png("menu_info.png", 128, 128, K.bakeSprite(c:raw("gMenuInfoElements_Gfx"), 128, 128, 0, 4), infoPal, true)
+  local infoRows = c:raw("sMenuInfoIcons")
+  local infoIcons = {}
+  for i = 0, math.floor(#infoRows / 4) - 1 do
+    local w, h, lo, hi = infoRows:byte(i * 4 + 1, i * 4 + 4)
+    local tile = lo + hi * 256
+    infoIcons[i + 1] = { x = (tile % 16) * 8, y = math.floor(tile / 16) * 8, w = w, h = h }
+  end
+
   return true, c:finish({
     screen = "bag",
     layers = layers,
@@ -114,6 +125,7 @@ function M.run(rom, cache, opts)
     icons = { rgba = c:path("icons.rgba"), w = IcW, h = IcH, count = iconCount },
     hm = c:path("hm.png"),
     select = c:path("select.png"),
+    menuInfo = { png = c:path("menu_info.png"), w = 128, h = 128, icons = infoIcons, palette = K.palList(infoPal, 0, 16) },
     -- pokeemerald/src/item_menu.c:384
     palettes = {
       male = K.palList(male, 0, 32),

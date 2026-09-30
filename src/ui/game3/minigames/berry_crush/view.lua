@@ -237,16 +237,22 @@ end
 -- pokefirered/src/berry_crush.c:2695
 function View.drawBerries(sim)
   if not sim.berries then return end
-  local ok, BagChrome = pcall(require, "src.ui.game3.bag_chrome")
+  -- pokeemerald/src/berry_crush.c:1381
+  local rse = require("src.core.game3.profile").family() == "rse"
+  local ok, BagChrome = pcall(require, rse and "src.ui.game3.rse.bag_chrome" or "src.ui.game3.bag_chrome")
   if not ok then return end
   for p = 1, sim.n do
     local b = sim.berries[p]
     if b and not b.destroyed then
-      local img = BagChrome.iconImage(R.FIRST_BERRY + b.berry)
-      if img then
-        love.graphics.setColor(1, 1, 1, 1)
-        local angle = -(b.rot / 0x10000) * 2 * math.pi
-        love.graphics.draw(img, b.x + b.x2, b.y + b.y2, angle, 1, 1, 16, 16)
+      local angle = -(b.rot / 0x10000) * 2 * math.pi
+      if rse then
+        BagChrome.drawItemIcon(R.FIRST_BERRY + b.berry, b.x + b.x2, b.y + b.y2, angle, 16, 16)
+      else
+        local img = BagChrome.iconImage(R.FIRST_BERRY + b.berry)
+        if img then
+          love.graphics.setColor(1, 1, 1, 1)
+          love.graphics.draw(img, b.x + b.x2, b.y + b.y2, angle, 1, 1, 16, 16)
+        end
       end
     end
   end

@@ -60,7 +60,7 @@ function BagChrome.drawArrow(dir, cx, cy, t)
   BagChrome.drawFrame(e, spec.frame, cx - e.w / 2 + dx, cy - e.h / 2 + dy, { flipX = spec.flipX, flipY = spec.flipY })
 end
 
-function BagChrome.drawItemIcon(index, x, y)
+function BagChrome.drawItemIcon(index, x, y, rotation, ox, oy)
   local m = BagChrome.manifest()
   local icons = m and m.icons
   if not icons then return end
@@ -69,7 +69,22 @@ function BagChrome.drawItemIcon(index, x, y)
   local n = tonumber(index) or 0
   if n < 0 or n >= icons.count then n = icons.count - 1 end
   love.graphics.setColor(1, 1, 1, 1)
-  love.graphics.draw(img, quad(icons.rgba, 0, n * 24, 24, 24, icons.w, icons.h), x, y)
+  love.graphics.draw(img, quad(icons.rgba, 0, n * 24, 24, 24, icons.w, icons.h), x, y, rotation or 0, 1, 1, ox or 0, oy or 0)
+end
+
+BagChrome.MENU_INFO = { TYPE = 19, POWER = 20, ACCURACY = 21, PP = 22 }
+
+-- pokeemerald/src/menu.c:2098
+function BagChrome.drawMenuInfoIcon(iconId, x, y)
+  local m = BagChrome.manifest()
+  local info = m and m.menuInfo
+  local r = info and info.icons[iconId + 1]
+  local img = r and Kit.image(info.png)
+  if not img then return false end
+  local sw, sh = img:getDimensions()
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(img, quad(info.png, r.x, r.y, r.w, r.h, sw, sh), x, y)
+  return true
 end
 
 function BagChrome.returnIconIndex()
