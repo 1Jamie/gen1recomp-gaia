@@ -6787,7 +6787,7 @@ local function drawTabLayer(imp, tabId, x, contentY, w, viewH, availH, m, dx)
   local budgetH = math.floor(viewH * (1 + PANEL_OVERSCAN))
   local panelW = math.max(0, w - Kit.scrollGutter(m.s))
   local contentH = buildTabPanel(imp, x, py + 5, panelW, availH - 5, budgetH - 5, m)
-  contentH = (contentH or (availH - 5)) + 5
+  contentH = (contentH or (availH - 5)) + 10
   imp._tabContentH[tabId] = contentH
   imp._tabScrollMax[tabId] = Kit.scrollExtent(contentH, viewH)
   at = clamp(at, 0, tabScrollMax(imp))
