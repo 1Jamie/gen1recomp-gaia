@@ -402,6 +402,11 @@ local function right_align_3(n)
   n = math.floor(tonumber(n) or 0)
   if n < 0 then n = 0 end
   if n > 999 then n = 999 end
+  if isRse() then
+    -- pokeemerald/src/string_util.c:209 ConvertIntToDecimalStringN
+    local digits = tostring(n)
+    return string.rep("{UNK_SPACER}", 3 - #digits) .. digits
+  end
   return string.format("%3d", n)
 end
 
