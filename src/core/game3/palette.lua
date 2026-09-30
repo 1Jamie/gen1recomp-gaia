@@ -23,7 +23,7 @@ end
 
 local bit = require("bit")
 local band, bor, bxor, bnot = bit.band, bit.bor, bit.bxor, bit.bnot
-local lshift, rshift, rol = bit.lshift, bit.rshift, bit.rol
+local lshift, rshift, rol, tobit = bit.lshift, bit.rshift, bit.rol, bit.tobit
 
 local MD5_K, MD5_S = {}, {
   7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
@@ -43,7 +43,7 @@ local function md5hex(msg)
       (len * 8) % 256, math.floor(len * 8 / 256) % 256,
       math.floor(len * 8 / 65536) % 256, math.floor(len * 8 / 16777216) % 256,
       0, 0, 0, 0)
-  local a0, b0, c0, d0 = 0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476
+  local a0, b0, c0, d0 = 0x67452301, tobit(0xefcdab89), tobit(0x98badcfe), 0x10325476
   local M = {}
   for off = 1, #msg, 64 do
     for j = 0, 15 do
@@ -62,11 +62,11 @@ local function md5hex(msg)
       else
         F = bxor(C, bor(B, bnot(D))); g = (7 * i) % 16
       end
-      F = F + A + MD5_K[i + 1] + M[g]
+      F = tobit(F + A + MD5_K[i + 1] + M[g])
       A = D; D = C; C = B
-      B = B + rol(F, MD5_S[i + 1])
+      B = tobit(B + rol(F, MD5_S[i + 1]))
     end
-    a0, b0, c0, d0 = a0 + A, b0 + B, c0 + C, d0 + D
+    a0, b0, c0, d0 = tobit(a0 + A), tobit(b0 + B), tobit(c0 + C), tobit(d0 + D)
   end
   local out = {}
   for _, v in ipairs({ a0, b0, c0, d0 }) do

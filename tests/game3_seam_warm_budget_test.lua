@@ -42,6 +42,7 @@ do
   local chunks = {}
   for i = 1, 4099 do chunks[i] = string.char((i * 13 + i % 7) % 256) end
   local extra = table.concat(chunks)
+  check(Palette._md5hex(extra) == "44146ace629d923823fd580cbed8c018", "md5 multi-block vector")
   local key = Palette.hash(bgr, extra)
   check(key:match("^%x+$") and #key == 16, "Palette.hash is 16 hex chars")
   check(Palette.hash(bgr, extra) == key, "Palette.hash is deterministic")
