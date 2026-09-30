@@ -991,7 +991,7 @@ function Birch:draw()
   if self.showDialogue then
     local w = WIN_TEXT
     Kit.birchDialogueFrame(w.left, w.top, w.width, w.height)
-    if self.printer then self.printer:draw(w.left * 8, w.top * 8 + 1, { colors = Kit.messageColors() }) end
+    if self.printer then self.printer:draw(w.left * 8, w.top * 8 + 1, { colors = Kit.messageColors(), clip = { w.left * 8, w.top * 8, w.width * 8, w.height * 8 } }) end
   end
   if self.genderMenu then
     local w = WIN_GENDER

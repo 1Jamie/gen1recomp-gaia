@@ -823,7 +823,10 @@ function Game:_cycleSpeed(dir)
   if busy then return end
   local GameSpeed = require("src.core.GameSpeed")
   local key = GameSpeed.optionKey(Game.speedCategoryInStack(self.stack))
-  self.save.options[key] = GameSpeed.cycle(self.save.options[key], dir)
+  local nextSpeed = GameSpeed.cycle(self.save.options[key], dir)
+  for _, c in ipairs(GameSpeed.CATEGORIES) do
+    self.save.options[GameSpeed.optionKey(c)] = nextSpeed
+  end
   self:writeOptions()
 end
 

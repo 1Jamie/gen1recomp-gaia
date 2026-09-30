@@ -181,6 +181,7 @@ local GEN3_HOOKS = {
   "trainer.party", "catch.rate", "exp.gain", "evolution.check",
   "battle.damage", "battle.crit", "battle.accuracy", "battle.charge_required",
   "battle.run", "battle.turn_order", "battle.enemy_action",
+  "battle.low_health_alarm",
 }
 
 local function assertShared(name, sites, kind)

@@ -144,6 +144,12 @@ local function behaviorAt(x, y)
   return C.behavior(x, y)
 end
 
+local function worldBehaviorAt(x, y)
+  local C = Collision()
+  if not (C and C.worldBehavior) or x == nil or y == nil then return nil end
+  return C.worldBehavior(x, y)
+end
+
 
 function FxRse.animCmds(name, idx)
   local o = FE().manifestObject(name)
@@ -574,7 +580,7 @@ end
 
 -- pokeemerald/src/event_object_movement.c:7625
 local function reflectionAt(x, y)
-  local b = behaviorAt(x, y)
+  local b = worldBehaviorAt(x, y)
   if b == nil then return 0 end
   if B.ice(b) then return 1 end
   if B.reflective(b) then return 2 end
@@ -645,19 +651,23 @@ end
 
 local reflQuad
 local coverCells, coverN = {}, 0
+local coverBuckets, coverPairs = {}, {}
+local REFL_CULL = 64
+local ghostPose = {}
 
-local function drawReflection(obj, gid, frame, hflip, x2, y2, camX, camY)
+local function drawReflection(obj, gid, frame, hflip, x2, y2, camX, camY, ox, oy)
   local Ow = package.loaded["src.core.game3.ow_sprites"]
   local spr = Ow and Ow.getDraw and Ow.getDraw(gid)
   if not (spr and spr.quads and spr.quads[frame]) then return false end
-  local cx = obj.moving and obj.targetX or obj.cellX
-  local cy = obj.moving and obj.targetY or obj.cellY
-  local pcx, pcy = obj.cellX, obj.cellY
-  if obj == Player() then pcx, pcy = obj.prevCellX or cx, obj.prevCellY or cy end
+  ox, oy = ox or 0, oy or 0
+  local cx = (obj.moving and obj.targetX or obj.cellX) + ox
+  local cy = (obj.moving and obj.targetY or obj.cellY) + oy
+  local pcx, pcy = obj.cellX + ox, obj.cellY + oy
+  if obj == Player() then pcx, pcy = (obj.prevCellX or cx - ox) + ox, (obj.prevCellY or cy - oy) + oy end
   local rtype = FxRse.reflectionType(cx, cy, pcx, pcy, spr.width, spr.height)
   if rtype == 0 then return false end
-  local bridge = B.bridgeType(behaviorAt(pcx, pcy))
-  if bridge == 0 then bridge = B.bridgeType(behaviorAt(cx, cy)) end
+  local bridge = B.bridgeType(worldBehaviorAt(pcx, pcy))
+  if bridge == 0 then bridge = B.bridgeType(worldBehaviorAt(cx, cy)) end
   local info = fcGfx(gid)
   local tag = FxRse.reflectionPaletteTag(gid, bridge)
   local src = (tag and recolored(gid, spr, tag)) or spr
@@ -667,8 +677,8 @@ local function drawReflection(obj, gid, frame, hflip, x2, y2, camX, camY)
   local offs = { [1] = 12, [2] = 28, [3] = 44 }
   local extra = (not (info and info.noReflectionLoad)) and offs[bridge] or 0
   local w, h = spr.width, spr.height
-  local left = (obj.px or cx * CELL) + (16 - w) / 2 + (x2 or 0)
-  local top = (obj.py or cy * CELL) + 16 - h + (h - 2) + extra - (y2 or 0)
+  local left = (obj.px or (cx - ox) * CELL) + ox * CELL + (16 - w) / 2 + (x2 or 0)
+  local top = (obj.py or (cy - oy) * CELL) + oy * CELL + 16 - h + (h - 2) + extra - (y2 or 0)
   local iw, ih = src.image:getDimensions()
   reflQuad = reflQuad or love.graphics.newQuad(0, 0, 1, 1, iw, ih)
   local fy = frame * h
@@ -677,7 +687,7 @@ local function drawReflection(obj, gid, frame, hflip, x2, y2, camX, camY)
   love.graphics.setColor(1, 1, 1, 1)
   for ty = c0y, c1y do
     for tx = c0x, c1x do
-      local b = behaviorAt(tx, ty)
+      local b = worldBehaviorAt(tx, ty)
       if b and B.reflective(b) then
         local ix0, ix1 = math.max(left, tx * CELL), math.min(left + w, tx * CELL + CELL)
         local iy0, iy1 = math.max(top, ty * CELL), math.min(top + h, ty * CELL + CELL)
@@ -723,17 +733,45 @@ local function coverReflections(camX, camY)
   local mapDef = C and C._mapDef
   local layout = mapDef and mapDef.midLayout
   local NT = package.loaded["src.core.game3.tileset_native"]
-  if not (layout and NT) then return end
-  local ts = NT.get(mapDef.pair or layout.pair)
-  local shader = ts and ts.midImage and getCoverShader()
+  local Map = package.loaded["src.core.game3.map"]
+  if not (layout and NT and Map) then return end
+  local shader = getCoverShader()
   if not shader then return end
-  shader:send("mask", ts.midImage)
   love.graphics.setShader(shader)
   love.graphics.setColor(1, 1, 1, 1)
+  local loaded = NT._pairs or {}
+  local np = 0
   for i = 1, n, 2 do
     local tx, ty = coverCells[i], coverCells[i + 1]
-    local q = NT.quad(ts, NT.slotFor(ts, layout:midAt(tx, ty)))
-    if q then love.graphics.draw(ts.image, q, tx * CELL - camX, ty * CELL - camY) end
+    local mid, pair = Map.worldMidAt(tx, ty, mapDef)
+    local ts = pair and loaded[pair]
+    if ts and ts.midImage then
+      local bucket = coverBuckets[pair]
+      if not bucket then
+        bucket = { n = 0 }
+        coverBuckets[pair] = bucket
+      end
+      if bucket.n == 0 then
+        np = np + 1
+        coverPairs[np] = pair
+      end
+      local b = bucket.n
+      bucket[b + 1], bucket[b + 2], bucket[b + 3] = tx, ty, mid
+      bucket.n = b + 3
+    end
+  end
+  for p = 1, np do
+    local pair = coverPairs[p]
+    local bucket = coverBuckets[pair]
+    local ts = loaded[pair]
+    shader:send("mask", ts.midImage)
+    for i = 1, bucket.n, 3 do
+      local tx, ty = bucket[i], bucket[i + 1]
+      local q = NT.quad(ts, NT.slotFor(ts, bucket[i + 2]))
+      if q then love.graphics.draw(ts.image, q, tx * CELL - camX, ty * CELL - camY) end
+    end
+    bucket.n = 0
+    coverPairs[p] = nil
   end
   love.graphics.setShader()
 end
@@ -751,6 +789,43 @@ local function drawReflections(camX, camY)
         if spr then
           local frame, flip = Ow.pose(spr, eo.facing, O.walkPhase(eo), eo.stepFlip, { frame = eo.customFrame })
           drawReflection(eo, eo.graphicsId, frame, flip, eo.raiseX, eo.raiseY, camX, camY)
+        end
+      end
+    end
+  end
+  local Map = package.loaded["src.core.game3.map"]
+  local Ghosts = package.loaded["src.core.game3.ghosts"]
+  local world = Map and Map.world
+  if O and Ghosts and Ghosts.forDraw and type(world) == "table" then
+    local C = Collision()
+    local host = C and C._mapDef
+    local FV = package.loaded["src.core.game3.field_view"]
+    local Display = require("src.core.game3.display")
+    local vw = FV and FV._viewW or Display.W
+    local vh = FV and FV._viewH or Display.H
+    local x0, y0 = camX - REFL_CULL, camY - REFL_CULL
+    local x1, y1 = camX + vw + REFL_CULL, camY + vh + REFL_CULL
+    for i = 1, #world do
+      local entry = world[i]
+      local ox, oy = entry.ox or 0, entry.oy or 0
+      local L = entry.def and entry.def.midLayout
+      local ex, ey = ox * CELL, oy * CELL
+      if entry.def ~= host and L
+          and ex + (L.width or 0) * CELL > x0 and ex < x1
+          and ey + (L.height or 0) * CELL > y0 and ey < y1 then
+        local live = Ghosts.forDraw(entry.id)
+        if live then
+          for j = 1, #live do
+            local eo = live[j]
+            if not eo.hideReflection and eo.graphicsId and not eo.virtualId then
+              local spr = Ow.getDraw(eo.graphicsId)
+              if spr then
+                ghostPose.frame = eo.customFrame
+                local frame, flip = Ow.pose(spr, eo.facing, O.walkPhase(eo), eo.stepFlip, ghostPose)
+                drawReflection(eo, eo.graphicsId, frame, flip, eo.raiseX, eo.raiseY, camX, camY, ox, oy)
+              end
+            end
+          end
         end
       end
     end

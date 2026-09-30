@@ -149,26 +149,27 @@ function Map.refreshWorld(game, reachW, reachH, rootId)
     Map._loadedLayouts[entry.id] = true
   end
   local NativeTileset = package.loaded["src.core.game3.tileset_native"]
-  if Map._warmPairs and NativeTileset and NativeTileset.get then
+  if NativeTileset and NativeTileset.get then
+    local sync = Map._warmPairs
     Map._warmPairs = nil
-    Map._warmQueue = nil
+    local x0, y0, x1, y1 = Map.warmRect()
+    local queue, seen, entries = {}, {}, {}
     for _, entry in ipairs(Map.world) do
       local pair = entry.def and (entry.def.pair or (entry.def.midLayout and entry.def.midLayout.pair))
-      if pair and NativeTileset.ready(pair) then pcall(NativeTileset.get, pair) end
-    end
-  elseif NativeTileset and NativeTileset.get then
-    -- Seamless crossing: queue the new world's unloaded pairs and load one per
-    -- frame (Map.stepWarm) so a pair is ready before it scrolls into view.
-    local queue, seen = {}, {}
-    for _, entry in ipairs(Map.world) do
-      local pair = entry.def and (entry.def.pair or (entry.def.midLayout and entry.def.midLayout.pair))
-      if type(pair) == "string" and not seen[pair]
-          and not (NativeTileset._pairs and NativeTileset._pairs[pair]) then
-        seen[pair] = true
-        queue[#queue + 1] = pair
+      if sync and pair and Map.warmNear(entry, x0, y0, x1, y1) then
+        if NativeTileset.ready(pair) then pcall(NativeTileset.get, pair) end
+      elseif type(pair) == "string" and not (NativeTileset._pairs and NativeTileset._pairs[pair]) then
+        if not seen[pair] then
+          seen[pair] = true
+          queue[#queue + 1] = pair
+          entries[pair] = {}
+        end
+        local list = entries[pair]
+        list[#list + 1] = entry
       end
     end
     Map._warmQueue = queue[1] and queue or nil
+    Map._warmEntries = queue[1] and entries or nil
   end
   Map._worldRoot = rootId
   Map._worldReachW = reachW
@@ -178,21 +179,68 @@ function Map.refreshWorld(game, reachW, reachH, rootId)
   return Map.world
 end
 
---- Load at most one queued tileset pair (see refreshWorld).
+Map.WARM_MARGIN_SCREENS = 1
+Map.WARM_BUDGET_SEC = 0.030
+Map.WARM_MAX_DEFER = 3
+Map._warmDefer = 0
+
+function Map.warmRect()
+  local P = package.loaded["src.core.game3.player"]
+  local px, py = P and tonumber(P.cellX), P and tonumber(P.cellY)
+  if not (px and py) then return nil end
+  local FieldView = package.loaded["src.core.game3.field_view"]
+  local Display = package.loaded["src.core.game3.display"]
+  local vw = (FieldView and FieldView._viewW) or (Display and Display.W) or 240
+  local vh = (FieldView and FieldView._viewH) or (Display and Display.H) or 160
+  local cols, rows = math.ceil(vw / 16), math.ceil(vh / 16)
+  local mx = math.ceil(cols / 2) + 1 + cols * Map.WARM_MARGIN_SCREENS
+  local my = math.ceil(rows / 2) + 1 + rows * Map.WARM_MARGIN_SCREENS
+  return px - mx, py - my, px + mx, py + my
+end
+
+function Map.warmNear(entry, x0, y0, x1, y1)
+  if not x0 then return true end
+  local layout = entry.def and entry.def.midLayout
+  local w, h = layout and layout.width, layout and layout.height
+  if not (w and h) then return true end
+  local ox, oy = entry.ox or 0, entry.oy or 0
+  return ox + w > x0 and ox <= x1 and oy + h > y0 and oy <= y1
+end
+
 function Map.stepWarm()
   local queue = Map._warmQueue
   if not queue then return false end
   local NativeTileset = package.loaded["src.core.game3.tileset_native"]
-  while queue[1] do
-    local pair = table.remove(queue, 1)
-    if NativeTileset and not (NativeTileset._pairs and NativeTileset._pairs[pair])
-        and NativeTileset.ready and NativeTileset.ready(pair) then
-      pcall(NativeTileset.get, pair)
-      if not queue[1] then Map._warmQueue = nil end
-      return true
+  local timer = love and love.timer
+  if timer and timer.getDelta and timer.getDelta() > Map.WARM_BUDGET_SEC
+      and Map._warmDefer < Map.WARM_MAX_DEFER then
+    Map._warmDefer = Map._warmDefer + 1
+    return false
+  end
+  Map._warmDefer = 0
+  local entries = Map._warmEntries or {}
+  local x0, y0, x1, y1 = Map.warmRect()
+  local i = 1
+  while queue[i] do
+    local pair = queue[i]
+    if NativeTileset and (NativeTileset._pairs and NativeTileset._pairs[pair])
+        or not (NativeTileset and NativeTileset.ready and NativeTileset.ready(pair)) then
+      table.remove(queue, i)
+    else
+      local near = not entries[pair]
+      for _, entry in ipairs(entries[pair] or {}) do
+        if Map.warmNear(entry, x0, y0, x1, y1) then near = true break end
+      end
+      if near then
+        table.remove(queue, i)
+        pcall(NativeTileset.get, pair)
+        if not queue[1] then Map._warmQueue = nil end
+        return true
+      end
+      i = i + 1
     end
   end
-  Map._warmQueue = nil
+  if not queue[1] then Map._warmQueue = nil end
   return false
 end
 

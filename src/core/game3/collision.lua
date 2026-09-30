@@ -250,6 +250,18 @@ function Collision.behavior(cx,cy)
   return Collision.behaviorOn(Collision._mapDef, cx, cy)
 end
 
+local worldMap
+
+-- pokefirered/src/fieldmap.c:129
+function Collision.worldBehavior(cx, cy)
+  local def = Collision._mapDef
+  if not (def and def.midLayout) then return nil end
+  worldMap = worldMap or require("src.core.game3.map")
+  local mid, pair = worldMap.worldMidAt(cx, cy, def)
+  local behaviors = InteractionScripts.behaviors[pair]
+  return behaviors and behaviors[mid]
+end
+
 -- pokefirered/include/constants/metatile_behaviors.h:39
 local MB_IMPASSABLE_EAST = 0x30
 local MB_IMPASSABLE_WEST = 0x31

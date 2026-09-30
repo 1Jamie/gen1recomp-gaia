@@ -180,8 +180,8 @@ do
   function g:writeOptions() writeOptions.calls = writeOptions.calls + 1 end
   g:_cycleSpeed(1)
   eq(g.save.options.speedBattle, 2, "cycling during battle bumps speedBattle")
-  eq(g.save.options.speedOverworld, 1, "...and leaves speedOverworld alone")
-  eq(g.save.options.speedMenu, 1, "...and leaves speedMenu alone")
+  eq(g.save.options.speedOverworld, 2, "...and syncs speedOverworld")
+  eq(g.save.options.speedMenu, 2, "...and syncs speedMenu")
   eq(writeOptions.calls, 1, "a successful cycle persists the option")
 end
 do
@@ -200,7 +200,8 @@ do
   function g:writeOptions() end
   g:_cycleSpeed(1)
   eq(g.save.options.speedOverworld, 2, "cycling on the overworld bumps speedOverworld")
-  eq(g.save.options.speedBattle, 1, "...and leaves speedBattle alone")
+  eq(g.save.options.speedBattle, 2, "...and syncs speedBattle")
+  eq(g.save.options.speedMenu, 2, "...and syncs speedMenu")
 end
 do
   local g = gameWith({ overlay },
@@ -208,6 +209,21 @@ do
   function g:writeOptions() end
   g:_cycleSpeed(1)
   eq(g.save.options.speedMenu, 2, "cycling in a menu bumps speedMenu")
+  eq(g.save.options.speedOverworld, 2, "...and syncs speedOverworld")
+end
+do
+  local g = gameWith({ overworld },
+    { speedOverworld = 3, speedBattle = 10, speedMenu = 1 })
+  function g:writeOptions() end
+  g:_cycleSpeed(-1)
+  eq(g.save.options.speedOverworld, 2, "speed down steps the active category")
+  eq(g.save.options.speedBattle, 2, "speed down syncs battle")
+  eq(g.save.options.speedMenu, 2, "speed down syncs menu")
+  g:_cycleSpeed(-1)
+  g:_cycleSpeed(-1)
+  eq(g.save.options.speedOverworld, GameSpeed.LEVELS[#GameSpeed.LEVELS],
+    "wrapping down from NORMAL lands on the top level for every category")
+  eq(g.save.options.speedMenu, GameSpeed.LEVELS[#GameSpeed.LEVELS], "including menu")
 end
 
 -- A cart may narrow the ladder (CartManifest's `speeds`), and returning to

@@ -33,7 +33,8 @@ do
   eq(g:speedCategory(), "overworld", "menu over the field inherits overworld")
   g:keypressed("1")
   eq(g.options.speedOverworld, 2, "1 with a field menu open bumps OVERWORLD SPEED")
-  eq(g.options.speedMenu, 1, "1 with a field menu open leaves MENU SPEED alone")
+  eq(g.options.speedMenu, 2, "1 with a field menu open syncs MENU SPEED")
+  eq(g.options.speedBattle, 2, "and syncs BATTLE SPEED")
   stackBusy = false
   eq(g:logicSpeed(), 2, "walk speed sticks after the menu closes")
   battleActive = true
@@ -42,7 +43,7 @@ do
   eq(g:logicSpeed(), 10, "a local gen3 battle runs at BATTLE SPEED")
   g:keypressed("1")
   check(g.options.speedBattle ~= 10, "1 in battle cycles BATTLE SPEED")
-  eq(g.options.speedOverworld, 2, "and leaves OVERWORLD SPEED alone")
+  eq(g.options.speedOverworld, g.options.speedBattle, "and syncs OVERWORLD SPEED")
   battleActive = false
   eq(newGame3("boot"):speedCategory(), "menu", "boot phase stays menu")
   eq(newGame3("quest_log"):speedCategory(), "menu", "quest log stays menu")

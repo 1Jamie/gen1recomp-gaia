@@ -677,7 +677,10 @@ function Game3:_cycleSpeed(dir)
   if self:speedLocked() then return end
   local GameSpeed = require("src.core.GameSpeed")
   local key = GameSpeed.optionKey(self:speedCategory())
-  self.options[key] = GameSpeed.cycle(self.options[key], dir)
+  local nextSpeed = GameSpeed.cycle(self.options[key], dir)
+  for _, c in ipairs(GameSpeed.CATEGORIES) do
+    self.options[GameSpeed.optionKey(c)] = nextSpeed
+  end
   self:writeOptions()
 end
 

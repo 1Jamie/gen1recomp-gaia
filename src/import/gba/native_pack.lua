@@ -134,20 +134,26 @@ function NativePack.decodeIdx(blob)
     midIds[i] = read_u16(blob, off)
     off = off + 2
   end
-  local pixels = {}
+  local dataOff = off
   local n = midCount * 256
-  for i = 1, n do
-    pixels[i] = blob:byte(off + i - 1) or 0
-  end
-  return {
+  return setmetatable({
     formatVersion = formatVersion,
     flags = flags,
     midCount = midCount,
     atlasCols = atlasCols,
     atlasRows = atlasRows,
     midIds = midIds,
-    pixels = pixels,
-  }
+  }, {
+    __index = function(self, k)
+      if k ~= "pixels" then return nil end
+      local pixels = {}
+      for i = 1, n do
+        pixels[i] = blob:byte(dataOff + i - 1) or 0
+      end
+      rawset(self, "pixels", pixels)
+      return pixels
+    end,
+  })
 end
 
 function NativePack.encodePalettes(mapPals)

@@ -46,6 +46,7 @@ local FLY_BIRD_W, FLY_BIRD_H, FLY_BIRD_FRAMES = 64, 64, 5
 local frlgReflective = nil
 local frlgReflectionQuad = nil
 local frlgModules = nil
+local FRLG_REFL_CULL = 64
 local objectPoseOpts = {}
 local playerPoseOpts = {}
 local function isFrlgReflective(behavior)
@@ -99,6 +100,7 @@ local function drawFrlgReflections(camX, camY)
   if not modules then return end
   local Collision, Ow = modules.Collision, modules.Ow
   local Objects, P, Runtime = modules.Objects, modules.Player, modules.Runtime
+  local behaviorAt = Collision.worldBehavior or Collision.behavior
   local drawn = 0
   if Objects.forDraw then
     for _, obj in ipairs(Objects.forDraw()) do
@@ -109,7 +111,45 @@ local function drawFrlgReflections(camX, camY)
           local frame, flip = Ow.pose(spr, obj.facing, Objects.walkPhase(obj), obj.stepFlip,
             objectPoseOpts)
           if drawFrlgReflection(obj, obj.graphicsId, frame, flip, camX, camY,
-              Collision.behavior, Ow) then drawn = drawn + 1 end
+              behaviorAt, Ow) then drawn = drawn + 1 end
+        end
+      end
+    end
+  end
+  local Map = package.loaded["src.core.game3.map"]
+  local Ghosts = package.loaded["src.core.game3.ghosts"]
+  local world = Map and Map.world
+  if Ghosts and Ghosts.forDraw and type(world) == "table" then
+    local host = Collision._mapDef
+    local FV = package.loaded["src.core.game3.field_view"]
+    local Display = require("src.core.game3.display")
+    local vw = FV and FV._viewW or Display.W
+    local vh = FV and FV._viewH or Display.H
+    local x0, y0 = camX - FRLG_REFL_CULL, camY - FRLG_REFL_CULL
+    local x1, y1 = camX + vw + FRLG_REFL_CULL, camY + vh + FRLG_REFL_CULL
+    for i = 1, #world do
+      local entry = world[i]
+      local ox, oy = entry.ox or 0, entry.oy or 0
+      local L = entry.def and entry.def.midLayout
+      local ex, ey = ox * CELL, oy * CELL
+      if entry.def ~= host and L
+          and ex + (L.width or 0) * CELL > x0 and ex < x1
+          and ey + (L.height or 0) * CELL > y0 and ey < y1 then
+        local live = Ghosts.forDraw(entry.id)
+        if live then
+          for j = 1, #live do
+            local obj = live[j]
+            if not obj.hideReflection and obj.graphicsId and not obj.virtualId then
+              local spr = Ow.getDraw(obj.graphicsId)
+              if spr then
+                objectPoseOpts.frame = obj.customFrame
+                local frame, flip = Ow.pose(spr, obj.facing, Objects.walkPhase(obj), obj.stepFlip,
+                  objectPoseOpts)
+                if drawFrlgReflection(obj, obj.graphicsId, frame, flip, camX, camY,
+                    behaviorAt, Ow, ox, oy) then drawn = drawn + 1 end
+              end
+            end
+          end
         end
       end
     end
@@ -122,22 +162,23 @@ local function drawFrlgReflections(camX, camY)
       local frame, flip = Ow.pose(spr, P.facing, P.walkPhase and P.walkPhase() or 0,
         P.drawFlip and P.drawFlip() or false, playerPoseOpts)
       if drawFrlgReflection(P, gid, frame, flip, camX, camY,
-          Collision.behavior, Ow) then drawn = drawn + 1 end
+          behaviorAt, Ow) then drawn = drawn + 1 end
     end
   end
   FieldEffects.lastFrlgReflections = drawn
 end
 
-drawFrlgReflection = function(obj, graphicsId, frame, hflip, camX, camY, behaviorAt, Ow)
+drawFrlgReflection = function(obj, graphicsId, frame, hflip, camX, camY, behaviorAt, Ow, ox, oy)
   local spr = Ow.getReflectionDraw and Ow.getReflectionDraw(graphicsId)
   if not (spr and spr.quads and spr.quads[frame]) then return false end
-  local cx = obj.moving and obj.targetX or obj.cellX
-  local cy = obj.moving and obj.targetY or obj.cellY
-  local pcx, pcy = obj.cellX, obj.cellY
+  ox, oy = ox or 0, oy or 0
+  local cx = (obj.moving and obj.targetX or obj.cellX) + ox
+  local cy = (obj.moving and obj.targetY or obj.cellY) + oy
+  local pcx, pcy = obj.cellX + ox, obj.cellY + oy
   if not frlgReflectionType(cx, cy, pcx, pcy, spr.width, spr.height, behaviorAt) then return false end
   local w, h = spr.width, spr.height
-  local left = (obj.px or cx * CELL) + (16 - w) / 2
-  local top = (obj.py or cy * CELL) + 14
+  local left = (obj.px or (cx - ox) * CELL) + ox * CELL + (16 - w) / 2
+  local top = (obj.py or (cy - oy) * CELL) + oy * CELL + 14
   local x0, x1 = math.floor(left / CELL), math.floor((left + w - 1) / CELL)
   local y0, y1 = math.floor(top / CELL), math.floor((top + h - 1) / CELL)
   local q = frlgReflectionQuad or love.graphics.newQuad(0, 0, 1, 1, spr.width, spr.height * spr.frameCount)

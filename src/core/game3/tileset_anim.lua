@@ -28,6 +28,7 @@ function TilesetAnim.install(cache)
 end
 
 function TilesetAnim.invalidate()
+  TilesetAnim._manifests = nil
   TilesetAnim._pairs = {}
   TilesetAnim._visible = {}
   TilesetAnim.counter = 0
@@ -42,9 +43,18 @@ local function native_root()
 end
 
 local function read_manifest(cache, pair)
+  local memo = TilesetAnim._manifests
+  if not memo then
+    memo = {}
+    TilesetAnim._manifests = memo
+  end
+  local hit = memo[pair]
+  if hit ~= nil then return hit or nil end
   local src = cache:read(native_root() .. pair .. "/anim_manifest.lua")
   local chunk = src and load(src, "@anim_manifest.lua", "t", {})
-  return chunk and chunk() or nil
+  local man = chunk and chunk() or nil
+  memo[pair] = man or false
+  return man
 end
 
 local function rse_luts(cache, pair)
@@ -295,10 +305,7 @@ function TilesetAnim.bindPair(pair, atlas)
   local entry = TilesetAnim._pairs[pair]
   if entry == false then return false end
   if not entry then
-    local src = cache:read(
-      (Extract.CACHE_ROOT or "data/generated/gba") .. "/native/" .. pair .. "/anim_manifest.lua")
-    local chunk = src and load(src, "@anim_manifest.lua", "t", {})
-    local man = chunk and chunk()
+    local man = read_manifest(cache, pair)
     if not man then
       TilesetAnim._pairs[pair] = false
       return false
