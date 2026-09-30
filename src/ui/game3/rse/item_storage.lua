@@ -418,12 +418,11 @@ local function draw_icon()
   local tpl = WIN.icon
   frame(tpl)
   local e = items()[pos() + 1]
-  local ok, BagChrome = pcall(require, "src.ui.game3.bag_chrome")
-  if not ok then return end
+  local BagChrome = require("src.ui.game3.rse.bag_chrome")
   local ItemsData = require("src.core.game3.items_data")
-  local id = e and e.id or (ItemsData.ITEMS_COUNT or 0)
-  -- pokeemerald/src/player_pc.c:878
-  pcall(BagChrome.drawItemIcon, id, 12, 68)
+  local icon = e and ItemsData.toNumericId(e.id) or BagChrome.returnIconIndex()
+  -- pokeemerald/src/player_pc.c:1110
+  BagChrome.drawItemIcon(icon, 24 - 16, 80 - 16)
 end
 
 function ItemStorage.draw()
