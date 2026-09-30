@@ -129,12 +129,29 @@ end
 
 local QUAD_XY = { [0] = { 0, 0 }, { 8, 0 }, { 0, 8 }, { 8, 8 } }
 
-local function rse_paste(entry, bank, blob, mids, quads, frame, imageData, lut, over)
+local function rse_quad_piece(bank, piece, key, q)
+  local cache = bank.quadPieces
+  if not cache then
+    cache = {}
+    bank.quadPieces = cache
+  end
+  local qk = key .. q
+  local sub = cache[qk]
+  if sub then return sub end
+  local o = QUAD_XY[q]
+  sub = love.image.newImageData(8, 8)
+  sub:paste(piece, 0, 0, o[1], o[2], 8, 8)
+  cache[qk] = sub
+  return sub
+end
+
+local function rse_paste(entry, bank, blob, mids, quads, frame, imageData, lut, over, image)
   if not (blob and imageData and love and love.image) then return false end
   local ts = entry.atlas
   local cols = ts.cols or 16
   local n = #mids
   local changed = false
+  local partial = image ~= nil and image.replacePixels ~= nil
   for k, mid in ipairs(mids) do
     local slot = ts.midToSlot[mid]
     if slot then
@@ -142,13 +159,22 @@ local function rse_paste(entry, bank, blob, mids, quads, frame, imageData, lut, 
       if piece then
         local ax, ay = (slot % cols) * 16, math.floor(slot / cols) * 16
         local mask = quads and quads[k] or 15
-        for q = 0, 3 do
-          if math.floor(mask / 2 ^ q) % 2 == 1 then
-            local o = QUAD_XY[q]
-            imageData:paste(piece, ax + o[1], ay + o[2], o[1], o[2], 8, 8)
+        if mask == 15 then
+          imageData:paste(piece, ax, ay, 0, 0, 16, 16)
+          if partial then image:replacePixels(piece, 1, 1, ax, ay, false) end
+        else
+          for q = 0, 3 do
+            if math.floor(mask / 2 ^ q) % 2 == 1 then
+              local o = QUAD_XY[q]
+              imageData:paste(piece, ax + o[1], ay + o[2], o[1], o[2], 8, 8)
+              if partial then
+                local key = (over and "o" or "u") .. frame * 4096 + k
+                image:replacePixels(rse_quad_piece(bank, piece, key, q), 1, 1, ax + o[1], ay + o[2], false)
+              end
+            end
           end
         end
-        changed = true
+        changed = not partial
       end
     end
   end
@@ -167,10 +193,10 @@ local function rse_apply(entry, bank, frame, dirty)
     end
     return
   end
-  if rse_paste(entry, bank, bank.under, row.mids or EMPTY, row.quads, frame, ts.imageData, entry.lut, false) then
+  if rse_paste(entry, bank, bank.under, row.mids or EMPTY, row.quads, frame, ts.imageData, entry.lut, false, ts.image) then
     dirty.under = true
   end
-  if rse_paste(entry, bank, bank.over, row.overMids or EMPTY, row.overQuads, frame, ts.overImageData, entry.lutOver, true) then
+  if rse_paste(entry, bank, bank.over, row.overMids or EMPTY, row.overQuads, frame, ts.overImageData, entry.lutOver, true, ts.overImage) then
     dirty.over = true
   end
 end

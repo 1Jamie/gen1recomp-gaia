@@ -342,32 +342,58 @@ local function neighborActorDefs(mapId, def)
   return type(defs) == "table" and defs or nil
 end
 
-local function collectNeighborActors(actors, baseIndex, hostMapId, hostDef)
+local ghostActors = setmetatable({}, { __mode = "k" })
+local ACTOR_CULL_MARGIN = 64
+
+local function entryInView(entry, x0, y0, x1, y1)
+  local L = entry.def and entry.def.midLayout
+  local w = (L and L.width) or ((tonumber(entry.def and entry.def.width) or 0) * 2)
+  local h = (L and L.height) or ((tonumber(entry.def and entry.def.height) or 0) * 2)
+  local ex, ey = entry.ox * CELL, entry.oy * CELL
+  return ex + w * CELL > x0 and ex < x1 and ey + h * CELL > y0 and ey < y1
+end
+
+local function collectNeighborActors(actors, baseIndex, hostMapId, hostDef, camX, camY)
   local Map = package.loaded["src.core.game3.map"]
   if not (Map and type(Map.world) == "table") then return baseIndex end
   local Ghosts = package.loaded["src.core.game3.ghosts"]
   local Objects = package.loaded["src.core.game3.objects"]
+  local vw = FieldView._viewW or Display.W
+  local vh = FieldView._viewH or Display.H
+  local cull = camX ~= nil and camY ~= nil
+  local x0, y0 = (camX or 0) - ACTOR_CULL_MARGIN, (camY or 0) - ACTOR_CULL_MARGIN
+  local x1, y1 = (camX or 0) + vw + ACTOR_CULL_MARGIN, (camY or 0) + vh + ACTOR_CULL_MARGIN
   for _, entry in ipairs(Map.world) do
-    if entry.id ~= hostMapId and entry.def ~= hostDef then
+    if entry.id ~= hostMapId and entry.def ~= hostDef
+        and (not cull or entryInView(entry, x0, y0, x1, y1)) then
       local live = Ghosts and Ghosts.forDraw and Ghosts.forDraw(entry.id)
       if live then
         for _, eo in ipairs(live) do
-          baseIndex = baseIndex + 1
-          actors[#actors + 1] = {
-            kind = "npc",
-            i = baseIndex,
-            obj = eo.def,
-            eventObject = eo,
-            ghost = entry.id,
-            x = (eo.px or (eo.cellX or 0) * CELL) + entry.ox * CELL,
-            y = (eo.py or (eo.cellY or 0) * CELL) + entry.oy * CELL,
-            facing = eo.facing or "down",
-            walkPhase = Objects and Objects.walkPhase and Objects.walkPhase(eo) or 0,
-            stepFlip = eo.stepFlip and true or false,
-            sprite = eo.sprite or spriteNameForObj(eo.def or {}),
-            graphicsId = eo.graphicsId
-              or (eo.def and (eo.def.graphicsId or eo.def.graphics)),
-          }
+          local x = (eo.px or (eo.cellX or 0) * CELL) + entry.ox * CELL
+          local y = (eo.py or (eo.cellY or 0) * CELL) + entry.oy * CELL
+          if not cull or (x > x0 and x < x1 and y > y0 and y < y1) then
+            baseIndex = baseIndex + 1
+            local a = ghostActors[eo]
+            if not a then
+              a = { kind = "npc", eventObject = eo }
+              ghostActors[eo] = a
+            end
+            a.i = baseIndex
+            a.obj = eo.def
+            a.ghost = entry.id
+            a.x = x
+            a.y = y
+            a.facing = eo.facing or "down"
+            a.walkPhase = Objects and Objects.walkPhase and Objects.walkPhase(eo) or 0
+            a.stepFlip = eo.stepFlip and true or false
+            a.sprite = eo.sprite or spriteNameForObj(eo.def or {})
+            a.graphicsId = eo.graphicsId
+              or (eo.def and (eo.def.graphicsId or eo.def.graphics))
+            a.elevation = nil
+            a.priority = nil
+            a.subpriority = nil
+            actors[#actors + 1] = a
+          end
         end
       else
         local defs = neighborActorDefs(entry.id, entry.def)
@@ -603,7 +629,7 @@ local function collectGame3Actors(game, mapDef, camX, camY, px, py, facing, walk
       actors[#actors + 1] = a
     end
     collectNeighborActors(actors, 10000, currentMapId(game),
-      resolveMapDef(game, currentMapId(game)))
+      resolveMapDef(game, currentMapId(game)), camX, camY)
     local Space = package.loaded["src.core.game3.scripting.space"]
     if Space and Space.resolveObjectGraphicsId then
       for _, a in ipairs(actors) do
@@ -1357,6 +1383,7 @@ function FieldView.draw(game, canvasW, canvasH, opts)
 
   FieldView._billboard = opts.billboard
     and { vw = canvasW, vh = canvasH } or nil
+  FieldView._viewW, FieldView._viewH = canvasW, canvasH
 
   if not opts.actorsOnly then
     local Map = package.loaded["src.core.game3.map"]

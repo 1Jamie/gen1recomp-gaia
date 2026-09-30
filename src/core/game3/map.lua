@@ -148,6 +148,14 @@ function Map.refreshWorld(game, reachW, reachH, rootId)
   for _, entry in ipairs(Map.world) do
     Map._loadedLayouts[entry.id] = true
   end
+  local NativeTileset = package.loaded["src.core.game3.tileset_native"]
+  if Map._warmPairs and NativeTileset and NativeTileset.get then
+    Map._warmPairs = nil
+    for _, entry in ipairs(Map.world) do
+      local pair = entry.def and (entry.def.pair or (entry.def.midLayout and entry.def.midLayout.pair))
+      if pair and NativeTileset.ready(pair) then pcall(NativeTileset.get, pair) end
+    end
+  end
   Map._worldRoot = rootId
   Map._worldReachW = reachW
   Map._worldReachH = reachH
@@ -443,6 +451,7 @@ function Map.load(mod, game, mapId, opts)
     Collision.clear()
   end
 
+  Map._warmPairs = not opts.seamless or nil
   -- pret GroundEffect_SpawnOnTallGrass when warping onto grass.
   if not opts.seamless then
     local onGrass = Collision.isGrass and Collision.isGrass(Player.cellX, Player.cellY)
