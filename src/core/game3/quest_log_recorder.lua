@@ -25,7 +25,7 @@ function R.capture(game,session)
       graphicsId=gid or o.graphicsId or (o.def and (o.def.graphicsId or o.def.graphics)),
       facing=o.facing,walkPhase=O.walkPhase(o),stepFlip=o.stepFlip,frame=o.customFrame,bow=(o.bowFrames or 0)>8 and (o.bowFrames or 0)<=40}
   end
-  return f
+  return Q.trimActors(f)
 end
 function R.fillTiles(game,session,frame,out)
   local Map=require('src.core.game3.map')

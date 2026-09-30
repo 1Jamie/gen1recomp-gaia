@@ -26,4 +26,11 @@ for n=1,3000 do Q.sample(s,frame(n),6) end
 local out=Q.export(s)
 for _,scene in ipairs(out.scenes) do assert(#scene.frames<=Q.MAX_FRAMES and #scene.events<=Q.MAX_EVENTS) end
 local a=assert(Q.playback(out)); for n=1,10000 do a:update({}) end;assert(a.done,'auto playback must finish')
+local fat={x=500,y=500,actors={{id=255,x=500,y=500}}}
+for n=1,60 do fat.actors[#fat.actors+1]={id=n,x=500+n*4,y=500+(n%3)*4} end
+fat.actors[#fat.actors+1]={id=99,x=5000,y=5000}
+local old={version=1,scenes={{map='FR_A',frames={fat},events={{key='ArrivedInLocation',args={'X'},frame=1}}}}}
+local trimmed=Q.restore(old).scenes[1].frames[1].actors
+assert(#trimmed<=Q.MAX_ACTORS and trimmed[1].id==255,'old saves must shed actor bloat')
+for _,a in ipairs(trimmed) do assert(a.id~=99 and a.id~=60,'far actors must be dropped') end
 print('PASS Quest Log history, persistence, limits, playback, skips and isolation')
