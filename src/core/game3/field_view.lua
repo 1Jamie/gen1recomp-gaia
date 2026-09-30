@@ -461,29 +461,45 @@ local function actorPriority(a)
   end
 end
 
+-- pokeemerald/src/event_object_movement.c:7691
+local ELEV_TO_SUBPRIORITY = {
+  [0] = 115, [1] = 115, [2] = 83, [3] = 115, [4] = 83, [5] = 115,
+  [6] = 83, [7] = 115, [8] = 83, [9] = 115, [10] = 83, [11] = 115,
+  [12] = 83, [13] = 0, [14] = 0, [15] = 115
+}
+
 local function sortActors(a, b)
-  local ay = a.subpriority or a.sortY or a.y
-  local by = b.subpriority or b.sortY or b.y
-  if ay == by then return (a.i or 0) < (b.i or 0) end
-  return ay < by
+  if a.subpriority == b.subpriority then
+    local ay = a.sortY or a.y or 0
+    local by = b.sortY or b.y or 0
+    if ay == by then return (a.i or 0) < (b.i or 0) end
+    return ay < by
+  end
+  return a.subpriority > b.subpriority
 end
 
--- event_object_movement.c:8379-8387, scrcmd.c:1130
-local function applyDrawOrder(actors, underActors, overActors)
+-- event_object_movement.c:7739-7754, scrcmd.c:1130
+local function applyDrawOrder(actors, underActors, overActors, camY)
   underActors = underActors or {}
   overActors = overActors or {}
   for i = #underActors, 1, -1 do underActors[i] = nil end
   for i = #overActors, 1, -1 do overActors[i] = nil end
   for _, a in ipairs(actors) do
     local obj = a.eventObject
-    if obj and obj.fixedPriority then
-      if obj.fixedClass == nil then obj.fixedClass = a.priority or actorPriority(a) end
-      a.priority = obj.fixedClass
-      a.subpriority = obj.subpriority
+    if (obj and obj.fixedPriority) or a.fixedPriority then
+      a.fixedPriority = true
+      if obj and obj.fixedClass == nil then obj.fixedClass = a.priority or actorPriority(a) end
+      a.subpriority = (obj and obj.subpriority) or a.subpriority or 83
+      a.priority = (obj and obj.fixedClass) or a.priority or actorPriority(a)
     else
       if obj then obj.fixedClass = nil end
+      a.fixedPriority = false
       a.priority = actorPriority(a)
-      a.subpriority = nil
+      local screenY = math.floor((a.y or 0) - (camY or 0))
+      local gridY = math.floor(screenY / 16)
+      local y = (16 - gridY) * 2
+      local base = ELEV_TO_SUBPRIORITY[a.elevation or 3] or 115
+      a.subpriority = base + y + 1
     end
     if (a.priority or 2) < 2 then
       overActors[#overActors + 1] = a
@@ -670,7 +686,8 @@ local function collectGame3Actors(game, mapDef, camX, camY, px, py, facing, walk
     a.sprite = playerSpriteName(game)
     a.graphicsId = useOw and OwSprites.playerGraphicsId(game) or nil
     a.priority = nil
-    a.subpriority = nil
+    a.fixedPriority = PlayerMod and PlayerMod.fixedPriority
+    a.subpriority = PlayerMod and PlayerMod.subpriority
     actors[#actors + 1] = a
   end
 
@@ -683,7 +700,7 @@ local function collectGame3Actors(game, mapDef, camX, camY, px, py, facing, walk
     FieldEffects.collectActors(actors)
   end
 
-  return applyDrawOrder(actors, frameUnder, frameOver)
+  return applyDrawOrder(actors, frameUnder, frameOver, camY)
 end
 
 --- Collect visible tile draws grouped by palette slot for batched GbcPalette.with.

@@ -165,8 +165,16 @@ function StartMenu.show(opts)
   StartMenu._session = opts.session
   StartMenu._game = opts.game
   StartMenu._onClose = opts.onClose
-  local entries, kind, ctx = build_entries(opts.session, opts.game)
+  StartMenu._tutorial = opts.tutorial and true or false
+  StartMenu._onTutorialSelect = opts.onTutorialSelect
   local d = data(opts.session)
+  local entries, kind, ctx
+  if StartMenu._tutorial and d.tutorialEntries then
+    ctx = context(opts.session)
+    entries, kind = d.tutorialEntries(ctx)
+  else
+    entries, kind, ctx = build_entries(opts.session, opts.game)
+  end
   StartMenu.ENTRIES = entries
   StartMenu._kind = kind
   StartMenu._data = d
@@ -177,7 +185,7 @@ function StartMenu.show(opts)
       opts.game, StartMenu.ENTRIES)
     if type(hooked) == "table" then StartMenu.ENTRIES = hooked end
   end
-  local pos = tonumber(StartMenu.cursor) or 1
+  local pos = tonumber(opts.cursor or StartMenu.cursor) or 1
   if pos < 1 or pos > #StartMenu.ENTRIES then pos = 1 end -- pokefirered/src/menu.c:276
   StartMenu.cursor = pos -- pokefirered/src/start_menu.c:329
   StartMenu.clampScroll()
@@ -188,6 +196,8 @@ end
 function StartMenu.close(silent)
   StartMenu.open = false
   StartMenu._confirmExit = false
+  StartMenu._tutorial = false
+  StartMenu._onTutorialSelect = nil
   Stack.pop("start")
   local cb = StartMenu._onClose
   StartMenu._onClose = nil
@@ -199,6 +209,12 @@ function StartMenu.cancel()
   if StartMenu._confirmExit then
     StartMenu._confirmExit = false
     -- pokefirered/src/menu.c:381
+    return
+  end
+  if StartMenu._tutorial then
+    local cb = StartMenu._onTutorialSelect
+    StartMenu.close(true)
+    if cb then cb(127) end -- MULTI_B_PRESSED
     return
   end
   StartMenu.close()
@@ -220,6 +236,13 @@ end
 
 function StartMenu.confirm()
   se("SE_SELECT")
+  if StartMenu._tutorial then
+    local sel = StartMenu.cursor - 1
+    local cb = StartMenu._onTutorialSelect
+    StartMenu.close(true)
+    if cb then cb(sel) end
+    return
+  end
   if StartMenu._confirmExit then
     if StartMenu._confirmCursor == 1 then -- YES
       StartMenu.open = false

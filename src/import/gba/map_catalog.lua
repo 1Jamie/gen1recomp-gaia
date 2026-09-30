@@ -156,6 +156,15 @@ function MapCatalog.slotKeyFor(mapId)
   return _slotByEngine[mapId] or _slotByEngine[_aliases[mapId] or ""]
 end
 
+function MapCatalog.groupNumFor(mapId)
+  local slot = MapCatalog.slotKeyFor(mapId)
+  if slot then
+    local g, n = slot:match("^(%d+)_(%d+)$")
+    if g and n then return tonumber(g), tonumber(n) end
+  end
+  return nil, nil
+end
+
 function MapCatalog.resolve(nameOrGroup, num)
   ensure_index()
   if num ~= nil then
