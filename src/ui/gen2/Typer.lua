@@ -56,16 +56,22 @@ end
 
 -- ../pokecrystal/home/text.asm:520 _ContTextNoPause
 function Typer:start(page)
-  local out, total, kept = {}, 0, 0
+  local out, spans, total, kept = {}, {}, 0, 0
   local scrolled = type(page) == "table" and page.scrolled
   for i, line in ipairs(linesOf(page)) do
     local text = self.expand and self.expand(line) or line
     out[i] = text
-    local n = #spansOf(text)
+    -- Split once here: lines() runs every frame while the page types out.
+    local lineSpans = spansOf(text)
+    spans[i] = lineSpans
+    local n = #lineSpans
     total = total + n
     if scrolled and i == 1 then kept = n end
   end
   self.page = out
+  self.spans = spans
+  self.spansPage = out
+  self.linesOut, self.linesShown = nil, nil
   self.total = total
   self.shown = self.instant and total or kept
   self.timer = 0
@@ -108,9 +114,16 @@ end
 
 function Typer:lines()
   if self:done() then return self.page end
+  -- The same partial page is asked for every frame between two letters.
+  if self.linesOut and self.linesShown == self.shown
+      and self.linesPage == self.page then
+    return self.linesOut
+  end
+  local cached = self.spansPage == self.page and self.spans or nil
   local out, left = {}, self.shown
+  self.linesOut, self.linesShown, self.linesPage = out, self.shown, self.page
   for i, line in ipairs(self.page) do
-    local spans = spansOf(line)
+    local spans = cached and cached[i] or spansOf(line)
     if left >= #spans then
       out[i] = line
     elseif left <= 0 then

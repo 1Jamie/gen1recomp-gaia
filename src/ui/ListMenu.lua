@@ -45,6 +45,18 @@ local function fitLabel(text, pixels)
   return table.concat(out) .. "."
 end
 
+-- item -> { label, budget, out }: fitLabel's result for a row, kept
+-- until the row's label or pixel budget changes (draw asks every frame).
+-- Weak-keyed and outside the item so caller-owned rows are never written.
+local fitCache = setmetatable({}, { __mode = "k" })
+local function fitRowLabel(item, pixels)
+  local c = fitCache[item]
+  if c and c.label == item.label and c.budget == pixels then return c.out end
+  local out = fitLabel(item.label, pixels)
+  fitCache[item] = { label = item.label, budget = pixels, out = out }
+  return out
+end
+
 local ROWS = 7
 -- LIST_MENU_BOX 4,2 - 19,12 (data/text_boxes.asm:13); 4 names from
 -- hlcoord 6,4 two rows apart (home/list_menu.asm:51-52, 364-365, 471-479)
@@ -258,16 +270,27 @@ function ListMenu:close()
   if top == self then self.game.stack:pop() end
 end
 
+-- self.footer paginated into one flat line list, re-run only when the
+-- footer text changes (both footer draws below ask every frame)
+local function footerLines(self)
+  local text = self.footer
+  if self.footerFlatFor ~= text or not self.footerFlat then
+    local flat = {}
+    for _, page in ipairs(require("src.render.TextBox").paginate(text)) do
+      for _, line in ipairs(page) do flat[#flat + 1] = line end
+    end
+    self.footerFlatFor, self.footerFlat = text, flat
+  end
+  return self.footerFlat
+end
+
 -- standard bottom text box (PrintText); long prompts wrap and keep
 -- their last two lines, like the GB's scrolled box (#115/#174)
 local function drawMessageBox(self)
   Font.drawBox(0, 12, 20, 6)
   love.graphics.setColor(0, 0, 0, 1)
   if not self.footer then return end
-  local flat = {}
-  for _, page in ipairs(require("src.render.TextBox").paginate(self.footer)) do
-    for _, line in ipairs(page) do flat[#flat + 1] = line end
-  end
+  local flat = footerLines(self)
   local y = 112
   for i = math.max(1, #flat - 1), #flat do
     Font.draw(flat[i], 8, y)
@@ -362,7 +385,7 @@ function ListMenu:draw()
     love.graphics.setColor(unpack(textColor))
     local budget = ROW_RIGHT_MARGIN - ROW_LEFT
     if item.right then budget = budget - Font.width(item.right) - LABEL_GAP end
-    local label = fitLabel(item.label, budget)
+    local label = fitRowLabel(item, budget)
     Font.draw(label, 16, y)
     if item.ball then -- the Pokédex owned-ball marker tile
       -- one blank glyph after the name, measured in glyph advances rather
@@ -400,10 +423,7 @@ function ListMenu:draw()
     drawMessageBox(self)
   elseif self.footer then
     -- bare footer (bag money line, etc.)
-    local flat = {}
-    for _, page in ipairs(require("src.render.TextBox").paginate(self.footer)) do
-      for _, line in ipairs(page) do flat[#flat + 1] = line end
-    end
+    local flat = footerLines(self)
     local y = (#flat >= 2) and 120 or 136
     for i = math.max(1, #flat - 1), #flat do
       Font.draw(flat[i], 8, y)

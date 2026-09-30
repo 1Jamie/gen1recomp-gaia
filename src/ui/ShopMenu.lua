@@ -285,9 +285,14 @@ local function drawClerk(menu)
   Font.drawBox(0, 12, 20, 6)
   love.graphics.setColor(0, 0, 0, 1)
   if menu.footer then
-    local flat = {}
-    for _, page in ipairs(TextBox.paginate(menu.footer)) do
-      for _, line in ipairs(page) do flat[#flat + 1] = line end
+    -- paginated once per footer text, not once per drawn frame
+    local flat = menu.shopFooterFlat
+    if menu.shopFooterFor ~= menu.footer or not flat then
+      flat = {}
+      for _, page in ipairs(TextBox.paginate(menu.footer)) do
+        for _, line in ipairs(page) do flat[#flat + 1] = line end
+      end
+      menu.shopFooterFor, menu.shopFooterFlat = menu.footer, flat
     end
     local y = 112
     for i = math.max(1, #flat - 1), #flat do

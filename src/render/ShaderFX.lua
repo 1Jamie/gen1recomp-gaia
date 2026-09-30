@@ -673,6 +673,88 @@ local function sizeTable(state, i, dims, sizeUniforms, viewport, original)
   return values
 end
 
+-- ------- per-pass uniform bookkeeping
+--
+-- runPass used to rebuild and pcall-send every uniform every frame.  Each
+-- pass's shader is private to its chain state (built at activate, dropped
+-- with the state) and nothing else sends to it, so `cached.sent` remembers
+-- what the shader last received and a uniform is only re-sent when its value
+-- changed.  A failed send is remembered too: it would fail the same way again
+-- for the same name and value.
+
+local textureUniformNames = {}
+local function textureUniform(name)
+  local u = textureUniformNames[name]
+  if not u then
+    u = "LIBRA_TEXTURE_" .. name
+    textureUniformNames[name] = u
+  end
+  return u
+end
+
+-- Fixup.packValues over `values` with ALL_DEFAULTS layered on top (a default
+-- wins, exactly as copying it into `values` did), into tables reused across
+-- frames: shader:send copies, so the vec4 groups need not be fresh.
+local PACK_SLOT = { x = 1, y = 2, z = 3, w = 4 }
+local function packPass(cached, manifest, defaults, values)
+  local packed = cached.packed
+  if not packed then
+    packed = {}
+    cached.packed = packed
+    cached.groups = {}
+    for _, entry in ipairs(manifest) do
+      if entry.component and not cached.groups[entry.uniform] then
+        cached.groups[entry.uniform] = { 0, 0, 0, 0 }
+      end
+    end
+  end
+  for uniform, group in pairs(cached.groups) do
+    group[1], group[2], group[3], group[4] = 0, 0, 0, 0
+    packed[uniform] = group
+  end
+  for _, entry in ipairs(manifest) do
+    local value = defaults[entry.name]
+    if value == nil then value = values[entry.name] end
+    if entry.component then
+      packed[entry.uniform][PACK_SLOT[entry.component]] = value or 0
+    else
+      packed[entry.uniform] = value
+    end
+  end
+  return packed
+end
+
+-- Whether `value` differs from what `sent[name]` recorded.  Arrays of plain
+-- numbers/booleans are compared element-wise; anything else always sends.
+local function changedSince(sent, name, value)
+  local last = sent[name]
+  if last == nil then return true end
+  if type(value) ~= "table" then return last ~= value end
+  if type(last) ~= "table" or last.n ~= #value then return true end
+  for k = 1, last.n do
+    local v = value[k]
+    local tv = type(v)
+    if (tv ~= "number" and tv ~= "boolean") or last[k] ~= v then return true end
+  end
+  return false
+end
+
+local function remember(sent, name, value)
+  if type(value) ~= "table" then
+    sent[name] = value
+    return
+  end
+  local snap = sent[name]
+  if type(snap) ~= "table" then
+    snap = {}
+    sent[name] = snap
+  end
+  local n = #value
+  for k = 1, n do snap[k] = value[k] end
+  for k = n + 1, (snap.n or 0) do snap[k] = nil end
+  snap.n = n
+end
+
 -- Runs pass `i`, drawing `srcImg` into a freshly sized canvas. `lutByName`
 -- resolves a User-semantic sampler by the name the translation reported.
 local function runPass(state, i, pass, outputs, frameSource, lutByName, viewport, original, layer)
@@ -684,6 +766,11 @@ local function runPass(state, i, pass, outputs, frameSource, lutByName, viewport
   local cached = assert(state.shaderCache[i],
     ("pass%d: shader was not built at activate"):format(i))
   local shader, fragManifest = cached.shader, cached.fragManifest
+  local sent = cached.sent
+  if not sent then
+    sent = {}
+    cached.sent = sent
+  end
 
   for _, s in ipairs(pass.samplers) do
     local img
@@ -694,13 +781,21 @@ local function runPass(state, i, pass, outputs, frameSource, lutByName, viewport
     elseif s.semantic == "User" then img = lutByName and lutByName[s.user_name] end
     assert(img, ("pass%d: no binding resolved for sampler %s (semantic=%s)")
       :format(i, s.name, tostring(s.semantic)))
-    pcall(shader.send, shader, "LIBRA_TEXTURE_" .. s.name, img)
+    local uniform = textureUniform(s.name)
+    if sent[uniform] ~= img then
+      pcall(shader.send, shader, uniform, img)
+      sent[uniform] = img
+    end
   end
 
   local values = sizeTable(state, i, dims, pass.size_uniforms, viewport, original)
-  for name, value in pairs(state.ALL_DEFAULTS) do values[name] = value end
-  local packed = Fixup.packValues(fragManifest, values)
-  for name, value in pairs(packed) do pcall(shader.send, shader, name, value) end
+  local packed = packPass(cached, fragManifest, state.ALL_DEFAULTS, values)
+  for name, value in pairs(packed) do
+    if changedSince(sent, name, value) then
+      pcall(shader.send, shader, name, value)
+      remember(sent, name, value)
+    end
+  end
 
   local srcImg = (i == 0) and frameSource or outputs[i - 1]
   local srcDims = passInputDims(state, i, original)
@@ -1090,6 +1185,7 @@ end
 -- Crops the playfield rect out of `canvas` at `renderScale`. The output canvas
 -- is cached module-wide and reallocated only on a real size change.
 local cropCanvasCache = {}
+local cropQuadCache = {}
 
 local function gridGeometry(rect, renderScale, originX, originY)
   local s = tonumber(rect.scale)
@@ -1112,16 +1208,24 @@ local function cropToGbSource(canvas, rect, srcW, srcH, renderScale, layer, geo)
   -- Cheap insurance against a read-after-write hazard between this draw and
   -- whatever last rendered into `canvas`.
   love.graphics.flushBatch()
-  local outW, outH, quad
+  local outW, outH, qx, qy, qw, qh
   if geo then
     outW, outH = geo.crop.w, geo.crop.h
-    quad = love.graphics.newQuad(rect.x + geo.x0 + CROP_SAMPLE_BIAS,
-      rect.y + geo.y0 + CROP_SAMPLE_BIAS, geo.cols * geo.scale, geo.rows * geo.scale,
-      canvas:getPixelWidth(), canvas:getPixelHeight())
+    qx, qy = rect.x + geo.x0 + CROP_SAMPLE_BIAS, rect.y + geo.y0 + CROP_SAMPLE_BIAS
+    qw, qh = geo.cols * geo.scale, geo.rows * geo.scale
   else
     outW, outH = roundDim(srcW * renderScale), roundDim(srcH * renderScale)
-    quad = love.graphics.newQuad(rect.x, rect.y, rect.w, rect.h,
+    qx, qy, qw, qh = rect.x, rect.y, rect.w, rect.h
+  end
+  -- One quad per layer, re-aimed each frame rather than allocated.  A quad
+  -- without setViewport (a test double) is simply rebuilt.
+  local quad = cropQuadCache[layer]
+  if quad and quad.setViewport then
+    quad:setViewport(qx, qy, qw, qh, canvas:getPixelWidth(), canvas:getPixelHeight())
+  else
+    quad = love.graphics.newQuad(qx, qy, qw, qh,
       canvas:getPixelWidth(), canvas:getPixelHeight())
+    cropQuadCache[layer] = quad
   end
   local out
   local cached = cropCanvasCache[layer]

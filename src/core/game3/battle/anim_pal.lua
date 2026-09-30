@@ -17,9 +17,17 @@ AnimPal.loaded = {}
 AnimPal.idxOf = setmetatable({}, { __mode = "k" })
 AnimPal._pack = nil
 
+-- Normalised tags by raw tag (strings and numbers only); tags come from a
+-- fixed set, and norm runs for every sprite drawn.
+local _normCache = {}
 local function norm(tag)
   if tag == nil then return nil end
-  return (tostring(tag):upper():gsub("^ANIM_TAG_", ""))
+  local hit = _normCache[tag]
+  if hit then return hit end
+  local out = (tostring(tag):upper():gsub("^ANIM_TAG_", ""))
+  local t = type(tag)
+  if t == "string" or t == "number" then _normCache[tag] = out end
+  return out
 end
 AnimPal.norm = norm
 

@@ -175,6 +175,29 @@ function PartyMenu.mirrorsIcon(name)
 end
 
 local iconImages = {}
+-- the OBP0-baked copies: path -> ogGroup (or "") -> image, the "#obp" half
+-- of the cache, nested so a drawn frame builds no key string per icon
+local obpIconImages = {}
+-- image -> { half = { [frame] = quad }, full = { [frame] = quad } }: icon
+-- quads never change once built, so every drawn frame reuses them (they may
+-- also sit in PaletteFX's UI redraw list, which only reads them)
+local iconQuads = setmetatable({}, { __mode = "k" })
+local function iconQuad(img, kind, frame, w, iw, ih)
+  local byImg = iconQuads[img]
+  if not byImg then
+    byImg = { half = {}, full = {} }
+    iconQuads[img] = byImg
+  end
+  local byFrame = byImg[kind]
+  local q = byFrame[frame]
+  if not q then
+    q = love.graphics.newQuad(0, frame * 16, w, 16, iw, ih)
+    byFrame[frame] = q
+  end
+  return q
+end
+-- Sprites.iconPath's opts, reused (it only reads name / trueColor)
+local iconPathOpts = {}
 -- engine/items/town_map.asm:514
 local OAM_XFLIP = { sx = -1 }
 
@@ -236,8 +259,10 @@ function PartyMenu.drawIcon(game, mon, x, y, selected, counter, forceAlt, obp)
     name = def and def.dex and icons.byDex and icons.byDex[def.dex]
     path = name and icons.icons and icons.icons[name]
   end
+  iconPathOpts.name, iconPathOpts.trueColor = name, trueColor
   path, trueColor = require("src.pokemon.Sprites")
-    .iconPath(game.data, mon, path, { name = name, trueColor = trueColor })
+    .iconPath(game.data, mon, path, iconPathOpts)
+  iconPathOpts.name, iconPathOpts.trueColor = nil, nil
   if not path then return end
   -- Built-in icon classes are DMG 2bpp OBJ art and get the OBP0 bake; a
   -- mod's own image (an entry table rather than an icon name) is authored
@@ -261,8 +286,18 @@ function PartyMenu.drawIcon(game, mon, x, y, selected, counter, forceAlt, obp)
       ogColors, ogGroup = PaletteFX.ogObjNormal()
     end
   end
-  local key = baked and (path .. "#obp" .. (ogGroup or "")) or path
-  if iconImages[key] == nil then
+  -- one cache, two halves: the plain image under its path, the baked one
+  -- under (path, ogGroup) -- the old path .. "#obp" .. group key, nested
+  local cache, key = iconImages, path
+  if baked then
+    cache = obpIconImages[path]
+    if not cache then
+      cache = {}
+      obpIconImages[path] = cache
+    end
+    key = ogGroup or ""
+  end
+  if cache[key] == nil then
     -- resolve through Assets so an overrides/ or transform-derived icon
     -- (e.g. a per-species image at assets/generated/icons/<name>.png) is
     -- picked up the same way battle sprites are
@@ -275,9 +310,9 @@ function PartyMenu.drawIcon(game, mon, x, y, selected, counter, forceAlt, obp)
     else
       ok, img = pcall(love.graphics.newImage, Assets.resolve(path))
     end
-    iconImages[key] = ok and img or false
+    cache[key] = ok and img or false
   end
-  local img = iconImages[key]
+  local img = cache[key]
   if not img then return end
   local alt = forceAlt or false
   if selected then
@@ -302,7 +337,7 @@ function PartyMenu.drawIcon(game, mon, x, y, selected, counter, forceAlt, obp)
     -- reuse overworld sheets whose walk-down frame is NOT symmetric, so
     -- drawing the raw 16x16 showed a tucked-back foot the hardware never
     -- displays (#276, absorbing #238).
-    local half = love.graphics.newQuad(0, frame * 16, 8, 16, iw, ih)
+    local half = iconQuad(img, "half", frame, 8, iw, ih)
     love.graphics.draw(img, half, x, y)
     -- sx = -1 about the block's right edge, so the flipped copy lands on
     -- x+8..x+16: the OAM_XFLIP half
@@ -312,7 +347,7 @@ function PartyMenu.drawIcon(game, mon, x, y, selected, counter, forceAlt, obp)
       PaletteFX.markUiSpriteRedraw(img, half, x + 16, y, OAM_XFLIP)
     end
   elseif ih > 16 then
-    local quad = love.graphics.newQuad(0, frame * 16, 16, 16, iw, ih)
+    local quad = iconQuad(img, "full", frame, 16, iw, ih)
     love.graphics.draw(img, quad, x, y)
     if ogColors then PaletteFX.markUiSpriteRedraw(img, quad, x, y) end
   else

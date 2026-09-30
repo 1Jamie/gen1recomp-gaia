@@ -831,7 +831,13 @@ function TradeAnimView:drawIcon(record, x, y)
   end
   if not cached then return end
   local G = love.graphics
-  local quad = love.graphics.newQuad(0, 0, 16, 16, cached:getDimensions())
+  -- One quad per icon sheet, cut once rather than every frame.
+  self.iconQuads = self.iconQuads or {}
+  local quad = self.iconQuads[cached]
+  if not quad then
+    quad = love.graphics.newQuad(0, 0, 16, 16, cached:getDimensions())
+    self.iconQuads[cached] = quad
+  end
   G.setColor(1, 1, 1, 1)
   local colors = Palettes.monColors(self.palettes, record.species,
     record.shiny)

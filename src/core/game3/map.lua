@@ -151,10 +151,24 @@ function Map.refreshWorld(game, reachW, reachH, rootId)
   local NativeTileset = package.loaded["src.core.game3.tileset_native"]
   if Map._warmPairs and NativeTileset and NativeTileset.get then
     Map._warmPairs = nil
+    Map._warmQueue = nil
     for _, entry in ipairs(Map.world) do
       local pair = entry.def and (entry.def.pair or (entry.def.midLayout and entry.def.midLayout.pair))
       if pair and NativeTileset.ready(pair) then pcall(NativeTileset.get, pair) end
     end
+  elseif NativeTileset and NativeTileset.get then
+    -- Seamless crossing: queue the new world's unloaded pairs and load one per
+    -- frame (Map.stepWarm) so a pair is ready before it scrolls into view.
+    local queue, seen = {}, {}
+    for _, entry in ipairs(Map.world) do
+      local pair = entry.def and (entry.def.pair or (entry.def.midLayout and entry.def.midLayout.pair))
+      if type(pair) == "string" and not seen[pair]
+          and not (NativeTileset._pairs and NativeTileset._pairs[pair]) then
+        seen[pair] = true
+        queue[#queue + 1] = pair
+      end
+    end
+    Map._warmQueue = queue[1] and queue or nil
   end
   Map._worldRoot = rootId
   Map._worldReachW = reachW
@@ -162,6 +176,24 @@ function Map.refreshWorld(game, reachW, reachH, rootId)
   local FieldView = package.loaded["src.core.game3.field_view"]
   if FieldView then FieldView._nativeDirty = true end
   return Map.world
+end
+
+--- Load at most one queued tileset pair (see refreshWorld).
+function Map.stepWarm()
+  local queue = Map._warmQueue
+  if not queue then return false end
+  local NativeTileset = package.loaded["src.core.game3.tileset_native"]
+  while queue[1] do
+    local pair = table.remove(queue, 1)
+    if NativeTileset and not (NativeTileset._pairs and NativeTileset._pairs[pair])
+        and NativeTileset.ready and NativeTileset.ready(pair) then
+      pcall(NativeTileset.get, pair)
+      if not queue[1] then Map._warmQueue = nil end
+      return true
+    end
+  end
+  Map._warmQueue = nil
+  return false
 end
 
 function Map.overscanSlices()

@@ -309,6 +309,10 @@ function Game:breakLink(err, source)
 end
 
 function Game:step(dt)
+  -- A monotonic count of fixed logic steps, for presentation counters that
+  -- are sampled from draw code but must advance at the 60Hz step rate
+  -- rather than the display refresh (Player:pose's surf bob).
+  Game.logicStep = (Game.logicStep or 0) + 1
   -- Tool mods (autoplay, accessibility drivers, input visualizers) act on
   -- the same fixed-step boundary as a physical controller.  Run them before
   -- Input:step promotes queued edges so a button chosen here is visible to
@@ -413,6 +417,13 @@ function Game:logicSpeed()
     resolveLogicSpeedVanilla, self))
 end
 
+-- Discord Rich Presence tick, pcall'd by Game:update: a named function so
+-- the per-frame call builds no closure (the require stays inside the pcall,
+-- so a missing/broken module still soft-fails exactly as before)
+local function discordPresenceUpdate(dt)
+  require("src.core.DiscordPresence").update(dt)
+end
+
 function Game:update(dt)
   -- Fast-forward scales only the logic clock (see src/core/GameSpeed.lua).
   -- Give the accumulator room for one full frame at the current speed,
@@ -437,7 +448,7 @@ function Game:update(dt)
   -- mod render pipelines tween on the same real-frame clock, for the same
   -- reason: they are presentational, so fast-forward must not speed them up
   require("src.render.Pipelines").update(dt)
-  pcall(function() require("src.core.DiscordPresence").update(dt) end)
+  pcall(discordPresenceUpdate, dt)
   self:updateSync(dt)
   -- Steady-state memory backstop: advance the incremental collector one
   -- small step every few rendered frames.  The heavy GPU objects are now

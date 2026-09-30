@@ -183,10 +183,8 @@ end
 local function drawMessageBox(battle)
   Font.drawBox(0, 13, 38, 5)
   love.graphics.setColor(0, 0, 0, 1)
-  if battle.scrollPx and battle.scrollPx > 0 then
-    battle.scrollPx = battle.scrollPx - 2
-    if battle.scrollPx <= 0 then battle.scrollPx = nil end
-  end
+  -- scrollPx counts down in BattleState:tickTextScroll (logic step), not
+  -- here, so the scroll speed does not follow the display refresh rate
   local off = battle.scrollPx or 0
   local ys = { 112, 128 }
   for li, line in ipairs(battle.shown or {}) do

@@ -1673,15 +1673,21 @@ local function drawFieldRows(R, G, fx)
     local bx0, by0 = floor(R.X0 / m), floor(R.Y0 / m)
     local cw = floor((R.X1 - 1) / m) - bx0 + 1
     local ch = floor((R.Y1 - 1) / m) - by0 + 1
-    local key = cw .. "x" .. ch
+    -- One canvas per transition, grown only when a level needs more room;
+    -- each level draws just its cw x ch corner through a quad.
     local small = BattleTransition._mosaicCanvas
-    if not small or BattleTransition._mosaicKey ~= key then
+    local key = BattleTransition._mosaicKey
+    if not small or type(key) ~= "table" or key.w < cw or key.h < ch then
       if small and small.release then pcall(small.release, small) end
-      small = G.newCanvas(cw, ch, { dpiscale = 1 })
+      local nw = math.max(cw, type(key) == "table" and small and key.w or 0)
+      local nh = math.max(ch, type(key) == "table" and small and key.h or 0)
+      small = G.newCanvas(nw, nh, { dpiscale = 1 })
       small:setFilter("nearest", "nearest")
+      key = { w = nw, h = nh, quad = G.newQuad(0, 0, cw, ch, nw, nh) }
       BattleTransition._mosaicCanvas = small
       BattleTransition._mosaicKey = key
     end
+    key.quad:setViewport(0, 0, cw, ch, key.w, key.h)
     G.push("all")
     G.origin()
     G.setCanvas(small)
@@ -1690,7 +1696,7 @@ local function drawFieldRows(R, G, fx)
     G.draw(tex, -bx0 + 0.5 - (R.gx + 0.5) / m, -by0 + 0.5 - (R.gy + 0.5) / m, 0, 1 / m, 1 / m)
     G.pop()
     G.setColor(1, 1, 1, 1)
-    G.draw(small, bx0 * m, by0 * m, 0, m, m)
+    G.draw(small, key.quad, bx0 * m, by0 * m, 0, m, m)
     return
   end
   G.draw(tex, R.X0, R.Y0)

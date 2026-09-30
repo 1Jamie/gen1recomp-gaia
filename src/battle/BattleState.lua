@@ -247,6 +247,14 @@ local imagePadLeft = setmetatable({}, WEAK_KEYS)
 -- image -> { path, pal } so palette-fade variants (see fadeImage) can be
 -- rebuilt for any battle pic, whatever code loaded it
 local imageMeta = setmetatable({}, WEAK_KEYS)
+-- image -> memoized fadeImage / blackImage variants (the per-frame picImage
+-- lookups).  They cache what getImage returned, so invalidate() drops them
+-- together with imageCache.
+local function newDerivedMemo()
+  return { fade = setmetatable({}, WEAK_KEYS),
+           black = setmetatable({}, WEAK_KEYS) }
+end
+local derivedMemo = newDerivedMemo()
 local function mattedPic(path)
   return path:sub(1, 17) == "assets/generated/"
       or path:sub(1, 17) == "save/mod-derived/"
@@ -326,6 +334,7 @@ end
 -- are collected on their own rather than leaking.
 function BattleState.invalidate()
   imageCache = {}
+  derivedMemo = newDerivedMemo()
 end
 
 Assets.register(BattleState.invalidate)
@@ -434,12 +443,28 @@ local function fadeImage(img, bgp)
   if not meta then return img end
   -- a full-color pic has no DMG shades to remap
   if meta.trueColor then return img end
+  -- picImage asks for this every drawn frame of a fade: memoize per
+  -- (pic, shade map) instead of rebuilding the name string + palette table
+  -- (meta is fixed per image; the map's four 0..3 shades are the rest of
+  -- getImage's key, packed into one number)
+  local mkey = bgp[0] * 64 + bgp[1] * 16 + bgp[2] * 4 + bgp[3]
+  local row = derivedMemo.fade[img]
+  local hit = row and row[mkey]
+  if hit then return hit end
   local PaletteFX = require("src.render.PaletteFX")
   local base = meta.pal and meta.pal.colors or PaletteFX.GRAYS
   local name = (meta.pal and meta.pal.name or "GB")
                .. "&" .. bgp[0] .. bgp[1] .. bgp[2] .. bgp[3]
-  return getImage(meta.path,
-                  { name = name, colors = PaletteFX.permute(base, bgp) })
+  local out = getImage(meta.path,
+                       { name = name, colors = PaletteFX.permute(base, bgp) })
+  if out then
+    if not row then
+      row = {}
+      derivedMemo.fade[img] = row
+    end
+    row[mkey] = out
+  end
+  return out
 end
 
 -- the raw DMG-gray build of a colored pic (SE_WAVY_SCREEN bakes the
@@ -463,7 +488,15 @@ local function blackImage(data, img)
   local colors = PaletteFX.usesYellowCgb() and pals.BLACK
                  or PaletteFX.pal(data, "BLACK") or pals.BLACK
   local name = PaletteFX.usesGbcPack() and "redpp:BLACK" or "BLACK"
-  return getImage(meta.path, { name = name, colors = colors }) or img
+  -- drawn every frame of the intro slide / blackout text: reuse the last
+  -- bake while the resolved palette and cache name are unchanged
+  local memo = derivedMemo.black[img]
+  if memo and memo.colors == colors and memo.name == name then
+    return memo.out
+  end
+  local out = getImage(meta.path, { name = name, colors = colors }) or img
+  derivedMemo.black[img] = { colors = colors, name = name, out = out }
+  return out
 end
 
 -- the asset path a loaded battle image came from (nil for the headless
@@ -767,6 +800,18 @@ function BattleState:playerPartyView()
 end
 
 -- opts.hooked: rod encounter, announced with _HookedMonAttackedText
+-- Queue the battle's first two cries on the chip audio worker while the
+-- transition runs, so the entrance cries don't render on the frame they
+-- play.  A no-op without a worker; playCry renders as before on a miss.
+local function prewarmCries(self)
+  local Sound = package.loaded["src.core.Sound"]
+  if not (Sound and Sound.prewarmCry) then return end
+  for _, battler in ipairs({ self.enemy, self.player }) do
+    local mon = battler and battler.mon
+    if mon and mon.species then pcall(Sound.prewarmCry, self.data, mon.species) end
+  end
+end
+
 function BattleState.newWild(game, species, level, opts)
   local self = newBattle(game)
   self.kind = "wild"
@@ -784,6 +829,7 @@ function BattleState.newWild(game, species, level, opts)
   else
     self.introText = self:romText("_WildMonAppearedText", "Wild %s\nappeared!", self.enemy.name)
   end
+  prewarmCries(self)
   return self
 end
 
@@ -917,6 +963,7 @@ function BattleState.newTrainer(game, oppClass, partyIndex, opts)
   self.trainerPic = BattleState.trainerSprite(
     game.data, self.trainer, oppClass, partyIndex)
   self.introText = Strings("%s wants\nto fight!", self.trainer.name)
+  prewarmCries(self)
   return self
 end
 
@@ -2101,9 +2148,17 @@ end
 --     flag survived into the next turn, ate a move the real players saw
 --     land, and from there the replay was watching a different battle.
 --     LinkBattle.newSpectator calls this at the head of every turn.
+local function clearFlinch(b)
+  if not (b.mustRecharge or b.rageMove) then b.flinched = false end
+end
+
 function BattleState:clearTurnFlinches()
-  for _, b in ipairs({ self.player, self.enemy }) do
-    if b and not (b.mustRecharge or b.rageMove) then b.flinched = false end
+  -- ipairs({ self.player, self.enemy }) without the per-call table: the
+  -- enemy is only visited when the player slot is set, like ipairs did
+  local p = self.player
+  if p then
+    clearFlinch(p)
+    if self.enemy then clearFlinch(self.enemy) end
   end
 end
 
@@ -2305,16 +2360,37 @@ function BattleState:tickFx()
   self:updateFx()
 end
 
+-- ScrollTextUpOneLine's pixel scroll (beginMsgLine sets scrollPx = 8):
+-- 2px per logic step while the message box shows the rolling window.  It
+-- used to count down inside drawTextArea / WideBattle's drawMessageBox, so
+-- a 144Hz display scrolled 2.4x too fast; update() now runs this once per
+-- step AFTER the queue typed, which is the order the draw-side decrement
+-- saw it (8 is set and the box already draws at 6 on that frame).
+function BattleState:tickTextScroll()
+  local px = self.scrollPx
+  if px and px > 0 and self.phase == "messages"
+     and (self.current or self.animPlaying or self.msgHold) then
+    px = px - 2
+    self.scrollPx = px > 0 and px or nil
+  end
+end
+
+local function snapIdleBar(b)
+  if b.shownHP then
+    b.shownHP = b.mon.hp
+    b.shownPx = Timing.hpBarPixels(b.mon.hp, math.max(1, b.mon.stats.hp))
+  end
+  b.drainFloor = nil
+  b.shownStatus = b.mon.status
+end
+
+-- runs every menu-phase step: no per-call { player, enemy } table (the
+-- enemy is only visited when the player slot is set, like ipairs did)
 function BattleState:snapIdleBars()
-  for _, b in ipairs({ self.player, self.enemy }) do
-    if b then
-      if b.shownHP then
-        b.shownHP = b.mon.hp
-        b.shownPx = Timing.hpBarPixels(b.mon.hp, math.max(1, b.mon.stats.hp))
-      end
-      b.drainFloor = nil
-      b.shownStatus = b.mon.status
-    end
+  local p = self.player
+  if p then
+    snapIdleBar(p)
+    if self.enemy then snapIdleBar(self.enemy) end
   end
 end
 
@@ -2357,6 +2433,7 @@ function BattleState:update(dt)
         self:finish()
       end
     end
+    self:tickTextScroll()
     return
   end
 
@@ -5820,6 +5897,26 @@ local HudTiles = require("src.render.HudTiles")
 local hudTile = HudTiles.tile
 local drawHPBar = HudTiles.drawHPBar
 
+-- One reusable row-clip quad per battler for the faint / slide pic effects
+-- (drawn every frame they run): re-aimed with setViewport instead of a new
+-- Quad per frame.  A quad without setViewport (headless stubs) is simply
+-- rebuilt, which is what every frame used to do.
+function BattleState:picQuad(battler, x, y, w, h, sw, sh)
+  local quads = self.picQuads
+  if not quads then
+    quads = setmetatable({}, WEAK_KEYS)
+    self.picQuads = quads
+  end
+  local q = quads[battler]
+  if q and q.setViewport then
+    q:setViewport(x, y, w, h, sw, sh)
+    return q
+  end
+  q = love.graphics.newQuad(x, y, w, h, sw, sh)
+  quads[battler] = q
+  return q
+end
+
 -- CenterMonName: 1-2 letter names print two tiles right, 3-4 one tile.
 -- Counted in glyphs, not bytes: a nickname carrying "é" or "♂" is one
 -- charmap sequence per glyph, and byte length would push it a tile left.
@@ -6084,8 +6181,8 @@ function BattleState:drawBattlerPic(battler, x, y, scale, shakeX, shakeY)
     end
     local visible = img:getHeight() - math.floor(off / scale)
     if visible > 0 then
-      local quad = love.graphics.newQuad(0, 0, img:getWidth(), visible,
-                                         img:getWidth(), img:getHeight())
+      local quad = self:picQuad(battler, 0, 0, img:getWidth(), visible,
+                                img:getWidth(), img:getHeight())
       love.graphics.draw(img, quad, x, y + off, 0, scale, scale)
     end
     return
@@ -6170,7 +6267,7 @@ function BattleState:drawBattlerPic(battler, x, y, scale, shakeX, shakeY)
     -- sink below the baseline (AnimationSlideMonDown-style row clip)
     local visible = h - math.floor(oy / scale)
     if visible > 0 then
-      local quad = love.graphics.newQuad(0, 0, w, visible, w, h)
+      local quad = self:picQuad(battler, 0, 0, w, visible, w, h)
       love.graphics.draw(img, quad, x + ox, y + oy, 0, scale, scale)
     end
   elseif k == "slideUp" then
@@ -6181,7 +6278,7 @@ function BattleState:drawBattlerPic(battler, x, y, scale, shakeX, shakeY)
     local step = math.min(7, math.floor((t - 1) / 2) + 1)
     local visible = math.floor(h * step / 7)
     if visible > 0 then
-      local quad = love.graphics.newQuad(0, h - visible, w, visible, w, h)
+      local quad = self:picQuad(battler, 0, h - visible, w, visible, w, h)
       love.graphics.draw(img, quad, x + ox,
                          y + (h - visible) * scale, 0, scale, scale)
     end
@@ -6291,9 +6388,10 @@ function BattleState:sgbBattlePals()
   return out
 end
 
--- the SGB palette covering a screen pixel (BlkPacket_Battle regions)
-function BattleState:zoneColorsAt(x, y)
-  local pals = self:sgbBattlePals()
+-- the SGB palette covering a screen pixel (BlkPacket_Battle regions).
+-- pals: an sgbBattlePals() result the caller already resolved this frame.
+function BattleState:zoneColorsAt(x, y, pals)
+  pals = pals or self:sgbBattlePals()
   if not pals then return nil end
   local tx = math.floor(x / 8)
   local ty = math.floor(y / 8)
@@ -6358,13 +6456,32 @@ function BattleState:drawZonePass(src, sx, sy)
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.setShader(shader)
   local shaking = sx ~= 0 or sy ~= 0
+  -- the six zones share four palettes (one gray ramp in mono): permute each
+  -- once per pass instead of once per zone
+  local permuted = self.zonePermuted
+  if not permuted then
+    permuted = {}
+    self.zonePermuted = permuted
+  end
+  permuted[0], permuted[1], permuted[2], permuted[3], permuted.gray =
+    nil, nil, nil, nil, nil
   for _, z in ipairs(BATTLE_ZONES) do
     if mono then
       -- the BGP fade still runs, just in gray: the frame-level pass colors
       -- whatever DMG shade this leaves behind
-      PaletteFX.sendShades(shader, PaletteFX.permute(PaletteFX.GRAYS, bgp))
+      local shades = permuted.gray
+      if not shades then
+        shades = PaletteFX.permute(PaletteFX.GRAYS, bgp)
+        permuted.gray = shades
+      end
+      PaletteFX.sendShades(shader, shades)
     else
-      PaletteFX.sendColors(shader, PaletteFX.permute(pals[z.pal], bgp))
+      local colors = permuted[z.pal]
+      if not colors then
+        colors = PaletteFX.permute(pals[z.pal], bgp)
+        permuted[z.pal] = colors
+      end
+      PaletteFX.sendColors(shader, colors)
     end
     local zx, zy = z[1] * 8, z[2] * 8
     local zw, zh = (z[3] - z[1] + 1) * 8, (z[4] - z[2] + 1) * 8
@@ -6390,7 +6507,18 @@ local OBJ_SHADES = {
   e4x = { 2, 1, 3 },  -- $e4 xor %00111100 = $d8
   obp1 = { 3, 2, 1 }, -- $6c
 }
-function BattleState:animSpriteColors(s, px, py)
+local function shadeTriple(P, shade)
+  local col = P[shade + 1]
+  return { col[1] / 255, col[2] / 255, col[3] / 255 }
+end
+
+-- memo (optional): a per-frame table from drawAnimLayer.  It holds the
+-- frame's sgbBattlePals() (memo.pals, false when there are none) so the
+-- palette set is resolved once per frame instead of once per attribute
+-- cell of every OAM tile, and the finished triples per (palette, obp key)
+-- so tiles in the same zone share one table (AnimPlayer then sees equal
+-- colors by identity).
+function BattleState:animSpriteColors(s, px, py, memo)
   local PaletteFX = require("src.render.PaletteFX")
   local key = s.obp or "f0"
   local P
@@ -6399,16 +6527,32 @@ function BattleState:animSpriteColors(s, px, py)
     -- engine/battle/init_battle_variables.asm:18
     P = PaletteFX.ogObjBase()
     if key == "f0" then key = "e4" elseif key == "f0x" then key = "e4x" end
+  elseif memo then
+    local pals = memo.pals
+    if pals == nil then
+      pals = self:sgbBattlePals() or false
+      memo.pals = pals
+    end
+    P = pals and self:zoneColorsAt(px or (s.x - 8 + 4), py or (s.y - 16 + 4),
+                                   pals) or nil
   else
     P = self:zoneColorsAt(px or (s.x - 8 + 4), py or (s.y - 16 + 4))
   end
   if not P then return nil end
+  local byKey = memo and memo[P]
+  local hit = byKey and byKey[key]
+  if hit then return hit end
   local m = OBJ_SHADES[key] or OBJ_SHADES.f0
-  local function c(shade)
-    local col = P[shade + 1]
-    return { col[1] / 255, col[2] / 255, col[3] / 255 }
+  local out = { shadeTriple(P, m[1]), shadeTriple(P, m[2]),
+                shadeTriple(P, m[3]) }
+  if memo then
+    if not byKey then
+      byKey = {}
+      memo[P] = byKey
+    end
+    byKey[key] = out
   end
-  return { c(m[1]), c(m[2]), c(m[3]) }
+  return out
 end
 
 -- the OAM anim layer (subanimation sprites / the resting caught ball)
@@ -6417,7 +6561,16 @@ function BattleState:drawAnimLayer(colorized)
   if self.fieldCleared then return end
   local colorFn
   if colorized then
-    colorFn = function(s, px, py) return self:animSpriteColors(s, px, py) end
+    -- fresh per-frame memo (palette set + color triples), one long-lived
+    -- closure: colorFn runs up to four times per OAM tile
+    self.animColorMemo = {}
+    colorFn = self.animColorFn
+    if not colorFn then
+      colorFn = function(s, px, py)
+        return self:animSpriteColors(s, px, py, self.animColorMemo)
+      end
+      self.animColorFn = colorFn
+    end
   end
   if self.animPlaying and self.animPlayer then
     love.graphics.setColor(1, 1, 1, 1)
@@ -6807,10 +6960,6 @@ function BattleState:drawTextArea()
     -- text uses every other tile row, hlcoord *,14 / *,16).  scrollPx animates
     -- the lines up one row (ScrollTextUpOneLine) so a 3rd line scrolls into
     -- view instead of drawing off-screen at y=144 (#216).
-    if self.scrollPx and self.scrollPx > 0 then
-      self.scrollPx = self.scrollPx - 2
-      if self.scrollPx <= 0 then self.scrollPx = nil end
-    end
     local off = self.scrollPx or 0
     local ys = { 112, 128 }
     for li, line in ipairs(self.shown or {}) do

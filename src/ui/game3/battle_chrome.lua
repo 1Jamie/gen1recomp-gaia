@@ -528,13 +528,21 @@ end
 local function elements_tile_quad(ti, sheet)
   sheet = sheet or BattleChrome._elements
   if not sheet or not love or not love.graphics then return nil end
-  local key = (sheet == BattleChrome._elementsExp and "exp_" or "elt_") .. tostring(ti)
-  if not BattleChrome._quads[key] then
+  -- Per-sheet subtables keyed by tile index (no per-tile string keys).
+  local subKey = sheet == BattleChrome._elementsExp and "exp_tiles" or "elt_tiles"
+  local sub = BattleChrome._quads[subKey]
+  if not sub then
+    sub = {}
+    BattleChrome._quads[subKey] = sub
+  end
+  local q = sub[ti]
+  if not q then
     local tw = 40 -- 320/8
     local tx, ty = ti % tw, math.floor(ti / tw)
-    BattleChrome._quads[key] = love.graphics.newQuad(tx * 8, ty * 8, 8, 8, 320, 24)
+    q = love.graphics.newQuad(tx * 8, ty * 8, 8, 8, 320, 24)
+    sub[ti] = q
   end
-  return BattleChrome._quads[key]
+  return q
 end
 
 -- pokefirered/src/battle_interface.c:2050

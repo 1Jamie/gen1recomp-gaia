@@ -275,6 +275,28 @@ function Player:walkPhase()
   return (p >= 4 and p < 12) and 1 or 0
 end
 
+-- The surf bob is sampled by pose() (draw code) but must run at the fixed
+-- logic rate: it used to tick once per pose() call, so a 144Hz display
+-- bobbed 2.4x too fast and the battle-transition wipe, which draws the
+-- player twice a frame, doubled it.  It now advances by the number of
+-- Game:step logic steps since the last pose(), i.e. exactly once per step at
+-- 60Hz and never twice for one step.  Without a running Game (headless
+-- callers) there is no step clock and each call advances once, as before.
+function Player:advanceBob()
+  local Game = package.loaded["src.core.Game"]
+  local step = type(Game) == "table" and Game.logicStep or nil
+  local ticks = 1
+  if step then
+    local last = self.bobStep
+    ticks = last and step - last or 1
+    self.bobStep = step
+  end
+  if ticks > 0 then
+    self.bobTimer = ((self.bobTimer or 0) + ticks) % 32
+  end
+  return self.bobTimer or 0
+end
+
 local SPIN_ORDER = { "down", "left", "up", "right" }
 -- constants/sprite_data_constants.asm:3
 local IMAGE_FACING = { [0] = "down", [1] = "up", [2] = "left", [3] = "right" }
@@ -298,7 +320,7 @@ function Player:pose()
     py = py - math.floor(10 * math.sin(t * math.pi) + 0.5)
     hopping = true
   elseif self.surfing then
-    self.bobTimer = ((self.bobTimer or 0) + 1) % 32
+    self:advanceBob()
     py = py + (self.bobTimer < 16 and 0 or 1)
   end
   -- engine/overworld/player_animations.asm:453

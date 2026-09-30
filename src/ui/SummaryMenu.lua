@@ -17,6 +17,28 @@ local Strings = require("src.core.Strings")
 local Stats = require("src.pokemon.Stats")
 local Status = require("src.battle.Status")
 
+-- front pics by path: opening the summary used to decode the PNG into a new
+-- Image every time.  Loaded exactly as before (the raw path, no Assets
+-- resolution); a failed load is retried next open, as before.  Hot reload
+-- (Assets.flush) drops the cache so an edited pic is picked up again.
+local frontPics = {}
+local function frontPic(path)
+  local img = frontPics[path]
+  if img then return img end
+  local ok, loaded = pcall(love.graphics.newImage, path)
+  if ok and loaded then
+    frontPics[path] = loaded
+    return loaded
+  end
+  return nil
+end
+do
+  local Assets = require("src.render.Assets")
+  if Assets.register then -- test harnesses may stub Assets without it
+    Assets.register(function() frontPics = {} end)
+  end
+end
+
 local SummaryMenu = {}
 SummaryMenu.__index = SummaryMenu
 SummaryMenu.isOpaque = true
@@ -48,8 +70,7 @@ function SummaryMenu.new(game, mon)
   local path, trueColor = Sprites.path(game.data, mon.species, "front",
     { mon = mon, kind = "summary" })
   if path then
-    local ok, img = pcall(love.graphics.newImage, path)
-    self.sprite = ok and img or nil
+    self.sprite = frontPic(path)
   end
   self.spriteTrueColor = self.sprite and trueColor or false
   -- engine/pokemon/status_screen.asm:82,168-172

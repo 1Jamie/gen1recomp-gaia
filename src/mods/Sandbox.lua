@@ -45,9 +45,14 @@ local function head(name)
   return (name:match("^([^%.]+)")) or name
 end
 
--- nil when the require is allowed, else the message to fail it with.
-function Sandbox.moduleDenial(name, permissionSet)
-  if type(name) ~= "string" then return nil end
+-- The verdict for a name never changes (the tables above are fixed), and the
+-- Loader's require shim asks for every require the engine makes while a mod
+-- is enabled, so it is worked out once per name: false for allowed, the
+-- denial message, or NETWORK_ONLY with the message kept alongside.
+local verdicts, verdictCount = {}, 0
+local VERDICT_MAX = 4096
+
+local function verdictFor(name)
   local root = head(name)
   local reason = DENIED[root]
   if reason then
@@ -58,10 +63,29 @@ function Sandbox.moduleDenial(name, permissionSet)
     return ("%s is not available to mods; use mod.storage, mod:read, mod:list "
       .. "and the engine API instead"):format(name)
   end
-  if NETWORK[root] and not (permissionSet or {}).network then
-    return ("%s needs the \"network\" permission in manifest.json"):format(name)
+  if NETWORK[root] then
+    return { network = ("%s needs the \"network\" permission in manifest.json")
+      :format(name) }
   end
-  return nil
+  return false
+end
+
+-- nil when the require is allowed, else the message to fail it with.
+function Sandbox.moduleDenial(name, permissionSet)
+  if type(name) ~= "string" then return nil end
+  local verdict = verdicts[name]
+  if verdict == nil then
+    verdict = verdictFor(name)
+    if verdictCount >= VERDICT_MAX then verdicts, verdictCount = {}, 0 end
+    verdicts[name] = verdict
+    verdictCount = verdictCount + 1
+  end
+  if not verdict then return nil end
+  if type(verdict) == "table" then
+    if (permissionSet or {}).network then return nil end
+    return verdict.network
+  end
+  return verdict
 end
 
 -- ------- the love facade

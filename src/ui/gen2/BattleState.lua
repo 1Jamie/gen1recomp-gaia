@@ -622,6 +622,12 @@ function BattleState.new(game, opts)
     species = enemy and enemy.species,
     level = enemy and enemy.level,
   })
+  -- queue both entrance cries on the chip audio worker during the intro so
+  -- playCry doesn't render them on the frame they play (no-op without one)
+  local data = game and game.data
+  for _, mon in ipairs({ enemy or false, player or false }) do
+    if mon and mon.species then pcall(Sound.prewarmCry, data, mon.species) end
+  end
   return self
 end
 
@@ -750,7 +756,10 @@ function BattleState:pic(mon, back)
   -- picked -- resolving the species row again would throw the form away.  The
   -- two extra keys are what Gen 2 genuinely carries more of: the Unown letter
   -- and the shiny flag that decides the palette.
-  if path then
+  -- Unhooked, Sprites.pic hands back exactly (path, trueColor); the ctx is
+  -- only built when a subscriber is there to read it (drawPic asks twice a
+  -- frame).
+  if path and Runtime.wantsHook("pokemon.sprite") then
     path, trueColor = Sprites.pic(path, {
       species = mon.species,
       side = back and "back" or "front",
@@ -937,6 +946,42 @@ function BattleState:isUnderground(side, mon)
     and (self.vanishSeen and self.vanishSeen[side]) and true or false
 end
 
+-- Palettes.monColors / trainerColors, memoized per palettes table: each
+-- builds five tables a call and drawPic asks twice a frame.  Both are pure
+-- functions of the palette data, and the shader only reads the answer.
+local function colorMemo(self)
+  local memo = self.picColorMemo
+  if not memo or memo.palettes ~= self.palettes then
+    memo = { palettes = self.palettes, [true] = {}, [false] = {}, trainers = {} }
+    self.picColorMemo = memo
+  end
+  return memo
+end
+
+function BattleState:cachedMonColors(species, shiny)
+  if species == nil then
+    return Palettes.monColors(self.palettes, species, shiny)
+  end
+  local bucket = colorMemo(self)[shiny and true or false]
+  local colors = bucket[species]
+  if colors == nil then
+    colors = Palettes.monColors(self.palettes, species, shiny) or false
+    bucket[species] = colors
+  end
+  return colors or nil
+end
+
+function BattleState:cachedTrainerColors(row)
+  local key = row or "PLAYER"
+  local bucket = colorMemo(self).trainers
+  local colors = bucket[key]
+  if colors == nil then
+    colors = Palettes.trainerColors(self.palettes, row) or false
+    bucket[key] = colors
+  end
+  return colors or nil
+end
+
 function BattleState:drawPic(mon, back)
   -- During the intro slide the player-side pic belongs to presentSlide's
   -- backpic overlay, not to the baked bands (see BattleAnimView).
@@ -1041,17 +1086,17 @@ function BattleState:drawPic(mon, back)
   -- No mon on this side at all in the catching tutorial, where the box holds
   -- the DUDE's back-pic and nothing else for the whole battle.
   local colors = self.palettes and mon
-    and Palettes.monColors(self.palettes, mon.species, mon.shiny)
+    and self:cachedMonColors(mon.species, mon.shiny)
   if trainerBack then
     -- PAL_BATTLE_OB_PLAYER: the player's own colours, which are row 0 of
     -- TrainerPalettes (Chris shares Cal's).
     -- engine/gfx/color.asm:683-696
     local row = Gen2Save.isFemale(self.save) and "FALKNER" or "PLAYER"
-    colors = Palettes.trainerColors(self.palettes, row)
-      or Palettes.trainerColors(self.palettes, "PLAYER") or colors
+    colors = self:cachedTrainerColors(row)
+      or self:cachedTrainerColors("PLAYER") or colors
   elseif enemyTrainer then
     -- The opponent's class row out of the same TrainerPalettes table.
-    colors = Palettes.trainerColors(self.palettes, self.enemyTrainerClass)
+    colors = self:cachedTrainerColors(self.enemyTrainerClass)
       or colors
   end
   -- ../pokecrystal/engine/gfx/cgb_layouts.asm:67
@@ -4374,14 +4419,23 @@ end
 -- The four labels the battle menu draws.  Inside the contest the third one
 -- carries the park ball count, which .PrintParkBallsRemaining writes with
 -- PRINTNUM_LEADINGZEROS over two digits.
+--
+-- The list is refilled in place each call (the menu asks every frame); the
+-- lookups themselves still run, so a catalog a mod edits live is followed.
 function BattleState:menuLabels()
-  if not self.contest then
-    return { Strings(MENU[1]), Strings(MENU[2]),
-      Strings(MENU[3]), Strings(MENU[4]) }
+  local labels = self.menuLabelList
+  if not labels then
+    labels = {}
+    self.menuLabelList = labels
   end
-  return { Strings(MENU[1]), Strings(MENU[2]),
-    Strings(CONTEST_BALL_LABEL, BugContest.ballsLeft(self.save)),
-    Strings(MENU[4]) }
+  labels[1], labels[2], labels[4] =
+    Strings(MENU[1]), Strings(MENU[2]), Strings(MENU[4])
+  if not self.contest then
+    labels[3] = Strings(MENU[3])
+  else
+    labels[3] = Strings(CONTEST_BALL_LABEL, BugContest.ballsLeft(self.save))
+  end
+  return labels
 end
 
 -- The message on the cart's own two rows: 14 and 16, with 15 blank between

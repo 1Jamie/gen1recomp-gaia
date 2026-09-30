@@ -355,7 +355,12 @@ local function presentPlanes(game)
   Display.mirrorFlatFrame(Renderer)
 end
 
+-- The plane path presents straight from Renderer's canvases; the flat 240x160
+-- copy is only for test drivers that read Display._canvas back.
+Display.mirrorForTests = false
+
 function Display.mirrorFlatFrame(Renderer)
+  if not Display.mirrorForTests then return end
   local canvas = Display.ensureCanvas("main")
   if not canvas then return end
   local world = Renderer.worldCanvas

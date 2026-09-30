@@ -55,6 +55,36 @@ local SaveData = require("src.core.SaveData")
 -- had when they required the module by hand.
 local Screens = require("src.ui.Screens")
 
+-- Already loaded by src/world/gen2/World.lua above; bound here so the
+-- per-frame update/draw paths do not call require() every frame.
+local GbcPalette = require("src.render.GbcPalette")
+local Pipelines = require("src.render.Pipelines")
+local Tilt = require("src.render.Tilt")
+
+-- Resolved on first use rather than at load, keeping this file's load order.
+local lazyModules = {}
+local function lazy(name)
+  local mod = lazyModules[name]
+  if mod == nil then
+    mod = require(name)
+    lazyModules[name] = mod
+  end
+  return mod
+end
+
+-- DiscordPresence is optional: a require that fails once is not retried
+-- every frame, and no closure is minted per frame to guard the call.
+local discordPresence = nil
+local function discordUpdate(dt)
+  if discordPresence == nil then
+    local ok, mod = pcall(require, "src.core.DiscordPresence")
+    discordPresence = (ok and type(mod) == "table") and mod or false
+  end
+  if discordPresence and discordPresence.update then
+    pcall(discordPresence.update, dt)
+  end
+end
+
 local Game2 = {}
 Game2.__index = Game2
 
@@ -1254,6 +1284,11 @@ function Game2:load(opts)
       self:softReset()
       return
     end
+    -- LoadPoisonBGPals' four-frame hold and the void-fill dissolve are spent
+    -- here, on the logic clock and whatever is on top (the faint text can
+    -- open the same frame), rather than once per render frame in World:draw.
+    local world = self.world
+    if world and world.tickFrameClocks then world:tickFrameClocks() end
     -- Not the audio tick: _UpdateSound runs once per frame off VBlank
     -- (audio/engine.asm:84, home/vblank.asm:141-143), never off the logic clock.
     local top = self.stack:top()
@@ -1340,12 +1375,12 @@ function Game2:update(dt)
   end
   -- TILT eases toward its new angle in real time, not on the logic clock, so
   -- fast-forward does not fling the camera over.
-  require("src.render.Tilt").update(dt)
+  Tilt.update(dt)
   -- Mod render pipelines tween on the same real-frame clock, for the same
   -- reason and at the same place Gen 1 ticks them (src/core/Game.lua:265):
   -- they are presentational, so fast-forward must not speed them up.
-  require("src.render.Pipelines").update(dt)
-  pcall(function() require("src.core.DiscordPresence").update(dt) end)
+  Pipelines.update(dt)
+  discordUpdate(dt)
   -- GAME SPEED scales the logic clock only, exactly as the Gen 1 path does:
   -- audio runs off its own real-time accumulator, so music and sfx keep their
   -- tempo at every multiplier (#1990/#1991/#1997).  speedOverride is the
@@ -1488,7 +1523,6 @@ end
 -- present pass has always been.
 function Game2:blitZones(canvas, zones, w, h)
   local G = love.graphics
-  local GbcPalette = require("src.render.GbcPalette")
   local px, py, pw, ph = Playfield.rect(w, h)
   local sx, sy = pw / 160, ph / 144
   G.setColor(1, 1, 1, 1)
@@ -1599,7 +1633,7 @@ end
 -- the grid itself.
 function Game2:drawViewportFrame()
   local G = love.graphics
-  local serial = require("src.core.FaithfulRes").modeSerial
+  local serial = lazy("src.core.FaithfulRes").modeSerial
   if serial ~= (self.modeSerial or 0) then
     if self.world and self.world.map then
       self.world:dropBakes()
@@ -1607,9 +1641,7 @@ function Game2:drawViewportFrame()
     self.modeSerial = serial
   end
   local w, h = GameViewport.dimensions()
-  local ShaderFX = require("src.render.ShaderFX")
-  local GbcPalette = require("src.render.GbcPalette")
-  local Pipelines = require("src.render.Pipelines")
+  local ShaderFX = lazy("src.render.ShaderFX")
   -- Same dispatch src/render/Renderer.lua:1185 already uses for Gen 1
   -- (ShaderFX replaced GBCFX's slot; GBCFX.lua itself is removed).
   local shaderfx = ShaderFX.active()
@@ -1626,10 +1658,24 @@ function Game2:drawViewportFrame()
   -- lighting mod written against Gen 1 tints Gold through the same seam.
   local zones = nil
   local classic = GbcPalette.available() and GbcPalette.presentColors() or nil
+  local zoneHook = ModRuntime.wantsHook("render.zones")
   if classic then
-    zones = { { x = 0, y = 0, w = 160, h = 144, colors = classic } }
+    if zoneHook or ModRuntime.wantsHook("render.compose") then
+      -- A mod may keep or edit the list it is handed: give it a fresh one.
+      zones = { { x = 0, y = 0, w = 160, h = 144, colors = classic } }
+    else
+      -- Nobody else sees it, so the one list is reused frame to frame.
+      local zone = self._classicZone
+      if not zone then
+        zone = { x = 0, y = 0, w = 160, h = 144 }
+        self._classicZone = zone
+        self._classicZones = { zone }
+      end
+      zone.colors = classic
+      zones = self._classicZones
+    end
   end
-  if ModRuntime.wantsHook("render.zones") then
+  if zoneHook then
     zones = ModRuntime.call("render.zones", sameZones, self, zones)
   end
   local zoned = type(zones) == "table" and zones[1] ~= nil

@@ -264,7 +264,7 @@ local function loadImage(candidates)
         if okId and id then
           local img = love.graphics.newImage(id)
           if img and img.setFilter then img:setFilter("nearest", "nearest") end
-          return img, path
+          return img, path, id
         end
       elseif love and love.filesystem and love.image and love.graphics then
         local okFd, fd = pcall(love.filesystem.newFileData, data, path)
@@ -273,7 +273,7 @@ local function loadImage(candidates)
           if okId and id then
             local img = love.graphics.newImage(id)
             if img and img.setFilter then img:setFilter("nearest", "nearest") end
-            return img, path
+            return img, path, id
           end
         end
       end
@@ -287,6 +287,42 @@ local function loadImage(candidates)
     end
   end
   return nil, nil
+end
+
+-- Pack a sheet's fg and shadow images into one texture (fg on top, shadow
+-- below a transparent gap) with matching quads.  Each glyph still draws its
+-- shadow then its fg, but from the same texture, so LOVE's autobatcher keeps
+-- a whole string in one draw call instead of flushing on every texture swap.
+-- Pixels are copied verbatim, so the output is unchanged.  nil (draw from the
+-- separate sheets) when either ImageData is missing or they do not match.
+local ATLAS_GAP = 16
+local function pack_atlas(fgData, shData, quads)
+  if not (fgData and shData and quads and love and love.image and love.image.newImageData
+      and love.graphics and love.graphics.newImage and love.graphics.newQuad) then
+    return nil
+  end
+  local ok, atlas = pcall(function()
+    local w, h = fgData:getDimensions()
+    local sw, shh = shData:getDimensions()
+    if sw ~= w or shh ~= h then return nil end
+    if fgData.getFormat and shData.getFormat and fgData:getFormat() ~= shData:getFormat() then return nil end
+    local off = h + ATLAS_GAP
+    local fmt = fgData.getFormat and fgData:getFormat() or "rgba8"
+    local data = love.image.newImageData(w, off + h, fmt)
+    data:paste(fgData, 0, 0, 0, 0, w, h)
+    data:paste(shData, 0, off, 0, 0, w, h)
+    local img = love.graphics.newImage(data)
+    if img.setFilter then img:setFilter("nearest", "nearest") end
+    local aw, ah = img:getDimensions()
+    local fq, sq = {}, {}
+    for id, q in pairs(quads) do
+      local qx, qy, qw, qh = q:getViewport()
+      fq[id] = love.graphics.newQuad(qx, qy, qw, qh, aw, ah)
+      sq[id] = love.graphics.newQuad(qx, qy + off, qw, qh, aw, ah)
+    end
+    return { image = img, fg = fq, sh = sq, src = quads }
+  end)
+  return ok and atlas or nil
 end
 
 local function loadTable(path)
@@ -387,8 +423,8 @@ local function loadFace(spec, name)
     error("FrlgFont: the active profile has no font face '" .. tostring(name) .. "'", 0)
   end
   local dir = spec.dir or ""
-  local fg, fgp = loadImage({ { path = dir .. fs.sheet .. "_fg.rgba", w = 256, h = 512 } })
-  local sh = loadImage({ { path = dir .. fs.sheet .. "_shadow.rgba", w = 256, h = 512 } })
+  local fg, fgp, fgData = loadImage({ { path = dir .. fs.sheet .. "_fg.rgba", w = 256, h = 512 } })
+  local sh, _, shData = loadImage({ { path = dir .. fs.sheet .. "_shadow.rgba", w = 256, h = 512 } })
   local widths = fs.widths and loadTable(dir .. fs.widths)
   local m = metricsFor(spec, fs.fontId)
   if not (fg and widths and m) then
@@ -408,6 +444,7 @@ local function loadFace(spec, name)
     name = name, fg = fg, sh = sh, quads = quads, widths = widths,
     height = m.maxLetterHeight, pitch = m.maxLetterHeight + (m.lineSpacing or 0),
     letterSpacing = m.letterSpacing or 0,
+    atlas = pack_atlas(fgData, shData, quads),
   }
   FrlgFont._faces[name] = face
   log(fs.sheet .. " ready " .. tostring(fgp))
@@ -471,8 +508,8 @@ local function ensure()
   end
   FrlgFont._widths = widths or {}
 
-  local fg, fgp = loadImage(FG_PATHS)
-  local sh = loadImage(SH_PATHS)
+  local fg, fgp, fgData = loadImage(FG_PATHS)
+  local sh, _, shData = loadImage(SH_PATHS)
   if not fg then
     if not FrlgFont._logged then
       log("latin_normal font missing")
@@ -490,6 +527,7 @@ local function ensure()
     quads[id] = love.graphics.newQuad(col * 16, row * 16, 16, 16, iw, ih)
   end
   FrlgFont._quads = quads
+  FrlgFont._atlas = pack_atlas(fgData, shData, quads)
   if not FrlgFont._logged then
     log("latin_normal ready " .. tostring(fgp))
     FrlgFont._logged = true
@@ -529,8 +567,8 @@ local function ensure_small()
       if chunk then widths = chunk() end
     end
   end
-  local fg, fgp = loadImage(SMALL_FG_PATHS)
-  local sh = loadImage(SMALL_SH_PATHS)
+  local fg, fgp, fgData = loadImage(SMALL_FG_PATHS)
+  local sh, _, shData = loadImage(SMALL_SH_PATHS)
   if not fg then return false end
   local iw, ih = fg:getDimensions()
   local quads = {}
@@ -545,6 +583,7 @@ local function ensure_small()
   -- Sheets from extract_latin_small.py (ROM hwlat @ 0x1EAF00), CHARMAP-ordered.
   FrlgFont._small = {
     fg = fg, sh = sh, quads = quads, widths = widths or {}, _romBaked = true,
+    atlas = pack_atlas(fgData, shData, quads),
   }
   log("latin_small ready " .. tostring(fgp) .. " (ROM FONT_SMALL)")
   return true
@@ -612,18 +651,18 @@ FrlgFont.JAPANESE_GLYPHS = japanese_glyphs()
 
 local function load_japanese(key, fgPaths, shPaths)
   if FrlgFont[key] ~= nil then return FrlgFont[key] or nil end
-  local fg = loadImage(fgPaths)
+  local fg, _, fgData = loadImage(fgPaths)
   if not fg then
     FrlgFont[key] = false
     return nil
   end
-  local sh = loadImage(shPaths)
+  local sh, _, shData = loadImage(shPaths)
   local iw, ih = fg:getDimensions()
   local quads = {}
   for code = 0, 511 do
     quads[code] = love.graphics.newQuad((code % 16) * 16, math.floor(code / 16) * 16, 16, 16, iw, ih)
   end
-  FrlgFont[key] = { fg = fg, sh = sh, quads = quads }
+  FrlgFont[key] = { fg = fg, sh = sh, quads = quads, atlas = pack_atlas(fgData, shData, quads) }
   return FrlgFont[key]
 end
 
@@ -649,7 +688,7 @@ local function japanese_quad(glyphId, small)
   local sheet = small and load_japanese("_jpSmall", JP_SMALL_FG_PATHS, JP_SMALL_SH_PATHS)
     or load_japanese("_jpNormal", JP_FG_PATHS, JP_SH_PATHS)
   if not sheet then return nil end
-  return sheet.fg, sheet.sh, sheet.quads[glyphId - FrlgFont.JAPANESE_BASE]
+  return sheet.fg, sheet.sh, sheet.quads[glyphId - FrlgFont.JAPANESE_BASE], sheet.atlas
 end
 
 -- The remaining single characters of the Latin block of pret
@@ -1162,6 +1201,14 @@ end
 local ADVANCE_SMALL = { small = true }
 local ADVANCE_NORMAL = {}
 
+local function set_col(c)
+  if type(c) == "table" then
+    love.graphics.setColor(c[1] or 1, c[2] or 1, c[3] or 1, c[4] or 1)
+  else
+    love.graphics.setColor(1, 1, 1, 1)
+  end
+end
+
 --- Draw full string at pixel (x,y).
 -- opts.maxWidth clips (CopyGlyphToWindow). opts.colors = COLOR.NORMAL etc.
 -- opts.limitChars: only draw first N printable characters (typewriter).
@@ -1210,22 +1257,15 @@ function FrlgFont.draw(text, x, y, opts)
   local drawn = 0
   local pitch = opts.linePitch or (face and face.pitch)
     or (useSmall and FrlgFont.SMALL_LINE_PITCH or FrlgFont.LINE_PITCH)
-  local fg, sh, quads
+  local fg, sh, quads, atlas
   if face then
-    fg, sh, quads = face.fg, face.sh, face.quads
+    fg, sh, quads, atlas = face.fg, face.sh, face.quads, face.atlas
   elseif useSmall then
-    fg, sh, quads = FrlgFont._small.fg, FrlgFont._small.sh, FrlgFont._small.quads
+    fg, sh, quads, atlas = FrlgFont._small.fg, FrlgFont._small.sh, FrlgFont._small.quads, FrlgFont._small.atlas
   else
-    fg, sh, quads = FrlgFont._fg, FrlgFont._sh, FrlgFont._quads
+    fg, sh, quads, atlas = FrlgFont._fg, FrlgFont._sh, FrlgFont._quads, FrlgFont._atlas
   end
-
-  local function set_col(c)
-    if type(c) == "table" then
-      love.graphics.setColor(c[1] or 1, c[2] or 1, c[3] or 1, c[4] or 1)
-    else
-      love.graphics.setColor(1, 1, 1, 1)
-    end
-  end
+  if atlas and (atlas.src ~= quads or not sh) then atlas = nil end
 
   for ttype, val, curCol in FrlgFont.scanTokens(text, baseColors) do
     if limit and drawn >= limit then break end
@@ -1262,9 +1302,12 @@ function FrlgFont.draw(text, x, y, opts)
       end
       if penX + adv <= maxW or penX == 0 then
         local dx, dy = x + penX, y + penY
-        local gfg, gsh, q = fg, sh, quads[id]
+        local gfg, gsh, q, gat = fg, sh, quads[id], atlas
+        local aid = id
         if id >= FrlgFont.JAPANESE_BASE then
-          gfg, gsh, q = japanese_quad(id, useSmall)
+          gfg, gsh, q, gat = japanese_quad(id, useSmall)
+          aid = id - FrlgFont.JAPANESE_BASE
+          if not gsh then gat = nil end
         end
         if q then
           -- Draw background / highlight fill if bg is not transparent
@@ -1272,15 +1315,24 @@ function FrlgFont.draw(text, x, y, opts)
             set_col(curCol.bg)
             love.graphics.rectangle("fill", dx, dy, adv, pitch)
           end
+          local aq = gat and gat.fg[aid]
           -- Draw shadow
           if gsh and curCol.shadow and (not curCol.shadow[4] or curCol.shadow[4] > 0) then
             set_col(curCol.shadow)
-            love.graphics.draw(gsh, q, dx, dy)
+            if aq then
+              love.graphics.draw(gat.image, gat.sh[aid], dx, dy)
+            else
+              love.graphics.draw(gsh, q, dx, dy)
+            end
           end
           -- Draw foreground
           if curCol.fg and (not curCol.fg[4] or curCol.fg[4] > 0) then
             set_col(curCol.fg)
-            love.graphics.draw(gfg, q, dx, dy)
+            if aq then
+              love.graphics.draw(gat.image, aq, dx, dy)
+            else
+              love.graphics.draw(gfg, q, dx, dy)
+            end
           end
         end
         penX = penX + japanese_step(id, adv, minW, jpn, opts, useSmall)
@@ -1381,6 +1433,7 @@ function FrlgFont.invalidate()
   FrlgFont._fg = nil
   FrlgFont._sh = nil
   FrlgFont._quads = nil
+  FrlgFont._atlas = nil
   FrlgFont._small = nil
   FrlgFont._keypad = nil
   FrlgFont._jpNormal = nil

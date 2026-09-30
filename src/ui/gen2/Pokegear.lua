@@ -1919,6 +1919,10 @@ end
 local SPACE_TILE = 0x7f
 
 function Pokegear:tile(id, tx, ty)
+  -- A flat cell draws under the caller's shader, not a batched tile palette.
+  if (id == SPACE_TILE or id == BLANK_TILE) and self.sheet then
+    self.sheet:suspend()
+  end
   if id == SPACE_TILE then
     local paper = self:paperColor()
     local G = love.graphics
@@ -1938,8 +1942,7 @@ function Pokegear:tile(id, tx, ty)
   if self.sheet then self.sheet:draw(id, tx, ty) end
 end
 
-function Pokegear:drawTilemap(cells)
-  if not cells then return end
+local function drawTilemapCells(self, cells)
   for index = 1, SCREEN_W * SCREEN_H do
     local tile = cells[index]
     if tile then
@@ -1947,6 +1950,18 @@ function Pokegear:drawTilemap(cells)
         math.floor((index - 1) / SCREEN_W))
     end
   end
+end
+
+-- 360 cells a frame: batched so the palette shader is set once per run of
+-- same-palette tiles rather than once per tile (TileSheet:begin).
+function Pokegear:drawTilemap(cells)
+  if not cells then return end
+  local sheet = self.sheet
+  if not sheet then return drawTilemapCells(self, cells) end
+  sheet:begin()
+  local ok, err = pcall(drawTilemapCells, self, cells)
+  sheet:finish()
+  if not ok then error(err, 0) end
 end
 
 -- Pokegear_FinishTilemap.

@@ -136,8 +136,17 @@ local function display_hp_nums(side, battler)
   return math.floor(hp), math.floor(maxHp)
 end
 
+-- One read-only FrlgFont opts table per colour set (FrlgFont never writes
+-- to opts), so per-frame healthbox text does not allocate.
+local _smallOpts = setmetatable({}, { __mode = "k" })
 local function small_opts(colors)
-  return { small = true, colors = colors or HB_TEXT }
+  colors = colors or HB_TEXT
+  local o = _smallOpts[colors]
+  if not o then
+    o = { small = true, colors = colors }
+    _smallOpts[colors] = o
+  end
+  return o
 end
 
 local function erase_placeholder_ink(boxX, boxY, pts)

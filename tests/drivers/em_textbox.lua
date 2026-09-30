@@ -92,6 +92,8 @@ local function compareBox(ours, ref, mask, diffPath)
 end
 
 return function(game)
+  -- nativeFrame() reads the flat 240x160 mirror of the plane path
+  require("src.core.game3.display").mirrorForTests = true
   os.execute('mkdir -p "' .. DIR .. '" 2>/dev/null')
   for _ = 1, 900 do
     if game.phase == "boot" and game.boot then break end

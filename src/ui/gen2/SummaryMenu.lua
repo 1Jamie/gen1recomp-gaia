@@ -1126,6 +1126,25 @@ function SummaryMenu:drawEggPic()
   self:drawEggIconFallback(colors)
 end
 
+-- One reusable quad per role, re-aimed per draw rather than a new Quad each
+-- frame (which churns the GC).  nil only when the backend cannot make one.
+local function reusedQuad(owner, slot, x, y, w, h, sw, sh)
+  local quads = owner.reusedQuads
+  if not quads then
+    quads = {}
+    owner.reusedQuads = quads
+  end
+  local quad = quads[slot]
+  if quad then
+    quad:setViewport(x, y, w, h, sw, sh)
+    return quad
+  end
+  local ok, made = pcall(love.graphics.newQuad, x, y, w, h, sw, sh)
+  if not ok then return nil end
+  quads[slot] = made
+  return made
+end
+
 -- The ICON_EGG sheet is two 16x16 frames stacked into one 16x32 image
 -- (src/ui/gen2/PartyMenu.lua reads the same entry); the first frame is the
 -- egg at rest, which is the one the party list shows while nothing is moving.
@@ -1141,9 +1160,9 @@ function SummaryMenu:drawEggIconFallback(colors)
   local w = entry.width or 16
   local h = math.min(entry.height or 16, image:getHeight())
   if (entry.frames or 1) > 1 then h = math.floor(h / entry.frames) end
-  local ok, quad = pcall(love.graphics.newQuad, 0, 0, w, h,
+  local quad = reusedQuad(self, "egg", 0, 0, w, h,
     image:getWidth(), image:getHeight())
-  if not ok then return end
+  if not quad then return end
   -- Centred in the block at 2x: a 16x16 icon inside 7x7 tiles.
   local x = math.floor((7 * 8 - w * 2) / 2)
   local y = math.floor((7 * 8 - h * 2) / 2)
