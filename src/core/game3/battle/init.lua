@@ -2958,14 +2958,14 @@ function D.commandUpdate(input)
     return
   end
   if Battle._refuseLinkItem(input) then return end
-  local BagMenu = require("src.ui.game3.bag_menu")
-  if BagMenu.isOpen and BagMenu.isOpen() then
-    if input then require("src.ui.game3.screens").handleInput("bag", BagMenu, input) end
-    return
-  end
   local PartyMenu = require("src.ui.game3.party_menu")
   if PartyMenu.isOpen and PartyMenu.isOpen() then
     if input then party_menu_input(PartyMenu, input) end
+    return
+  end
+  local BagMenu = require("src.ui.game3.bag_menu")
+  if BagMenu.isOpen and BagMenu.isOpen() then
+    if input then require("src.ui.game3.screens").handleInput("bag", BagMenu, input) end
     return
   end
   if Ui._mode == "bag" or Ui._mode == "party" then
@@ -3782,14 +3782,14 @@ update_body = function(dt, game)
 
   if Battle._phase == "command" and not Battle._auto then
     if refuse_link_item(input) then return end
-    local BagMenu = require("src.ui.game3.bag_menu")
-    if BagMenu.isOpen and BagMenu.isOpen() then
-      if input then require("src.ui.game3.screens").handleInput("bag", BagMenu, input) end
-      return
-    end
     local PartyMenu = require("src.ui.game3.party_menu")
     if PartyMenu.isOpen and PartyMenu.isOpen() then
       if input then party_menu_input(PartyMenu, input) end
+      return
+    end
+    local BagMenu = require("src.ui.game3.bag_menu")
+    if BagMenu.isOpen and BagMenu.isOpen() then
+      if input then require("src.ui.game3.screens").handleInput("bag", BagMenu, input) end
       return
     end
     if Ui._mode == "bag" or Ui._mode == "party" then

@@ -127,6 +127,81 @@ eq(pyramidBagOpts and pyramidBagOpts.location, "battle", "Pyramid battle BAG ope
 eq(pyramidBagOpts and pyramidBagOpts.session, registeredSession, "Pyramid battle BAG uses the active challenge state")
 BattleUi._session, BattleUi._st, BattleUi._mode = nil, nil, "none"
 
+local Bag = require("src.core.game3.bag")
+local BagMenu = require("src.ui.game3.bag_menu")
+local Battle = require("src.core.game3.battle")
+local State = require("src.core.game3.battle.state")
+local Screens = require("src.ui.game3.screens")
+
+local testBag = Bag.new()
+Bag.add(testBag, C.items.byName.ITEM_POTION, 2)
+local testParty = {
+  { species = C.species.byName.SPECIES_TREECKO, hp = 10, maxHp = 20, moves = {} },
+  { species = C.species.byName.SPECIES_TORCHIC, hp = 5, maxHp = 20, moves = {} },
+}
+local testSession = { bag = testBag, party = testParty }
+local bst = {
+  wild = true,
+  turn = 1,
+  player = State.makeBattler(testParty[1], "player", { partyIndex = 1 }),
+  playerParty = testParty,
+}
+Battle._active = true
+Battle._phase = "command"
+Battle._st = bst
+Battle._auto = false
+BattleUi._session = testSession
+BattleUi._st = bst
+BattleUi._mode = "command"
+
+BattleUi.openBattleBag()
+eq(BagMenu.isOpen(), true, "Emerald battle BagMenu is open")
+BagMenu.settle()
+Screens.handleInput("bag", BagMenu, pressed("a"), testSession)
+eq(BagMenu.mode, "action", "BagMenu mode is action")
+Screens.handleInput("bag", BagMenu, pressed("a"), testSession)
+eq(PartyMenu.isOpen(), true, "PartyMenu is open for in-battle item use")
+eq(PartyMenu.mode, "use", "PartyMenu is in use mode")
+eq(PartyMenu.cursor, 1, "PartyMenu initially selects slot 1")
+
+Battle.update(0, { input = pressed("down") })
+eq(PartyMenu.cursor, 2, "PartyMenu cursor moves to slot 2 in Emerald battle (not stuck on active mon)")
+
+Battle.update(0, { input = pressed("a") })
+-- Press A to fast-forward HP animation and advance message
+PartyMenu.handleInput(pressed("a"))
+eq(PartyMenu.mode, "message", "PartyMenu displays recovery message")
+PartyMenu.handleInput(pressed("a"))
+eq(PartyMenu.isOpen(), false, "PartyMenu closes after message dismissal")
+BagMenu.settle()
+eq(BagMenu.isOpen(), false, "BagMenu closes after committing battle item")
+eq(BattleUi._pendingCommand and BattleUi._pendingCommand.partySlot, 2, "Pending battle command targets slot 2")
+
+Battle._active = false
+BattleUi._session, BattleUi._st, BattleUi._mode = nil, nil, "none"
+
+-- Also test cancelling back from PartyMenu to BagMenu
+Battle._active = true
+Battle._phase = "command"
+Battle._st = bst
+BattleUi._session = testSession
+BattleUi._st = bst
+BattleUi._mode = "command"
+BattleUi.openBattleBag()
+BagMenu.settle()
+Screens.handleInput("bag", BagMenu, pressed("a"), testSession)
+Screens.handleInput("bag", BagMenu, pressed("a"), testSession)
+eq(PartyMenu.isOpen(), true, "PartyMenu reopened for item use")
+Battle.update(0, { input = pressed("b") })
+eq(PartyMenu.isOpen(), false, "PartyMenu closed on B press")
+eq(BagMenu.isOpen(), true, "BagMenu remains open after PartyMenu cancel")
+eq(BagMenu.mode, "list", "BagMenu returned to list mode")
+Screens.handleInput("bag", BagMenu, pressed("b"), testSession)
+BagMenu.settle()
+eq(BagMenu.isOpen(), false, "BagMenu closed on B press")
+Battle._active = false
+BattleUi._session, BattleUi._st, BattleUi._mode = nil, nil, "none"
+
 local Trainers = require("src.core.game3.scripting.trainers")
 local calvin = C.trainers.byName.TRAINER_CALVIN_1
 local row = Trainers.get(calvin)
