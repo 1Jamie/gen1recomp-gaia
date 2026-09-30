@@ -261,6 +261,10 @@ end
 
 local knownDirs = {}
 
+local function forgetDirs()
+  for k in pairs(knownDirs) do knownDirs[k] = nil end
+end
+
 -- create every parent directory of `rel` under `root` (best effort; an
 -- already-existing directory is fine, a genuine failure surfaces when the
 -- subsequent io.open write fails)
@@ -465,6 +469,7 @@ end
 
 -- remove a single cache-relative file
 function CacheFs.remove(rel)
+  forgetDirs()
   rel = withPrefix(rel)
   if unsafe_rel(rel) then return false end
   local root = CacheFs.root()
@@ -484,6 +489,7 @@ end
 -- (issue #74: os.execute would flash a console window per call).  Used by the
 -- mod installer so an uninstall leaves nothing behind (#330).
 function CacheFs.removeDir(rel)
+  forgetDirs()
   rel = withPrefix(rel)
   if unsafe_rel(rel) then return false end
   local root = CacheFs.root()
@@ -504,6 +510,7 @@ end
 -- love.filesystem (the game folder is mounted) and the real files deleted
 -- with os.remove; empty directories are harmless and left in place.
 function CacheFs.removeTree(rel)
+  forgetDirs()
   rel = withPrefix(rel)
   if unsafe_rel(rel) then return end
   local root = CacheFs.root()
