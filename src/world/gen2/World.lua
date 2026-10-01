@@ -8687,6 +8687,11 @@ function World:interactBody()
     interacted(self, fx, fy, "npc", npc)
     return self.vm:start(npc.def.scriptKey)
   end
+  if npc and npc.def and npc.def.runtime then
+    self.talkNpc = npc
+    interacted(self, fx, fy, "npc", npc)
+    return true
+  end
   local sign = self:bgEventAt(fx, fy)
   if sign and sign.scriptKey then
     self.talkNpc = nil
