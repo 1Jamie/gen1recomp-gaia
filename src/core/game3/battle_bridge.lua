@@ -232,6 +232,8 @@ local function writeback(session, battleParty, remap, result, save, opts)
         speed = src.speed or src.spe,
         spAtk = src.spAtk or src.spa,
         spDef = src.spDef or src.spd,
+        ability = src.ability,
+        abilityId = src.abilityId,
         _allowMoveRewrite = true,
       })
       -- pokefirered/src/battle_controller_player.c:1909

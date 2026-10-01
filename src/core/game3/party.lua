@@ -50,6 +50,7 @@ function Party.applyBattleFields(opaqueMon, fields)
     "species", "speciesId", "name", "growthRate",
     "attack", "defense", "speed", "spAtk", "spDef",
     "atk", "def", "spe", "spa", "spd", "ppBonusesPacked",
+    "ability", "abilityId",
   }) do
     if fields[key] ~= nil then opaqueMon[key] = fields[key] end
   end
