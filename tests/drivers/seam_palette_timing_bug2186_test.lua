@@ -69,14 +69,14 @@ return function(game)
   U.wait(20)
   ow = game.overworld
   check("second pass: seam step starts", crossNorth(ow))
-  U.shot(game, DIR .. "/2186_01_seam_step_still_pallet.png")
+  check("second pass: mid-step still captured", U.still(game, DIR .. "/2186_01_seam_step_still_pallet.png"))
   check("second pass: shot taken mid-step under Pallet's palette",
         ow.player.moving and (baseKey(ow)) == pallet)
   for _ = 1, 40 do
     if not ow.player.moving then break end
     coroutine.yield()
   end
-  U.shot(game, DIR .. "/2186_02_landed_route1_palette.png")
+  check("second pass: landing still captured", U.still(game, DIR .. "/2186_02_landed_route1_palette.png"))
   check("second pass: landed under Route 1's palette", (baseKey(ow)) == route)
 
   U.teleport(game, "PALLET_TOWN", 10, 1, "up")
@@ -87,10 +87,9 @@ return function(game)
   check("survey zoom: seam step starts", crossNorth(ow))
   local sk, sn = baseKey(ow)
   check("survey zoom keeps per-map zones mid-step", sk == route and sn > 1)
-  U.shot(game, DIR .. "/2186_03_survey_per_map.png")
+  check("survey zoom: mid-step still captured", U.still(game, DIR .. "/2186_03_survey_per_map.png"))
   Zoom.offset = 0
 
   print(failures == 0 and "PASS seam_palette_timing_2186" or "FAIL seam_palette_timing_2186")
   love.event.quit(failures == 0 and 0 or 1)
-  while true do coroutine.yield() end
 end

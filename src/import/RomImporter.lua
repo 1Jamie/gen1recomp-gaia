@@ -2181,6 +2181,10 @@ function RomImporter:_completeImport(version, prefix, displayName)
   if not ok then
     error("could not finish the private cache: " .. tostring(writeError))
   end
+  local SaveConvert = package.loaded["src.save_convert.SaveConvert"]
+  if GameVersion.generation(version) == 2 and SaveConvert then
+    SaveConvert.invalidateGen2Data(version)
+  end
   self.ready[version] = true
   self.returning[version] = false
   self.romName[version] = (displayName

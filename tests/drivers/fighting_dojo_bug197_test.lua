@@ -7,6 +7,7 @@ return function(game)
   local DIR = os.getenv("POKEPORT_SHOT_DIR") or os.getenv("SHOT_DIR") or "/tmp/shots"
   local TextBox = require("src.render.TextBox")
   local ChoiceBox = require("src.ui.ChoiceBox")
+  local DexEntryMenu = require("src.ui.DexEntryMenu")
   local OW = require("src.world.OverworldController")
   local Pokemon = require("src.pokemon.Pokemon")
   local Commands = require("src.script.Commands")
@@ -23,8 +24,8 @@ return function(game)
   local function topIsTextBox() return getmetatable(game.stack:top()) == TextBox end
   local function topIsChoice() return getmetatable(game.stack:top()) == ChoiceBox end
 
-  local function currentPageText()
-    local top = game.stack:top()
+  local function currentPageText(top)
+    top = top or game.stack:top()
     if getmetatable(top) ~= TextBox then return "" end
     local page = top.pages and top.pages[top.pageIndex]
     if not page then return "" end
@@ -46,11 +47,18 @@ return function(game)
     return currentPageText()
   end
 
-  local function mashUntil(cond, cap)
-    for _ = 1, (cap or 200) do
+  local function mashUntil(cond)
+    local deadline = love.timer.getTime() + 8
+    while love.timer.getTime() < deadline do
       if cond() then return true end
-      U.tap(game, "a")
-      U.wait(2)
+      local top = game.stack:top()
+      if getmetatable(top) == DexEntryMenu
+         and ((top.picDelay or 0) > 0 or top:crying()) then
+        U.wait(1)
+      else
+        U.tap(game, "a")
+        U.wait(2)
+      end
     end
     return cond()
   end
@@ -58,11 +66,35 @@ return function(game)
   -- advance text pages until a ready page contains `want`; stops before
   -- blowing past a choice box
   local function sawText(want)
-    return mashUntil(function()
-      if topIsChoice() then return false end
-      if not pageReady() then return false end
-      return currentPageText():find(want, 1, true) ~= nil
-    end, 150)
+    local deadline = love.timer.getTime() + 8
+    while love.timer.getTime() < deadline do
+      local top = game.stack:top()
+      if topIsChoice() then
+        for i = #game.stack.states - 1, 1, -1 do
+          local under = game.stack.states[i]
+          if getmetatable(under) == TextBox then
+            return currentPageText(under):find(want, 1, true) ~= nil
+          end
+        end
+        return false
+      elseif topIsTextBox() then
+        if pageReady() then
+          if currentPageText():find(want, 1, true) then return true end
+          U.tap(game, "a")
+        else
+          U.wait(1)
+        end
+      elseif getmetatable(top) == DexEntryMenu then
+        if (top.picDelay or 0) > 0 or top:crying() then
+          U.wait(1)
+        else
+          U.tap(game, "a")
+        end
+      else
+        U.wait(1)
+      end
+    end
+    return false
   end
 
   local function npcByName(ow, name)
@@ -109,12 +141,12 @@ return function(game)
   -- then step down once. The four blackbelts are cleared so only he reacts.
   ------------------------------------------------------------------
   local ow = resetDojo(4, 2, "down", {})
-  U.shot(game, DIR .. "/dojo_1_before.png")
+  U.still(game, DIR .. "/dojo_1_before.png")
   U.tap(game, "down")
   U.wait(30)
   local engaged = topIsTextBox()
   U.log("gate dialogue open:", tostring(engaged))
-  U.shot(game, DIR .. "/dojo_2_aggro.png")
+  U.still(game, DIR .. "/dojo_2_aggro.png")
   check(engaged, "BUG1: Karate Master stops the player at his left")
 
   ------------------------------------------------------------------
@@ -132,7 +164,7 @@ return function(game)
       "#2253: beaten master before a prize repeats 'Indeed, I have lost!' (page1='" .. first .. "')")
     check(not first:find("Stay and train", 1, true),
       "#2253: no 'Stay and train' before a prize is chosen")
-    U.shot(game, DIR .. "/2253_01_master_prize_offer_before_choosing.png")
+    U.still(game, DIR .. "/2253_01_master_prize_offer_before_choosing.png")
     mashUntil(function() return game.stack:top() == ow end)
   end
 
@@ -144,7 +176,7 @@ return function(game)
     ow:talkTo(master)
     check(sawText("Stay and train"),
       "#2253: after the prize the master says 'Stay and train at Karate with us!'")
-    U.shot(game, DIR .. "/2253_02_master_stay_and_train_after_prize.png")
+    U.still(game, DIR .. "/2253_02_master_stay_and_train_after_prize.png")
     mashUntil(function() return game.stack:top() == ow end)
   end
 
@@ -157,7 +189,7 @@ return function(game)
   U.wait(5)
   check(sawText("prized"),
     "BUG2: win shows the '...prized fighting POKeMON!' prize offer")
-  U.shot(game, DIR .. "/dojo_2_prize.png")
+  U.still(game, DIR .. "/dojo_2_prize.png")
   mashUntil(function() return game.stack:top() == ow end)
 
   ------------------------------------------------------------------
@@ -173,7 +205,7 @@ return function(game)
     ow:talkTo(leeBall)
     check(sawText("hard kicking") or sawText("HITMONLEE"),
       "BUG4: ball asks the Gen1 descriptor prompt after the dex entry")
-    U.shot(game, DIR .. "/dojo_4_prompt.png")
+    U.still(game, DIR .. "/dojo_4_prompt.png")
     ------------------------------------------------------------------
     -- BUG5: choose YES -> only the chosen ball vanishes; the other stays
     -- and, when talked to, gives the "Better not get greedy..." refusal.
@@ -186,13 +218,13 @@ return function(game)
     local chanStays = npcByName(ow, "FIGHTINGDOJO_HITMONCHAN_POKE_BALL") ~= nil
     check(leeGone, "BUG5: the chosen HITMONLEE ball is removed")
     check(chanStays, "BUG5: the other (HITMONCHAN) ball stays on the mat")
-    U.shot(game, DIR .. "/dojo_5_onegone.png")
+    U.still(game, DIR .. "/dojo_5_onegone.png")
     if chanStays then
       ow:talkTo(npcByName(ow, "FIGHTINGDOJO_HITMONCHAN_POKE_BALL"))
       check(sawText("greedy"), "BUG5: remaining ball gives the greedy refusal")
       check(not game.save.flags.EVENT_GOT_HITMONCHAN,
         "BUG5: talking the other ball does NOT hand a second POKeMON")
-      U.shot(game, DIR .. "/dojo_5_greedy.png")
+      U.still(game, DIR .. "/dojo_5_greedy.png")
       mashUntil(function() return game.stack:top() == ow end)
     end
     local flowMaster = npcByName(ow, "FIGHTINGDOJO_KARATE_MASTER")
@@ -201,7 +233,7 @@ return function(game)
       local page = waitReadyPage()
       check(page:find("Ho!", 1, true) ~= nil or page:find("Stay and train", 1, true) ~= nil,
         "#2253: after taking HITMONLEE the master says 'Stay and train' (page1='" .. page .. "')")
-      U.shot(game, DIR .. "/2253_03_master_after_taking_hitmonlee.png")
+      U.still(game, DIR .. "/2253_03_master_after_taking_hitmonlee.png")
       mashUntil(function() return game.stack:top() == ow end)
     end
   end
@@ -215,11 +247,11 @@ return function(game)
   Commands.hide_object({ game = game, save = game.save, overworld = ow },
                        "FIGHTING_DOJO", "FIGHTINGDOJO_HITMONLEE_POKE_BALL")
   U.wait(3)
-  U.shot(game, DIR .. "/dojo_6_before.png")
+  U.still(game, DIR .. "/dojo_6_before.png")
   ow:interact()
   check(sawText("Enemies on every"),
     "BUG6: the poster prints 'Enemies on every side!'")
-  U.shot(game, DIR .. "/dojo_6_poster.png")
+  U.still(game, DIR .. "/dojo_6_poster.png")
   mashUntil(function() return game.stack:top() == ow end)
 
   ow = resetDojo(5, 1, "up",
@@ -230,7 +262,7 @@ return function(game)
   ow:interact()
   check(sawText("What goes around"),
     "#2251: the (5,0) poster prints 'What goes around comes around!'")
-  U.shot(game, DIR .. "/2251_01_what_goes_around_poster.png")
+  U.still(game, DIR .. "/2251_01_what_goes_around_poster.png")
   mashUntil(function() return game.stack:top() == ow end)
 
   for i, sx in ipairs({ 3, 6 }) do
@@ -238,7 +270,7 @@ return function(game)
     ow:interact()
     check(sawText("FIGHTING DOJO"),
       "#2251: the statue at (" .. sx .. ",9) prints 'FIGHTING DOJO'")
-    U.shot(game, DIR .. "/2251_0" .. (i + 1) .. "_statue_" .. sx .. "_fighting_dojo.png")
+    U.still(game, DIR .. "/2251_0" .. (i + 1) .. "_statue_" .. sx .. "_fighting_dojo.png")
     mashUntil(function() return game.stack:top() == ow end)
   end
 

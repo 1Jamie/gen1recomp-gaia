@@ -23,10 +23,9 @@ return function(game)
   local function quit()
     U.log(failures == 0 and "ALL PASS" or ("DONE " .. failures .. " check(s) failed"))
     love.event.quit(failures == 0 and 0 or 1)
-    while true do coroutine.yield() end
   end
 
-  if not check("2344_yellow_cache", GameVersion.isYellow()) then quit() end
+  if not check("2344_yellow_cache", GameVersion.isYellow()) then quit() return end
 
   game.save.player.name = "bryan"
   local pika = Pokemon.new(game.data, "PIKACHU", 12)
@@ -44,12 +43,14 @@ return function(game)
   if not check("2344_export_ok", bytes ~= nil) then
     U.log("export error:", tostring(err))
     quit()
+    return
   end
   check("2344_export_mood_byte", bytes:byte(GenSave.OFFSETS.pikachuMood + 1) == 0x6c)
   local imported, ierr = SaveConvert.importSav(bytes, nil, "yellow")
   if not check("2344_import_ok", imported ~= nil) then
     U.log("import error:", tostring(ierr))
     quit()
+    return
   end
   check("2344_import_mood", imported.pikachuMood == 0x6c)
   check("2344_import_happiness", imported.pikachuHappiness == 120)
@@ -64,7 +65,7 @@ return function(game)
     return nil
   end
   local npc = follower()
-  if not check("2344_follower_spawned", npc ~= nil) then quit() end
+  if not check("2344_follower_spawned", npc ~= nil) then quit() return end
 
   local DIRS = { { "up", 0, -1 }, { "left", -1, 0 },
                  { "right", 1, 0 }, { "down", 0, 1 } }
@@ -92,7 +93,7 @@ return function(game)
       break
     end
   end
-  if not check("2344_step_room", stepDir ~= nil) then quit() end
+  if not check("2344_step_room", stepDir ~= nil) then quit() return end
   local function stepAndBack()
     U.hold(game, stepDir, 24)
     U.wait(6)
@@ -119,9 +120,11 @@ return function(game)
     end
     local pic = ow.emote and ow.emote.pikaPic or ""
     U.log("pikapic:", pic)
-    check("2344_pic_" .. wantPic, pic:find(wantPic, 1, true) ~= nil)
-    U.wait(20)
-    U.shot(game, SHOT_DIR .. "/" .. shotName)
+    local matches = check("2344_pic_" .. wantPic, pic:find(wantPic, 1, true) ~= nil)
+    local captured = matches and U.still(game, SHOT_DIR .. "/" .. shotName)
+    check("2344_capture_" .. wantPic, captured == true)
+    check("2344_picture_drawn_" .. wantPic,
+          captured and ow.emote and ow.emote.pikaPic == pic and ow.pikaPicDrawn ~= nil)
     for _ = 1, 600 do
       if not ow.emote then break end
       U.wait(1)

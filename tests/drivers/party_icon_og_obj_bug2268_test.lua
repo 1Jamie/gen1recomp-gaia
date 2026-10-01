@@ -27,11 +27,10 @@ return function(game)
     setColors(prevColors or "gbc")
     U.log(ok and "PASS party_icon_og_obj_2268" or "FAIL party_icon_og_obj_2268")
     love.event.quit(ok and 0 or 1)
-    while true do coroutine.yield() end
   end
 
   local function shotPixels(path)
-    if not U.shot(game, path) then return nil end
+    if not U.still(game, path) then return nil end
     local f = io.open(path, "rb")
     if not f then return nil end
     local bytes = f:read("*a")
@@ -84,6 +83,8 @@ return function(game)
     return finish()
   end
 
+  local id = shotPixels(DIR .. "/2268_01_party_og_" .. tag .. ".png")
+  check("OG party screenshot captured", id ~= nil)
   local redraws = PaletteFX.uiSpriteRedraws()
   local flips = 0
   for _, r in ipairs(redraws) do
@@ -97,8 +98,6 @@ return function(game)
   local objRamp = GameVersion.isBlue() and PaletteFX.GBC_OBJ_BLUE
                   or PaletteFX.OG_RED_SOFT_OBJ
   local bgRamp = PaletteFX.ogBg()
-  local id = shotPixels(DIR .. "/2268_01_party_og_" .. tag .. ".png")
-  check("OG party screenshot captured", id ~= nil)
   if id then
     local obj1 = count(id, objRamp[2])
     local bg2 = count(id, bgRamp[3])
@@ -109,8 +108,8 @@ return function(game)
 
   setColors("gbc")
   U.wait(10)
-  check("SGB records no OBJ replays", #PaletteFX.uiSpriteRedraws() == 0)
   local sgb = shotPixels(DIR .. "/2268_02_party_sgb_" .. tag .. ".png")
+  check("SGB records no OBJ replays", #PaletteFX.uiSpriteRedraws() == 0)
   check("SGB party screenshot captured", sgb ~= nil)
   if sgb and not GameVersion.isBlue() then
     check("SGB icons never wear the boot-ROM OBJ green",

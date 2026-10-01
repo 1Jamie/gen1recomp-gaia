@@ -472,6 +472,12 @@ function FieldMoves.flashFromMenu(ctx)
     return { ok = false, text = FieldMoves.TEXT.BADGE_REQUIRED, badge = "FLASH" }
   end
 
+  -- pokeemerald/src/fldeff_flash.c:76
+  if lazyReq("src.core.game3.constants").versionOf(ctx.session) == "emerald"
+      and lazyReq("src.core.game3.braille_field").shouldDoRegisteel(ctx.session) then
+    return { ok = true, action = "braille_registeel", mon = ctx.mon or FieldMoves.partyMoveUser(ctx.party, "FLASH") }
+  end
+
   -- src/party_menu.c:4047 DisplayCantUseFlashMessage
   if ctx.isFlashActive or (ctx.store and Flags.getFlag(ctx.store, ctx.ctx, FieldMoves.SYS_FLAGS.FLASH_ACTIVE)) then
     return { ok = false, text = FieldMoves.TEXT.FLASH_IN_USE }
@@ -549,6 +555,12 @@ end
 function FieldMoves.rockSmashFromMenu(ctx)
   if not FieldMoves.hasBadge(ctx, "ROCK_SMASH") then
     return { ok = false, text = FieldMoves.TEXT.BADGE_REQUIRED, badge = "ROCK_SMASH" }
+  end
+
+  -- pokeemerald/src/fldeff_rocksmash.c:125
+  if lazyReq("src.core.game3.constants").versionOf(ctx.session) == "emerald"
+      and lazyReq("src.core.game3.braille_field").shouldDoRegirock(ctx.session) then
+    return { ok = true, action = "braille_regirock", mon = ctx.mon or FieldMoves.partyMoveUser(ctx.party, "ROCK_SMASH") }
   end
 
   if not ctx.facingObject or (ctx.facingObject.gfx ~= FieldMoves.GFX_IDS.ROCK_SMASH_ROCK

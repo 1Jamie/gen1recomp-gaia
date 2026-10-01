@@ -8,6 +8,9 @@ return function(game)
   local Music = require("src.core.Music")
 
   local SHOT_DIR = os.getenv("POKEPORT_SHOT_DIR") or "/tmp/shots2411"
+  local captureOnly = os.getenv("POKEPORT_BILL_CAPTURE_ONLY") == "1"
+  local previousDriverSpeed = game.driverSpeed
+  game.driverSpeed = 1
   local failures = 0
   local function check(label, ok, detail)
     U.log((ok and "PASS " or "FAIL ") .. label .. (detail and ("  " .. detail) or ""))
@@ -15,10 +18,10 @@ return function(game)
     return ok
   end
   local function finish()
+    game.driverSpeed = previousDriverSpeed
     U.log(failures == 0 and "DONE all checks passed"
                         or ("DONE " .. failures .. " check(s) failed"))
     love.event.quit(failures == 0 and 0 or 1)
-    while true do coroutine.yield() end
   end
 
   local yellow = GameVersion.isYellow()
@@ -53,7 +56,7 @@ return function(game)
     for _, w in ipairs(game.data.maps.ROUTE_25.warps or {}) do
       if w.destMap == MAP then wx, wy = w.x, w.y end
     end
-    if not check("Route 25 has Bill's front door", wx ~= nil) then finish() end
+    if not check("Route 25 has Bill's front door", wx ~= nil) then return finish() end
     U.teleport(game, "ROUTE_25", wx, wy + 1, "up")
     U.wait(20)
     for _ = 1, 300 do
@@ -72,7 +75,7 @@ return function(game)
   end
   U.wait(20)
   ow = game.overworld
-  if not check("inside Bill's House", ow and ow.map and ow.map.id == MAP) then finish() end
+  if not check("inside Bill's House", ow and ow.map and ow.map.id == MAP) then return finish() end
   if yellow then
     check("Pikachu scene armed (following)", ow.pikachuBillsScene == true)
     for _ = 1, 900 do
@@ -160,25 +163,21 @@ return function(game)
   f = 0
   mark("prompt closed")
   local shotBill, shotBubble, shotPic = false, false, false
+  local deadline = love.timer.getTime() + 20
   for _ = 1, 2400 do
+    if love.timer.getTime() >= deadline then break end
     tick()
-    if ev["Bill appears"] and not shotBill then
-      shotBill = true
-      local before = U.frame()
-      U.shot(game, SHOT_DIR .. "/2411_bill_appears.png")
-      f = f + (U.frame() - before)
+    if captureOnly and ev["Bill appears"] and not shotBill then
+      shotBill = check("Bill appearance still captured",
+        U.still(game, SHOT_DIR .. "/2411_bill_appears.png"))
     end
-    if ev["Pikachu ! bubble"] and not shotBubble then
-      shotBubble = true
-      local before = U.frame()
-      U.shot(game, SHOT_DIR .. "/2411_pikachu_exclamation.png")
-      f = f + (U.frame() - before)
+    if captureOnly and ev["Pikachu ! bubble"] and not shotBubble then
+      shotBubble = check("Pikachu exclamation still captured",
+        U.still(game, SHOT_DIR .. "/2411_pikachu_exclamation.png"))
     end
-    if ev["pikapic box"] and not shotPic then
-      shotPic = true
-      local before = U.frame()
-      U.shot(game, SHOT_DIR .. "/2411_pikapic_after_cry.png")
-      f = f + (U.frame() - before)
+    if captureOnly and ev["pikapic box"] and not shotPic then
+      shotPic = check("Pikachu picture still captured after the cry",
+        U.still(game, SHOT_DIR .. "/2411_pikapic_after_cry.png"))
     end
     if ev["Bill starts walking"] then break end
   end
@@ -195,6 +194,7 @@ return function(game)
     check(label, g ~= nil and g >= 0, string.format("gap=%s cart=%s", tostring(g), cart))
   end
 
+  if not captureOnly then
   within("Tink #1 starts 92 frames after Switch ends", "Switch end", "Tink#1 start", 92, 10, "1.82s")
   within("Shrink starts 80 frames after Tink #1 ends", "Tink#1 end", "Shrink start", 80, 10, "1.40s")
   within("Tink #2 starts 48 frames after Shrink ends", "Shrink end", "Tink#2 start", 48, 10, "0.99s")
@@ -209,6 +209,18 @@ return function(game)
     after("Bill walks only after the box closes", "pikapic box", "Bill starts walking", "after box")
   else
     within("Bill walks 8 frames after appearing", "Bill appears", "Bill starts walking", 8, 2, "BillsHouse.asm:81")
+  end
+  else
+    check("Bill capture pass completed the actual separator script",
+      flags.EVENT_USED_CELL_SEPARATOR_ON_BILL == true and ev["Bill starts walking"] ~= nil)
+    check("Bill appearance was captured", shotBill)
+    if yellow then
+      check("Pikachu exclamation was captured", shotBubble)
+      check("Pikachu picture was captured", shotPic)
+      check("picture capture followed the real cry",
+        ev["pika cry 9 end"] ~= nil and ev["pikapic box"] ~= nil
+        and ev["pikapic box"] >= ev["pika cry 9 end"])
+    end
   end
   finish()
 end

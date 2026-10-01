@@ -10,6 +10,8 @@ return function(game)
   local Sound = require("src.core.Sound")
   local Strings = require("src.core.Strings")
   local Timing = require("src.core.Timing")
+  local TextBox = require("src.render.TextBox")
+  local ChoiceBox = require("src.ui.ChoiceBox")
 
   local FADE = Timing.WARP_FADE_OUT
 
@@ -184,6 +186,21 @@ return function(game)
     local top = game.stack:top()
     return top ~= nil and getmetatable(top) == class
   end
+  local function awaitMenu(previous, confirm)
+    local deadline = love.timer.getTime() + 6
+    while love.timer.getTime() < deadline do
+      local top = game.stack:top()
+      if topIs(Menu) and top ~= previous then return true end
+      if getmetatable(top) == TextBox and (top.waiting or top.done) then
+        U.tap(game, "a")
+      elseif confirm and getmetatable(top) == ChoiceBox then
+        U.tap(game, "a")
+      else
+        U.wait(1)
+      end
+    end
+    return false
+  end
   local function rowIndex(menu, label)
     for i, item in ipairs(menu.items or {}) do
       if item.label == label then return i end
@@ -200,6 +217,11 @@ return function(game)
     menu:clampScroll()
     U.wait(2)
     U.tap(game, "a")
+    local top = game.stack:top()
+    if getmetatable(top) == TextBox or label == Strings("CHANGE BOX") then
+      return check(label .. " reaches its actual submenu",
+        awaitMenu(menu, label == Strings("CHANGE BOX")))
+    end
     U.wait(26)
     return true
   end
@@ -241,7 +263,7 @@ return function(game)
       -- the teleport rebuilt the npc list, so pin her on the state we bump
       local pinned = npcNamed(ow, "REDSHOUSE1F_MOM")
       if pinned then pinned.frozen = true end
-      U.shot(game, DIR .. "/bug960_mom.png")
+      U.still(game, DIR .. "/bug960_mom.png")
       bumpInto(dir, "walking into MOM")
     else
       check("MOM has a free cell to be walked into from", false)
@@ -274,9 +296,9 @@ return function(game)
     local mark = #cues
     U.tap(game, "a")
     U.wait(26)
-    check("A on the bedroom PC opens a menu", topIs(Menu))
+    check("A on the bedroom PC opens a menu", awaitMenu())
     check("...and turns it on with Turn_On_PC", heard(mark, "Turn_On_PC") ~= nil)
-    U.shot(game, DIR .. "/bug960_bedroom_pc.png")
+    U.still(game, DIR .. "/bug960_bedroom_pc.png")
     if topIs(Menu) then
       mark = #cues
       choose(game.stack:top(), Strings("LOG OFF"))
@@ -288,6 +310,7 @@ return function(game)
     -- B out of the same menu is ExitPlayerPC's other entry and rings it too
     U.tap(game, "a")
     U.wait(26)
+    check("reopening the bedroom PC acknowledges its text", awaitMenu())
     if topIs(Menu) then
       local mark2 = #cues
       U.tap(game, "b")
@@ -324,7 +347,7 @@ return function(game)
     local mark = #cues
     U.tap(game, "a")
     U.wait(26)
-    check("A on the Center PC opens the PC main menu", topIs(Menu))
+    check("A on the Center PC opens the PC main menu", awaitMenu())
     check("...with Turn_On_PC", heard(mark, "Turn_On_PC") ~= nil)
 
     local mine = (game.save.player.name or "RED") .. "'s PC"
@@ -353,9 +376,11 @@ return function(game)
       check(boxPC .. " rings Enter_PC too", heard(mark, "Enter_PC") ~= nil)
       check("...and the box menu opened", topIs(Menu))
     end
+    check("the actual box menu has CHANGE BOX", topIs(Menu)
+      and rowIndex(game.stack:top(), Strings("CHANGE BOX")) ~= nil)
     if topIs(Menu) and rowIndex(game.stack:top(), Strings("CHANGE BOX")) then
       choose(game.stack:top(), Strings("CHANGE BOX"))
-      U.shot(game, DIR .. "/bug1044_change_box.png")
+      U.still(game, DIR .. "/bug1044_change_box.png")
       local before = game.save.currentBox
       U.tap(game, "down") -- BOX 1 is the current one, so move off it
       U.wait(8)
@@ -380,6 +405,7 @@ return function(game)
     end
     U.tap(game, "a")
     U.wait(26)
+    check("reopening the Center PC acknowledges its text", awaitMenu())
     if topIs(Menu) and rowIndex(game.stack:top(), Strings("LOG OFF")) then
       local mark2 = #cues
       choose(game.stack:top(), Strings("LOG OFF"))
@@ -429,7 +455,7 @@ return function(game)
   if battle.phase == "menu" then
     click("a", "A on FIGHT (#1045a)", 1)
     check("...and the move list opened", battle.phase == "moveSelect")
-    U.shot(game, DIR .. "/bug1045_move_list.png")
+    U.still(game, DIR .. "/bug1045_move_list.png")
     click("b", "B out of the move list (#1045c)", 1)
     check("...and the FIGHT menu came back", battle.phase == "menu")
     click("a", "A on FIGHT again", 1)
@@ -443,42 +469,5 @@ return function(game)
   end
   U.log(("machine checks: %d passed, %d failed"):format(pass, fail))
 
-  -- ---- over to you --------------------------------------------------------
-  if centerPC then
-    local sx, sy = cellBehind(centerPC.x, centerPC.y, "up")
-    ow = stand("VIRIDIAN_POKECENTER", sx, sy, "up")
-    for _, n in ipairs(ow.npcs or {}) do n.frozen = true end
-  end
-  U.log("Everything above has been pressed once already; you are parked at the")
-  U.log("Viridian POKéMON CENTER PC to do it again by ear.")
-  U.log("A opens the PC main menu. RED's PC clicks in on the two-note ENTER PC")
-  U.log("chirp and LOG OFF closes with the descending power-down. B out of RED's")
-  U.log("PC is silent on purpose; a power-down there is the near miss, not a pass.")
-  U.log("SOMEONE'S PC, CHANGE BOX, any other box, YES: the SAVE jingle rings")
-  U.log("after the box has changed, the same jingle the SAVE menu plays. A")
-  U.log("jingle before the switch, or none at all, is #1044 back.")
-  U.log("The bedroom PC upstairs at home is the other half of #960: it beeps on,")
-  U.log("and LOG OFF or B rings the power-down there. That one is not silent.")
-  U.log("The COOLTRAINER at (4,3) and the NURSE at (3,1) are pinned; walk into")
-  U.log("either and it thuds like a wall. Walking into a wall is the control --")
-  U.log("it always thudded, so a silent wall means the device, not the fix.")
-  U.log(("Walk out over the exit mat at the bottom of the room: the door sound")
-        .. (" starts as the screen begins to darken, %d frames ahead of")
-             :format(FADE))
-  U.log("Viridian City. One that lands on the new map, or after it, is #961.")
-  U.log("In any battle, A on FIGHT/PKMN/ITEM/RUN, A on a move and B out of the")
-  U.log("move list all click. Silence on any of the three is #1045.")
-  U.log("Shots: " .. DIR .. "/bug960_*.png, bug1044_*.png, bug1045_*.png")
-
-  -- keeps naming cues with their frame after the hand-off, so a door sound
-  local reported = #cues
-  while true do
-    if #cues > reported then
-      for i = reported + 1, #cues do
-        U.log("cue", cues[i].name, "frame", cues[i].frame)
-      end
-      reported = #cues
-    end
-    coroutine.yield()
-  end
+  love.event.quit(fail == 0 and 0 or 1)
 end

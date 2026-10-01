@@ -71,25 +71,47 @@ return function(game)
 
   if drainFrame then
     battle = startBattle()
+    local replayStartTurn = battle.turnCount or 0
     selectThrash(battle)
     local g, shotBefore, shotDrain, shotAfter = 0, false, false, false
+    local beforeSeen, drainSeen, afterSeen = false, false, false
     local phaseAtDrain
-    while g < drainFrame + 60 do
-      if not shotBefore and g >= drainFrame - 12 then
-        shotBefore = U.shot(game, DIR .. "/2252_01_thrash_text_before_drain.png")
-        g = g + 3
-      elseif not shotDrain and g >= drainFrame then
-        phaseAtDrain = battle.phase
-        shotDrain = U.shot(game, DIR .. "/2252_02_drain_frame_no_menu.png")
-        g = g + 3
-      elseif not shotAfter and g >= drainFrame + 40 then
-        shotAfter = U.shot(game, DIR .. "/2252_03_thrashing_about_text.png")
-        g = g + 3
-      else
-        g = g + 1
-        if g % 20 == 0 then U.tap(game, "a") else U.wait(1) end
-      end
+    local function fullyTyped(fragment)
+      if game.stack:top() ~= battle or battle.phase ~= "messages"
+         or not battle.current or (battle.total or 0) <= 0
+         or (battle.charIndex or 0) < battle.total
+         or (battle.scrollPx or 0) > 0 then return false end
+      local text = table.concat(battle:visibleText() or {}, " "):gsub("%s+", " ")
+      if not text:find(fragment, 1, true) then return false end
+      U.log("2252 fully typed capture", text, "frame", g,
+            "turn", battle.turnCount, "thrash", battle.player.thrashTurns)
+      return true
     end
+    while g < 2400 do
+      if not beforeSeen and g < drainFrame
+         and (battle.turnCount or 0) == replayStartTurn + 1
+         and fullyTyped("used THRASH!") then
+        beforeSeen = true
+        ok(locked(battle), "2252 used THRASH page is fully typed while locked")
+        shotBefore = U.still(game, DIR .. "/2252_01_thrash_text_before_drain.png")
+      end
+      if not drainSeen and g >= drainFrame then
+        drainSeen = true
+        phaseAtDrain = battle.phase
+        shotDrain = U.still(game, DIR .. "/2252_02_drain_frame_no_menu.png")
+      end
+      if not afterSeen and (battle.turnCount or 0) >= replayStartTurn + 2
+         and fullyTyped("thrashing about!") then
+        afterSeen = true
+        ok(locked(battle), "2252 thrashing about page is fully typed while locked")
+        shotAfter = U.still(game, DIR .. "/2252_03_thrashing_about_text.png")
+      end
+      if beforeSeen and drainSeen and afterSeen then break end
+      g = g + 1
+      if g % 20 == 0 then U.tap(game, "a") else U.wait(1) end
+    end
+    ok(beforeSeen, "2252 fully typed used THRASH page reached before the locked turn")
+    ok(afterSeen, "2252 fully typed thrashing about page reached on the locked turn")
     ok(phaseAtDrain ~= "menu", "2252 pass 2 drain frame is not the command menu")
     ok(shotBefore and shotDrain and shotAfter, "2252 shots written")
   end

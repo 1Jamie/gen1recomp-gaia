@@ -118,10 +118,16 @@ return function(game)
     result(Message.isOpen() and Message.currentPage():find("nibble", 1, true) ~= nil,
       tag .. " no-bite text is up")
     U.wait(8)
-    U.shot(game, DIR .. "/2419_" .. tag .. "_put_away.png")
     U.wait(30)
     result(Player.fishing == false and Field.isFishing() == true,
       tag .. " rod put away while the text is still up")
+    for _ = 1, 600 do
+      if not Message.isOpen() or not Message.isTyping() then break end
+      U.wait(1)
+    end
+    if result(Message.isOpen() and not Message.isTyping(), tag .. " no-bite text finished typing") then
+      U.still(game, DIR .. "/2419_" .. tag .. "_put_away.png")
+    end
     for _ = 1, 60 do
       if not Field.isFishing() then break end
       U.tap(game, "a")

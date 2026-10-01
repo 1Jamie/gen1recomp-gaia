@@ -203,6 +203,10 @@ local gen2Stub
 local GEN2_TABLES = { "pokemon", "moves", "items", "maps" }
 local GEN2_OPTIONAL_TABLES = { "scripts", "sprites", "constants" }
 
+function SaveConvert.invalidateGen2Data(gameVersion)
+  gen2Data[gameVersion or "*"] = nil
+end
+
 function SaveConvert.setGen2DataStub(stub)
   gen2Stub = stub
   gen2Data = {}

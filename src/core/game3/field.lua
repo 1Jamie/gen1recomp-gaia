@@ -1293,6 +1293,19 @@ function Field.executeFieldMove(payload)
       onPick = function(section) Field.flyTo(section, payload.mon) end,
       onClose = function() Field.locked = false end,
     })
+  elseif act == "braille_regirock" or act == "braille_registeel" then
+    Field.locked = true
+    -- pokeemerald/src/braille_puzzles.c:264
+    showMon(function()
+      local session = Field._session
+      if lazyReq("src.core.game3.constants").versionOf(session) == "emerald" then
+        local BrailleField = lazyReq("src.core.game3.braille_field")
+        local valid = act == "braille_regirock" and BrailleField.shouldDoRegirock(session)
+          or act == "braille_registeel" and BrailleField.shouldDoRegisteel(session)
+        if valid then BrailleField.doRegiEffect(session) end
+      end
+      Field.locked = false
+    end)
   elseif act == "rock_smash" then
     Field.locked = true
     -- pokefirered/src/fldeff_rocksmash.c:123
