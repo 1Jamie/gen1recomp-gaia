@@ -38,6 +38,7 @@ Pokemon.install(nil)
 local ItemsData = require("src.core.game3.items_data")
 ItemsData.ensureLoaded()
 local Evolution = require("src.core.game3.evolution")
+local Pokeblock = require("src.core.game3.rse.pokeblock")
 
 local TYROGUE, HITMONLEE, HITMONCHAN, HITMONTOP = 236, 106, 107, 237
 local WURMPLE, SILCOON, CASCOON = 290, 291, 293
@@ -67,9 +68,11 @@ local function mon(t)
     level = t.level or 20,
     friendship = t.friendship or 70,
     personality = t.personality or 0,
-    beauty = t.beauty or 0,
     item = t.item or 0,
   }
+  if t.beauty then
+    check(Pokeblock.applyToMon({ dry = t.beauty, feel = 1 }, m, 0), "Pokeblock feeds beauty " .. t.beauty)
+  end
   m.ivs = { hp = 0, atk = 0, def = 0, spe = 0, spa = 0, spd = 0 }
   m.evs = { hp = 0, atk = 0, def = 0, spe = 0, spa = 0, spd = 0 }
   local stats = Pokemon.calcStats(Pokemon.speciesOf(m), m.level, m.ivs, m.evs, m.personality)
@@ -135,8 +138,15 @@ eq(Evolution.levelTarget(mon({ species = FEEBAS, level = 20, beauty = 170 }), na
   MILOTIC, "beauty 170 gives MILOTIC")
 eq(Evolution.levelTarget(mon({ species = FEEBAS, level = 20, beauty = 169 }), national),
   nil, "beauty 169 does not")
-eq(Evolution.levelTarget(mon({ species = FEEBAS, level = 20, beauty = 0 }), national),
+eq(Evolution.levelTarget(mon({ species = FEEBAS, level = 20 }), national),
   nil, "the default beauty of 0 does not")
+do
+  local feebas = mon({ species = FEEBAS, level = 28 })
+  for _ = 1, 5 do Pokeblock.applyToMon({ dry = 60, feel = 1 }, feebas, 0) end
+  eq(feebas.contest.beauty, 255, "five dry Pokeblocks max BEAUTY at 255")
+  feebas.level = 29
+  eq(Evolution.levelTarget(feebas, national), MILOTIC, "the fed Feebas evolves on its next level")
+end
 
 print("[test] 7. FRLG dropped the day/night friendship methods (pokemon.c:5060)")
 local eevee = mon({ species = EEVEE, level = 30, friendship = 255 })

@@ -806,7 +806,7 @@ end
 function Game3:_hotkey(key)
   local hk = Input.hotkeyKey(key)
   if key == "f1" then
-    if self.phase == "field" and self:saveOffered() then self:saveGame() end
+    if self:quickSaveAllowed() then self:saveGame() end
     return true
   elseif key == "f2" then
     if self.phase == "field" then
@@ -855,7 +855,9 @@ end
 
 function Game3:keypressed(key)
   local function vanilla()
-    if self:_hotkey(key) then return end
+    local armed = self.input and self.input.captureArmed
+    local bound = self.input and self.input.keyBindings and self.input.keyBindings[key] ~= nil
+    if not armed and not bound and self:_hotkey(key) then return end
     if self.input and self.input.keypressed then self.input:keypressed(key) end
   end
   if not ModRuntime.wantsHook("input.key") then return vanilla() end
@@ -873,6 +875,10 @@ function Game3:_padPressedBody(joystick, button)
   if self.touchControls then self.touchControls:noteGamepad() end
   local Input2 = self.input
   if not Input2 then return end
+  if Input2.captureArmed then
+    if Input2.gamepadpressed then Input2:gamepadpressed(joystick, button) end
+    return
+  end
   local selectHeld = Input2.isDown and Input2:isDown("select")
   if not selectHeld and joystick and joystick.isGamepadDown then
     local ok, down = pcall(function() return joystick:isGamepadDown("back") end)
@@ -921,6 +927,16 @@ end
 function Game3:saveOffered()
   local session = (Runtime.getSession and Runtime.getSession()) or self.session
   return require("src.ui.game3.start_menu").saveOffered(session, self)
+end
+
+-- pokeemerald/src/overworld.c:1445
+function Game3:quickSaveAllowed()
+  if self.phase ~= "field" then return false end
+  local Hud = require("src.ui.game3.hud")
+  if Hud.busy() or not Hud.startButtonAllowed() then return false end
+  local Space = package.loaded["src.core.game3.scripting.space"]
+  if Space and Space._pendingOnFrame then return false end
+  return self:saveOffered()
 end
 
 function Game3:saveGame()
@@ -1028,7 +1044,7 @@ end
 function Game3:joystickpressed(joystick, button)
   if self.touchControls then self.touchControls:noteGamepad() end
   local Input2 = self.input
-  if Input2 and Input2.joyAction
+  if Input2 and Input2.joyAction and not Input2.captureArmed
       and not (Input2.isDown and Input2:isDown("select")) then
     local action = Input2:joyAction(button)
     if action == "speedUp" then
@@ -1337,7 +1353,7 @@ function Game3:reset()
 end
 
 function Game3:quit()
-  self:saveGame()
+  if self:quickSaveAllowed() then self:saveGame() end
 end
 
 return Game3

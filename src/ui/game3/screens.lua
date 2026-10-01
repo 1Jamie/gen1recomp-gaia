@@ -15,6 +15,7 @@ Screens.DEFAULT = {
   pc = "src.ui.game3.pc_menu",
   shop = "src.ui.game3.shop_menu",
   naming = "src.ui.game3.naming",
+  controls = "src.ui.game3.controls_menu",
 }
 
 local function uiBlock(session)

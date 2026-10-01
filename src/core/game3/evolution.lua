@@ -90,7 +90,7 @@ local function normal_context(mon, session)
   return {
     level = tonumber(mon.level) or 1,
     friendship = Pokemon.friendshipOf(mon),
-    beauty = tonumber(mon.beauty) or 0,
+    beauty = tonumber(type(mon.contest) == "table" and mon.contest.beauty) or 0, -- pokeemerald/src/pokemon.c:5512
     upper = math.floor((tonumber(mon.personality) or 0) / 65536) % 65536,
     atk = tonumber(mon.attack or mon.atk) or 0,
     def = tonumber(mon.defense or mon.def) or 0,

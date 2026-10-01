@@ -200,7 +200,7 @@ function Runtime.start(mod, game, session, opts)
 
     -- Enforce overworld biking permissions when adopting / resuming an existing map.
     -- pokefirered/src/overworld.c:878 GetAdjustedInitialTransitionFlags
-    local onCyclingRoad = Player.isOnCyclingRoad and Player.isOnCyclingRoad(session, Player.cellX, Player.cellY)
+    local onCyclingRoad = Player.isOnCyclingRoad and Player.isOnCyclingRoad(session, Player.cellX, Player.cellY, def)
     local wasBiking = (Player.biking == true) or (session and session.biking == true) or (game and game.save and game.save.biking == true)
     local keepBike = false
     if wasBiking or onCyclingRoad then
@@ -210,9 +210,6 @@ function Runtime.start(mod, game, session, opts)
       else
         local pair = def and (def.pair or (def.midLayout and def.midLayout.pair))
         keepBike = type(pair) == "string" and pair:find("outdoor", 1, true) ~= nil
-      end
-      if onCyclingRoad and not (Player.surfing or Player.surfHopping) then
-        keepBike = true
       end
     end
     Player.biking = keepBike

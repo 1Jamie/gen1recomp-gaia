@@ -783,7 +783,11 @@ local function buildGame()
     return function()
       local g = live()
       if not (g and g.saveGame) then return end
-      if g.saveOffered and not g:saveOffered() then return false end
+      if g.quickSaveAllowed then
+        if not g:quickSaveAllowed() then return false end
+      elseif g.saveOffered and not g:saveOffered() then
+        return false
+      end
       return g:saveGame()
     end
   end

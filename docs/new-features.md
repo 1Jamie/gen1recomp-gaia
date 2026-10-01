@@ -16,6 +16,7 @@ Features intentionally added to the games themselves, beyond what the original c
 * **Pokédex diploma and printer image exports**
 * **Fast-forward locks to 1X in link play**, every link or online battle, link session and the FireRed/LeafGreen Union Room on every game
 * **40-player Union Room** on FireRed and LeafGreen online, a larger square room where every trainer keeps a fixed spot and anyone can be talked to
+* **Button remapping** on every game: OPTION -> CONTROLS (keys, pads, L/R on FireRed/LeafGreen/Emerald, fast-forward buttons)
 
 ## Gen 2 Specifics
 

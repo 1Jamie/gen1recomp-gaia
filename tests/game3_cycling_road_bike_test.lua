@@ -243,6 +243,129 @@ Map.load(nil, game, "FR_SILPH_CO_1F", { x = 18, y = 21, facing = "up" })
 check(not Player.biking and not session.biking and not game.save.biking,
   "indoor entry after Cycling Road Fly keeps avatar session and save on foot")
 
+local gate1F = { id = "FR_ROUTE16_NORTH_ENTRANCE_1F", bikingAllowed = 1, pair = "indoor" }
+local gate2F = { id = "FR_ROUTE16_NORTH_ENTRANCE_2F", bikingAllowed = 0, pair = "indoor" }
+local gate18_2F = { id = "FR_ROUTE18_EAST_ENTRANCE_2F", bikingAllowed = 0, pair = "indoor" }
+game.data.maps[gate1F.id] = gate1F
+game.data.maps[gate2F.id] = gate2F
+game.data.maps[gate18_2F.id] = gate18_2F
+Collision.behavior = function() return 0x00 end
+
+local function staleSession()
+  session.flags = { [road] = true, [tostring(road)] = true }
+  session.store = { flags = { [road] = true }, vars = {} }
+  local live = { flags = {}, vars = {} }
+  Flags.setFlag(live, nil, road, false)
+  Space.store = live
+  Space.active = true
+  return live
+end
+
+staleSession()
+check(not Player.isOnCyclingRoad(session, 5, 5),
+  "live Space store with road flag cleared beats stale session.flags")
+
+local live = staleSession()
+Flags.setFlag(live, nil, road, true)
+check(Player.isOnCyclingRoad(session, 5, 5), "live Space store with road flag set reports Cycling Road")
+
+staleSession()
+session.map = gate1F.id
+Player.biking, session.biking, game.save.biking = true, true, true
+local okGate, _, gateText = ItemUse.useBike(session)
+check(okGate == true and Player.biking == false and gateText == nil,
+  "gate 1F dismount allowed after Route 16 OnTransition flag cleared only in live store")
+
+local function climb(def, setLive)
+  local st = staleSession()
+  if setLive then Flags.setFlag(st, nil, road, true) end
+  session.map = gate1F.id
+  Player.biking, session.biking, game.save.biking = true, true, true
+  Map.load(nil, game, def.id, { x = 5, y = 4, facing = "down" })
+  return Player.biking == false and session.biking == false and game.save.biking == false
+end
+check(climb(gate2F, false), "Route 16 gate 2F arrives on foot with stale session road flag")
+check(climb(gate2F, true), "Route 16 gate 2F arrives on foot even with live road flag set")
+check(climb(gate18_2F, false), "Route 18 gate 2F arrives on foot with stale session road flag")
+
+staleSession()
+Flags.setFlag(Space.store, nil, road, true)
+Player.biking, session.biking = false, false
+Map.load(nil, game, "FR_ROUTE_17", { x = 10, y = 10, facing = "down" })
+check(Player.biking == true, "road flag still forces the bike on a biking-allowed map")
+
+Space.active = false
+Space.store = { flags = {}, vars = {} }
+session.flags = {}
+session.store = { flags = {}, vars = {} }
+Collision.behavior = function() return 0xD0 end
+Player.biking, session.biking, game.save.biking = false, false, false
+Map.load(nil, game, "FR_SAFFRON_CITY", { x = 10, y = 10, facing = "down" })
+check(Player.biking == false, "pull-down tile of the previous map does not force the bike on the new map")
+Collision.behavior = function() return 0x00 end
+
+staleSession()
+Player.biking, session.biking, game.save.biking = true, true, true
+session.map = gate2F.id
+Runtime.start(nil, game, session, { alreadyOnMap = true })
+check(Player.biking == false and session.biking == false,
+  "resuming on gate 2F with stale road flag stays on foot")
+Space.active = false
+
+local InteractionScripts = require("src.core.game3.scripting.interaction_scripts")
+local savedBehaviors = InteractionScripts.behaviors
+InteractionScripts.behaviors = { outdoor = { [0x101] = 0xD0, [0x102] = 0xD1 }, indoor = { [0x101] = 0xD0 } }
+local LayoutNative = require("src.core.game3.layout_native")
+local function stubLayout(pair, mids)
+  local cells = {}
+  for cy = 0, 19 do
+    for cx = 0, 19 do
+      cells[cy * 20 + cx + 1] = { mid = mids[cx .. "," .. cy] or 0x001, coll = 0, elev = 0 }
+    end
+  end
+  return LayoutNative.fromDecoded({ width = 20, height = 20, cells = cells }, pair .. "_stub", pair)
+end
+local route16Def = {
+  id = "FR_ROUTE_16", bikingAllowed = 1, pair = "outdoor",
+  midLayout = stubLayout("outdoor", { ["4,8"] = 0x101, ["5,8"] = 0x102 }),
+}
+local noBikeDef = {
+  id = "FR_ROUTE16_NORTH_ENTRANCE_2F", bikingAllowed = 0, pair = "indoor",
+  midLayout = stubLayout("indoor", { ["4,8"] = 0x101 }),
+}
+game.data.maps[route16Def.id] = route16Def
+game.data.maps[noBikeDef.id] = noBikeDef
+Space.store = { flags = {}, vars = {} }
+session.flags = {}
+session.store = { flags = {}, vars = {} }
+Collision.behavior = function() return 0x00 end
+
+check(Collision.behaviorOn(route16Def, 4, 8) == 0xD0 and Collision.behaviorOn(route16Def, 6, 8) == nil,
+  "destination layout resolves the pull-down tile through behaviorOn")
+check(Player.isOnCyclingRoad(session, 4, 8, route16Def) and not Player.isOnCyclingRoad(session, 6, 8, route16Def),
+  "isOnCyclingRoad samples the destination map layout")
+
+Player.biking, session.biking, game.save.biking = false, false, false
+session.map = "FR_SAFFRON_CITY"
+Map.load(nil, game, route16Def.id, { x = 4, y = 8, facing = "down" })
+check(Player.biking == true and session.biking == true,
+  "pull-down tile on the destination map promotes the bike on entry")
+
+Player.biking, session.biking, game.save.biking = false, false, false
+Map.load(nil, game, route16Def.id, { x = 5, y = 8, facing = "down" })
+check(Player.biking == true, "pull-down grass tile on the destination map promotes the bike")
+
+Player.biking, session.biking, game.save.biking = false, false, false
+Map.load(nil, game, route16Def.id, { x = 6, y = 8, facing = "down" })
+check(Player.biking == false, "plain tile on the same map does not promote the bike")
+
+Player.biking, session.biking, game.save.biking = true, true, true
+Map.load(nil, game, noBikeDef.id, { x = 4, y = 8, facing = "down" })
+check(Player.biking == false and session.biking == false,
+  "pull-down tile on a no-bike map still dismounts")
+
+InteractionScripts.behaviors = savedBehaviors
+
 print(string.format("=== RESULTS: %d passed, %d failed ===", passed, failed))
 if failed > 0 then os.exit(1) end
 

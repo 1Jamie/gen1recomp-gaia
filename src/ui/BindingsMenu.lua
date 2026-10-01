@@ -28,6 +28,16 @@ local BUTTONS = {
   { id = "speedDown", label = "SPEED -", pad = "leftshoulder", action = true },
   { id = "speedUp", label = "SPEED +", pad = "rightshoulder", action = true },
 }
+BindingsMenu.BUTTONS = BUTTONS
+
+BindingsMenu.GEN3_BUTTONS = {
+  BUTTONS[1], BUTTONS[2], BUTTONS[3], BUTTONS[4],
+  BUTTONS[5], BUTTONS[6], BUTTONS[7], BUTTONS[8],
+  { id = "l", label = "L", key = "q", pad = "leftshoulder" },
+  { id = "r", label = "R", key = "e", pad = "rightshoulder" },
+  { id = "speedDown", label = "SPEED -", pad = "triggerleft", action = true },
+  { id = "speedUp", label = "SPEED +", pad = "triggerright", action = true },
+}
 
 -- a binding is a plain key string or { key, pad }; absent = the fixed
 -- map, so a vanilla save renders today's keys byte-identically
@@ -81,11 +91,11 @@ local function boundRight(overlay, def)
   return key
 end
 
-function BindingsMenu.new(game)
+function BindingsMenu.new(game, opts)
   local overlay = game.save and game.save.options
                   and game.save.options.bindings
   local items = {}
-  for i, def in ipairs(BUTTONS) do
+  for i, def in ipairs(opts and opts.buttons or BUTTONS) do
     -- translated here, not in ROWS: that table is built at require
     -- time, before Strings.load has a catalog to look in
     items[i] = { label = Strings(def.label),

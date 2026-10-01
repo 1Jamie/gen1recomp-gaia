@@ -619,10 +619,15 @@ local function isCyclingRoadPullDown(beh)
     and beh <= MB_CYCLING_ROAD_PULL_DOWN_GRASS
 end
 
-function Player.isOnCyclingRoad(session, x, y)
+function Player.isOnCyclingRoad(session, x, y, mapDef)
   local cx = x or Player.cellX
   local cy = y or Player.cellY
-  local beh = Collision.behavior and Collision.behavior(cx, cy)
+  local beh
+  if mapDef then
+    beh = Collision.behaviorOn and Collision.behaviorOn(mapDef, cx, cy)
+  else
+    beh = Collision.behavior and Collision.behavior(cx, cy)
+  end
   if isCyclingRoadPullDown(beh) then return true end
   local Flags = package.loaded["src.core.game3.scripting.flags"]
     or package.loaded["src.core.game3.flags"]
@@ -630,6 +635,10 @@ function Player.isOnCyclingRoad(session, x, y)
   local cf = Flags and Flags.forVersion and sessionFlags(session).IDS.FLAG_SYS_ON_CYCLING_ROAD
   if cf and Flags.getFlag then
     local cfKey = tostring(cf)
+    local Live = package.loaded["src.core.game3.scripting.space"]
+    if Live and Live.active == true and Live.store then
+      return Flags.getFlag(Live.store, nil, cf) == true
+    end
     if session and (session.store or session.flags) then
       local st = session.store or session
       if Flags.getFlag(st, nil, cf) == true or (session.flags and (session.flags[cf] == true or session.flags[cfKey] == true)) then

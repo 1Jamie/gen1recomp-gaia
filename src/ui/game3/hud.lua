@@ -171,6 +171,7 @@ local function start_button_allowed()
     or (P and P.boulderPush ~= nil)
   return not locked and not scriptBusy
 end
+Hud.startButtonAllowed = start_button_allowed
 
 -- pokefirered/src/field_control_avatar.c:76 FieldClearPlayerInput
 function Hud.clearFieldInput()

@@ -131,6 +131,13 @@ function Rows.build(ctx)
     step = function(c, dir) return cartCycle(c, "buttonMode", 3, dir) end,
   })
   add({
+    id = "controls", label = Strings("CONTROLS"),
+    activate = function(c)
+      require("src.ui.game3.screens").get("controls", c.session)
+        .show({ game = c.game, session = c.session, options = c.options })
+    end,
+  })
+  add({
     id = "frameType", label = cartName(5),
     value = function(c)
       return RomText.plain("gText_FrameType") .. string.format("%2d", (tonumber(cart(c).frameType) or 0) + 1) -- src/option_menu.c:496
@@ -417,7 +424,7 @@ Rows.GROUPS = {
 
 Rows.ORDER = {
   "group.speed", "group.video", "group.graphics", "group.audio",
-  "performance", "group.battle", "group.extras", "buttonMode", "mods",
+  "performance", "group.battle", "group.extras", "buttonMode", "controls", "mods",
 }
 
 function Rows.group(rows, openPage)
