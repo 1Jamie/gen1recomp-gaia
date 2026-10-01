@@ -1,6 +1,12 @@
 -- Pokemon FireRed service owner (Gen 3 peer of Game / Game2).
 -- Boot: copyright → title → main menu → Oak → gender → field (FR_* maps only).
 
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local FixedStep = require("src.core.FixedStep")
 local Input = require("src.core.Input")
 local SaveData = require("src.core.SaveData")
@@ -68,7 +74,7 @@ function Game3:_enterField(session, reason, opts)
   self.session = session
   Options.bind(session, self.options)
   -- Continue restores stream; new_game already seeded inside Schema.newGame.
-  local Rng = require("src.core.game3.rng")
+  local Rng = lazyReq("src.core.game3.rng")
   if reason == "continue" then
     if not Rng.restoreFromSession(session) then
       -- Legacy saves without rng: soft-reset-ish reseed.
@@ -87,11 +93,11 @@ function Game3:_enterField(session, reason, opts)
   self.phase = "field"
   self.boot = nil
   -- Drop boot/title BG+OAM so Display.present composites the field underlay only.
-  local okBg, Bg = pcall(require, "src.core.game3.bg")
+  local okBg, Bg = pcall(lazyReq, "src.core.game3.bg")
   if okBg and Bg and Bg.reset then Bg.reset() end
-  local okOam, Oam = pcall(require, "src.core.game3.oam")
+  local okOam, Oam = pcall(lazyReq, "src.core.game3.oam")
   if okOam and Oam and Oam.reset then Oam.reset() end
-  local okF, Fade = pcall(require, "src.ui.game3.fade")
+  local okF, Fade = pcall(lazyReq, "src.ui.game3.fade")
   if okF and Fade then
     if Fade.clear then Fade.clear() end
     if not fieldCallback then
@@ -102,7 +108,7 @@ function Game3:_enterField(session, reason, opts)
   end
   session._questNewScene=true
   if reason == "continue" then session._questMap=session.map end
-  local Map = require("src.core.game3.map")
+  local Map = lazyReq("src.core.game3.map")
   Map._announced = nil
   Map._nextEnterVia = (reason == "continue") and "continue" or "new_game"
   -- pokefirered/src/fieldmap.c:100
@@ -110,12 +116,12 @@ function Game3:_enterField(session, reason, opts)
   Map._nextEnterVia = nil
   if fieldCallback then require(fieldCallback).execute() end
   if reason == "continue" then
-    if require("src.core.game3.profile").family(session) == "rse" then
+    if lazyReq("src.core.game3.profile").family(session) == "rse" then
       -- pokeemerald/src/overworld.c:1749
-      require("src.core.game3.rse.init").call("tv", "tryPutTodaysRivalTrainerOnAir", nil, nil)
+      lazyReq("src.core.game3.rse.init").call("tv", "tryPutTodaysRivalTrainerOnAir", nil, nil)
     end
     -- pokefirered/src/overworld.c:1717
-    local okS, Space = pcall(require, "src.core.game3.scripting.space")
+    local okS, Space = pcall(lazyReq, "src.core.game3.scripting.space")
     if okS and Space and Space.runOnReturnToField then
       Space.runOnReturnToField()
     end
@@ -123,11 +129,11 @@ function Game3:_enterField(session, reason, opts)
 end
 
 function Game3:load(opts)
-  local activeVersion = require("src.core.GameVersion").get()
-  require("src.import.gba.versions").select(activeVersion)
-  require("src.core.game3.se_ids").select(activeVersion)
-  require("src.core.game3.song_ids").select(activeVersion)
-  require("src.core.game3.items_data").ensureModel()
+  local activeVersion = lazyReq("src.core.GameVersion").get()
+  lazyReq("src.import.gba.versions").select(activeVersion)
+  lazyReq("src.core.game3.se_ids").select(activeVersion)
+  lazyReq("src.core.game3.song_ids").select(activeVersion)
+  lazyReq("src.core.game3.items_data").ensureModel()
   opts = opts or {}
   self.onExit = opts.onExit or self.onExit
   Input:init()
@@ -138,7 +144,7 @@ function Game3:load(opts)
   Help.install(Dataset.cache())
   QuestLog.install(Dataset.cache())
 
-  local TouchControls = require("src.core.TouchControls")
+  local TouchControls = lazyReq("src.core.TouchControls")
   TouchControls:init()
   self.touchControls = TouchControls
   TouchControls:setHotkeyHandler(function(action, pressed)
@@ -173,7 +179,7 @@ function Game3:load(opts)
       end
     elseif action == "menu" then
       if pressed and self.phase == "field" and self.session then
-        require("src.ui.game3.option_menu").show({ session = self.session, game = self })
+        lazyReq("src.ui.game3.option_menu").show({ session = self.session, game = self })
       end
     end
   end)
@@ -199,7 +205,7 @@ function Game3:load(opts)
 
   self:_exposeModData()
   self:_loadMods(opts)
-  pcall(function() require("src.core.DiscordPresence").init(self) end)
+  pcall(function() lazyReq("src.core.DiscordPresence").init(self) end)
 
   if opts.arena then
     FixedStep:init(function(dt)
@@ -207,7 +213,7 @@ function Game3:load(opts)
       self:_speedLockEdge()
     end)
     pcall(function()
-      require("src.core.PresentSync").applyFixedStepPeriod()
+      lazyReq("src.core.PresentSync").applyFixedStepPeriod()
     end)
     self:enterArena(opts.arena)
     return
@@ -215,7 +221,7 @@ function Game3:load(opts)
 
   -- Never auto-skip boot into a legacy Sevii sidecar.
   local continueOk = self:_hasContinueSave()
-  require("src.ui.game3.start_menu").resetCursor() -- pokefirered/src/main.c:134
+  lazyReq("src.ui.game3.start_menu").resetCursor() -- pokefirered/src/main.c:134
   self.boot = Boot.new(self)
   Boot.setHasContinue(self.boot, continueOk)
   if continueOk then
@@ -231,7 +237,7 @@ function Game3:load(opts)
     self:_speedLockEdge()
   end)
   pcall(function()
-    require("src.core.PresentSync").applyFixedStepPeriod()
+    lazyReq("src.core.PresentSync").applyFixedStepPeriod()
   end)
   if ModRuntime.wants("game.ready") then
     ModRuntime.emit("game.ready", { game = self })
@@ -240,7 +246,7 @@ end
 
 local function arenaSession(self, spec)
   local session
-  local version = require("src.core.GameVersion").get()
+  local version = lazyReq("src.core.GameVersion").get()
   if spec and spec.slotId and SaveData.setActiveSlot then
     pcall(SaveData.setActiveSlot, version, spec.slotId)
   end
@@ -253,7 +259,7 @@ local function arenaSession(self, spec)
     local okS, loaded = pcall(Schema.fromSaveTable, save)
     if okS and type(loaded) == "table" then session = loaded end
   elseif spec and spec.role ~= "spectator" then
-    require("src.core.Logger").warn("arena3: save slot %s could not be loaded", tostring(spec and spec.slotId))
+    lazyReq("src.core.Logger").warn("arena3: save slot %s could not be loaded", tostring(spec and spec.slotId))
   end
   session = session or { party = {}, bag = {} }
   if type(session.name) ~= "string" or session.name == "" then
@@ -275,7 +281,7 @@ function Game3:enterArena(spec)
   Runtime.session = session
   Runtime._game = self
   self.phase = "arena"
-  self.arena = require("src.ui.game3.arena_state").new(self, spec)
+  self.arena = lazyReq("src.ui.game3.arena_state").new(self, spec)
   return self.arena
 end
 
@@ -288,29 +294,29 @@ end
 function Game3:_exposeModData()
   local data = self.data
   if type(data) ~= "table" then return end
-  data.gen3Pokemon = require("src.core.game3.pokemon")
-  local Moves = require("src.core.game3.battle.moves")
+  data.gen3Pokemon = lazyReq("src.core.game3.pokemon")
+  local Moves = lazyReq("src.core.game3.battle.moves")
   if not Moves._romLoaded then pcall(Moves.loadRomPack, Dataset.cache()) end
   data.gen3Moves = Moves
-  local ItemsData = require("src.core.game3.items_data")
+  local ItemsData = lazyReq("src.core.game3.items_data")
   pcall(ItemsData.ensureLoaded)
   data.gen3Items = ItemsData
-  local Encounters = require("src.core.game3.encounters")
+  local Encounters = lazyReq("src.core.game3.encounters")
   data.gen3Encounters = Encounters._tables
-  local Trainers = require("src.core.game3.scripting.trainers")
+  local Trainers = lazyReq("src.core.game3.scripting.trainers")
   local okT, pack = pcall(Trainers.pack)
   data.gen3Trainers = okT and type(pack) == "table" and pack or nil
-  local Space = require("src.core.game3.scripting.space")
+  local Space = lazyReq("src.core.game3.scripting.space")
   local bundle = Space.bundle
   data.gen3Text = bundle and bundle.text or nil
   data.gen3Scripts = bundle and bundle.scripts or nil
-  data.gen3RomText = require("src.core.game3.rom_text").overrides
+  data.gen3RomText = lazyReq("src.core.game3.rom_text").overrides
 end
 
 function Game3:_loadMods(opts)
   local modOpts = opts and opts.modOpts or nil
   local ok, loader = pcall(function()
-    local mods = require("src.mods.Loader").new()
+    local mods = lazyReq("src.mods.Loader").new()
     mods.game = self
     mods:load(self.data, modOpts)
     return mods
@@ -319,19 +325,19 @@ function Game3:_loadMods(opts)
     self.mods = loader
     self.modStatus = loader:status()
   else
-    require("src.core.Logger").error(
+    lazyReq("src.core.Logger").error(
       "mods failed to load, continuing without them: %s", tostring(loader))
   end
   -- After the merge, so a translation mod's catalog is what Strings() reads,
   -- as Game (src/core/Game.lua) and Game2 do.  Without it the catalog the
   -- launcher preloaded (every enabled mod's lang/strings.lua, whatever game
   -- it targets) stayed in place for the whole FireRed session.
-  require("src.core.Strings").load(self.data)
-  local okC, Gen3Compat = pcall(require, "src.mods.Gen3Compat")
+  lazyReq("src.core.Strings").load(self.data)
+  local okC, Gen3Compat = pcall(lazyReq, "src.mods.Gen3Compat")
   if okC and type(Gen3Compat) == "table" and Gen3Compat.applyMerged then
     local okA, err = pcall(Gen3Compat.applyMerged, self)
     if not okA then
-      require("src.core.Logger").error("Gen3Compat.applyMerged failed: %s", tostring(err))
+      lazyReq("src.core.Logger").error("Gen3Compat.applyMerged failed: %s", tostring(err))
     end
   end
 end
@@ -369,16 +375,16 @@ function Game3:applyOptions(opts)
   end
   Audio.applyEngineOptions(opts)
   local cartOpts = Options.block(opts)
-  require("src.core.game3.void_fill").setMode(cartOpts.voidFill)
+  lazyReq("src.core.game3.void_fill").setMode(cartOpts.voidFill)
   pcall(function()
-    require("src.ui.game3.chrome").setFrameType(cartOpts.frameType)
+    lazyReq("src.ui.game3.chrome").setFrameType(cartOpts.frameType)
   end)
   try("src.render.Tilt", "applyOptions", opts)
   try("src.render.Letterbox", "applyOptions", opts)
   try("src.render.Zoom", "applyOptions", opts)
   try("src.core.VideoMode", "applyOptions", opts)
   try("src.core.Orientation", "applyOptions", opts)
-  local FaithfulRes = require("src.core.FaithfulRes")
+  local FaithfulRes = lazyReq("src.core.FaithfulRes")
   if FaithfulRes.setNativeSize then
     FaithfulRes.setNativeSize(Display.W, Display.H)
   end
@@ -391,7 +397,7 @@ function Game3:applyOptions(opts)
   local caps = try("src.core.Performance", "applyOptions", opts)
   if type(caps) == "table" then
     if not caps.tilt then try("src.render.Tilt", "setLevel", 0) end
-    local okZ, Zoom = pcall(require, "src.render.Zoom")
+    local okZ, Zoom = pcall(lazyReq, "src.render.Zoom")
     if okZ and Zoom then
       Zoom.allowSurvey = caps.survey
       if not caps.survey and (Zoom.offset or 0) < 0 then Zoom.offset = 0 end
@@ -435,7 +441,7 @@ function Game3:_handleRegisteredItem()
   if not item then return end
   -- src/item_menu.c:2025
   local Map = package.loaded["src.core.game3.map"]
-  if Map and require("src.core.game3.link.union_room").isUnionMap(Map.current) then return end
+  if Map and lazyReq("src.core.game3.link.union_room").isUnionMap(Map.current) then return end
   -- src/overworld.c:2813
   local Link = package.loaded["src.core.game3.link"]
   if type(Link) == "table" and Link.link ~= nil and Link.inLinkRoom() == true then return end
@@ -445,15 +451,15 @@ function Game3:_handleRegisteredItem()
   if Field and Field.locked then return end
   local P = package.loaded["src.core.game3.player"]
   if P and P.boulderPush then return end
-  local Profile = require("src.core.game3.profile")
+  local Profile = lazyReq("src.core.game3.profile")
   if Profile.family(session) == "rse" then
     -- pokeemerald/src/item_menu.c:2025 UseRegisteredKeyItemOnField
-    local Pike = require("src.core.game3.rse.frontier.pike")
-    local Pyramid = require("src.core.game3.rse.frontier.pyramid")
+    local Pike = lazyReq("src.core.game3.rse.frontier.pike")
+    local Pyramid = lazyReq("src.core.game3.rse.frontier.pyramid")
     if Pike.inBattlePike(session) or Pyramid.inPyramid(session) then return end
   end
-  local Bag = require("src.core.game3.bag")
-  local ItemUse = require("src.core.game3.item_use")
+  local Bag = lazyReq("src.core.game3.bag")
+  local ItemUse = lazyReq("src.core.game3.item_use")
   if not session.bag or not Bag.has(session.bag, item, 1) then
     session.registeredItem = nil
     return
@@ -462,15 +468,15 @@ function Game3:_handleRegisteredItem()
   if kind == "vs_seeker" then
     -- pokefirered/src/item_use.c:712
     if ok then
-      require("src.core.game3.vs_seeker").use(session, self)
+      lazyReq("src.core.game3.vs_seeker").use(session, self)
     elseif text then
-      require("src.ui.game3.hud").openMessage(self, text)
+      lazyReq("src.ui.game3.hud").openMessage(self, text)
     end
     return
   end
   -- pokefirered/src/item_use.c:159 SetUpItemUseOnFieldCallback
   if text and not (ok and FIELD_CB_SILENT[kind]) then
-    require("src.ui.game3.hud").openMessage(self, text)
+    lazyReq("src.ui.game3.hud").openMessage(self, text)
   end
 end
 
@@ -502,7 +508,7 @@ function Game3:_handleBootAction(action)
       end
       if modsDiff and SaveData.modsDiffNotice then
         local notice = SaveData.modsDiffNotice(modsDiff, save.meta)
-        if notice then require("src.core.Logger").warn("%s", notice) end
+        if notice then lazyReq("src.core.Logger").warn("%s", notice) end
       end
       if ModRuntime.wants("save.loaded") then
         ModRuntime.emit("save.loaded", { save = session, meta = session.meta, modsDiff = modsDiff })
@@ -579,7 +585,7 @@ function Game3:fixedUpdate(dt)
   end
   if self.session then Audio.applyOptions(self.session) end
 
-  local Rng = require("src.core.game3.rng")
+  local Rng = lazyReq("src.core.game3.rng")
   Rng.step()
 
   if self.phase == "boot" and self.boot then
@@ -598,7 +604,7 @@ function Game3:fixedUpdate(dt)
 end
 
 function Game3:speedCategory()
-  local okB, Battle = pcall(require, "src.core.game3.battle")
+  local okB, Battle = pcall(lazyReq, "src.core.game3.battle")
   if okB and Battle and Battle.isActive and Battle.isActive() then
     return "battle"
   end
@@ -615,7 +621,7 @@ function Game3:isFixedSpeed()
 end
 
 local function unionRoomMap(id)
-  return require("src.core.game3.link.union_room").isUnionMap(id)
+  return lazyReq("src.core.game3.link.union_room").isUnionMap(id)
 end
 
 function Game3:speedLocked()
@@ -665,7 +671,7 @@ function Game3:logicSpeed()
       or b.phase == Boot.PHASE.TITLE_CRY or b.phase == Boot.PHASE.TITLE_RESTART) then
     return 1
   end
-  local GameSpeed = require("src.core.GameSpeed")
+  local GameSpeed = lazyReq("src.core.GameSpeed")
   local opts = self.options
   if type(opts) ~= "table" then return 1 end
   local key = GameSpeed.optionKey(self:speedCategory())
@@ -675,7 +681,7 @@ end
 function Game3:_cycleSpeed(dir)
   if type(self.options) ~= "table" then return end
   if self:speedLocked() then return end
-  local GameSpeed = require("src.core.GameSpeed")
+  local GameSpeed = lazyReq("src.core.GameSpeed")
   local key = GameSpeed.optionKey(self:speedCategory())
   local nextSpeed = GameSpeed.cycle(self.options[key], dir)
   for _, c in ipairs(GameSpeed.CATEGORIES) do
@@ -686,7 +692,7 @@ end
 
 function Game3:zoomGateOK()
   if self.phase ~= "field" then return false end
-  local okB, Battle = pcall(require, "src.core.game3.battle")
+  local okB, Battle = pcall(lazyReq, "src.core.game3.battle")
   if okB and Battle and Battle.isActive and Battle.isActive() then return false end
   local Field = package.loaded["src.core.game3.field"]
   if Field and Field.locked then return false end
@@ -697,8 +703,8 @@ end
 
 function Game3:zoomStep(delta)
   if not self:zoomGateOK() then return end
-  local Zoom = require("src.render.Zoom")
-  local Renderer = require("src.render.Renderer")
+  local Zoom = lazyReq("src.render.Zoom")
+  local Renderer = lazyReq("src.render.Renderer")
   local offset = Zoom.step(delta, Renderer:fitScale())
   if type(self.options) == "table" then
     self.options.zoom = offset
@@ -721,9 +727,30 @@ function Game3:update(dt)
     if not okA then s9log("audio", errA) end
   end
   if self._audioAccum > 0.25 then self._audioAccum = 0 end
-  local okT, errT = pcall(function() require("src.render.Tilt").update(dt) end)
+  local okT, errT = pcall(function() lazyReq("src.render.Tilt").update(dt) end)
   if not okT then s9log("tilt", errT) end
-  pcall(function() require("src.core.DiscordPresence").update(dt) end)
+  pcall(function() lazyReq("src.core.DiscordPresence").update(dt) end)
+  Game3.stepGC()
+end
+
+Game3.GC_BUDGET_SEC = 0.0003
+Game3.GC_MAX_STEPS = 64
+Game3.GC_CEILING_KB = 1024 * 1024
+
+function Game3.stepGC()
+  if not collectgarbage then return end
+  local timer = love and love.timer
+  if timer and timer.getTime then
+    local t0 = timer.getTime()
+    local steps = 0
+    while steps < Game3.GC_MAX_STEPS and timer.getTime() - t0 < Game3.GC_BUDGET_SEC do
+      collectgarbage("step", 1)
+      steps = steps + 1
+    end
+  else
+    collectgarbage("step", 1)
+  end
+  if collectgarbage("count") > Game3.GC_CEILING_KB then collectgarbage("collect") end
 end
 
 function Game3:_drawHud(w, h)
@@ -810,12 +837,12 @@ function Game3:_hotkey(key)
     return true
   elseif key == "f2" then
     if self.phase == "field" then
-      pcall(function() require("src.ui.game3.stack").clear() end)
+      pcall(function() lazyReq("src.ui.game3.stack").clear() end)
       pcall(function()
-        local R = require("src.core.game3.runtime")
+        local R = lazyReq("src.core.game3.runtime")
         if R.stop then R.stop(nil, self) end
       end)
-      pcall(function() require("src.core.game3.ghosts").clear() end)
+      pcall(function() lazyReq("src.core.game3.ghosts").clear() end)
       self:_handleBootAction({ action = "continue" })
     end
     return true
@@ -824,7 +851,7 @@ function Game3:_hotkey(key)
     return true
   elseif hk == "3" then
     if self:zoomGateOK() then
-      local Tilt = require("src.render.Tilt")
+      local Tilt = lazyReq("src.render.Tilt")
       Tilt.cycle()
       if type(self.options) == "table" then
         self.options.tilt = Tilt.level
@@ -834,8 +861,8 @@ function Game3:_hotkey(key)
     return true
   elseif hk == "4" then
     if self:zoomGateOK() then
-      local Zoom = require("src.render.Zoom")
-      local Renderer = require("src.render.Renderer")
+      local Zoom = lazyReq("src.render.Zoom")
+      local Renderer = lazyReq("src.render.Renderer")
       local offset = Zoom.cycle(Renderer:fitScale())
       if type(self.options) == "table" then
         self.options.zoom = offset
@@ -896,7 +923,7 @@ function Game3:_padPressedBody(joystick, button)
     end
   end
   if selectHeld then
-    local GamepadMap = require("src.core.GamepadMap")
+    local GamepadMap = lazyReq("src.core.GamepadMap")
     local digit = GamepadMap.displayChordDigit(button)
     if digit and self:_hotkey(digit) then return end
   end
@@ -926,13 +953,13 @@ end
 -- pokefirered/src/start_menu.c:198
 function Game3:saveOffered()
   local session = (Runtime.getSession and Runtime.getSession()) or self.session
-  return require("src.ui.game3.start_menu").saveOffered(session, self)
+  return lazyReq("src.ui.game3.start_menu").saveOffered(session, self)
 end
 
 -- pokeemerald/src/overworld.c:1445
 function Game3:quickSaveAllowed()
   if self.phase ~= "field" then return false end
-  local Hud = require("src.ui.game3.hud")
+  local Hud = lazyReq("src.ui.game3.hud")
   if Hud.busy() or not Hud.startButtonAllowed() then return false end
   local Space = package.loaded["src.core.game3.scripting.space"]
   if Space and Space._pendingOnFrame then return false end
@@ -950,7 +977,7 @@ function Game3:saveGame()
     if s then self.session = s end
   end
   pcall(function()
-    require("src.core.game3.scripting.space").persistSession(nil, self)
+    lazyReq("src.core.game3.scripting.space").persistSession(nil, self)
   end)
   if FieldModules.enabled("questLog", self.session) then QuestRecorder.save(self) end
   local save = Schema.toSaveTable(self.session)
@@ -1259,9 +1286,9 @@ local function clearFieldScreens()
   end
   local LeagueLighting = package.loaded["src.core.game3.league_lighting"]
   if LeagueLighting and LeagueLighting.reset then pcall(LeagueLighting.reset) end
-  local Map = require("src.core.game3.map")
+  local Map = lazyReq("src.core.game3.map")
   Map.disableMusicChange = Map.MUSIC_DISABLE_OFF
-  local FieldView = require("src.core.game3.field_view")
+  local FieldView = lazyReq("src.core.game3.field_view")
   FieldView.hideActors = false
   FieldView.setCameraPanning(0, 0)
 end
@@ -1271,7 +1298,7 @@ function Game3:returnToTitle(opts)
   self.questPlayback=nil
   Help.reset()
   Audio.stopAll()
-  local Stack = require("src.ui.game3.stack")
+  local Stack = lazyReq("src.ui.game3.stack")
   Stack.clear()
   clearFieldScreens()
   if Runtime.isActive() then
@@ -1298,7 +1325,7 @@ function Game3:returnToTitle(opts)
     if okFs and exists then saveStatus = "invalid" end
   end
   local continueOk = self:_hasContinueSave()
-  require("src.ui.game3.start_menu").resetCursor()
+  lazyReq("src.ui.game3.start_menu").resetCursor()
   self.boot = Boot.new(self)
   Boot.setHasContinue(self.boot, continueOk)
   if continueOk then
@@ -1318,7 +1345,7 @@ function Game3:reset()
   self.questPlayback = nil
   Help.reset()
   Audio.endSession()
-  require("src.ui.game3.stack").clear()
+  lazyReq("src.ui.game3.stack").clear()
   clearFieldScreens()
   local WarpMod = package.loaded["src.core.game3.warp"]
   if WarpMod and WarpMod.clear then pcall(WarpMod.clear) end

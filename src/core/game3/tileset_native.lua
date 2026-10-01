@@ -11,6 +11,7 @@ local NativeTileset = {}
 NativeTileset._pairs = {} -- [pair] = { image, overImage?, quads, overQuads, ... }
 NativeTileset._cache = nil
 NativeTileset._logged = {}
+NativeTileset._ready = {}
 
 local NATIVE = Extract.NATIVE_ROOT or (Extract.CACHE_ROOT .. "/native")
 
@@ -22,6 +23,7 @@ function NativeTileset.install(cache, _bundle)
   NativeTileset._cache = cache
   NativeTileset._pairs = {}
   NativeTileset._logged = {}
+  NativeTileset._ready = {}
   local okA, TilesetAnim = pcall(require, "src.core.game3.tileset_anim")
   if okA and TilesetAnim and TilesetAnim.install then
     TilesetAnim.install(cache)
@@ -31,6 +33,7 @@ end
 function NativeTileset.invalidate()
   NativeTileset._pairs = {}
   NativeTileset._logged = {}
+  NativeTileset._ready = {}
   local okA, TilesetAnim = pcall(require, "src.core.game3.tileset_anim")
   if okA and TilesetAnim and TilesetAnim.invalidate then
     TilesetAnim.invalidate()
@@ -154,11 +157,13 @@ end
 function NativeTileset.ready(pair)
   if not Versions.NATIVE_RENDER then return false end
   if not pair then return false end
-  if NativeTileset._pairs[pair] then return true end
+  if NativeTileset._pairs[pair] or NativeTileset._ready[pair] then return true end
   local cache = NativeTileset._cache
   if not cache then return false end
-  return cache:exists(NATIVE .. "/" .. pair .. "/mids.idx")
+  local ok = cache:exists(NATIVE .. "/" .. pair .. "/mids.idx")
     and cache:exists(NATIVE .. "/" .. pair .. "/palettes.bin")
+  if ok then NativeTileset._ready[pair] = true end
+  return ok
 end
 
 local animMod
@@ -269,14 +274,54 @@ local function scan_slot(blob, cols, slot, skipZero)
   return out
 end
 
-local function paint(image, imageData, list, colors)
-  if not (image and imageData and #list > 0) then return end
+local function retarget(old, new)
+  local FieldView = package.loaded["src.core.game3.field_view"]
+  if not FieldView then return end
+  local function each(store)
+    if not store then return end
+    for _, b in pairs(store) do
+      if b.getTexture and b:getTexture() == old then b:setTexture(new) end
+    end
+  end
+  each(FieldView._nativeBatches)
+  each(FieldView._nativeOverBatches)
+  local from = FieldView._voidFrom
+  if from then
+    each(from.under)
+    each(from.over)
+  end
+end
+
+local function flip(ts, imgKey, dataKey, altKey)
+  local img, data = ts[imgKey], ts[dataKey]
+  if not (img and data and img.replacePixels) then return end
+  local alt = ts[altKey]
+  if alt and alt.replacePixels then
+    alt:replacePixels(data)
+  elseif love and love.graphics and love.graphics.newImage then
+    alt = love.graphics.newImage(data)
+    if alt.setFilter then alt:setFilter("nearest", "nearest") end
+  else
+    img:replacePixels(data)
+    return
+  end
+  ts[imgKey], ts[altKey] = alt, img
+  retarget(img, alt)
+end
+
+function NativeTileset.flush(ts, under, over)
+  if under then flip(ts, "image", "imageData", "imageAlt") end
+  if over then flip(ts, "overImage", "overImageData", "overImageAlt") end
+end
+
+local function paint(imageData, list, colors)
+  if not (imageData and #list > 0) then return false end
   for i = 1, #list do
     local p = list[i]
     local c = colors[p[3]]
     imageData:setPixel(p[1], p[2], c[1] / 255, c[2] / 255, c[3] / 255, 1)
   end
-  if image.replacePixels then image:replacePixels(imageData) end
+  return true
 end
 
 -- pokefirered/src/palette.c:88
@@ -295,8 +340,7 @@ function NativeTileset.setSlotPalette(pairOrTs, slot, bgr16)
   local src = {}
   for c = 0, 15 do src[c] = bgr16[c + 1] or 0 end
   local colors = NativePack.palsToRgb8({ [0] = src })[0]
-  paint(ts.image, ts.imageData, pix.under, colors)
-  paint(ts.overImage, ts.overImageData, pix.over, colors)
+  NativeTileset.flush(ts, paint(ts.imageData, pix.under, colors), paint(ts.overImageData, pix.over, colors))
   ts.patchedSlots = ts.patchedSlots or {}
   ts.patchedSlots[slot] = true
   return true

@@ -1,3 +1,9 @@
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local Sample = require("src.core.game3.m4a_sample")
 local Mix = require("src.core.game3.m4a_mix")
 local Player = require("src.core.game3.m4a_player")
@@ -9,7 +15,7 @@ local Audio = {}
 
 local function audio_profile()
   local ok, row = pcall(function()
-    return require("src.core.game3.profile").forSession(nil)
+    return lazyReq("src.core.game3.profile").forSession(nil)
   end)
   if ok and type(row) == "table" then return row end
   return nil
@@ -39,7 +45,7 @@ end
 
 local function rse_policy()
   if Audio.mapMusicPolicy() ~= "rse" then return nil end
-  return require("src.core.game3.audio_policy_rse")
+  return lazyReq("src.core.game3.audio_policy_rse")
 end
 
 local RIDE_SONG_KEYS = { MUS_CYCLING = "cycling", MUS_SURF = "surf", MUS_UNDERWATER = "underwater" }
@@ -138,7 +144,7 @@ local function push_install()
   Audio._cmdCh:push({
     cmd = "install",
     root = Audio._root,
-    prefix = require("src.core.WorkerFs").prefix(),
+    prefix = lazyReq("src.core.WorkerFs").prefix(),
     sampleRate = Mix.SAMPLE_RATE,
   })
 end
@@ -256,7 +262,7 @@ Audio.LEGENDARY_BATTLE_SONGS = {
 local function species_name(species)
   local row = audio_profile()
   local ok, C = pcall(function()
-    return require("src.core.game3.constants").of(row and row.id or "firered")
+    return lazyReq("src.core.game3.constants").of(row and row.id or "firered")
   end)
   if not ok or not C then return nil end
   local byId = C.species.byId
@@ -282,7 +288,7 @@ function Audio.legendaryBattleSong(species, opts)
 end
 
 function Audio.applyOptions(session)
-  local Options = require("src.core.game3.options")
+  local Options = lazyReq("src.core.game3.options")
   local o = Options.ensure(session)
   local mono = (tonumber(o.sound) or 0) == 0
   if mono ~= Audio._mono then
@@ -1170,7 +1176,7 @@ function Audio.stopSe(id)
     Audio._seByPlayer = {}
     return
   end
-  local SE = require("src.core.game3.se_ids")
+  local SE = lazyReq("src.core.game3.se_ids")
   id = SE.resolve(id)
   for i = #Audio._seSources, 1, -1 do
     local src = Audio._seSources[i]
@@ -1193,7 +1199,7 @@ function Audio.isSePlaying(id)
     end
     return false
   end
-  local SE = require("src.core.game3.se_ids")
+  local SE = lazyReq("src.core.game3.se_ids")
   id = SE.resolve(id)
   for _, src in ipairs(Audio._seSources) do
     local meta = Audio._seMeta[src]
@@ -1260,7 +1266,7 @@ local function start_fanfare_source(id, mplay)
 end
 
 function Audio.playFanfare(id)
-  local SE = require("src.core.game3.se_ids")
+  local SE = lazyReq("src.core.game3.se_ids")
   id = SE.resolve(id) or Audio.resolveSong(id)
   if type(id) ~= "number" then return false end
   local entry, haveTable = fanfare_entry(id)
@@ -1719,7 +1725,7 @@ function Audio.shutdown()
 end
 
 pcall(function()
-  require("src.core.SessionLifecycle").registerProcessShutdown(Audio.shutdown)
+  lazyReq("src.core.SessionLifecycle").registerProcessShutdown(Audio.shutdown)
 end)
 
 return Audio

@@ -1,3 +1,9 @@
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local Rematch = {}
 
 -- pokeemerald/include/constants/rematches.h:86
@@ -29,11 +35,11 @@ local function runtimeSession()
 end
 
 local function Flags()
-  return require("src.core.game3.scripting.flags")
+  return lazyReq("src.core.game3.scripting.flags")
 end
 
 local function constants(session)
-  local C = require("src.core.game3.constants")
+  local C = lazyReq("src.core.game3.constants")
   return C.of(C.versionOf(session))
 end
 
@@ -74,7 +80,7 @@ function Rematch.hasTrainerBeenFought(session, trainerId)
 end
 
 function Rematch.table()
-  local pack = require("src.core.game3.scripting.trainers").pack()
+  local pack = lazyReq("src.core.game3.scripting.trainers").pack()
   local t = pack and pack.rematches
   return type(t) == "table" and t or {}
 end
@@ -317,7 +323,7 @@ function Rematch.tryUpdateRandomTrainerRematches(session, mapGroup, mapNum)
 end
 
 function Rematch.tryUpdateRandomTrainerRematchesForMap(session, mapId)
-  local Rse = require("src.core.game3.rse.init")
+  local Rse = lazyReq("src.core.game3.rse.init")
   local g, n = Rse.mapGroupNum(mapId, session)
   if not g then return false end
   return Rematch.tryUpdateRandomTrainerRematches(session, g, n)
@@ -366,8 +372,8 @@ function Rematch.onRematchBattleWon(session, opponentA)
 end
 
 local function gymLeaderLists()
-  local Rse = require("src.core.game3.rse.init")
-  local man = require("src.core.game3.rse.match_call").manifest()
+  local Rse = lazyReq("src.core.game3.rse.init")
+  local man = lazyReq("src.core.game3.rse.match_call").manifest()
   return man.gymLeaderRematchesAfterNewMauville or {}, man.gymLeaderRematchesBeforeNewMauville or {}
 end
 

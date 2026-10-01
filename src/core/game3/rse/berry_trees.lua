@@ -1,3 +1,9 @@
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local BerryTrees = {}
 
 -- pokeemerald/include/constants/berry.h:130
@@ -17,7 +23,7 @@ local pack
 
 function BerryTrees.berries()
   if pack == nil then
-    local src = require("src.core.game3.dataset").cache():read("data/generated/gba/berries/berries.lua")
+    local src = lazyReq("src.core.game3.dataset").cache():read("data/generated/gba/berries/berries.lua")
     local chunk = src and load(src, "@berries.lua", "t", {})
     local ok, t = false, nil
     if chunk then ok, t = pcall(chunk) end
@@ -53,7 +59,7 @@ end
 BerryTrees.blank = blank
 
 local function defaultSession(session)
-  return require("src.core.game3.rse.init").session() or session
+  return lazyReq("src.core.game3.rse.init").session() or session
 end
 
 BerryTrees._pending = nil
@@ -112,7 +118,7 @@ end
 function BerryTrees.calcYield(tree, random)
   local b = BerryTrees.info(tree.berry)
   return BerryTrees.yieldInternal(tonumber(b.maxYield) or 0, tonumber(b.minYield) or 0,
-    BerryTrees.stagesWatered(tree), random or require("src.core.game3.rng").Random)
+    BerryTrees.stagesWatered(tree), random or lazyReq("src.core.game3.rng").Random)
 end
 
 -- pokeemerald/src/berry.c:1250
@@ -128,7 +134,7 @@ function BerryTrees.plant(id, berry, stage, allowGrowth, session, random)
     table.insert(BerryTrees._pending, { id, berry, stage, allowGrowth })
     return true
   end
-  random = random or require("src.core.game3.rng").Random
+  random = random or lazyReq("src.core.game3.rng").Random
   local trees = BerryTrees.state(session)
   local tree = blank()
   trees[tonumber(id) or 0] = tree
@@ -208,7 +214,7 @@ end
 
 -- pokeemerald/src/clock.c:70
 function BerryTrees.installTimeHook()
-  local ok, TimeEvents = pcall(require, "src.core.game3.time_events")
+  local ok, TimeEvents = pcall(lazyReq, "src.core.game3.time_events")
   if not (ok and TimeEvents and TimeEvents.handlers) then return false end
   local _, perMinute = TimeEvents.handlers()
   if perMinute and perMinute.BerryTreeTimeUpdate == nil then
@@ -237,7 +243,7 @@ function BerryTrees.allowGrowth(id, session)
 end
 
 local function items(session)
-  local Constants = require("src.core.game3.constants")
+  local Constants = lazyReq("src.core.game3.constants")
   local C = Constants.of(Constants.versionOf(defaultSession(session)))
   return C:require("items", "ITEM_CHERI_BERRY"), C:require("items", "ITEM_ENIGMA_BERRY")
 end
@@ -266,7 +272,7 @@ end
 
 -- pokeemerald/src/item.c:102
 function BerryTrees.countString(berry, count)
-  local RomText = require("src.core.game3.rom_text")
+  local RomText = lazyReq("src.core.game3.rom_text")
   local word = (tonumber(count) or 0) < 2 and RomText.plain("gText_Berry") or RomText.plain("gText_Berries")
   return BerryTrees.name(berry) .. " " .. tostring(word)
 end

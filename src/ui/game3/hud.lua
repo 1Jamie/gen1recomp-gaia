@@ -1,6 +1,12 @@
 -- Game3 UI controller: input + open helpers.
 -- Drawing is owned by display.lua / gfx.lua (FRLG 240×160).
 
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local Message = require("src.ui.game3.message")
 local Choice = require("src.ui.game3.choice")
 local StartMenu = require("src.ui.game3.start_menu")
@@ -62,7 +68,7 @@ end
 local function update_top_menu(input)
   local top = Stack.top()
   if top and top.mod then
-    local skin = require("src.ui.game3.screens").skin(top.id)
+    local skin = lazyReq("src.ui.game3.screens").skin(top.id)
     if skin and skin.handleInput then
       skin.handleInput(input, top.mod)
       return true
@@ -186,7 +192,7 @@ function Hud.sampleFieldInput(game)
     return
   end
   -- pokeemerald/src/field_control_avatar.c:97
-  local okB, B = pcall(function() return require("src.core.game3.bike").rse() end)
+  local okB, B = pcall(function() return lazyReq("src.core.game3.bike").rse() end)
   if okB and B and B.playerSpeed and B.playerSpeed() == B.SPEED.FASTEST then
     Hud._fieldInput = { start = false }
     return
@@ -213,14 +219,14 @@ function Hud.update(game, _dt, inputTop)
   end
 
   -- Tick location map name popup banner
-  local okPop, MapNamePopup = pcall(require, "src.ui.game3.map_name_popup")
+  local okPop, MapNamePopup = pcall(lazyReq, "src.ui.game3.map_name_popup")
   if not okPop then s9log("map_name_popup", MapNamePopup) end
   if okPop and MapNamePopup and MapNamePopup.update then
     MapNamePopup.update(dt)
   end
 
   -- Tick location preview screen (map_preview_screen.c Task_RunMapPreviewScreenForest)
-  local okPrev, MapPreviewScreen = pcall(require, "src.ui.game3.map_preview_screen")
+  local okPrev, MapPreviewScreen = pcall(lazyReq, "src.ui.game3.map_preview_screen")
   if not okPrev then s9log("map_preview_screen", MapPreviewScreen) end
   if okPrev and MapPreviewScreen and MapPreviewScreen.update then
     MapPreviewScreen.update(dt)
@@ -312,7 +318,7 @@ function Hud.update(game, _dt, inputTop)
     if input:wasPressed("start") then
       local Field = package.loaded["src.core.game3.field"]
       local Runtime = package.loaded["src.core.game3.runtime"]
-        or require("src.core.game3.runtime")
+        or lazyReq("src.core.game3.runtime")
       local sample = Hud._fieldInput
       -- pokefirered/src/field_control_avatar.c:108
       local allowed = sample and sample.start or false
@@ -355,9 +361,9 @@ function Hud.openStartMenu(game, session)
   do
     local Space = package.loaded["src.core.game3.scripting.space"]
     local Flags = package.loaded["src.core.game3.scripting.flags"]
-      or require("src.core.game3.scripting.flags")
+      or lazyReq("src.core.game3.scripting.flags")
     local store = Space and Space.store
-    local ids = require("src.ui.game3.screens").flags(session)
+    local ids = lazyReq("src.ui.game3.screens").flags(session)
     local flag = ids.IDS.OPENED_START_MENU
     local var = ids.VAR_IDS.MAP_SCENE_PALLET_TOWN_SIGN_LADY
     if store and flag and var then
@@ -372,7 +378,7 @@ function Hud.openStartMenu(game, session)
     end
   end
   log("Start Menu on game3 display (FRLG 240x160)")
-  require("src.ui.game3.screens").get("start_menu", session).show({ session = session, game = game })
+  lazyReq("src.ui.game3.screens").get("start_menu", session).show({ session = session, game = game })
 end
 
 function Hud.openMessage(game, text, opts)
@@ -388,8 +394,8 @@ function Hud.openMessageStay(game, text, opts)
 end
 
 function Hud.openPc(game, session)
-  pcall(function() require("src.core.game3.audio").playSe(require("src.core.game3.se_ids").resolve("SE_PC_ON")) end) -- data/scripts/pc.inc:9
-  require("src.ui.game3.screens").get("pc", session).show({ session = session or (require("src.core.game3.runtime").getSession()) })
+  pcall(function() lazyReq("src.core.game3.audio").playSe(lazyReq("src.core.game3.se_ids").resolve("SE_PC_ON")) end) -- data/scripts/pc.inc:9
+  lazyReq("src.ui.game3.screens").get("pc", session).show({ session = session or (lazyReq("src.core.game3.runtime").getSession()) })
 end
 
 function Hud.ensure(_game, _mode)

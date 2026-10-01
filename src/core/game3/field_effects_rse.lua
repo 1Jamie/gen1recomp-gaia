@@ -1,3 +1,9 @@
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local FxRse = {}
 
 local CELL = 16
@@ -8,7 +14,7 @@ FxRse._images = {}
 FxRse._state = {}
 
 local function FE()
-  return package.loaded["src.core.game3.field_effects"] or require("src.core.game3.field_effects")
+  return package.loaded["src.core.game3.field_effects"] or lazyReq("src.core.game3.field_effects")
 end
 
 local function Player()
@@ -24,14 +30,14 @@ local function Collision()
 end
 
 local function root()
-  local ok, Extract = pcall(require, "src.import.gba.extract_island1")
+  local ok, Extract = pcall(lazyReq, "src.import.gba.extract_island1")
   return (ok and Extract and Extract.CACHE_ROOT) or "data/generated/gba"
 end
 
 local function cache()
   local fe = FE()
   if fe._cache then return fe._cache end
-  local ok, Dataset = pcall(require, "src.core.game3.dataset")
+  local ok, Dataset = pcall(lazyReq, "src.core.game3.dataset")
   return ok and Dataset and Dataset.cache and Dataset.cache() or nil
 end
 
@@ -65,7 +71,7 @@ local sets = {}
 local function set(key, names)
   local s = sets[key]
   if s then return s end
-  local MB = require("src.core.game3.mb")
+  local MB = lazyReq("src.core.game3.mb")
   s = {}
   for _, n in ipairs(names) do
     local id = MB.id(n)
@@ -132,7 +138,7 @@ local BRIDGE = {
   BRIDGE_OVER_POND_HIGH_EDGE_1 = 3, BRIDGE_OVER_POND_HIGH_EDGE_2 = 3,
 }
 function B.bridgeType(b)
-  local MB = require("src.core.game3.mb")
+  local MB = lazyReq("src.core.game3.mb")
   local n = b and MB.nameOf(b)
   return n and BRIDGE[n] or 0
 end
@@ -343,7 +349,7 @@ end
 
 function FxRse.step()
   FxRse._hookTick = ((FxRse._hookTick or 0) + 1) % 256
-  if FxRse._hookTick == 0 then require("src.core.game3.rse.berry_trees").installTimeHook() end
+  if FxRse._hookTick == 0 then lazyReq("src.core.game3.rse.berry_trees").installTimeHook() end
   local keep = {}
   for _, e in ipairs(FxRse._list) do
     if stepEntry(e) then
@@ -800,7 +806,7 @@ local function drawReflections(camX, camY)
     local C = Collision()
     local host = C and C._mapDef
     local FV = package.loaded["src.core.game3.field_view"]
-    local Display = require("src.core.game3.display")
+    local Display = lazyReq("src.core.game3.display")
     local vw = FV and FV._viewW or Display.W
     local vh = FV and FV._viewH or Display.H
     local x0, y0 = camX - REFL_CULL, camY - REFL_CULL
@@ -946,8 +952,9 @@ function FxRse.collectActors(actors)
           local x = (eo.px or 0) + 8 - sheet.fw / 2
           local y = (eo.py or 0) + CELL - math.floor(h / 2) + math.floor(h / 2) - 16 - sheet.fh / 2
           pushActor(actors, (eo.py or 0) + 0.6, eo.elevation, x, y, function(_, camX, camY)
-            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.setColor(1, 1, 1, O.fadeAlpha(eo) or 1)
             love.graphics.draw(sheet.image, q, math.floor(x) - camX, math.floor(y) - camY)
+            love.graphics.setColor(1, 1, 1, 1)
           end)
         end
       end
@@ -962,8 +969,9 @@ function FxRse.collectActors(actors)
           local x = (eo.px or 0) + (16 - fr.w) / 2
           local y = (eo.py or 0) + 16 - fr.h
           pushActor(actors, eo.py or 0, eo.elevation, x, y, function(_, camX, camY)
-            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.setColor(1, 1, 1, O.fadeAlpha(eo) or 1)
             love.graphics.draw(img, bt.quad, math.floor(x) - camX, math.floor(y) - camY)
+            love.graphics.setColor(1, 1, 1, 1)
           end)
         end
       end
@@ -1011,7 +1019,7 @@ function FxRse.installHooks()
     local ok, err = pcall(require, name)
     if not ok then print("[game3/field_effects_rse] " .. tostring(err)) end
   end
-  require("src.core.game3.rse.berry_trees").installTimeHook()
+  lazyReq("src.core.game3.rse.berry_trees").installTimeHook()
 end
 
 function FxRse.drawOverlay(camX, camY)

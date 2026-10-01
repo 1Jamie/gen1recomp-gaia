@@ -1,3 +1,9 @@
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local VoidFill = {}
 
 VoidFill.MODES = { "map", "trees", "water", "black" }
@@ -49,7 +55,7 @@ VoidFill.FAMILY = {
 VoidFill._borders = {}
 
 local function family()
-  local ok, Family = pcall(require, "src.import.gba.family")
+  local ok, Family = pcall(lazyReq, "src.import.gba.family")
   return ok and Family.active() or nil
 end
 
@@ -57,7 +63,7 @@ local function config()
   local F = family()
   local name = F and F.name or "frlg"
   local row = VoidFill.FAMILY[name] or VoidFill.FAMILY.frlg
-  local okP, Profile = pcall(require, "src.core.game3.profile")
+  local okP, Profile = pcall(lazyReq, "src.core.game3.profile")
   local okR, prof = false, nil
   if okP and F then okR, prof = pcall(Profile.of, F.game) end
   local over = okR and type(prof) == "table" and type(prof.map) == "table" and prof.map.voidFill or nil
@@ -91,7 +97,7 @@ end
 
 function VoidFill.primaryFor(pair)
   if type(pair) ~= "string" then return nil end
-  local okV, Versions = pcall(require, "src.import.gba.versions")
+  local okV, Versions = pcall(lazyReq, "src.import.gba.versions")
   local spec = okV and Versions and Versions.TILESET_PAIRS and Versions.TILESET_PAIRS[pair]
   if spec and spec.primary then return spec.primary end
   return pair:match("^(.-)__")

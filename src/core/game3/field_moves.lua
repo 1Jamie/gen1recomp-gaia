@@ -6,6 +6,12 @@
 --   1. Party Menu Submenu (SetUpFieldMove_* / fromMenu)
 --   2. Overworld A-Press Collision / Object Interaction (tryOW / EventScript_*)
 
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local Flags = require("src.core.game3.scripting.flags")
 
 local FieldMoves = {}
@@ -51,7 +57,7 @@ FieldMoves.BADGE_FLAGS = {
 }
 
 local function activeProfile()
-  return require("src.core.game3.profile").forSession(nil)
+  return lazyReq("src.core.game3.profile").forSession(nil)
 end
 
 local function isRse()
@@ -114,16 +120,16 @@ local FRLG_GFX_IDS = {
 
 FieldMoves.GFX_IDS = setmetatable({}, {
   __index = function(_, key)
-    local P = require("src.core.game3.profile").forSession(nil)
+    local P = lazyReq("src.core.game3.profile").forSession(nil)
     local names = P.field and P.field.fieldMoveGfx
     if not names then return FRLG_GFX_IDS[key] end
     local name = names[key]
-    return name and require("src.core.game3.constants").of(P.id):require("event_objects", name) or nil
+    return name and lazyReq("src.core.game3.constants").of(P.id):require("event_objects", name) or nil
   end,
 })
 
 function FieldMoves.badgeFlag(badgeKey)
-  local Profile = require("src.core.game3.profile")
+  local Profile = lazyReq("src.core.game3.profile")
   local P = Profile.forSession(nil)
   if (P.family or "frlg") == "frlg" then return FieldMoves.BADGE_FLAGS[badgeKey] end
   for _, b in ipairs(Flags.forVersion(P.id).BADGES) do
@@ -146,7 +152,7 @@ local SE_NAMES = {
 FieldMoves.SE = setmetatable({}, {
   __index = function(_, key)
     local name = SE_NAMES[key]
-    return name and require("src.core.game3.se_ids")[name] or nil
+    return name and lazyReq("src.core.game3.se_ids")[name] or nil
   end,
 })
 
@@ -273,15 +279,15 @@ FieldMoves.textKey = textKey
 FieldMoves.TEXT = setmetatable({}, {
   __index = function(_, key)
     local k = textKey(key)
-    if k then return require("src.core.game3.rom_text").ascii(k) end
+    if k then return lazyReq("src.core.game3.rom_text").ascii(k) end
     return nil
   end,
 })
 
 -- data/scripts/field_moves.inc:8 bufferpartymonnick STR_VAR_1, buffermovename STR_VAR_2
 function FieldMoves.monText(key, monName, moveId)
-  local moveName = moveId and require("src.core.game3.pokemon").moveName(moveId) or nil
-  return require("src.core.game3.rom_text").ascii(textKey(key), { stringVars = { monName, moveName } })
+  local moveName = moveId and lazyReq("src.core.game3.pokemon").moveName(moveId) or nil
+  return lazyReq("src.core.game3.rom_text").ascii(textKey(key), { stringVars = { monName, moveName } })
 end
 
 -- ---------------------------------------------------------------- helpers
@@ -377,7 +383,7 @@ end
 -- pokefirered/src/party_menu.c:1511 GetMonNickname
 function FieldMoves.getMonName(mon)
   if not mon then return "POKéMON" end
-  local okP, Pokemon = pcall(require, "src.core.game3.pokemon")
+  local okP, Pokemon = pcall(lazyReq, "src.core.game3.pokemon")
   if okP and Pokemon and Pokemon.displayMonName then
     return Pokemon.displayMonName(mon)
   end
@@ -503,7 +509,7 @@ function FieldMoves.surfFromMenu(ctx)
   end
 
   if not ctx.isFacingWater then
-    local MapCatalog = require("src.import.gba.map_catalog")
+    local MapCatalog = lazyReq("src.import.gba.map_catalog")
     local map = ctx.mapId or (ctx.session and ctx.session.map)
     if map == MapCatalog.pretToEngine("Route17") or map == MapCatalog.pretToEngine("Route18") then
       return { ok = false, text = FieldMoves.TEXT.ENJOY_CYCLING }
@@ -701,7 +707,7 @@ function FieldMoves.diveFromMenu(ctx)
   if not FieldMoves.hasBadge(ctx, "DIVE") then
     return { ok = false, text = FieldMoves.TEXT.BADGE_REQUIRED, badge = "DIVE" }
   end
-  local Dive = require("src.core.game3.dive")
+  local Dive = lazyReq("src.core.game3.dive")
   local code, dest = Dive.trySetDiveWarp(ctx.session)
   if code == 0 then
     return { ok = false, text = FieldMoves.TEXT.CANT_USE_HERE }
@@ -713,7 +719,7 @@ end
 
 -- pokeemerald/src/fldeff_misc.c:547 SetUpFieldMove_SecretPower
 function FieldMoves.secretPowerFromMenu(ctx)
-  local Rse = require("src.core.game3.rse.init")
+  local Rse = lazyReq("src.core.game3.rse.init")
   local r, handled = Rse.call("secretBaseField", "setUpFieldMove", "SetUpFieldMove_SecretPower", nil, ctx)
   if handled and type(r) == "table" and r.ok then
     r.action = r.action or "secret_power"
@@ -955,7 +961,7 @@ local HYPER_CUT = {
 
 local function mbIs(beh, ...)
   if beh == nil then return false end
-  local MB = require("src.core.game3.mb")
+  local MB = lazyReq("src.core.game3.mb")
   for i = 1, select("#", ...) do
     local id = MB.id((select(i, ...)))
     if id ~= nil and beh == id then return true end
@@ -1027,7 +1033,7 @@ end
 
 local function label(name)
   local P = activeProfile()
-  return require("src.core.game3.constants").of(P.id):require("metatile_labels", "METATILE_" .. name)
+  return lazyReq("src.core.game3.constants").of(P.id):require("metatile_labels", "METATILE_" .. name)
 end
 
 -- pokeemerald/src/fldeff_cut.c:354 SetCutGrassMetatile

@@ -1,5 +1,11 @@
 -- Sevii space swap: activate game3 on SEVII_* maps; wipe on leave/halt.
 
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local MapIds = require("src.core.game3.map_ids")
 local Ctx = require("src.core.game3.scripting.ctx")
 local Flags = require("src.core.game3.scripting.flags")
@@ -49,7 +55,7 @@ local function resolve_session(mod, game)
 end
 
 local function love_cache()
-  return require("src.core.game3.dataset").cache()
+  return lazyReq("src.core.game3.dataset").cache()
 end
 
 local function load_sidecar(mod, game)
@@ -68,7 +74,7 @@ local function load_sidecar(mod, game)
       vars = session.vars,
     })
     Flags.ensurePalletOakHidden(Space.store)
-    local Bag = require("src.core.game3.bag")
+    local Bag = lazyReq("src.core.game3.bag")
     if Profile.has(session, "berryPouch") and session.bag and Bag.has(session.bag, ItemsData.ITEM_BERRY_POUCH, 1) then
       Flags.setFlag(Space.store, nil, Bag.FLAG_SYS_GOT_BERRY_POUCH, true) -- src/item.c:249
     end
@@ -108,8 +114,8 @@ end
 
 function Space.ensureBundle(mod)
   if Space.bundle then return Space.bundle end
-  local Dataset = require("src.core.game3.dataset")
-  local Extract = require("src.import.gba.extract_island1")
+  local Dataset = lazyReq("src.core.game3.dataset")
+  local Extract = lazyReq("src.import.gba.extract_island1")
   Dataset.mountExtractRoots()
   local root = Extract.CACHE_ROOT or "data/generated/gba"
   local cache = (mod and mod.cache) or love_cache()
@@ -455,7 +461,7 @@ function Space.runEnterScripts(mod, mapId, game, world, opts)
       if run_immediately(ms.onTransition) then Space.refreshObjectGraphics() end
       -- pokeemerald/src/fieldmap.c:62
       if Profile.family(resolve_session(mod, game)) == "rse" then
-        require("src.core.game3.rse.init").call("secretBase", "onMapLoad", nil, nil, resolve_session(mod, game), nil,
+        lazyReq("src.core.game3.rse.init").call("secretBase", "onMapLoad", nil, nil, resolve_session(mod, game), nil,
           opts.enterVia)
       end
       local key = ms.onLoad
@@ -483,7 +489,7 @@ function Space.runEnterScripts(mod, mapId, game, world, opts)
     end
     -- pokeemerald/src/fieldmap.c:62
     if Profile.family(resolve_session(mod, game)) == "rse" then
-      require("src.core.game3.rse.init").call("secretBase", "onMapLoad", nil, nil, resolve_session(mod, game), nil,
+      lazyReq("src.core.game3.rse.init").call("secretBase", "onMapLoad", nil, nil, resolve_session(mod, game), nil,
         opts.enterVia)
     end
     -- pokefirered/src/fieldmap.c:93
@@ -558,10 +564,10 @@ function Space.resolveObjectGraphicsId(obj, neighbor)
     -- src/event_object_movement.c:2043
     graphics = (tonumber(Flags.getVar(store, ctx, varId)) or 0) % 256
   end
-  local okP, P = pcall(function() return require("src.core.game3.profile").forSession(nil) end)
+  local okP, P = pcall(function() return lazyReq("src.core.game3.profile").forSession(nil) end)
   local invalid = okP and P and P.field and P.field.invalidGfx
   if invalid then
-    local E = require("src.core.game3.constants").of(P.id).event_objects.byName
+    local E = lazyReq("src.core.game3.constants").of(P.id).event_objects.byName
     -- pokeemerald/src/event_object_movement.c:1927
     if graphics and graphics >= E.NUM_OBJ_EVENT_GFX then graphics = E[invalid] end
     return graphics
@@ -590,7 +596,7 @@ local function runNeighborTransition(mapId)
   local key = ev.mapScripts and ev.mapScripts.onTransition
   local scripts = Space.vm and Space.vm.scripts
   if type(key) ~= "string" or not (scripts and scripts[key]) then return state end
-  local Ops = require("src.core.game3.scripting.ops_a")
+  local Ops = lazyReq("src.core.game3.scripting.ops_a")
   local vm = Vm.new({ store = store, scripts = scripts })
   local ctx = vm.ctx
   vm:setPc(key, 1)
@@ -637,7 +643,7 @@ end
 
 --- After ON_TRANSITION sets VAR_OBJ_GFX_ID_*, refresh spawned sprites.
 function Space.refreshObjectGraphics()
-  local okO, Objects = pcall(require, "src.core.game3.objects")
+  local okO, Objects = pcall(lazyReq, "src.core.game3.objects")
   if not (okO and Objects and Objects.refreshGraphics) then return end
   Objects.refreshGraphics()
 end
@@ -677,7 +683,7 @@ function Space.install(mod)
   Space._mod = mod
   Space.ensureBundle(mod)
 
-  local OC = require("src.world.OverworldController")
+  local OC = lazyReq("src.world.OverworldController")
 
   -- Map enter / leave: Gen1 loadMap; Gen2 facade/World setMap.
   if not OC._game3LoadMap then
@@ -685,7 +691,7 @@ function Space.install(mod)
       local game = (world and world.game) or (mod.game)
       if MapIds.isGame3Map(mapId) then
         local Runtime = package.loaded["src.core.game3.runtime"]
-          or require("src.core.game3.runtime")
+          or lazyReq("src.core.game3.runtime")
         if Runtime.ensureActiveForMap then
           Runtime.ensureActiveForMap(mod, game, mapId)
         end
@@ -700,7 +706,7 @@ function Space.install(mod)
         end
         local Runtime = package.loaded["src.core.game3.runtime"]
         if Runtime and Runtime.isActive and Runtime.isActive() then
-          local Bridge = require("src.core.game3.bridge")
+          local Bridge = lazyReq("src.core.game3.bridge")
           Bridge.persistSessionOnly(mod, game)
           Runtime.stop(mod, game)
         end
@@ -726,7 +732,7 @@ function Space.install(mod)
       end
     end
     -- Direct Gen2 World:setMap (ferry/warps often skip the facade).
-    local ok, World = pcall(require, "src.world.gen2.World")
+    local ok, World = pcall(lazyReq, "src.world.gen2.World")
     if ok and World and World.setMap and not World._game3SetMap then
       local prevW = World.setMap
       World.setMap = function(self, mapId, ...)
@@ -778,7 +784,7 @@ function Space.install(mod)
 
   -- Gen2 World:busy must see game3 scripts or frozeNpcs clears mid-dialog.
   do
-    local ok, World = pcall(require, "src.world.gen2.World")
+    local ok, World = pcall(lazyReq, "src.world.gen2.World")
     if ok and World and World.busy and not World._game3Busy then
       local prevBusy = World.busy
       World.busy = function(self)
@@ -835,7 +841,7 @@ function Space.install(mod)
   -- Signs / bgEvents from extracted event tables; then collision-std (MB_PC etc.).
   -- When game3 Runtime is active, Field.interact owns A-button; skip host path.
   if not OC._game3Interact then
-    local CollisionStd = require("src.core.game3.scripting.collision_std")
+    local CollisionStd = lazyReq("src.core.game3.scripting.collision_std")
     local prevInteract = OC.interact
     OC.interact = function(world)
       local Runtime = package.loaded["src.core.game3.runtime"]

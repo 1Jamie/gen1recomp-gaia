@@ -397,6 +397,7 @@ local function collectNeighborActors(actors, baseIndex, hostMapId, hostDef, camX
             a.sprite = eo.sprite or spriteNameForObj(eo.def or {})
             a.graphicsId = eo.graphicsId
               or (eo.def and (eo.def.graphicsId or eo.def.graphics))
+            a.alpha = Objects and Objects.fadeAlpha and Objects.fadeAlpha(eo) or nil
             a.elevation = nil
             a.priority = nil
             a.subpriority = nil
@@ -573,6 +574,7 @@ local function drawSingleActor(game, mapDef, a, camX, camY)
     opts.fishFrame = a.fishFrame
     opts.frame = a.frame
     opts.running = a.running
+    opts.alpha = a.alpha
     drew = OwSprites.draw(
       a.graphicsId, a.x, a.y, camX, camY, a.facing, a.walkPhase, a.stepFlip, opts)
   end
@@ -632,6 +634,7 @@ local function collectGame3Actors(game, mapDef, camX, camY, px, py, facing, walk
       a.frame = eo.customFrame
       a.sprite = eo.sprite or spriteNameForObj(eo.def or {})
       a.graphicsId = eo.graphicsId or (eo.def and (eo.def.graphicsId or eo.def.graphics))
+      a.alpha = Objects.fadeAlpha(eo)
       a.priority = nil
       a.subpriority = nil
       actors[#actors + 1] = a

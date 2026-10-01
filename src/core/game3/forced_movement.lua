@@ -1,5 +1,11 @@
 -- pokefirered/src/field_player_avatar.c:226 sForcedMovementFuncs
 
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local Collision = require("src.core.game3.collision")
 
 local M = {}
@@ -43,24 +49,24 @@ M.lastSpinTile = nil
 M._mapId = nil
 
 local function player()
-  return package.loaded["src.core.game3.player"] or require("src.core.game3.player")
+  return package.loaded["src.core.game3.player"] or lazyReq("src.core.game3.player")
 end
 
 local function isRse()
-  local Profile = package.loaded["src.core.game3.profile"] or require("src.core.game3.profile")
+  local Profile = package.loaded["src.core.game3.profile"] or lazyReq("src.core.game3.profile")
   local ok, family = pcall(Profile.family)
   return ok and family == "rse"
 end
 M.isRse = isRse
 
 local function rseBike()
-  local Bike = package.loaded["src.core.game3.bike"] or require("src.core.game3.bike")
+  local Bike = package.loaded["src.core.game3.bike"] or lazyReq("src.core.game3.bike")
   return Bike.rse()
 end
 
 local function se(id)
   pcall(function()
-    local Audio = require("src.core.game3.audio")
+    local Audio = lazyReq("src.core.game3.audio")
     if Audio and Audio.playSe then Audio.playSe(id) end
   end)
 end
@@ -147,7 +153,7 @@ end
 local function spin(dir)
   return function(game)
     -- pokefirered/src/field_player_avatar.c:379
-    se(require("src.core.game3.se_ids").SE_M_RAZOR_WIND2)
+    se(lazyReq("src.core.game3.se_ids").SE_M_RAZOR_WIND2)
     local P = player()
     P.spinning = true
     local moved = doForcedMovement(game, dir, FRAMES_FAST_1)
@@ -339,9 +345,9 @@ function M.runStepCallback(game)
   local rse = isRse()
   if rse then
     -- pokeemerald/src/field_tasks.c:189 Task_MuddySlope
-    require("src.core.game3.step_callbacks_rse").muddySlopeTask(game)
+    lazyReq("src.core.game3.step_callbacks_rse").muddySlopeTask(game)
   end
-  local okCtx, Ctx = pcall(require, "src.core.game3.scripting.ctx")
+  local okCtx, Ctx = pcall(lazyReq, "src.core.game3.scripting.ctx")
   if not (okCtx and Ctx and Ctx.stepCallback) then return false end
   local Map = package.loaded["src.core.game3.map"]
   local okName, name = pcall(Ctx.stepCallback, Map and Map.current)
@@ -353,7 +359,7 @@ function M.runStepCallback(game)
   end
   local fn = M.stepCallbacks[name]
   if not fn and rse then
-    require("src.core.game3.step_callbacks_rse")
+    lazyReq("src.core.game3.step_callbacks_rse")
     fn = M.stepCallbacks[name]
   end
   if not fn then return false end
@@ -379,12 +385,12 @@ M.registerStepCallback("ice", function(_game, data)
     data.prevX, data.prevY = x, y
     local beh = Collision.behavior(x, y)
     if Collision.isThinIce(beh) then
-      local Events = require("src.core.game3.scripting.natives_events")
+      local Events = lazyReq("src.core.game3.scripting.natives_events")
       -- pokefirered/src/field_tasks.c:139 MarkIcePuzzleCoordVisited
       for i, c in ipairs(Events.ICEFALL_CAVE_ICE_COORDS) do
         if c[1] == x and c[2] == y then
-          local Flags = require("src.core.game3.scripting.flags")
-          local Space = require("src.core.game3.scripting.space")
+          local Flags = lazyReq("src.core.game3.scripting.flags")
+          local Space = lazyReq("src.core.game3.scripting.space")
           Flags.setFlag(Space.store, Space.vm and Space.vm.ctx or nil, i, true)
           break
         end
@@ -396,17 +402,17 @@ M.registerStepCallback("ice", function(_game, data)
   elseif data.delay ~= 0 then
     data.delay = data.delay - 1
   else
-    local Events = require("src.core.game3.scripting.natives_events")
-    local Field = require("src.core.game3.field")
-    local SE = require("src.core.game3.se_ids")
+    local Events = lazyReq("src.core.game3.scripting.natives_events")
+    local Field = lazyReq("src.core.game3.field")
+    local SE = lazyReq("src.core.game3.se_ids")
     if state == 2 then
       se(SE.SE_ICE_CRACK)
       Field.setMetatile(data.iceX, data.iceY, Events.METATILE_SEAFOAM_CRACKED_ICE, false)
     else
       se(SE.SE_ICE_BREAK)
       Field.setMetatile(data.iceX, data.iceY, Events.METATILE_SEAFOAM_ICE_HOLE, false)
-      local Flags = require("src.core.game3.scripting.flags")
-      local Space = require("src.core.game3.scripting.space")
+      local Flags = lazyReq("src.core.game3.scripting.flags")
+      local Space = lazyReq("src.core.game3.scripting.space")
       Flags.setVar(Space.store, Space.vm and Space.vm.ctx or nil, "VAR_TEMP_1", 1)
     end
     data.state = 1

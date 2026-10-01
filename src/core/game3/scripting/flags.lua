@@ -1,6 +1,12 @@
 -- Sevii / FRLG flag and variable store: persist narrative and story flags;
 -- never persist specialVars 0x8000–0x8014.
 
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local Ctx = require("src.core.game3.scripting.ctx")
 local FlagsTable = require("src.core.game3.scripting.flags_table")
 local ModRuntime = require("src.mods.Runtime")
@@ -106,7 +112,7 @@ local BADGE_LOOKUP = buildBadgeLookup(Flags.BADGES)
 local badgeLookups = {}
 
 local function activeBadges()
-  local game = require("src.core.game3.profile").forSession(nil).id
+  local game = lazyReq("src.core.game3.profile").forSession(nil).id
   local t = Flags.forVersion(game)
   if t.BADGES == Flags.BADGES then return Flags.BADGES, BADGE_LOOKUP end
   local lookup = badgeLookups[t.game]
@@ -142,7 +148,7 @@ local function sortedKeys(t)
 end
 
 local function buildGenerated(game)
-  local C = require("src.core.game3.constants").of(game)
+  local C = lazyReq("src.core.game3.constants").of(game)
   local flags, vars = C.flags, C.vars
   local ids, varIds = {}, {}
   local fkeys, vkeys = sortedKeys(flags.byName), sortedKeys(vars.byName)
@@ -184,7 +190,7 @@ end
 local versionTables = {}
 
 function Flags.forVersion(id)
-  local game = require("src.core.game3.constants").gameKey(id)
+  local game = lazyReq("src.core.game3.constants").gameKey(id)
   local t = versionTables[game]
   if t then return t end
   if game == "firered" then
@@ -207,7 +213,7 @@ function Flags.forVersion(id)
 end
 
 function Flags.active(session)
-  return Flags.forVersion(require("src.core.game3.constants").versionOf(session))
+  return Flags.forVersion(lazyReq("src.core.game3.constants").versionOf(session))
 end
 
 --- Check if badge is obtained
@@ -284,7 +290,7 @@ end
 -- Do not force-hide lab Oak (43) — clearflag during the lead warp must stick.
 function Flags.ensurePalletOakHidden(store)
   if not store then return end
-  if require("src.core.game3.profile").family() ~= "frlg" then return end
+  if lazyReq("src.core.game3.profile").family() ~= "frlg" then return end
   local sceneVar = Flags.VAR_IDS.MAP_SCENE_PALLET_TOWN_OAK or 0x4050
   local scene = Flags.getVar(store, nil, sceneVar)
   if scene ~= 0 then return end
@@ -321,7 +327,7 @@ function Flags.repairSaveState(store)
 end
 
 local function repairForGame(store)
-  local path = require("src.core.game3.profile").forSession(store).saveRules
+  local path = lazyReq("src.core.game3.profile").forSession(store).saveRules
   local rules = type(path) == "string" and require(path) or nil
   if rules and rules.repairSaveState then rules.repairSaveState(store) end
 end
@@ -333,7 +339,7 @@ function Flags.newStore(seed)
   }
   -- First Sevii boot: Bill street intro onFrame wants MAP_SCENE == 2.
   -- Extracted scripts advance this (e.g. to 3 after door warp).
-  local game = require("src.core.game3.profile").resolveId(nil)
+  local game = lazyReq("src.core.game3.profile").resolveId(nil)
   local seviiScene = Flags.forVersion(game).VAR_IDS.MAP_SCENE_ONE_ISLAND_HARBOR
   if seviiScene then store.vars[seviiScene] = 2 end
   return store

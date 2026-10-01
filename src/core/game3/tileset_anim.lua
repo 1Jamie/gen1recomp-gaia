@@ -121,7 +121,21 @@ function TilesetAnim.rseFrame(row, timer)
 end
 
 local function rse_piece(entry, bank, blob, lut, frame, k, nMids, over)
-  local key = (over and "o" or "u") .. frame * 4096 + k
+  local keys = over and bank.overKeys or bank.underKeys
+  if not keys then
+    keys = {}
+    if over then bank.overKeys = keys else bank.underKeys = keys end
+  end
+  local fk = keys[frame]
+  if not fk then
+    fk = {}
+    keys[frame] = fk
+  end
+  local key = fk[k]
+  if not key then
+    key = (over and "o" or "u") .. frame * 4096 + k
+    fk[k] = key
+  end
   local piece = bank.pieces[key]
   if piece ~= nil then return piece end
   local base = (frame * nMids + (k - 1)) * 256
@@ -139,29 +153,12 @@ end
 
 local QUAD_XY = { [0] = { 0, 0 }, { 8, 0 }, { 0, 8 }, { 8, 8 } }
 
-local function rse_quad_piece(bank, piece, key, q)
-  local cache = bank.quadPieces
-  if not cache then
-    cache = {}
-    bank.quadPieces = cache
-  end
-  local qk = key .. q
-  local sub = cache[qk]
-  if sub then return sub end
-  local o = QUAD_XY[q]
-  sub = love.image.newImageData(8, 8)
-  sub:paste(piece, 0, 0, o[1], o[2], 8, 8)
-  cache[qk] = sub
-  return sub
-end
-
-local function rse_paste(entry, bank, blob, mids, quads, frame, imageData, lut, over, image)
+local function rse_paste(entry, bank, blob, mids, quads, frame, imageData, lut, over)
   if not (blob and imageData and love and love.image) then return false end
   local ts = entry.atlas
   local cols = ts.cols or 16
   local n = #mids
   local changed = false
-  local partial = image ~= nil and image.replacePixels ~= nil
   for k, mid in ipairs(mids) do
     local slot = ts.midToSlot[mid]
     if slot then
@@ -171,20 +168,15 @@ local function rse_paste(entry, bank, blob, mids, quads, frame, imageData, lut, 
         local mask = quads and quads[k] or 15
         if mask == 15 then
           imageData:paste(piece, ax, ay, 0, 0, 16, 16)
-          if partial then image:replacePixels(piece, 1, 1, ax, ay, false) end
         else
           for q = 0, 3 do
             if math.floor(mask / 2 ^ q) % 2 == 1 then
               local o = QUAD_XY[q]
               imageData:paste(piece, ax + o[1], ay + o[2], o[1], o[2], 8, 8)
-              if partial then
-                local key = (over and "o" or "u") .. frame * 4096 + k
-                image:replacePixels(rse_quad_piece(bank, piece, key, q), 1, 1, ax + o[1], ay + o[2], false)
-              end
             end
           end
         end
-        changed = not partial
+        changed = true
       end
     end
   end
@@ -203,10 +195,10 @@ local function rse_apply(entry, bank, frame, dirty)
     end
     return
   end
-  if rse_paste(entry, bank, bank.under, row.mids or EMPTY, row.quads, frame, ts.imageData, entry.lut, false, ts.image) then
+  if rse_paste(entry, bank, bank.under, row.mids or EMPTY, row.quads, frame, ts.imageData, entry.lut, false) then
     dirty.under = true
   end
-  if rse_paste(entry, bank, bank.over, row.overMids or EMPTY, row.overQuads, frame, ts.overImageData, entry.lutOver, true, ts.overImage) then
+  if rse_paste(entry, bank, bank.over, row.overMids or EMPTY, row.overQuads, frame, ts.overImageData, entry.lutOver, true) then
     dirty.over = true
   end
 end
@@ -241,6 +233,12 @@ end
 
 local rseDirty = {}
 
+local nativeMod
+local function NativeTileset()
+  nativeMod = nativeMod or require("src.core.game3.tileset_native")
+  return nativeMod
+end
+
 -- pokeemerald/src/tileset_anims.c:586
 function TilesetAnim.stepRse()
   local st = TilesetAnim._rse
@@ -265,8 +263,9 @@ function TilesetAnim.stepRse()
         end
       end
       local ts = entry.atlas
-      if dirty.under and ts.image and ts.image.replacePixels then ts.image:replacePixels(ts.imageData) end
-      if dirty.over and ts.overImage and ts.overImage.replacePixels then ts.overImage:replacePixels(ts.overImageData) end
+      if dirty.under or dirty.over then
+        NativeTileset().flush(ts, dirty.under, dirty.over)
+      end
     end
   end
 end
@@ -383,10 +382,7 @@ function TilesetAnim._applyKind(entry, kind, frame)
   local nMids = #bank.mids
   local cols = ts.cols or 16
   local image = ts.image
-  -- pokeemerald-style partial upload (see rse_paste): push only the 16x16
-  -- metatiles this bank owns instead of re-uploading the whole atlas.
   local partial = image ~= nil and image.replacePixels ~= nil
-  local full = false
   for mi, mid in ipairs(bank.mids) do
     local slot = ts.midToSlot[mid]
     if slot then
@@ -398,10 +394,6 @@ function TilesetAnim._applyKind(entry, kind, frame)
       if piece and ts.imageData.paste then
         ts.imageData:paste(piece, ax, ay)
         pasted = true
-        if partial and not full then
-          local ok = pcall(image.replacePixels, image, piece, 1, 1, ax, ay, false)
-          if not ok then full = true end
-        end
       end
       if not pasted then
         local frameRgba = bank.rgba:sub(srcOff + 1, srcOff + MID_RGBA)
@@ -416,12 +408,11 @@ function TilesetAnim._applyKind(entry, kind, frame)
             i = i + 4
           end
         end
-        full = true
       end
     end
   end
   if partial then
-    if full then image:replacePixels(ts.imageData) end
+    NativeTileset().flush(ts, true, false)
   elseif ts.image and love and love.graphics then
     ts.image = love.graphics.newImage(ts.imageData)
     if ts.image.setFilter then ts.image:setFilter("nearest", "nearest") end

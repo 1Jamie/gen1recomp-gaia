@@ -2,6 +2,12 @@
 -- Pauses host field locomotion (_game3FieldPause); pumps RTC / playtime (H1).
 -- Game3 Player owns walk/run; dialogs + START go through game3 HUD.
 
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local MapIds = require("src.core.game3.map_ids")
 local Runtime = {}
 
@@ -56,7 +62,7 @@ end
 -- pokefirered/src/start_menu.c:1003
 function Runtime.fieldScreenOpen(menuOpen)
   if menuOpen == nil then
-    local Hud = require("src.ui.game3.hud")
+    local Hud = lazyReq("src.ui.game3.hud")
     menuOpen = Hud.isMenuOpen and Hud.isMenuOpen() or false
   end
   if not menuOpen then return false end
@@ -161,7 +167,7 @@ function Runtime.start(mod, game, session, opts)
   Runtime.active = true
   Runtime._deferred = nil
   Runtime._menuFocus = false
-  local CameraObject = require("src.core.game3.camera_object")
+  local CameraObject = lazyReq("src.core.game3.camera_object")
   CameraObject.reset()
   mark_host_game3(game, true)
 
@@ -172,28 +178,28 @@ function Runtime.start(mod, game, session, opts)
     tostring(session and session.y),
     tostring(opts.reason or (opts.alreadyOnMap and "adopt" or "enter"))))
 
-  local Field = require("src.core.game3.field")
+  local Field = lazyReq("src.core.game3.field")
   Field.start(mod, game, session)
 
-  local Dataset = require("src.core.game3.dataset")
+  local Dataset = lazyReq("src.core.game3.dataset")
   local cache = (mod and mod.cache) or (Dataset.cache and Dataset.cache())
-  local okPk, Pokemon = pcall(require, "src.core.game3.pokemon")
+  local okPk, Pokemon = pcall(lazyReq, "src.core.game3.pokemon")
   if okPk and Pokemon and Pokemon.install then
     Pokemon.install(cache)
   end
-  local okPc, PartyChrome = pcall(require, "src.ui.game3.party_chrome")
+  local okPc, PartyChrome = pcall(lazyReq, "src.ui.game3.party_chrome")
   if okPc and PartyChrome and PartyChrome.install then
     PartyChrome.install(cache)
   end
-  local okBc, BattleChrome = pcall(require, "src.ui.game3.battle_chrome")
+  local okBc, BattleChrome = pcall(lazyReq, "src.ui.game3.battle_chrome")
   if okBc and BattleChrome and BattleChrome.install then
     BattleChrome.install(cache)
   end
 
   if opts.alreadyOnMap then
     -- Stay on current host map; only ensure Space VM + depth-1 neighbors.
-    local Map = require("src.core.game3.map")
-    local Player = require("src.core.game3.player")
+    local Map = lazyReq("src.core.game3.map")
+    local Player = lazyReq("src.core.game3.player")
     local def = game and game.data and game.data.maps and game.data.maps[session.map]
     Map.current = session.map
     Map.loadNeighborsDepth1(game, def)
@@ -222,7 +228,7 @@ function Runtime.start(mod, game, session, opts)
     -- Space.onMapEnter already ran (or will run) from afterMap — don't double.
     log("adopted existing game3 map (no re-warp)")
   else
-    local Map = require("src.core.game3.map")
+    local Map = lazyReq("src.core.game3.map")
     Map.load(mod, game, session.map, {
       x = session.x,
       y = session.y,
@@ -235,14 +241,14 @@ end
 
 function Runtime.stop(mod, game)
   log("INACTIVE leaving game3 field")
-  local Field = require("src.core.game3.field")
+  local Field = lazyReq("src.core.game3.field")
   Field.stop()
   mark_host_game3(game or Runtime._game, false)
   Runtime.active = false
   Runtime.session = nil
   Runtime._deferred = nil
   Runtime._menuFocus = false
-  local okCam, CameraObject = pcall(require, "src.core.game3.camera_object")
+  local okCam, CameraObject = pcall(lazyReq, "src.core.game3.camera_object")
   if okCam and CameraObject then CameraObject.reset() end
   local Space = package.loaded["src.core.game3.scripting.space"]
   if Space and Space.deactivate then
@@ -255,8 +261,8 @@ end
 function Runtime.update(dt)
   if not Runtime.active then return end
   local game = Runtime._game
-  local Hud = require("src.ui.game3.hud")
-  local inputTop = require("src.ui.game3.stack").top() or false
+  local Hud = lazyReq("src.ui.game3.hud")
+  local inputTop = lazyReq("src.ui.game3.stack").top() or false
   local inMenu = Hud.isMenuOpen and Hud.isMenuOpen() or false
   Runtime.drainDeferred()
   Runtime.noteFieldFocus(Runtime.fieldScreenOpen(inMenu))
@@ -273,33 +279,33 @@ function Runtime.update(dt)
   end
   Runtime.tickVblank(Runtime.session, inMenu)
 
-  local okF, Fade = pcall(require, "src.ui.game3.fade")
+  local okF, Fade = pcall(lazyReq, "src.ui.game3.fade")
   if okF and Fade.tick then Fade.tick(dt) end
-  local okSea, SeagallopUi = pcall(require, "src.ui.game3.seagallop")
+  local okSea, SeagallopUi = pcall(lazyReq, "src.ui.game3.seagallop")
   if okSea and SeagallopUi and SeagallopUi.isActive and SeagallopUi.isActive() then
     SeagallopUi.update(dt)
   end
-  local okTr, BattleTransition = pcall(require, "src.core.game3.battle_transition")
+  local okTr, BattleTransition = pcall(lazyReq, "src.core.game3.battle_transition")
   if okTr and BattleTransition.isActive and BattleTransition.isActive() then
     BattleTransition.tick(dt)
   end
-  local okT, Task = pcall(require, "src.core.game3.task")
+  local okT, Task = pcall(lazyReq, "src.core.game3.task")
   if okT and Task.update then Task.update(dt) end
-  local okA, Audio = pcall(require, "src.core.game3.audio")
+  local okA, Audio = pcall(lazyReq, "src.core.game3.audio")
   if okA and Audio.update then
     -- Cry tick is folded into Audio.update (called from Game3:fixedUpdate).
   elseif okA and Audio.tickCry then
     Audio.tickCry(dt)
   end
 
-  local okW, FieldWeather = pcall(require, "src.core.game3.field_weather")
+  local okW, FieldWeather = pcall(lazyReq, "src.core.game3.field_weather")
   if okW and FieldWeather and FieldWeather.update then
     FieldWeather.update(dt)
   end
 
-  local Battle = require("src.core.game3.battle")
+  local Battle = lazyReq("src.core.game3.battle")
   if Battle.isActive() then
-    local Weather = require("src.core.game3.weather")
+    local Weather = lazyReq("src.core.game3.weather")
     Weather.suspend()
     Battle.update(dt, game)
     -- Keep script VM + message typewriter alive while battle runs.
@@ -314,12 +320,12 @@ function Runtime.update(dt)
     Hud.update(game, dt, inputTop)
     return
   else
-    local Weather = require("src.core.game3.weather")
+    local Weather = lazyReq("src.core.game3.weather")
     Weather.resume()
   end
 
   if not inMenu then
-    local Field = require("src.core.game3.field")
+    local Field = lazyReq("src.core.game3.field")
     Field.update(dt)
   end
   Hud.update(game, dt, inputTop)
@@ -327,22 +333,22 @@ end
 
 -- pokeemerald/src/main.c:349
 function Runtime.tickVblank(session, inMenu)
-  if not session or require("src.core.game3.profile").family(session) ~= "rse" then
+  if not session or lazyReq("src.core.game3.profile").family(session) ~= "rse" then
     return Runtime._vblankCounter or 0
   end
   Runtime._vblankCounter = (Runtime._vblankCounter or 0) + 1
-  if require("src.core.game3.rtc").enabled(session) then
+  if lazyReq("src.core.game3.rtc").enabled(session) then
     -- pokeemerald/src/field_tasks.c:168
     local Field = package.loaded["src.core.game3.field"]
     if not (Field and Field.locked) and not inMenu then
-      require("src.core.game3.time_events").tick(session, Runtime._vblankCounter)
+      lazyReq("src.core.game3.time_events").tick(session, Runtime._vblankCounter)
     end
   end
   return Runtime._vblankCounter
 end
 
 function Runtime.uiBusy()
-  local Hud = require("src.ui.game3.hud")
+  local Hud = lazyReq("src.ui.game3.hud")
   return Hud.busy()
 end
 
@@ -359,7 +365,7 @@ end
 
 local function player_xy(game)
   -- Prefer game3 avatar when active.
-  local okP, Player = pcall(require, "src.core.game3.player")
+  local okP, Player = pcall(lazyReq, "src.core.game3.player")
   if okP and Player and Runtime.active then
     return Player.cellX, Player.cellY, Player.facing or "down"
   end
@@ -378,7 +384,7 @@ function Runtime.ensureActiveForMap(mod, game, mapId)
   if not MapIds.isGame3Map(mapId) then
     if Runtime.active then
       log("left game3 map=" .. tostring(mapId) .. " — tearing down")
-      local Bridge = require("src.core.game3.bridge")
+      local Bridge = lazyReq("src.core.game3.bridge")
       Bridge.persistSessionOnly(mod, game)
       Runtime.stop(mod, game)
     else
@@ -413,26 +419,26 @@ function Runtime.ensureActiveForMap(mod, game, mapId)
     local data = game and game.data and game.data.maps
     local def = data and data[mapId]
     local Map = package.loaded["src.core.game3.map"]
-      or require("src.core.game3.map")
+      or lazyReq("src.core.game3.map")
     Map.current = mapId
     if def then
       local Space = package.loaded["src.core.game3.scripting.space"]
-        or require("src.core.game3.scripting.space")
+        or lazyReq("src.core.game3.scripting.space")
       if Space.ensureBundle then Space.ensureBundle(mod) end
       if Space.attachEventsToMaps then
         Space.attachEventsToMaps({ [mapId] = def }, Space.bundle)
       end
-      local okC, Collision = pcall(require, "src.core.game3.collision")
+      local okC, Collision = pcall(lazyReq, "src.core.game3.collision")
       if okC and Collision and Collision.bindMap then
         Collision.bindMap(game, mapId, def)
       end
-      local okO, Objects = pcall(require, "src.core.game3.objects")
+      local okO, Objects = pcall(lazyReq, "src.core.game3.objects")
       if okO and Objects and Objects.loadMap then
         Objects.loadMap(game, mapId, def)
       end
       Map.loadNeighborsDepth1(game, def)
     end
-    local okP, Player = pcall(require, "src.core.game3.player")
+    local okP, Player = pcall(lazyReq, "src.core.game3.player")
     if okP and Player then
       Player.reset(x, y, facing)
       Player.syncSavePosition(game)
@@ -441,7 +447,7 @@ function Runtime.ensureActiveForMap(mod, game, mapId)
     return true
   end
   log("bootstrapping game3 on Sevii map load: " .. tostring(mapId))
-  local Bridge = require("src.core.game3.bridge")
+  local Bridge = lazyReq("src.core.game3.bridge")
   local x, y, facing = player_xy(game)
   Bridge.enterFromHost(mod, game, {
     map = mapId,
@@ -460,7 +466,7 @@ function Runtime.install(mod)
   Runtime._mod = mod
   log("Runtime.install — display ownership + START intercept + game.ready")
 
-  local ok, World = pcall(require, "src.world.gen2.World")
+  local ok, World = pcall(lazyReq, "src.world.gen2.World")
   if ok and World and World.step and not World._game3RuntimeStep then
     local prev = World.step
     World.step = function(self, ...)
@@ -501,13 +507,13 @@ function Runtime.install(mod)
   end
 
   -- Own the frame: replace Gen2 drawScene presentation while active.
-  local ok2, Game2 = pcall(require, "src.core.Game2")
+  local ok2, Game2 = pcall(lazyReq, "src.core.Game2")
   if ok2 and Game2 and Game2.drawScene and not Game2._game3Display then
     local prevDraw = Game2.drawScene
     Game2.drawScene = function(self, w, h)
       if Runtime.isActive() then
         Runtime._game = self
-        local Display = require("src.core.game3.display")
+        local Display = lazyReq("src.core.game3.display")
         if Display.present(self, w, h) then
           return
         end
@@ -522,7 +528,7 @@ function Runtime.install(mod)
     local prevOpen = Game2.openStartMenu
     Game2.openStartMenu = function(self, ...)
       if Runtime.isActive() then
-        local Hud = require("src.ui.game3.hud")
+        local Hud = lazyReq("src.ui.game3.hud")
         log("START → game3 Start Menu (own display)")
         Hud.openStartMenu(self, Runtime.getSession())
         return
@@ -530,7 +536,7 @@ function Runtime.install(mod)
       local mapId = current_map_id(self)
       if MapIds.isGame3Map(mapId) then
         Runtime.ensureActiveForMap(mod, self, mapId)
-        local Hud = require("src.ui.game3.hud")
+        local Hud = lazyReq("src.ui.game3.hud")
         Hud.openStartMenu(self, Runtime.getSession())
         return
       end
@@ -540,7 +546,7 @@ function Runtime.install(mod)
   end
 
   -- Block Gen2 menu pushes on Sevii entirely.
-  local ok3, Screens = pcall(require, "src.ui.Screens")
+  local ok3, Screens = pcall(lazyReq, "src.ui.Screens")
   if ok3 and Screens and Screens.push and not Screens._game3StartHook then
     local prevPush = Screens.push
     Screens.push = function(game, id, ...)
@@ -552,18 +558,18 @@ function Runtime.install(mod)
             Runtime.ensureActiveForMap(mod, game, mapId)
           end
           if Runtime.isActive() then
-            local Hud = require("src.ui.game3.hud")
+            local Hud = lazyReq("src.ui.game3.hud")
             log("blocked Screens.push(" .. tostring(id) .. ") — game3 owns UI")
             if id == "StartMenu" or id == "Gen2StartMenu" then
               Hud.openStartMenu(game, Runtime.getSession())
             elseif id == "PackMenu" or id == "Gen2PackMenu" then
               local session = Runtime.getSession()
-              require("src.ui.game3.bag_menu").show(session and session.bag, {
+              lazyReq("src.ui.game3.bag_menu").show(session and session.bag, {
                 session = session,
                 onClose = function() end,
               })
             elseif id == "Gen2Pokegear" then
-              local RegionMap = require("src.ui.game3.region_map")
+              local RegionMap = lazyReq("src.ui.game3.region_map")
               RegionMap.show({ session = Runtime.getSession() })
             end
             return

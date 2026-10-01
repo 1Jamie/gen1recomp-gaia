@@ -482,12 +482,13 @@ function OwSprites.draw(graphicsId, px, py, camX, camY, facing, walkPhase, stepF
   if not q then return false end
   local sx = px - camX + (16 - spr.width) / 2
   local sy = py - camY + 16 - spr.height
-  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.setColor(1, 1, 1, opts and opts.alpha or 1)
   if flip then
     love.graphics.draw(spr.image, q, sx + spr.width, sy, 0, -1, 1)
   else
     love.graphics.draw(spr.image, q, sx, sy)
   end
+  if opts and opts.alpha then love.graphics.setColor(1, 1, 1, 1) end
   return true
 end
 

@@ -184,6 +184,15 @@ Map.WARM_BUDGET_SEC = 0.030
 Map.WARM_MAX_DEFER = 3
 Map._warmDefer = 0
 
+function Map.warmNow(game, rootId)
+  local FieldView = package.loaded["src.core.game3.field_view"]
+  local Display = package.loaded["src.core.game3.display"]
+  local vw = (FieldView and FieldView._viewW) or (Display and Display.W) or 240
+  local vh = (FieldView and FieldView._viewH) or (Display and Display.H) or 160
+  Map._warmPairs = nil
+  return Map.refreshWorld(game, math.ceil(vw / 16), math.ceil(vh / 16), rootId)
+end
+
 function Map.warmRect()
   local P = package.loaded["src.core.game3.player"]
   local px, py = P and tonumber(P.cellX), P and tonumber(P.cellY)
@@ -224,7 +233,7 @@ function Map.stepWarm()
   while queue[i] do
     local pair = queue[i]
     if NativeTileset and (NativeTileset._pairs and NativeTileset._pairs[pair])
-        or not (NativeTileset and NativeTileset.ready and NativeTileset.ready(pair)) then
+        or not (NativeTileset and NativeTileset.get) then
       table.remove(queue, i)
     else
       local near = not entries[pair]
@@ -233,11 +242,14 @@ function Map.stepWarm()
       end
       if near then
         table.remove(queue, i)
-        pcall(NativeTileset.get, pair)
-        if not queue[1] then Map._warmQueue = nil end
-        return true
+        if NativeTileset.ready(pair) then
+          pcall(NativeTileset.get, pair)
+          if not queue[1] then Map._warmQueue = nil end
+          return true
+        end
+      else
+        i = i + 1
       end
-      i = i + 1
     end
   end
   if not queue[1] then Map._warmQueue = nil end
@@ -588,8 +600,13 @@ function Map.load(mod, game, mapId, opts)
   end
 
   if def then
+    local seen = opts.seamless and Ghosts.visibleIds(mapId) or nil
     Objects.loadMap(game, mapId, def)
     if opts.carry then Objects.carryIn(opts.carry) end
+    if opts.seamless then
+      Objects.beginFadeIn(seen or {})
+      Ghosts.openFadeWindow()
+    end
     Ghosts.adopt(mapId)
   end
   -- pokefirered/src/overworld.c:771 / :808 TryRegenerateRenewableHiddenItems
@@ -726,6 +743,9 @@ function Map.load(mod, game, mapId, opts)
       Field.unlock()
     end
   end
+
+  if Map._warmPairs then Map.warmNow(game, mapId) end
+  require("src.core.FixedStep"):discardCatchup()
 
   return {
     mapId = mapId,

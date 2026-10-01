@@ -2,6 +2,12 @@
 -- Built from mapDef.blocks + tileset.collision (Gen2 COLL_* quads baked from
 -- FRLG metatile attrs at extract). Does not call World:step / Player:tryMove.
 
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local Connections = require("src.core.game3.connections")
 local MB = require("src.core.game3.mb")
 local InteractionScripts = require("src.core.game3.scripting.interaction_scripts")
@@ -35,7 +41,7 @@ end
 local permsLoaded, permsMod
 local function permissions()
   if not permsLoaded then
-    local ok, P = pcall(require, "src.world.gen2.Permissions")
+    local ok, P = pcall(lazyReq, "src.world.gen2.Permissions")
     permsMod = ok and P or nil
     permsLoaded = true
   end
@@ -173,7 +179,7 @@ function Collision.installWarps(mapDef)
         local repair = beh == nil or Collision.isWarpMetatileBehavior(beh)
         -- pokefirered/src/field_control_avatar.c:860
         if beh ~= nil and repair and cur == 0x00 then
-          local ScriptColl = require("src.core.game3.scripting.collision")
+          local ScriptColl = lazyReq("src.core.game3.scripting.collision")
           local seeded = ScriptColl.fromCell(layout and layout:midAt(x, y) or 0, 0, beh, mapDef.kind)
           if isWarpBehavior(seeded) then
             Collision._grid[i] = seeded
@@ -256,7 +262,7 @@ local worldMap
 function Collision.worldBehavior(cx, cy)
   local def = Collision._mapDef
   if not (def and def.midLayout) then return nil end
-  worldMap = worldMap or require("src.core.game3.map")
+  worldMap = worldMap or lazyReq("src.core.game3.map")
   local mid, pair = worldMap.worldMidAt(cx, cy, def)
   local behaviors = InteractionScripts.behaviors[pair]
   return behaviors and behaviors[mid]
@@ -779,7 +785,7 @@ function Collision.tryConnection(game, fromX, fromY, dir, run)
   if not mapDef or type(mapDef.connections) ~= "table" then return false end
   local data = game and game.data and game.data.maps
   if not data then return false end
-  local Map = require("src.core.game3.map")
+  local Map = lazyReq("src.core.game3.map")
   -- pokefirered/src/fieldmap.c:673
   local conn, destDef = Connections.incoming(mapDef, DIR_CONN[dir], fromX, fromY, function(id)
     local def = data[id]
@@ -792,7 +798,7 @@ function Collision.tryConnection(game, fromX, fromY, dir, run)
   local lx, ly = Collision.connectionLanding(destDef, conn, dir, fromX, fromY)
   if not lx then return false end
 
-  local Player = require("src.core.game3.player")
+  local Player = lazyReq("src.core.game3.player")
   local L = destDef.midLayout
   local landingWater = Collision.isWaterOn(destDef, lx, ly)
   if L and L.collAt then
@@ -819,7 +825,7 @@ function Collision.tryConnection(game, fromX, fromY, dir, run)
       return false
     end
   end
-  local Ghosts = require("src.core.game3.ghosts")
+  local Ghosts = lazyReq("src.core.game3.ghosts")
   if Ghosts.blocksOn(destMap, destDef, lx, ly) then return false end
 
   local Runtime = package.loaded["src.core.game3.runtime"]
@@ -849,13 +855,13 @@ function Collision.tryConnection(game, fromX, fromY, dir, run)
   Player.running = run and true or false
   Player.jumping = false
   Player.dismounting = Player.surfing and not landingWater or false
-  if Player.dismounting then require("src.core.game3.audio").stopSurfMusic() end
+  if Player.dismounting then lazyReq("src.core.game3.audio").stopSurfMusic() end
   Player.spriteYOffset = 0
   Player.stepFrames = run and RUN_FRAMES or WALK_FRAMES
   Player.syncSavePosition(g)
 
   if Collision.isGrass and Collision.isGrass(lx, ly) then
-    local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
+    local okFx, FieldEffects = pcall(lazyReq, "src.core.game3.field_effects")
     if okFx and FieldEffects and FieldEffects.tallGrassAt then
       FieldEffects.tallGrassAt(lx, ly, false)
     end
@@ -873,7 +879,7 @@ function Collision.scriptConnection(game, fromX, fromY, dir)
   game = game or (Runtime and Runtime._game)
   local data = game and game.data and game.data.maps
   if not data then return nil end
-  local Map = require("src.core.game3.map")
+  local Map = lazyReq("src.core.game3.map")
   local conn, destDef = Connections.incoming(mapDef, DIR_CONN[dir], fromX, fromY, function(id)
     local def = data[id]
     if def and Map.ensureMidLayout then Map.ensureMidLayout(game, id, def) end
@@ -883,9 +889,9 @@ function Collision.scriptConnection(game, fromX, fromY, dir)
   local lx, ly = Collision.connectionLanding(destDef, conn, dir, fromX, fromY)
   if not lx then return nil end
   local dx, dy = lx - (fromX + d[1]), ly - (fromY + d[2])
-  local Objects = require("src.core.game3.objects")
+  local Objects = lazyReq("src.core.game3.objects")
   local carry = Objects.carryOut(dx, dy)
-  local Player = require("src.core.game3.player")
+  local Player = lazyReq("src.core.game3.player")
   local facing = Player.facing
   Map.load(Runtime and Runtime._mod, game, conn.map, {
     x = lx, y = ly, facing = facing, seamless = true, depth1Connections = true, keepScript = true, carry = carry,
@@ -977,7 +983,7 @@ function Collision.rotatingGateCollision(game, dir, x, y)
 end
 
 local function entityBlocks(game, tx, ty, elevation)
-  local okO, Objects = pcall(require, "src.core.game3.objects")
+  local okO, Objects = pcall(lazyReq, "src.core.game3.objects")
   if okO and Objects and Objects.hasMap and Objects.hasMap() then
     if Objects.blocks(tx, ty, nil, elevation) then return true end
     return false
@@ -1110,7 +1116,7 @@ local function sessionOf()
 end
 
 local function catalogMapId(mapId, group, num)
-  local okC, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+  local okC, MapCatalog = pcall(lazyReq, "src.import.gba.map_catalog")
   if type(mapId) == "string" and mapId ~= "" then
     if okC and MapCatalog and MapCatalog.resolve then
       return MapCatalog.resolve(mapId) or mapId
@@ -1152,16 +1158,16 @@ local function resolveDest(game, warp)
   end
   local destMap = warp.destMap or warp.map
   if type(destMap) ~= "string" or destMap == "" then
-    local okC, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+    local okC, MapCatalog = pcall(lazyReq, "src.import.gba.map_catalog")
     if okC and MapCatalog and warp.mapGroup ~= nil then
       destMap = MapCatalog.mapIdFor(warp.mapGroup, warp.mapNum)
     end
     if type(destMap) ~= "string" then
-      local Versions = require("src.import.gba.versions")
+      local Versions = lazyReq("src.import.gba.versions")
       destMap = Versions.mapIdFor and Versions.mapIdFor(warp.mapGroup, warp.mapNum)
     end
   else
-    local okC, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+    local okC, MapCatalog = pcall(lazyReq, "src.import.gba.map_catalog")
     if okC and MapCatalog and MapCatalog.resolve then
       destMap = MapCatalog.resolve(destMap) or destMap
     end
@@ -1257,7 +1263,7 @@ function Collision.isDoorWarp(game, cx, cy)
   if not destMap then return nil end
 
   local curMap = (game and game.currentMap) or (Collision._mapId)
-  local okDoors, Doors = pcall(require, "src.core.game3.doors")
+  local okDoors, Doors = pcall(lazyReq, "src.core.game3.doors")
   if okDoors and Doors and Doors.getDoorEntryAt then
     local entry = Doors.getDoorEntryAt(curMap, cx, cy)
     if entry then
@@ -1291,7 +1297,7 @@ function Collision.isExitWarp(game, cx, cy)
   local destMap, destX, destY = resolveDest(game, w)
   if not destMap then return nil end
 
-  local okDoors, Doors = pcall(require, "src.core.game3.doors")
+  local okDoors, Doors = pcall(lazyReq, "src.core.game3.doors")
   if okDoors and Doors and Doors.getDoorEntryAt then
     local entry = Doors.getDoorEntryAt(destMap, destX, destY)
     if entry then
@@ -1439,7 +1445,7 @@ function Collision.destArrivalFacing(game, destMap, destX, destY, storedDir)
   local data = game and game.data and game.data.maps
   local destDef = data and data[destMap]
   if destDef then
-    local Map = package.loaded["src.core.game3.map"] or require("src.core.game3.map")
+    local Map = package.loaded["src.core.game3.map"] or lazyReq("src.core.game3.map")
     if Map.ensureMidLayout then pcall(Map.ensureMidLayout, game, destMap, destDef) end
   end
   local destBeh = Collision.behaviorOn(destDef, destX, destY)
@@ -1503,9 +1509,9 @@ function Collision.tryWarpAt(game, cx, cy, facing, opts)
   local mod = Runtime and Runtime._mod
   local g = game or (Runtime and Runtime._game)
 
-  local MapIds = require("src.core.game3.map_ids")
+  local MapIds = lazyReq("src.core.game3.map_ids")
   if MapIds.isGame3Map(destMap) then
-    local Warp = require("src.core.game3.warp")
+    local Warp = lazyReq("src.core.game3.warp")
 
     -- pokefirered/src/field_control_avatar.c:879
     local isTeleport
@@ -1542,7 +1548,7 @@ function Collision.tryWarpAt(game, cx, cy, facing, opts)
 
   -- Leaving Sevii — hand back to host.
   if Runtime and Runtime.isActive and Runtime.isActive() then
-    local Bridge = require("src.core.game3.bridge")
+    local Bridge = lazyReq("src.core.game3.bridge")
     if Bridge.persistSessionOnly then
       Bridge.persistSessionOnly(mod, g)
     end

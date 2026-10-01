@@ -2,6 +2,12 @@
 -- Owns idle AI + applymovement tracks; optional host NPC mirror for adapters.
 -- Player localId 0xFF delegates to game3.player. Talk is Field.interact.
 
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local Movement = require("src.core.game3.scripting.movement")
 local Opcodes = require("src.core.game3.scripting.opcodes")
 local GfxIds = require("src.core.game3.scripting.gfx_ids")
@@ -66,12 +72,12 @@ Objects.offMap = offMap
 
 local function Collision()
   return package.loaded["src.core.game3.collision"]
-    or require("src.core.game3.collision")
+    or lazyReq("src.core.game3.collision")
 end
 
 local function Player()
   return package.loaded["src.core.game3.player"]
-    or require("src.core.game3.player")
+    or lazyReq("src.core.game3.player")
 end
 
 local function Space()
@@ -109,13 +115,13 @@ end
 local EMPTY = {}
 
 local function fieldBlock()
-  local Profile = package.loaded["src.core.game3.profile"] or require("src.core.game3.profile")
+  local Profile = package.loaded["src.core.game3.profile"] or lazyReq("src.core.game3.profile")
   local ok, row = pcall(Profile.forSession)
   return ok and row and row.field or EMPTY
 end
 
 local function isRse()
-  local Profile = package.loaded["src.core.game3.profile"] or require("src.core.game3.profile")
+  local Profile = package.loaded["src.core.game3.profile"] or lazyReq("src.core.game3.profile")
   local ok, row = pcall(Profile.forSession)
   return ok and row ~= nil and row.family == "rse"
 end
@@ -124,8 +130,8 @@ Objects.isRse = isRse
 local function canonMt(mt)
   mt = tonumber(mt)
   if mt == nil then return nil end
-  local MovementTypes = require("src.core.game3.movement_types")
-  local ok, v = pcall(MovementTypes.canon, require("src.core.GameVersion").get(), mt)
+  local MovementTypes = lazyReq("src.core.game3.movement_types")
+  local ok, v = pcall(MovementTypes.canon, lazyReq("src.core.GameVersion").get(), mt)
   return ok and v or mt
 end
 
@@ -134,7 +140,7 @@ Objects.canonMovementType = canonMt
 local inPlace
 local function inPlaceTable()
   if inPlace then return inPlace end
-  local MovementTypes = require("src.core.game3.movement_types")
+  local MovementTypes = lazyReq("src.core.game3.movement_types")
   inPlace = {}
   local dirs = { DOWN = "down", UP = "up", LEFT = "left", RIGHT = "right" }
   -- pokeemerald/src/event_object_movement.c:4422
@@ -188,7 +194,7 @@ local function cloneTemplate(def)
   if tonumber(def.kind) ~= OBJ_KIND_CLONE or type(t) ~= "table" then return nil end
   local mapId = t.mapId
   if not mapId then
-    local ok, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+    local ok, MapCatalog = pcall(lazyReq, "src.import.gba.map_catalog")
     if ok and type(MapCatalog) == "table" and MapCatalog.mapIdFor then
       mapId = MapCatalog.mapIdFor(tonumber(t.mapGroup), tonumber(t.mapNum))
     end
@@ -236,7 +242,7 @@ local function newEventObject(def, neighbor)
   local sprite = def.sprite
   local resolvedGfx = def.graphicsId or def.graphics
   do
-    local okS, Space = pcall(require, "src.core.game3.scripting.space")
+    local okS, Space = pcall(lazyReq, "src.core.game3.scripting.space")
     if okS and Space and Space.resolveObjectGraphicsId then
       local gid = Space.resolveObjectGraphicsId(def, neighbor)
       if gid then resolvedGfx = gid end
@@ -249,7 +255,7 @@ local function newEventObject(def, neighbor)
   local elev = (def.elevation and def.elevation ~= 0 and def.elevation)
     or (Coll and Coll.elevationAt and Coll.elevationAt(x, y)) or 0
   local MapCatalog = package.loaded["src.import.gba.map_catalog"]
-    or (pcall(require, "src.import.gba.map_catalog") and package.loaded["src.import.gba.map_catalog"])
+    or (pcall(lazyReq, "src.import.gba.map_catalog") and package.loaded["src.import.gba.map_catalog"])
   local mg, mn = nil, nil
   if MapCatalog and MapCatalog.groupNumFor and (def.mapId or Objects._mapId) then
     mg, mn = MapCatalog.groupNumFor(def.mapId or Objects._mapId)
@@ -329,7 +335,7 @@ end
 
 --- Re-resolve OBJ_EVENT_GFX_VAR_* after ON_TRANSITION sets VAR_OBJ_GFX_ID_*.
 function Objects.refreshGraphics()
-  local okS, Space = pcall(require, "src.core.game3.scripting.space")
+  local okS, Space = pcall(lazyReq, "src.core.game3.scripting.space")
   if not (okS and Space and Space.resolveObjectGraphicsId) then return 0 end
   local n = 0
   for _, eo in pairs(Objects._byId or {}) do
@@ -344,7 +350,7 @@ function Objects.refreshGraphics()
       end
     end
   end
-  local okFv, FieldView = pcall(require, "src.core.game3.field_view")
+  local okFv, FieldView = pcall(lazyReq, "src.core.game3.field_view")
   if okFv and FieldView then FieldView._nativeDirty = true end
   return n
 end
@@ -527,7 +533,7 @@ end
 local function spawnFromTemplate(def, mapId)
   local eo = newEventObject(def)
   if mapId and (not eo.originMapGroup or not eo.originMapNum) then
-    local okC, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+    local okC, MapCatalog = pcall(lazyReq, "src.import.gba.map_catalog")
     if okC and MapCatalog and MapCatalog.groupNumFor then
       local g, n = MapCatalog.groupNumFor(mapId)
       if g and n then
@@ -656,7 +662,7 @@ function Objects.carryOut(dx, dy)
       eo.originLocalId = eo.originLocalId or lid
       eo.originMapId = eo.originMapId or eo.foreignMap
       if not eo.originMapGroup or not eo.originMapNum then
-        local okC, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+        local okC, MapCatalog = pcall(lazyReq, "src.import.gba.map_catalog")
         if okC and MapCatalog and MapCatalog.groupNumFor then
           local g, n = MapCatalog.groupNumFor(eo.originMapId)
           if g and n then
@@ -707,7 +713,7 @@ function Objects.findObjectByLocalIdAndMap(localId, mapGroup, mapNum)
   end
   local g = tonumber(mapGroup)
   local n = tonumber(mapNum)
-  local okC, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+  local okC, MapCatalog = pcall(lazyReq, "src.import.gba.map_catalog")
   local targetMapId = (okC and MapCatalog and g ~= nil and n ~= nil and MapCatalog.mapIdFor(g, n)) or nil
 
   for _, lid in ipairs(Objects._order) do
@@ -734,7 +740,7 @@ end
 -- src/event_object_movement.c:2089-2116
 local function on_named_map(mapGroup, mapNum)
   if mapGroup == nil or mapNum == nil then return true end
-  local ok, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+  local ok, MapCatalog = pcall(lazyReq, "src.import.gba.map_catalog")
   if not (ok and type(MapCatalog) == "table" and MapCatalog.mapIdFor) then return true end
   local engineId = MapCatalog.mapIdFor(tonumber(mapGroup), tonumber(mapNum))
   if engineId == nil then return false end
@@ -947,7 +953,7 @@ local function finishStep(eo, game, ctx)
   end
   -- src/trainer_see.c:94
   if eo.sight and eo.sight > 0 and not eo.scriptBusy and not eo.frozen then
-    local okTs, TrainerSight = pcall(require, "src.core.game3.trainer_sight")
+    local okTs, TrainerSight = pcall(lazyReq, "src.core.game3.trainer_sight")
     if okTs and TrainerSight and TrainerSight.check then
       TrainerSight.check(game, eo)
     end
@@ -1187,7 +1193,7 @@ local function advanceTrack(lid, tr, game)
     elseif act.kind == "jump_landing_effect" then
       -- pokeemerald/src/event_object_movement.c:6444
       if eo == Player() then
-        local okF, FxRse = pcall(require, "src.core.game3.field_effects_rse")
+        local okF, FxRse = pcall(lazyReq, "src.core.game3.field_effects_rse")
         if okF and FxRse then FxRse.setJumpLandingEffect(act.on) end
       elseif eo then
         eo.disableJumpLanding = not act.on
@@ -1227,7 +1233,7 @@ local function advanceTrack(lid, tr, game)
       tr.sleep = act.frames or 48
     elseif act.kind == "emote" then
       if eo then
-        local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
+        local okFx, FieldEffects = pcall(lazyReq, "src.core.game3.field_effects")
         if okFx and FieldEffects then
           if FieldEffects.startEmote then
             FieldEffects.startEmote(eo, act.emoteType or "exclamation")
@@ -1367,7 +1373,7 @@ local function raiseHandTick(eo)
 end
 
 local function checkSight(game, eo)
-  local okTs, TrainerSight = pcall(require, "src.core.game3.trainer_sight")
+  local okTs, TrainerSight = pcall(lazyReq, "src.core.game3.trainer_sight")
   if okTs and TrainerSight and TrainerSight.check then
     TrainerSight.check(game, eo)
   end
@@ -1510,7 +1516,7 @@ end
 
 local idleRng
 local function pick(t)
-  idleRng = idleRng or require("src.core.game3.rng")
+  idleRng = idleRng or lazyReq("src.core.game3.rng")
   return t[(idleRng.Random() % #t) + 1]
 end
 
@@ -1631,6 +1637,47 @@ end
 
 local trackIds, trackRefs, trackActors = {}, {}, {}
 
+Objects.FADE_FRAMES = 10
+
+function Objects.fadeAlpha(eo)
+  local n = eo.fadeIn
+  if not n then return nil end
+  return (n + 1) / Objects.FADE_FRAMES
+end
+
+function Objects.beginFadeIn(seen)
+  for _, lid in ipairs(Objects._order) do
+    local eo = Objects._byId[lid]
+    if eo and eo.foreignMap == nil and not Objects.isPlayer(lid)
+        and eo.visible and not eo.hidden and not seen[lid]
+        and Objects.inCameraView(eo) then
+      if eo.berryTree then
+        eo.fadeIn, eo.fadeHold = 0, true
+      elseif not eo.invisible then
+        eo.fadeIn = 0
+      end
+    end
+  end
+end
+
+local function tickFade(eo)
+  local n = eo.fadeIn
+  if n then
+    if eo.fadeHold then
+      local bt = eo.berryTree
+      if bt and not bt.init then return end
+      eo.fadeHold = nil
+      if not (bt and bt.visible) then
+        eo.fadeIn = nil
+        return
+      end
+    end
+    n = n + 1
+    eo.fadeIn = n < Objects.FADE_FRAMES and n or nil
+  end
+end
+Objects.tickFade = tickFade
+
 function Objects.update(game)
   local count = 0
   for lid, tr in pairs(Objects._tracks) do
@@ -1653,6 +1700,7 @@ function Objects.update(game)
         eo.bowFrames = eo.bowFrames - 1
         if eo.bowFrames <= 0 then eo.bowFrames = nil end
       end
+      tickFade(eo)
       tickMotion(eo, game)
       idleTick(eo, game)
       if eo.rseKind or eo.levitate or eo.fig8 then Objects.tickRse(eo) end
@@ -1815,7 +1863,7 @@ local function setBerryTreeGraphics(eo, bt, tree)
   if stage == 0 then return end
   bt.visible = true
   local berryStage = stage - 1
-  local FxRse = require("src.core.game3.field_effects_rse")
+  local FxRse = lazyReq("src.core.game3.field_effects_rse")
   local m = FxRse.berryManifest()
   local berry = tonumber(tree.berry) or 1
   local entry = m and m.trees and (m.trees[berry] or m.trees[1])
@@ -1835,11 +1883,11 @@ end
 -- pokeemerald/src/event_object_movement.c:3093
 local function berryTreeTick(eo)
   local bt = eo.berryTree
-  local okB, BerryTrees = pcall(require, "src.core.game3.rse.berry_trees")
+  local okB, BerryTrees = pcall(lazyReq, "src.core.game3.rse.berry_trees")
   if not (okB and BerryTrees and bt) then return end
   local tree = BerryTrees.peek(nil, bt.id)
   local stage = tree and tree.stage or 0
-  local FxRse = require("src.core.game3.field_effects_rse")
+  local FxRse = lazyReq("src.core.game3.field_effects_rse")
   if not bt.init then
     -- pokeemerald/src/event_object_movement.c:3075
     bt.init, bt.func = true, "normal"
@@ -1881,7 +1929,7 @@ end
 
 local function isPokeGrass(x, y)
   local Coll = Collision()
-  local MB = require("src.core.game3.mb")
+  local MB = lazyReq("src.core.game3.mb")
   local b = Coll and Coll.behavior and Coll.behavior(x, y)
   return b ~= nil and (b == MB.id("TALL_GRASS") or b == MB.id("LONG_GRASS"))
 end
@@ -1896,7 +1944,7 @@ local function copyTick(eo)
   local started = moving and not c.wasMoving
   local finished = c.wasMoving and not moving
   c.wasMoving = moving
-  local okF, Faraway = pcall(require, "src.core.game3.faraway_island")
+  local okF, Faraway = pcall(lazyReq, "src.core.game3.faraway_island")
   local mew = okF and Faraway and Faraway.isMew(eo)
   if finished and mew then Faraway.updateStepCounter() end
   if not started or eo.moving or eo.frozen or eo.scriptBusy then return end
@@ -1939,7 +1987,7 @@ function Objects.revealTrainer(eo)
   if not eo or eo == Player() then return end
   local mt = tonumber(eo.movementType) or 0
   if mt == MT_BURIED then
-    local TrainerSight = require("src.core.game3.trainer_sight")
+    local TrainerSight = lazyReq("src.core.game3.trainer_sight")
     local done = false
     TrainerSight.revealBuried(eo, function() done = true end)
     eo.trackWait = function() return done end
@@ -1948,7 +1996,7 @@ function Objects.revealTrainer(eo)
   local d = eo.disguise
   if not d then return end
   -- pokeemerald/src/field_effect_helpers.c:1380
-  local FxRse = require("src.core.game3.field_effects_rse")
+  local FxRse = lazyReq("src.core.game3.field_effects_rse")
   d.a = FxRse.anim(FxRse.animCmds(d.sheet, 2))
   d.revealing = true
   eo.trackWait = function(o) return o.disguise == nil or o.disguise.done == true end
@@ -1995,6 +2043,7 @@ function Objects.tickPool(pool, game, ctx)
         eo.bowFrames = eo.bowFrames - 1
         if eo.bowFrames <= 0 then eo.bowFrames = nil end
       end
+      tickFade(eo)
       tickMotion(eo, game, ctx or pool)
       idleTick(eo, game, ctx)
     end
@@ -2125,7 +2174,7 @@ function Objects.removeObject(localId)
   if flag and flag ~= 0 and flag ~= 0xFFFF and flag ~= 65535 then
     local Space = package.loaded["src.core.game3.scripting.space"]
     if Space and Space.store then
-      local Flags = require("src.core.game3.scripting.flags")
+      local Flags = lazyReq("src.core.game3.scripting.flags")
       Flags.setFlag(Space.store, nil, flag, true)
     end
   end

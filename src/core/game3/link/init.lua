@@ -1,3 +1,9 @@
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local Game3Link = require("src.link.Game3Link")
 local Family = require("src.core.game3.link.family")
 
@@ -86,7 +92,7 @@ function Link.store()
 end
 
 local function flags()
-  return require("src.core.game3.scripting.flags")
+  return lazyReq("src.core.game3.scripting.flags")
 end
 
 function Link.getVar(ctx, id)
@@ -192,7 +198,7 @@ function Link.warpToDest(ctx, adapters, dest, kind)
   if not mapId then return false end
   local Map = package.loaded["src.core.game3.map"]
   if not Map then
-    local okM, loaded = pcall(require, "src.core.game3.map")
+    local okM, loaded = pcall(lazyReq, "src.core.game3.map")
     Map = okM and loaded or nil
   end
   if not (Map and Map.load) then return false end
@@ -266,7 +272,7 @@ end
 
 function Link.callSpecialNamed(ctx, adapters, name)
   local ok, id = pcall(function()
-    return require("src.core.game3.constants").of(Family.activeVersion()):special(name)
+    return lazyReq("src.core.game3.constants").of(Family.activeVersion()):special(name)
   end)
   if not (ok and id) then return false end
   return Link.callSpecial(ctx, adapters, id)
@@ -387,7 +393,7 @@ end
 function Link.client()
   local loaded = package.loaded["src.online.Client"]
   if loaded then return loaded end
-  local ok, Client = pcall(require, "src.online.Client")
+  local ok, Client = pcall(lazyReq, "src.online.Client")
   return ok and Client or nil
 end
 
@@ -405,7 +411,7 @@ function Link.openRelay(opts)
   opts = opts or {}
   local rs = opts.session or Link.clientCall("roomSession")
   if not rs then return nil, "no_room" end
-  local RelayTransport = require("src.core.game3.link.relay_transport")
+  local RelayTransport = lazyReq("src.core.game3.link.relay_transport")
   local transport = RelayTransport.new(rs, { client = opts.client })
   local seat = transport:seat()
   if seat == nil then return nil, "spectator" end
@@ -453,19 +459,19 @@ function Link.closeLink(reason)
 end
 
 function Link.union()
-  return require("src.core.game3.link.union_room")
+  return lazyReq("src.core.game3.link.union_room")
 end
 
 function Link.battle()
-  return require("src.core.game3.link.battle")
+  return lazyReq("src.core.game3.link.battle")
 end
 
 function Link.trade()
-  return require("src.core.game3.link.trade")
+  return lazyReq("src.core.game3.link.trade")
 end
 
 function Link.status()
-  return require("src.core.game3.link.status")
+  return lazyReq("src.core.game3.link.status")
 end
 
 function Link.update(dt)
@@ -526,7 +532,7 @@ end
 
 function Link.startPump()
   if Link._pump then return Link._pump end
-  local okT, Task = pcall(require, "src.core.game3.task")
+  local okT, Task = pcall(lazyReq, "src.core.game3.task")
   if not (okT and Task and Task.spawn) then return nil end
   Link._pump = Task.spawn(function(_, dt)
     if not Link.update(dt or 0) then
@@ -540,12 +546,12 @@ end
 
 -- pokefirered/src/start_menu.c:620 Field_AskSaveTheGame
 function Link.askSaveTheGame(ctx, adapters)
-  local okS, SaveMenu = pcall(require, "src.ui.game3.save_menu")
+  local okS, SaveMenu = pcall(lazyReq, "src.ui.game3.save_menu")
   if not (okS and type(SaveMenu) == "table" and SaveMenu.show) then
     Link.setResult(ctx, 0)
     return false
   end
-  local Natives = require("src.core.game3.scripting.natives")
+  local Natives = lazyReq("src.core.game3.scripting.natives")
   return Natives.yieldHost(ctx, adapters, function(done)
     SaveMenu.show({
       session = Link.session(),
@@ -573,7 +579,7 @@ function Link.liveProfile(rulesetId)
   if memo and memo.game == game and memo.rulesetId == rulesetId then
     return memo.profile, memo.why
   end
-  local ok, ArenaData = pcall(require, "src.online.ArenaData")
+  local ok, ArenaData = pcall(lazyReq, "src.online.ArenaData")
   if not (ok and type(ArenaData) == "table" and type(ArenaData.liveProfile3) == "function") then
     return nil, "unavailable"
   end
@@ -632,7 +638,7 @@ end
 local function connectModule()
   local loaded = package.loaded["src.online.Connect"]
   if loaded then return loaded end
-  local ok, Connect = pcall(require, "src.online.Connect")
+  local ok, Connect = pcall(lazyReq, "src.online.Connect")
   return ok and type(Connect) == "table" and Connect or nil
 end
 
@@ -664,7 +670,7 @@ function Link.connectError()
 end
 
 function Link.reasonText(why)
-  local Strings = require("src.core.Strings")
+  local Strings = lazyReq("src.core.Strings")
   if why == "mods" then
     return Strings("Mods that change link play are on, so this game can't go online.")
   end
@@ -709,11 +715,11 @@ function Link.isWirelessAdapterConnected(ctx, adapters)
   end
   Link.setResult(ctx, 0)
   if not (type(love) == "table" and love.graphics) then return false, 0 end
-  local okM, Message = pcall(require, "src.ui.game3.message")
-  local okC, Choice = pcall(require, "src.ui.game3.choice")
+  local okM, Message = pcall(lazyReq, "src.ui.game3.message")
+  local okC, Choice = pcall(lazyReq, "src.ui.game3.choice")
   if not (okM and okC and Message.show and Choice.yesNo) then return false, 0 end
-  local Strings = require("src.core.Strings")
-  local Natives = require("src.core.game3.scripting.natives")
+  local Strings = lazyReq("src.core.Strings")
+  local Natives = lazyReq("src.core.game3.scripting.natives")
   local live, liveWhy = Link.liveProfile()
   if not live and liveWhy == "mods" then
     local shown = false
@@ -784,7 +790,7 @@ function Link.isWirelessAdapterConnected(ctx, adapters)
 end
 
 local function dexCaught(dex, sp)
-  local okD, Dex = pcall(require, "src.core.game3.dex")
+  local okD, Dex = pcall(lazyReq, "src.core.game3.dex")
   if okD and Dex and Dex.isCaught then
     local ok, v = pcall(Dex.isCaught, dex, sp)
     if ok then return v == true end
@@ -796,7 +802,7 @@ end
 function Link.cardStars(s)
   if Family.of() == "rse" then
     -- pokeemerald/src/trainer_card.c:776 TrainerCard_GenerateCardForLinkPlayer
-    local FieldRse = require("src.core.game3.scripting.natives_field_rse")
+    local FieldRse = lazyReq("src.core.game3.scripting.natives_field_rse")
     return math.min(4, tonumber(FieldRse.countTrainerStars(s)) or 0)
   end
   local stars = 0
@@ -833,7 +839,7 @@ end
 function Link.cardCaught(s)
   local dex = type(s.dex) == "table" and s.dex or nil
   if not dex then return 0 end
-  local okD, Dex = pcall(require, "src.core.game3.dex")
+  local okD, Dex = pcall(lazyReq, "src.core.game3.dex")
   local version = Family.activeVersion()
   if okD and Dex and Dex.summaryCount and Family.of(version) == "rse" then
     local store = Link.store() or {}
@@ -907,12 +913,12 @@ function Link.showLinkTrainerCard(ctx, adapters)
   local mySeat = link and (tonumber(link.seat) or (link.role == "guest" and 1 or 0)) or nil
   if mySeat ~= nil and index == mySeat then card = Link.localTrainerCard() end
   card = card or Link.localTrainerCard()
-  local okC, TrainerCard = pcall(require, "src.ui.game3.trainer_card")
+  local okC, TrainerCard = pcall(lazyReq, "src.ui.game3.trainer_card")
   if not (okC and type(TrainerCard) == "table" and TrainerCard.show
       and type(love) == "table" and love.graphics) then
     return false, 0
   end
-  local Natives = require("src.core.game3.scripting.natives")
+  local Natives = lazyReq("src.core.game3.scripting.natives")
   return Natives.yieldHost(ctx, adapters, function(done)
     -- pokefirered/src/trainer_card.c:1865 ShowTrainerCardInLink
     TrainerCard.show({ session = card, onClose = function() done() end })
@@ -921,7 +927,7 @@ end
 
 -- pokefirered/src/wireless_communication_status_screen.c:302 BeginNormalPaletteFade
 local function takeScreen()
-  local okF, Fade = pcall(require, "src.ui.game3.fade")
+  local okF, Fade = pcall(lazyReq, "src.ui.game3.fade")
   if not (okF and Fade and Fade.begin and Fade.MODE) then return function() end end
   local covered = not (Fade.isActive and Fade.isActive()) and (tonumber(Fade.t) or 0) >= 16
   if not (covered and Fade.mode == Fade.MODE.TO_BLACK) then return function() end end
@@ -933,12 +939,12 @@ end
 
 -- pokefirered/src/wireless_communication_status_screen.c:195 ShowWirelessCommunicationScreen
 function Link.showWirelessCommunicationScreen(ctx, adapters)
-  local okS, LinkMenu = pcall(require, "src.ui.game3.link_menu")
+  local okS, LinkMenu = pcall(lazyReq, "src.ui.game3.link_menu")
   if not (okS and type(LinkMenu) == "table" and LinkMenu.show) then
     return false
   end
   local restore = takeScreen()
-  local Natives = require("src.core.game3.scripting.natives")
+  local Natives = lazyReq("src.core.game3.scripting.natives")
   return Natives.yieldHost(ctx, adapters, function(done)
     LinkMenu.show({
       onClose = function()

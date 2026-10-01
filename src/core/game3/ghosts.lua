@@ -1,19 +1,25 @@
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local Ghosts = {}
 
 Ghosts._pools = {}
 
 local function Map()
-  return package.loaded["src.core.game3.map"] or require("src.core.game3.map")
+  return package.loaded["src.core.game3.map"] or lazyReq("src.core.game3.map")
 end
 
 local function Objects()
-  return package.loaded["src.core.game3.objects"] or require("src.core.game3.objects")
+  return package.loaded["src.core.game3.objects"] or lazyReq("src.core.game3.objects")
 end
 
 local permsLoaded, permsMod
 local function permissions()
   if not permsLoaded then
-    local ok, P = pcall(require, "src.world.gen2.Permissions")
+    local ok, P = pcall(lazyReq, "src.world.gen2.Permissions")
     permsMod = ok and P or nil
     permsLoaded = true
   end
@@ -42,7 +48,7 @@ local function contextFor(entry, pool)
       end
       -- pokefirered/src/event_object_movement.c:4889
       if dir and entry.def then
-        local C = require("src.core.game3.collision")
+        local C = lazyReq("src.core.game3.collision")
         if C.directionallyImpassableOn
             and C.directionallyImpassableOn(entry.def, fromX, fromY, tx, ty, dir) then
           return false
@@ -88,6 +94,33 @@ local function syncCurrent(world)
   return n == 0 or (Ghosts._held ~= nil and n == -1)
 end
 
+Ghosts.FADE_WINDOW = 3
+
+function Ghosts.openFadeWindow()
+  Ghosts._fadeWindow = Ghosts.FADE_WINDOW
+end
+
+function Ghosts.visibleIds(mapId)
+  local pool = Ghosts._pools[mapId]
+  if not pool then return nil end
+  local seen = {}
+  for _, eo in ipairs(Objects().poolForDraw(pool)) do seen[eo.localId] = true end
+  return seen
+end
+
+local function markFade(pool, entry)
+  local P = package.loaded["src.core.game3.player"]
+  local px, py = P and tonumber(P.cellX), P and tonumber(P.cellY)
+  if not (px and py) then return end
+  for _, eo in pairs(pool.byId) do
+    local x, y = (eo.cellX or 0) + (entry.ox or 0), (eo.cellY or 0) + (entry.oy or 0)
+    if eo.visible and not eo.hidden and not eo.invisible
+        and x >= px - 9 and x <= px + 10 and y >= py - 7 and y <= py + 9 then
+      eo.fadeIn = 0
+    end
+  end
+end
+
 function Ghosts.sync()
   local M = Map()
   local world = M.world or EMPTY
@@ -99,7 +132,9 @@ function Ghosts.sync()
       if not Ghosts._pools[entry.id] then
         local defs = defsFor(entry.id, entry.def)
         if defs then
-          Ghosts._pools[entry.id] = Objects().spawnFromDefs(defs, entry.def, entry.id)
+          local pool = Objects().spawnFromDefs(defs, entry.def, entry.id)
+          Ghosts._pools[entry.id] = pool
+          if (Ghosts._fadeWindow or 0) > 0 then markFade(pool, entry) end
         end
       end
     end
@@ -155,6 +190,7 @@ local function nearView(entry, x0, y0, x1, y1)
 end
 
 function Ghosts.update(game)
+  if (Ghosts._fadeWindow or 0) > 0 then Ghosts._fadeWindow = Ghosts._fadeWindow - 1 end
   local M = Map()
   local Obj = Objects()
   local x0, y0, x1, y1 = tickRect()

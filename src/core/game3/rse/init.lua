@@ -1,3 +1,9 @@
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local Profile = require("src.core.game3.profile")
 
 local Rse = {}
@@ -24,7 +30,7 @@ function Rse.isRse(sess)
 end
 
 local function loadCache(rel)
-  local src = require("src.core.game3.dataset").cache():read(rel)
+  local src = lazyReq("src.core.game3.dataset").cache():read(rel)
   local chunk = src and load(src, "@" .. rel, "t", {})
   if not chunk then return nil end
   local ok, t = pcall(chunk)
@@ -110,11 +116,11 @@ function Rse.reset()
 end
 
 local function flagsMod()
-  return require("src.core.game3.scripting.flags")
+  return lazyReq("src.core.game3.scripting.flags")
 end
 
 local function tables(sess)
-  local Constants = require("src.core.game3.constants")
+  local Constants = lazyReq("src.core.game3.constants")
   return flagsMod().forVersion(Constants.versionOf(sess or session()))
 end
 
@@ -166,10 +172,10 @@ function Rse.mapGroupNum(mapId, sess)
   if type(mapId) ~= "string" then return nil end
   local row = Rse.profile(sess)
   local prefix = row and row.map and row.map.enginePrefix or ""
-  local Constants = require("src.core.game3.constants")
+  local Constants = lazyReq("src.core.game3.constants")
   local C = Constants.of(Constants.versionOf(sess or session()))
   -- pokeemerald/include/constants/map_groups.h: normalize map aliases against pret names.
-  local okCatalog, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+  local okCatalog, MapCatalog = pcall(lazyReq, "src.import.gba.map_catalog")
   local slot = okCatalog and MapCatalog.slotKeyFor and MapCatalog.slotKeyFor(mapId)
   local group, num = type(slot) == "string" and slot:match("^(%d+)_(%d+)$")
   if group and num then return tonumber(group), tonumber(num) end
@@ -188,7 +194,7 @@ function Rse.mapGroupNum(mapId, sess)
 end
 
 function Rse.text(key)
-  local RomText = require("src.core.game3.rom_text")
+  local RomText = lazyReq("src.core.game3.rom_text")
   return RomText.plain(key)
 end
 

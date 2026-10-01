@@ -3,6 +3,12 @@
 -- Tall grass, Cut grass leaves, Rock smash rubble, Surf blob, Fly bird, Ripples,
 -- Flash screen flash, Dig / Teleport warp spin, Sweet scent aroma.
 
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local Extract = require("src.import.gba.extract_island1")
 
 local FieldEffects = {}
@@ -51,7 +57,7 @@ local objectPoseOpts = {}
 local playerPoseOpts = {}
 local function isFrlgReflective(behavior)
   if not frlgReflective then
-    local MB = require("src.core.game3.mb")
+    local MB = lazyReq("src.core.game3.mb")
     frlgReflective = {}
     for _, name in ipairs({ "POND_WATER", "PUDDLE", "UNUSED_WATER", "CYCLING_ROAD_WATER", "ICE" }) do
       local id = MB.id(name)
@@ -122,7 +128,7 @@ local function drawFrlgReflections(camX, camY)
   if Ghosts and Ghosts.forDraw and type(world) == "table" then
     local host = Collision._mapDef
     local FV = package.loaded["src.core.game3.field_view"]
-    local Display = require("src.core.game3.display")
+    local Display = lazyReq("src.core.game3.display")
     local vw = FV and FV._viewW or Display.W
     local vh = FV and FV._viewH or Display.H
     local x0, y0 = camX - FRLG_REFL_CULL, camY - FRLG_REFL_CULL
@@ -242,13 +248,13 @@ end
 local EMPTY = {}
 
 local function fieldBlock()
-  local Profile = package.loaded["src.core.game3.profile"] or require("src.core.game3.profile")
+  local Profile = package.loaded["src.core.game3.profile"] or lazyReq("src.core.game3.profile")
   local ok, row = pcall(Profile.forSession)
   return ok and row and row.field or EMPTY
 end
 
 local function se_id(name, fallback)
-  local SE = package.loaded["src.core.game3.se_ids"] or require("src.core.game3.se_ids")
+  local SE = package.loaded["src.core.game3.se_ids"] or lazyReq("src.core.game3.se_ids")
   return (SE and SE[name]) or fallback
 end
 
@@ -283,7 +289,7 @@ end
 
 local function rse()
   local m = fx_manifest()
-  if m and m.family == "rse" then return require("src.core.game3.field_effects_rse") end
+  if m and m.family == "rse" then return lazyReq("src.core.game3.field_effects_rse") end
   return nil
 end
 FieldEffects.rse = rse
@@ -427,7 +433,7 @@ local function grass_sheet_for(cx, cy)
   if not fx_manifest() then return nil end
   local Collision = package.loaded["src.core.game3.collision"]
   local beh = Collision and Collision.behavior and Collision.behavior(cx, cy)
-  local MB = require("src.core.game3.mb")
+  local MB = lazyReq("src.core.game3.mb")
   local name = (beh ~= nil and beh == MB.id("LONG_GRASS")) and "long_grass" or "tall_grass"
   return name, manifest_seq(FieldEffects.manifestObject(name))
 end
@@ -1506,7 +1512,7 @@ local function start_tracks(g, prev)
   if not fx_manifest() or prev == nil then return end
   local P = package.loaded["src.core.game3.player"]
   if not P or P.biking then return end
-  local MB = require("src.core.game3.mb")
+  local MB = lazyReq("src.core.game3.mb")
   local name
   if prev == MB.id("DEEP_SAND") then
     name = "deep_sand_footprints"
@@ -1623,7 +1629,7 @@ end
 -- ---------------------------------------------------------------- Step & Update
 function FieldEffects.step()
   FieldEffects.groundEffects()
-  require("src.core.game3.warp_arrow").step()
+  lazyReq("src.core.game3.warp_arrow").step()
   -- Tall grass update
   local fx = FieldEffects._fx
   if fx and not fx.done and fx.seq then
@@ -2236,7 +2242,7 @@ function FieldEffects.drawFront(camX, camY, playerPy)
   camX, camY = camX or 0, camY or 0
   local R = rse()
   if R then R.drawFront(camX, camY) end
-  require("src.core.game3.warp_arrow").draw(camX, camY)
+  lazyReq("src.core.game3.warp_arrow").draw(camX, camY)
 
   -- Transient airborne particle animations
   for _, anim in ipairs(FieldEffects._anims) do
@@ -2334,14 +2340,14 @@ function FieldEffects.fldeffName(id)
   id = tonumber(id)
   if id == nil then return nil end
   local ok, name = pcall(function()
-    local Profile = package.loaded["src.core.game3.profile"] or require("src.core.game3.profile")
-    return require("src.core.game3.constants").of(Profile.forSession().id):name("field_effects", id, "FLDEFF_")
+    local Profile = package.loaded["src.core.game3.profile"] or lazyReq("src.core.game3.profile")
+    return lazyReq("src.core.game3.constants").of(Profile.forSession().id):name("field_effects", id, "FLDEFF_")
   end)
   return ok and name or nil
 end
 
 local function emote_target()
-  local Objects = package.loaded["src.core.game3.objects"] or require("src.core.game3.objects")
+  local Objects = package.loaded["src.core.game3.objects"] or lazyReq("src.core.game3.objects")
   return Objects.find(FieldEffects.fieldEffectArgument(0, 0))
 end
 
@@ -2386,7 +2392,7 @@ FieldEffects.HANDLERS = HANDLERS
 local function handlerFor(name)
   local fn = HANDLERS[name or ""]
   if fn or not rse() then return fn end
-  return require("src.core.game3.fldeff_misc").HANDLERS[name or ""]
+  return lazyReq("src.core.game3.fldeff_misc").HANDLERS[name or ""]
 end
 FieldEffects.handlerFor = handlerFor
 

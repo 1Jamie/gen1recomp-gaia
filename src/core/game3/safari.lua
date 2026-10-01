@@ -1,5 +1,11 @@
 -- pokefirered/src/safari_zone.c:9 gNumSafariBalls / gSafariZoneStepCounter
 
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local RomText = require("src.core.game3.rom_text")
 
 local Safari = {}
@@ -48,7 +54,7 @@ local function script_ctx()
 end
 
 local function rse_cfg(session)
-  local ok, BattleProfile = pcall(require, "src.core.game3.battle.profile")
+  local ok, BattleProfile = pcall(lazyReq, "src.core.game3.battle.profile")
   if not ok then return nil end
   local okP, p = pcall(BattleProfile.get, session)
   return okP and p and p.safari or nil
@@ -57,12 +63,12 @@ Safari.rseConfig = rse_cfg
 
 local function flag_id(session)
   local cfg = rse_cfg(session)
-  if cfg then return require("src.core.game3.rse.init").flagId(cfg.flag, session) end
+  if cfg then return lazyReq("src.core.game3.rse.init").flagId(cfg.flag, session) end
   return Safari.FLAG_SYS_SAFARI_MODE
 end
 
 local function set_flag(session, on)
-  local Flags = require("src.core.game3.scripting.flags")
+  local Flags = lazyReq("src.core.game3.scripting.flags")
   local st = store()
   local id = flag_id(session)
   if st then Flags.setFlag(st, script_ctx(), id, on) end
@@ -74,7 +80,7 @@ end
 
 local function se(id)
   pcall(function()
-    local Audio = require("src.core.game3.audio")
+    local Audio = lazyReq("src.core.game3.audio")
     if Audio and Audio.playSe then Audio.playSe(id) end
   end)
 end
@@ -88,7 +94,7 @@ function Safari.state(session)
 end
 
 local function flag_set(session)
-  local Flags = require("src.core.game3.scripting.flags")
+  local Flags = lazyReq("src.core.game3.scripting.flags")
   local st = store()
   local id = flag_id(session)
   if st and Flags.getFlag(st, script_ctx(), id) then return true end
@@ -148,7 +154,7 @@ function Safari.exit(session)
   local state = Safari.state(session)
   if state and rse_cfg(session) then
     -- pokeemerald/src/safari_zone.c:68
-    require("src.core.game3.rse.init").call("tv", "tryPutSafariFanClubOnAir", "TryPutSafariFanClubOnAir", nil,
+    lazyReq("src.core.game3.rse.init").call("tv", "tryPutSafariFanClubOnAir", "TryPutSafariFanClubOnAir", nil,
       tonumber(state.caughtMons) or 0, tonumber(state.pkblkUses) or 0)
   end
   set_flag(session, false)
@@ -186,7 +192,7 @@ function Safari.endBattleRse(session, st)
     local dest = session.warpDestination
     if dest and dest.map then
       local Runtime = runtime()
-      require("src.core.game3.warp").request(Runtime and Runtime._mod, game_of(nil), dest.map, dest.x, dest.y,
+      lazyReq("src.core.game3.warp").request(Runtime and Runtime._mod, game_of(nil), dest.map, dest.x, dest.y,
         "down", { fade = false, se = false })
     end
     return true
@@ -209,7 +215,7 @@ function Safari.steps(session)
 end
 
 local function set_entrance_scene(session, value)
-  local Flags = require("src.core.game3.scripting.flags")
+  local Flags = lazyReq("src.core.game3.scripting.flags")
   local st = store()
   if st then Flags.setVar(st, script_ctx(), Safari.VAR_ENTRANCE_SCENE, value) end
   if session then
@@ -224,7 +230,7 @@ function Safari.exitToEntrance(session, game)
   game = game_of(game)
   set_entrance_scene(session, 1)
   Safari.exit(session)
-  local Warp = require("src.core.game3.warp")
+  local Warp = lazyReq("src.core.game3.warp")
   local Runtime = runtime()
   Warp.request(Runtime and Runtime._mod, game, Safari.EXIT_MAP,
     Safari.EXIT_X, Safari.EXIT_Y, "down", { fade = true })
@@ -237,7 +243,7 @@ function Safari.outOfBallsMidBattle(session, game)
   game = game_of(game)
   set_entrance_scene(session, 3)
   Safari.exit(session)
-  local Warp = require("src.core.game3.warp")
+  local Warp = lazyReq("src.core.game3.warp")
   local Runtime = runtime()
   -- pokefirered/src/safari_zone.c:68
   Warp.request(Runtime and Runtime._mod, game, Safari.EXIT_MAP,
@@ -250,9 +256,9 @@ Safari.presenter = nil
 local function presenter()
   if Safari.presenter then return Safari.presenter end
   if not (love and love.graphics) then return nil end
-  local okM, Message = pcall(require, "src.ui.game3.message")
+  local okM, Message = pcall(lazyReq, "src.ui.game3.message")
   if not (okM and Message and Message.show) then return nil end
-  local okC, Choice = pcall(require, "src.ui.game3.choice")
+  local okC, Choice = pcall(lazyReq, "src.ui.game3.choice")
   return {
     message = function(text, onDone) Message.show(text, onDone) end,
     yesNo = (okC and Choice and Choice.yesNo)
@@ -263,7 +269,7 @@ end
 
 local function announce(text, session, game, onDone)
   -- pokefirered/include/constants/songs.h:70
-  se(require("src.core.game3.se_ids").SE_DING_DONG)
+  se(lazyReq("src.core.game3.se_ids").SE_DING_DONG)
   local Field = package.loaded["src.core.game3.field"]
   if Field then Field.locked = true end
   local P = presenter()

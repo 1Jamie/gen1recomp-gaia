@@ -1,6 +1,12 @@
 -- pokeemerald/src/field_weather.c
 -- pokeemerald/src/field_weather_effect.c
 
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local Trig = require("src.core.game3.trig")
 local Rng = require("src.core.game3.rng")
 
@@ -58,9 +64,9 @@ local function s16(v)
 end
 
 local function playSe(name)
-  local okA, Audio = pcall(require, "src.core.game3.audio")
+  local okA, Audio = pcall(lazyReq, "src.core.game3.audio")
   if not (okA and Audio and Audio.playSe) then return end
-  local SE = require("src.core.game3.se_ids")
+  local SE = lazyReq("src.core.game3.se_ids")
   local id = SE[name]
   if id then pcall(Audio.playSe, id) end
 end
@@ -135,7 +141,7 @@ local assets = nil
 local assetsKey = nil
 
 local function cacheRead(rel)
-  local Dataset = require("src.core.game3.dataset")
+  local Dataset = lazyReq("src.core.game3.dataset")
   local cache = Dataset.cache and Dataset.cache()
   return cache and cache.read and cache:read(rel) or nil
 end
@@ -258,7 +264,7 @@ end
 
 local function loadAssets()
   if not gfxAvailable() then return nil end
-  local key = tostring(require("src.import.CacheFs").prefix)
+  local key = tostring(lazyReq("src.import.CacheFs").prefix)
   if assets and assetsKey == key then return assets end
   local m = R.manifest()
   if not m then return nil end

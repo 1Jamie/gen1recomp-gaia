@@ -1,3 +1,9 @@
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local GameVersion = require("src.core.GameVersion")
 
 local Family = {}
@@ -144,7 +150,7 @@ Family.MAPS = {
 }
 
 local function profileOf(version)
-  return require("src.core.game3.profile").of(version)
+  return lazyReq("src.core.game3.profile").of(version)
 end
 
 function Family.activeVersion()
@@ -214,7 +220,7 @@ function Family.mapId(version, key)
 end
 
 local function constants(version)
-  return require("src.core.game3.constants").of(version)
+  return lazyReq("src.core.game3.constants").of(version)
 end
 
 function Family.var(version, name)
@@ -286,7 +292,7 @@ local function flagSet(store, id)
 end
 
 function Family.nationalDex(session, version)
-  local ok, PokedexData = pcall(require, "src.core.game3.pokedex_data")
+  local ok, PokedexData = pcall(lazyReq, "src.core.game3.pokedex_data")
   if not (ok and PokedexData and PokedexData.isNationalUnlocked) then return false end
   local view = session
   if type(session) == "table" and version and session.version ~= version then
@@ -417,7 +423,7 @@ local function isEggMon(mon)
 end
 
 local function inRegional(species, version)
-  local ok, v = pcall(require("src.core.game3.dex").inRegional, species, version)
+  local ok, v = pcall(lazyReq("src.core.game3.dex").inRegional, species, version)
   return ok and v == true
 end
 
@@ -469,7 +475,7 @@ function Family.canTradeSelectedMon(version, party, monIdx, opts)
   if Family.of(version) == "rse" then
     return canTradeRse(party, monIdx, opts, version)
   end
-  return require("src.core.game3.scripting.natives_trade").canTradeSelectedMon(party, monIdx, opts)
+  return lazyReq("src.core.game3.scripting.natives_trade").canTradeSelectedMon(party, monIdx, opts)
 end
 
 
@@ -552,7 +558,7 @@ end
 local activeRomText
 
 local function romTextModule()
-  return package.loaded["src.core.game3.rom_text"] or require("src.core.game3.rom_text")
+  return package.loaded["src.core.game3.rom_text"] or lazyReq("src.core.game3.rom_text")
 end
 
 local function textKeyOf(name, i, j)

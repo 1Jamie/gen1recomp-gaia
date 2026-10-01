@@ -1,3 +1,9 @@
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local FarawayIsland = {}
 
 FarawayIsland.MAP = "EM_FARAWAY_ISLAND_INTERIOR"
@@ -6,11 +12,11 @@ FarawayIsland.MAP = "EM_FARAWAY_ISLAND_INTERIOR"
 FarawayIsland.ROCKS = { { 14, 9 }, { 18, 9 }, { 9, 10 }, { 13, 13 } }
 
 local function Rse()
-  return require("src.core.game3.rse.init")
+  return lazyReq("src.core.game3.rse.init")
 end
 
 local function Player()
-  return package.loaded["src.core.game3.player"] or require("src.core.game3.player")
+  return package.loaded["src.core.game3.player"] or lazyReq("src.core.game3.player")
 end
 
 local function session()
@@ -28,7 +34,7 @@ local function counter()
 end
 
 local function mewGfx()
-  local Constants = require("src.core.game3.constants")
+  local Constants = lazyReq("src.core.game3.constants")
   return Constants.of(Constants.versionOf(session())):require("event_objects", "OBJ_EVENT_GFX_MEW")
 end
 
@@ -57,8 +63,8 @@ function FarawayIsland.shouldShakeGrass()
 end
 
 local function isPokeGrass(x, y)
-  local Collision = package.loaded["src.core.game3.collision"] or require("src.core.game3.collision")
-  local MB = require("src.core.game3.mb")
+  local Collision = package.loaded["src.core.game3.collision"] or lazyReq("src.core.game3.collision")
+  local MB = lazyReq("src.core.game3.mb")
   local b = Collision.behavior(x, y)
   return b ~= nil and (b == MB.id("TALL_GRASS") or b == MB.id("LONG_GRASS"))
 end
@@ -166,7 +172,7 @@ end
 FarawayIsland._grass = nil
 
 local function mewObject()
-  local O = package.loaded["src.core.game3.objects"] or require("src.core.game3.objects")
+  local O = package.loaded["src.core.game3.objects"] or lazyReq("src.core.game3.objects")
   for _, lid in ipairs(O._order or {}) do
     local eo = O._byId[lid]
     if FarawayIsland.isMew(eo) then return eo end
@@ -181,7 +187,7 @@ function FarawayIsland.setMewAboveGrass(ctx)
   mew.invisible = false
   if Rse().specialVar(ctx, 0x8004) == 1 then return end
   Rse().setVar("VAR_FARAWAY_ISLAND_STEP_COUNTER", 0xFFFF)
-  local FxRse = require("src.core.game3.field_effects_rse")
+  local FxRse = lazyReq("src.core.game3.field_effects_rse")
   local e = FxRse.spawnAt("long_grass", mew.cellX, mew.cellY, 8, 8, { layer = "front", stopOnEnd = false })
   if e then e.a.paused = true end
   FarawayIsland._grass = e
@@ -192,7 +198,7 @@ function FarawayIsland.destroyGrass()
   local e = FarawayIsland._grass
   FarawayIsland._grass = nil
   if not e then return end
-  local FxRse = require("src.core.game3.field_effects_rse")
+  local FxRse = lazyReq("src.core.game3.field_effects_rse")
   FxRse.clear(function(x) return x == e end)
 end
 

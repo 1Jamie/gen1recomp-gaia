@@ -1,5 +1,11 @@
 -- pokeemerald/src/field_control_avatar.c:940
 
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local Dive = {}
 
 -- pokeemerald/include/constants/map_types.h:9
@@ -39,7 +45,7 @@ local function currentDef()
 end
 
 function Dive.enabled(sess)
-  local ok, Capabilities = pcall(require, "src.core.game3.capabilities")
+  local ok, Capabilities = pcall(lazyReq, "src.core.game3.capabilities")
   if not ok then return false end
   local okH, has = pcall(Capabilities.has, sess or session(), "dive")
   return okH and has == true
@@ -66,8 +72,8 @@ end
 -- pokeemerald/src/field_control_avatar.c:965 TrySetDiveWarp
 function Dive.trySetDiveWarp(sess)
   sess = sess or session()
-  local P = require("src.core.game3.player")
-  local Collision = require("src.core.game3.collision")
+  local P = lazyReq("src.core.game3.player")
+  local Collision = lazyReq("src.core.game3.collision")
   local def, mapId = currentDef()
   local x, y = P.cellX, P.cellY
   local beh = Collision.behavior(x, y)
@@ -82,7 +88,7 @@ function Dive.trySetDiveWarp(sess)
 end
 
 local function badge(sess)
-  local FieldMoves = require("src.core.game3.field_moves")
+  local FieldMoves = lazyReq("src.core.game3.field_moves")
   local Space = package.loaded["src.core.game3.scripting.space"]
   return FieldMoves.hasBadge({ store = Space and Space.store, session = sess }, "DIVE")
 end
@@ -93,7 +99,7 @@ local function fieldFree()
   local Space = package.loaded["src.core.game3.scripting.space"]
   if not (Space and Space.active and Space.startScript) then return false end
   if Space.vm and Space.vm.isRunning and Space.vm:isRunning() then return false end
-  local P = require("src.core.game3.player")
+  local P = lazyReq("src.core.game3.player")
   if P.moving or P.jumping then return false end
   local Warp = package.loaded["src.core.game3.warp"]
   if Warp and Warp.isBusy and Warp.isBusy() then return false end
@@ -136,8 +142,8 @@ end
 function Dive.useDive(slot, mon)
   local sess = session()
   if not mon and sess and sess.party and slot then mon = sess.party[slot + 1] end
-  local Field = require("src.core.game3.field")
-  local Task = require("src.core.game3.task")
+  local Field = lazyReq("src.core.game3.field")
+  local Task = lazyReq("src.core.game3.task")
   local t = { state = 0, mon = mon }
   Dive._task = t
   Field.lock()
@@ -149,7 +155,7 @@ function Dive.useDive(slot, mon)
       Field.lock()
       t.state = 1
       -- pokeemerald/src/field_effect.c:1924
-      require("src.core.game3.field_move_show_mon").start(t.mon, { pose = true }, function() t.state = 2 end)
+      lazyReq("src.core.game3.field_move_show_mon").start(t.mon, { pose = true }, function() t.state = 2 end)
       return false
     elseif t.state == 1 then
       Field.lock()
@@ -160,9 +166,9 @@ function Dive.useDive(slot, mon)
     Field.holdInput(false)
     local code, dest = Dive.trySetDiveWarp(sess)
     if code ~= 0 and dest then
-      require("src.core.game3.audio").playSe(require("src.core.game3.se_ids").SE_M_DIVE)
+      lazyReq("src.core.game3.audio").playSe(lazyReq("src.core.game3.se_ids").SE_M_DIVE)
       local Runtime = package.loaded["src.core.game3.runtime"]
-      require("src.core.game3.warp").startDive(Runtime and Runtime._mod, Runtime and Runtime._game, dest.map, dest.x, dest.y)
+      lazyReq("src.core.game3.warp").startDive(Runtime and Runtime._mod, Runtime and Runtime._game, dest.map, dest.x, dest.y)
     else
       Field.unlock()
     end
@@ -174,7 +180,7 @@ end
 -- pokeemerald/src/overworld.c:911 GetAdjustedInitialTransitionFlags
 function Dive.syncAvatar()
   if not Dive.enabled() then return end
-  local P = require("src.core.game3.player")
+  local P = lazyReq("src.core.game3.player")
   local def = currentDef()
   if not def then return end
   local under = Dive.isUnderwaterMap(def)
@@ -186,10 +192,10 @@ function Dive.syncAvatar()
     return
   end
   P.underwater = false
-  local Collision = require("src.core.game3.collision")
+  local Collision = lazyReq("src.core.game3.collision")
   if Collision.isSurfable and Collision.isSurfable(Collision.behavior(P.cellX, P.cellY)) then
     P.surfing = true
-    local Audio = require("src.core.game3.audio")
+    local Audio = lazyReq("src.core.game3.audio")
     if Audio.canOverrideMapMusic(Audio.MUS_SURF) then
       Audio.playMapSong(Audio.MUS_SURF, { mapSong = Audio._mapSong })
     end
@@ -201,7 +207,7 @@ function Dive.reset()
 end
 
 function Dive.install()
-  local FieldEffects = require("src.core.game3.field_effects")
+  local FieldEffects = lazyReq("src.core.game3.field_effects")
   if FieldEffects.HANDLERS.FLDEFF_USE_DIVE then return end
   -- pokeemerald/src/field_effect.c:1902
   FieldEffects.HANDLERS.FLDEFF_USE_DIVE = function()

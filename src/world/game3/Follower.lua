@@ -1,4 +1,10 @@
 -- Optional mod companion, independent of FireRed event-object IDs and scripts.
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local Follower = {}
 local ModRuntime = require("src.mods.Runtime")
 local shouldSpawn = function() return false end
@@ -23,8 +29,8 @@ function Follower.at(_, x, y)
 end
 
 function Follower.update(game)
-  local Field = require("src.core.game3.field")
-  local player = require("src.core.game3.player")
+  local Field = lazyReq("src.core.game3.field")
+  local player = lazyReq("src.core.game3.player")
   local session = Field.getSession()
   local world = { player = player, map = { id = session and session.map } }
   if not Field.running or not session

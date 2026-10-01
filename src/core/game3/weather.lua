@@ -2,6 +2,12 @@
 -- pokefirered/include/constants/weather.h
 -- pokefirered/src/field_weather.c
 
+local function lazyReq(name)
+  local m = package.loaded[name]
+  if type(m) == "table" then return m end
+  return require(name)
+end
+
 local Weather = {}
 
 Weather.NONE = 0
@@ -37,11 +43,11 @@ Weather._suspended = false
 Weather.CYCLE_LENGTH = 4
 
 local function rseEngine()
-  local ok, Profile = pcall(require, "src.core.game3.profile")
+  local ok, Profile = pcall(lazyReq, "src.core.game3.profile")
   if not ok then return nil end
   local okRow, row = pcall(Profile.forSession, nil)
   if not okRow or type(row) ~= "table" or row.family ~= "rse" then return nil end
-  return require("src.core.game3.field_weather_rse")
+  return lazyReq("src.core.game3.field_weather_rse")
 end
 Weather.rseEngine = rseEngine
 
@@ -60,7 +66,7 @@ local cycleCache = nil
 -- pokeemerald/src/field_weather_effect.c:2581
 function Weather.cycles()
   if cycleCache then return cycleCache end
-  local okD, Dataset = pcall(require, "src.core.game3.dataset")
+  local okD, Dataset = pcall(lazyReq, "src.core.game3.dataset")
   local cache = okD and Dataset.cache and Dataset.cache()
   local body = cache and cache.read and cache:read("data/generated/gba/weather/manifest.lua")
   local chunk = body and load(body, "=weather_manifest", "t", {})
@@ -166,7 +172,7 @@ function Weather.updatePerDay(increment, sess)
 end
 
 function Weather.installRseHooks()
-  local TimeEvents = require("src.core.game3.time_events")
+  local TimeEvents = lazyReq("src.core.game3.time_events")
   local perDay = TimeEvents.handlers()
   if perDay.UpdateWeatherPerDay == nil then
     -- pokeemerald/src/clock.c:47
@@ -177,7 +183,7 @@ function Weather.installRseHooks()
 end
 
 do
-  local SaveSections = require("src.core.game3.save_sections")
+  local SaveSections = lazyReq("src.core.game3.save_sections")
   -- pokeemerald/include/global.h:994
   SaveSections.register("weather", SaveSections.fields({ "savedWeather", "weatherCycleStage" }, function(sess)
     sess.savedWeather = Weather.NONE
@@ -261,7 +267,7 @@ function Weather.apply(id, opts)
   Weather.current = tonumber(id) or Weather.NONE
   Weather._active = Weather.current ~= Weather.NONE and Weather.current ~= Weather.SUNNY
 
-  local okFw, FieldWeather = pcall(require, "src.core.game3.field_weather")
+  local okFw, FieldWeather = pcall(lazyReq, "src.core.game3.field_weather")
   if okFw and FieldWeather and FieldWeather.setWeather then
     FieldWeather.setWeather(Weather.current)
   end

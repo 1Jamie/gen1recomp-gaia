@@ -86,8 +86,19 @@ local function loveCache()
       return love.filesystem.write(rel, bytes)
     end,
     exists = function(_, rel)
-      local cache = loveCache()
-      return cache:read(rel) ~= nil
+      local ok, CacheFs = pcall(require, "src.import.CacheFs")
+      if ok and CacheFs and CacheFs.existsAt then
+        local okG, GameVersion = pcall(require, "src.core.GameVersion")
+        if okG and GameVersion.cachePrefix and CacheFs.existsAt(GameVersion.cachePrefix() .. rel) then
+          return true
+        end
+        if CacheFs.exists(rel) then return true end
+      end
+      if love and love.filesystem and love.filesystem.getInfo
+          and love.filesystem.getInfo(rel, "file") then
+        return true
+      end
+      return diskFallback(rel) ~= nil
     end,
   }
 end
@@ -344,8 +355,15 @@ function Dataset.mountExtractRoots()
     or "data/generated/gba"
   Extract.CACHE_ROOT = root
   Extract.NATIVE_ROOT = root .. "/native"
+  Dataset.invalidateManifestCache()
   local HealLocations = package.loaded["src.core.game3.heal_locations"]
   if HealLocations and HealLocations.invalidate then HealLocations.invalidate() end
+end
+
+local manifestLayouts = {}
+
+function Dataset.invalidateManifestCache()
+  manifestLayouts = {}
 end
 
 --- Bind LayoutNative handles onto map defs (FieldView needs midLayout).
@@ -355,8 +373,13 @@ function Dataset.attachMidLayouts(maps, cache)
   local LayoutNative = require("src.core.game3.layout_native")
   local NativePack = require("src.import.gba.native_pack")
   local nativeRoot = Extract.NATIVE_ROOT or (Extract.CACHE_ROOT .. "/native")
-  local manifest = load_lua_rel(nativeRoot .. "/manifest.lua") or {}
-  local layouts = manifest.layouts or {}
+  local manifestRel = nativeRoot .. "/manifest.lua"
+  local layouts = manifestLayouts[manifestRel]
+  if not layouts then
+    local manifest = load_lua_rel(manifestRel) or {}
+    layouts = manifest.layouts or {}
+    manifestLayouts[manifestRel] = layouts
+  end
   local attached = 0
   for mapId, def in pairs(maps) do
     if def and not def.midLayout then
