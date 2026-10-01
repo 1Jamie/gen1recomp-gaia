@@ -123,6 +123,10 @@ local function loadAssets()
 end
 
 function Seagallop.start(originId, destId, onWarp, onDone)
+  do
+    local StayMessage = package.loaded["src.ui.game3.message"]
+    if StayMessage and StayMessage.closeStay then StayMessage.closeStay() end
+  end
   local dir = Seagallop.directionOfTravel(originId, destId)
   local run = {
     origin = originId,

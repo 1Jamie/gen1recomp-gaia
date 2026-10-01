@@ -57,6 +57,10 @@ end
 
 -- src/fldeff_flash.c:475
 function CaveTransition.start(kind, done, skipFirstTask)
+  do
+    local StayMessage = package.loaded["src.ui.game3.message"]
+    if StayMessage and StayMessage.closeStay then StayMessage.closeStay() end
+  end
   local run = newRun(kind, done)
   if skipFirstTask then run.task = "1" else run.defer = true end
   CaveTransition._run = run

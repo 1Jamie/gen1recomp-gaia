@@ -476,6 +476,8 @@ function Battle.start(opts)
   if #playerParty == 0 then
     return nil, "empty party"
   end
+  local okStay, StayMessage = pcall(require, "src.ui.game3.message")
+  if okStay and StayMessage and StayMessage.closeStay then StayMessage.closeStay() end
   local linkBattle = (opts.link or (type(opts.foe) == "table" and opts.foe.link)) and true or false
   local Guard = require("src.core.game3.battle.link_guard")
   if linkBattle then Guard.arm() else Guard.disarm() end

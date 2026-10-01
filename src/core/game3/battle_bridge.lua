@@ -600,6 +600,11 @@ function BattleBridge.start(mod, game, foe, opts)
     end
   end
 
+  do
+    local StayMessage = package.loaded["src.ui.game3.message"]
+    if StayMessage and StayMessage.closeStay then StayMessage.closeStay() end
+  end
+
   local function doStart()
     local ok, err = Battle.start(startOpts)
     if not ok then

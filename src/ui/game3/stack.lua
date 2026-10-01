@@ -24,6 +24,10 @@ end
 -- opts.drawUnder: if true, still draw layers below this one.
 function Stack.push(id, mod, opts)
   opts = opts or {}
+  if opts.hideBelow ~= false then
+    local Message = package.loaded["src.ui.game3.message"]
+    if Message and Message.closeStay then Message.closeStay() end
+  end
   -- Replace existing same-id layer (re-open).
   for i = #Stack._layers, 1, -1 do
     if Stack._layers[i].id == id then

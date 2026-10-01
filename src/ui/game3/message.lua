@@ -288,6 +288,13 @@ function Message.close()
   if done then done() end
 end
 
+function Message.closeStay()
+  if not (Message.open and Message._stay) then return false end
+  Message._done = nil
+  Message.close()
+  return true
+end
+
 -- pokefirered/src/main.c:480
 function Message.reset()
   Message._done = nil

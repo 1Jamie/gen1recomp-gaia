@@ -451,6 +451,10 @@ end
 
 function Naming.open(opts)
   opts = opts or {}
+  do
+    local StayMessage = package.loaded["src.ui.game3.message"]
+    if StayMessage and StayMessage.closeStay then StayMessage.closeStay() end
+  end
   local man = cacheManifest()
   local tpl = Naming.templateFromManifest(man, opts.template or "PLAYER")
   local okF, Fade = pcall(require, "src.ui.game3.fade")

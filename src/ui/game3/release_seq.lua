@@ -28,6 +28,10 @@ end
 
 function ReleaseSeq.start(opts)
   opts = opts or {}
+  do
+    local StayMessage = package.loaded["src.ui.game3.message"]
+    if StayMessage and StayMessage.closeStay then StayMessage.closeStay() end
+  end
   ReleaseSeq.active = true
   ReleaseSeq.state = "confirm"
   ReleaseSeq.session = opts.session

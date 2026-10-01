@@ -350,6 +350,10 @@ function Map.load(mod, game, mapId, opts)
   if not MapIds.isGame3Map(mapId) then
     return nil, "not a game3 map"
   end
+  if not opts.seamless then
+    local StayMessage = package.loaded["src.ui.game3.message"]
+    if StayMessage and StayMessage.closeStay then StayMessage.closeStay() end
+  end
   -- pret RestartWildEncounterImmunitySteps on LoadMap / LoadMapFromWarp: every
   -- map entry restarts the wild encounter grace period. Unconditional, so the
   -- seamless connection crossing between two routes resets it too.

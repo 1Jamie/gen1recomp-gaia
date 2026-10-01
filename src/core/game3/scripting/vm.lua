@@ -55,7 +55,13 @@ function Vm:halt(aborted)
       a.unfreezeLocal(lid, snap)
     end
   end
+  local wasLocked = ctx.lockKind ~= nil and not aborted
   Ctx.haltCleanup(self.ctx)
+  if wasLocked then
+    -- pokeemerald/src/script.c:233
+    local Field = package.loaded["src.core.game3.field"]
+    if Field and Field.unlock then Field.unlock() end
+  end
   self:_scriptEnded(not aborted)
 end
 
