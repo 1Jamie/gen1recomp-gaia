@@ -132,10 +132,27 @@ local PAL = {
 -- their real save-directory path and directories through the write
 -- directory only, so this never deletes the game folder (portable installs
 -- read the cache from there) or a developer's checked-out source tree.
+local chmodFn = nil
+
+local function makeWritable(real, mode)
+  if chmodFn == nil then
+    chmodFn = false
+    local okFfi, ffi = pcall(require, "ffi")
+    if okFfi and ffi.os ~= "Windows" then
+      pcall(ffi.cdef, "int chmod(const char *path, unsigned int mode);")
+      if pcall(function() return ffi.C.chmod end) then
+        chmodFn = function(p, m) pcall(ffi.C.chmod, p, m) end
+      end
+    end
+  end
+  if chmodFn then chmodFn(real, mode) end
+end
+
 local function removeTree(path)
   local info = love.filesystem.getInfo(path)
   if not info then return end
   if info.type == "directory" then
+    makeWritable(love.filesystem.getSaveDirectory() .. "/" .. path, 493)
     for _, child in ipairs(love.filesystem.getDirectoryItems(path)) do
       removeTree(path .. "/" .. child)
     end
@@ -147,6 +164,10 @@ local function removeTree(path)
   if not f then return end
   f:close()
   local ok, err = os.remove(real)
+  if not ok then
+    makeWritable(real, 420)
+    ok, err = os.remove(real)
+  end
   if not ok then
     error("could not remove stale cache: " .. tostring(err))
   end
