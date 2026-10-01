@@ -9,9 +9,8 @@ local LABELS = {
   "e7863", "e79f3", "e7b83", "e7d13", "f0b64", "f0d82",
 }
 
-local function skip(why)
+local function skipped(why)
   print("[skip] parity_yellow_pikapic_pose_2347: " .. why)
-  os.exit(0)
 end
 
 local function readAll(path)
@@ -56,12 +55,12 @@ local function cacheRoot()
 end
 
 local root = cacheRoot()
-if not root then skip("no current Yellow cache") end
+if not root then skipped("no current Yellow cache") return end
 local PRET = "../pokeyellow/gfx/pikachu"
-if not readAll(PRET .. "/unknown_e79f3.png") then skip("no ../pokeyellow checkout") end
+if not readAll(PRET .. "/unknown_e79f3.png") then skipped("no ../pokeyellow checkout") return end
 
 local okFfi, ffi = pcall(require, "ffi")
-if not okFfi then skip("no ffi") end
+if not okFfi then skipped("no ffi") return end
 pcall(ffi.cdef, [[
 int uncompress(uint8_t *dest, unsigned long *destLen, const uint8_t *source, unsigned long sourceLen);
 ]])
@@ -70,7 +69,7 @@ for _, name in ipairs({ "z", "libz.so.1", "libz.1.dylib" }) do
   local ok, lib = pcall(ffi.load, name)
   if ok then zlib = lib break end
 end
-if not zlib then skip("no zlib") end
+if not zlib then skipped("no zlib") return end
 
 local function be32(s, i)
   local a, b, c, d = s:byte(i, i + 3)

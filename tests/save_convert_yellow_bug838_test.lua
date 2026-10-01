@@ -197,7 +197,8 @@ check(not flagBit(rfBytes, 1402) and not flagBit(rfBytes, 45),
 -- resolves red numbering, per-version cached separately (#420 pattern)
 -- ------------------------------------------------------------------
 
-local yData, yErr = SaveConvert.loadData("yellow")
+local yData = require("tests.save_compat._codec").gen1Data("yellow")
+local yErr
 check(yData ~= nil, "SaveConvert.loadData('yellow') resolves (" .. tostring(yErr) .. ")")
 check(yData and yData.gameVersion == "yellow",
       "loadData('yellow') stamps gameVersion for the codec's byte gate")

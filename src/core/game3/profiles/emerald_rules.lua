@@ -134,7 +134,7 @@ function Rules.saveWarpFields(session)
   if LINK_ROOMS[session.map] and type(dw) == "table" and type(dw.map) == "string"
       and tonumber(dw.x) and tonumber(dw.y) then
     -- pokeemerald/src/overworld.c:735 SetContinueGameWarpToDynamicWarp
-    return require("bit").bor(f, CONTINUE_GAME_WARP), { map = dw.map, x = tonumber(dw.x), y = tonumber(dw.y) }
+    return require("bit").bor(f, CONTINUE_GAME_WARP), { map = dw.map, warpId = tonumber(dw.warpId), x = tonumber(dw.x), y = tonumber(dw.y) }
   end
   return f, w
 end

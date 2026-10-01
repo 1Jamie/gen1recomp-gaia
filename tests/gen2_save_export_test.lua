@@ -66,8 +66,14 @@ check(files["saves/gold/" .. tostring(slotId) .. ".lua"] ~= nil,
 
 local ok, res = SaveFileIO.exportActiveSlot("gold")
 eq(ok, false, "Export on a cacheless Gold slot is refused, not crashed")
+check(type(res) == "string" and res:find("data cache is missing", 1, true),
+      "the refusal names the missing cache: " .. tostring(res))
+SaveConvert.setGen2DataStub({ maps = {} })
+ok, res = SaveFileIO.exportActiveSlot("gold")
+eq(ok, false, "with a cache, a slot that names no map is still refused")
 check(type(res) == "string" and res:find("does not name one", 1, true),
       "the refusal names the unresolved map: " .. tostring(res))
+SaveConvert.setGen2DataStub(nil)
 check(type(res) == "string"
       and not res:find("no cartridge image to write", 1, true),
       "and not the old lineage refusal: " .. tostring(res))

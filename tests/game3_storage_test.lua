@@ -52,7 +52,7 @@ assert_eq(s.currentBox, 1, "Initial currentBox is 1")
 assert_eq(Storage.countTotalMons(s), 0, "Initial mon count is 0")
 for b = 1, 14 do
   assert_eq(s.boxes[b].name, string.format("BOX %d", b), "Box name correct")
-  assert_eq(s.boxes[b].wallpaper, ((b - 1) % 16) + 1, "Box wallpaper initialized")
+  assert_eq(s.boxes[b].wallpaper, ((b - 1) % 4) + 1, "Box wallpaper initialized")
   assert_eq(Storage.countBoxMons(s, b), 0, "Box starts empty")
 end
 assert_eq(#s.items, 1, "PC starts with 1 item (Potion)")

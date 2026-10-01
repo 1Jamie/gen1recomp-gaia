@@ -72,41 +72,58 @@ local function readFile(path, mode)
   return content
 end
 
+local function useCache(game)
+  local dir = game and os.getenv(game:upper() .. "_CACHE")
+  if SaveConvert.isGen3(game) then
+    if dir and dir ~= "" then SaveConvert.setGen3CacheDir(game, dir) end
+  elseif SaveConvert.isGen2Cart(game) then
+    if not dir or dir == "" then return end
+    local data = SaveConvert.gen2DataFromDir(dir)
+    assert(data, ("%s_CACHE=%s holds no Gen 2 data tables"):format(game:upper(), dir))
+    SaveConvert.setGen2DataStub(data)
+  else
+    assert(dir and dir ~= "", "set " .. game:upper() .. "_CACHE to the imported " .. game .. " cache directory")
+    local data = SaveConvert.gen1DataFromDir(dir)
+    assert(data, ("%s_CACHE=%s holds no Gen 1 data tables"):format(game:upper(), dir))
+    SaveConvert.setGen1DataStub(data, game)
+  end
+end
+
 local function cmdImport(inPath, outPath, game)
   local content = readFile(inPath, "rb")
-  local bytes
-  if #content == SaveConvert.SAVE_SIZE then
-    bytes = content
-  else
-    local b64 = content:match('"raw_base64"%s*:%s*"([^"]+)"')
-    assert(b64, "input is neither a 32768-byte .sav nor JSON with a raw_base64 field")
-    bytes = b64decode(b64)
-    assert(#bytes == SaveConvert.SAVE_SIZE,
-          ("decoded raw_base64 is %d bytes, want %d"):format(#bytes, SaveConvert.SAVE_SIZE))
-  end
+  local b64 = content:match('^%s*{') and content:match('"raw_base64"%s*:%s*"([^"]+)"')
+  local bytes = b64 and b64decode(b64) or content
 
-  local save, err = SaveConvert.importSav(bytes, Version.saveFormat,
-    game or DEFAULT_GAME)
+  game = game or DEFAULT_GAME
+  useCache(game)
+  local save, err, note = SaveConvert.importSav(bytes, Version.saveFormat,
+    game)
   assert(save, err)
 
   local out = assert(io.open(outPath, "w"))
   out:write(SaveSerializer.encode(save))
   out:close()
   print(("wrote %s (party %d, boxed %d, %d flags)"):format(
-    outPath, #save.party,
-    (function() local n = 0 for _, b in ipairs(save.boxes) do n = n + #b end return n end)(),
-    (function() local n = 0 for _ in pairs(save.flags) do n = n + 1 end return n end)()))
+    outPath, #(save.party or {}),
+    (function() local n = 0 for _, b in ipairs(save.boxes or (save.storage and save.storage.boxes) or {}) do
+      for _, mon in pairs(b.mons or b) do if type(mon) == "table" then n = n + 1 end end
+    end return n end)(),
+    (function() local n = 0 for _ in pairs(save.flags or {}) do n = n + 1 end return n end)()))
+  if note then io.stderr:write(note, "\n") end
 end
 
 local function cmdExport(inPath, outPath, game)
   local content = readFile(inPath)
   local save = assert(SaveSerializer.decode(content))
-  local bytes, err = SaveConvert.exportSav(save, game or gameOf(save))
+  game = game or gameOf(save)
+  useCache(game)
+  local bytes, err = SaveConvert.exportSav(save, game)
   assert(bytes, err)
   local out = assert(io.open(outPath, "wb"))
   out:write(bytes)
   out:close()
   print(("wrote %s (%d bytes)"):format(outPath, #bytes))
+  if err then io.stderr:write(err, "\n") end
 end
 
 local cmd = arg[1]
@@ -118,6 +135,7 @@ else
   io.stderr:write(
     "usage: luajit tools/save_convert/convert.lua import <in.json|in.sav> <out.lua> [game]\n" ..
     "       luajit tools/save_convert/convert.lua export <in.lua> <out.sav> [game]\n" ..
-    "       game: red (default) | blue | yellow\n")
+    "       game: red (default) | blue | yellow | gold | silver | crystal | firered | leafgreen | emerald\n" ..
+    "       set <GAME>_CACHE to that game's imported ROM cache directory\n")
   os.exit(1)
 end

@@ -1,7 +1,7 @@
 -- Gen 3 (FRLG) Pokémon Storage System & Player PC (pret pokemon_storage_system.c).
 --
 -- 14 Boxes × 30 Slots = 420 Pokémon Capacity.
--- 50 Unique Item Slots in Player's PC.
+-- Unique Item Slots in Player's PC: profile bag.pcItems (30 FRLG, 50 Emerald).
 -- Includes PC Heal Exploit, Circular Spillover, Sparse Serialization, and Bag-Full Guard.
 
 local ItemsData = require("src.core.game3.items_data")
@@ -12,8 +12,12 @@ local Storage = {}
 Storage.TOTAL_BOXES_COUNT = 14
 Storage.IN_BOX_COUNT = 30
 Storage.TOTAL_BOX_MONS = 420
-Storage.PC_ITEMS_COUNT = 50
 Storage.MAX_ITEM_QTY = 999
+Storage.DEFAULT_WALLPAPERS = 4 -- pokefirered/src/pokemon_storage_system_menu.c:420
+
+function Storage.defaultWallpaper(boxNumber)
+  return ((boxNumber - 1) % Storage.DEFAULT_WALLPAPERS) + 1
+end
 
 local function save_ids(session)
   local row = require("src.core.game3.profile").forSession(session)
@@ -49,17 +53,17 @@ function Storage.compactParty(party)
   return party
 end
 
---- Create a fresh Storage instance (14 boxes, 30 slots each, 50-item PC).
+--- Create a fresh Storage instance (14 boxes, 30 slots each).
 function Storage.new()
   local storage = {
     currentBox = 1,
     boxes = {},
-    items = { { id = 13, qty = 1 } }, -- 50-slot Player PC item storage (starts with 1 POTION, pokefirered/src/player_pc.c:100)
+    items = { { id = 13, qty = 1 } }, -- Player PC item storage (starts with 1 POTION, pokefirered/src/player_pc.c:100)
   }
   for b = 1, Storage.TOTAL_BOXES_COUNT do
     storage.boxes[b] = {
       name = string.format("BOX %d", b),
-      wallpaper = ((b - 1) % 16) + 1,
+      wallpaper = Storage.defaultWallpaper(b),
       mons = {}, -- 1..30 slots (nil = empty)
     }
   end
@@ -405,7 +409,7 @@ function Storage.depositCaught(session, mon)
   return true, bId, slot, intended
 end
 
---- Player PC Item Storage (50 unique items capacity).
+--- Player PC Item Storage (profile bag.pcItems unique items).
 function Storage.depositItem(session, bagPocket, bagIdx, qty)
   if not session or not session.bag then return false, "no_bag" end
   local storage = Storage.ensure(session)
@@ -548,7 +552,7 @@ function Storage.serialize(storage)
           hasMon = true
         end
       end
-      if hasMon or box.name ~= string.format("BOX %d", b) or box.wallpaper ~= (((b - 1) % 16) + 1) then
+      if hasMon or box.name ~= string.format("BOX %d", b) or box.wallpaper ~= Storage.defaultWallpaper(b) then
         data.boxes[b] = boxData
       end
     end
@@ -603,7 +607,7 @@ function Storage.restore(data, legacyPc, pcItems)
       for _, it in ipairs(legacyPc.items or {}) do
         local id = type(it) == "table" and tonumber(it.id or it.itemId)
         local qty = type(it) == "table" and (tonumber(it.qty or it.quantity) or 0) or 0
-        if id and qty > 0 and #storage.items < Storage.PC_ITEMS_COUNT then
+        if id and qty > 0 and #storage.items < Storage.pcItemsCount() then
           storage.items[#storage.items + 1] = { id = id, qty = math.min(Storage.MAX_ITEM_QTY, qty) }
         end
       end
@@ -630,7 +634,7 @@ function Storage.restore(data, legacyPc, pcItems)
         id = k
         qty = v
       end
-      if id and qty > 0 and #storage.items < Storage.PC_ITEMS_COUNT then
+      if id and qty > 0 and #storage.items < Storage.pcItemsCount() then
         storage.items[#storage.items + 1] = { id = id, qty = math.min(Storage.MAX_ITEM_QTY, qty) }
       end
     end

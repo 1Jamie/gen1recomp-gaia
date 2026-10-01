@@ -221,6 +221,29 @@ local PINNED = {
 PINNED["Text_BreedHuh"] = "Huh?\f"
 local EMPTY_LABELS = { "_DaycareDummyText", "_BreedClearboxText" }
 
+-- pokegold/data/text/common_1.asm:1333; data/text/common_2.asm:443
+local ENDINGS = {
+  Text_BreedHuh = "",
+  _BreedEggHatchText = "",
+  ["AnimateHallOfFame.String_NewHallOfFamer"] = "",
+  ["_HallOfFamePC.TimeFamer"] = "",
+  ["_HallOfFamePC.HOFMaster"] = "",
+}
+for _, label in ipairs({
+  "_WhatShouldIRaiseText", "_OnlyOneMonText", "_CantAcceptEggText",
+  "_RemoveMailText", "_LastHealthyMonText", "_IllRaiseYourMonText",
+  "_PerfectHeresYourMonText", "_GotBackMonText", "_HaveNoRoomText",
+  "_NotEnoughMoneyText", "_OhFineThenText", "_BreedBrimmingWithEnergyText",
+  "_BreedNoInterestText", "_BreedAppearsToCareForText", "_BreedFriendlyText",
+  "_BreedShowsInterestText", "_NothingToSellText",
+}) do
+  ENDINGS[label] = "{PROMPT}"
+end
+local RAW_PINNED = {}
+for label, body in pairs(PINNED) do
+  RAW_PINNED[label] = body .. (ENDINGS[label] or "{DONE}")
+end
+
 -- The transcriptions spell the four-tile POKé compression byte as `#`, which
 -- is the same sixteen columns the extractor's expansion draws.
 local function norm(s) return (tostring(s):gsub("#", "POKé")) end
@@ -240,7 +263,7 @@ end
 local TEXT = { generation = 2, labels = {} }
 do
   local n = 0
-  for label, body in pairs(PINNED) do
+  for label, body in pairs(RAW_PINNED) do
     n = n + 1
     local key = ("64:%04x"):format(0x4000 + n)
     TEXT.labels[label] = key
@@ -250,8 +273,11 @@ end
 
 -- ---- CommonText itself ----------------------------------------------------
 do
-  eq(CommonText.get(TEXT, "_MartHowManyText"), "How many?",
-    "a label resolves through text.labels to its string")
+  eq(CommonText.get(TEXT, "_MartHowManyText"), "How many?{DONE}",
+    "a label resolves through text.labels without consuming its terminator")
+  eq(CommonText.get(TEXT, "_WhatShouldIRaiseText"),
+    "What should I\nraise for you?{PROMPT}",
+    "a prompt label retains its distinct terminator")
   check(CommonText.get(TEXT, "_NoSuchText") == nil, "an unknown label is nil")
   check(CommonText.get({}, "_MartHowManyText") == nil,
     "and so is a cache with no labels table at all")
@@ -259,7 +285,7 @@ do
 
   -- `line` fills the box's second row, `para` clears it, `cont` scrolls it --
   -- so a cont page opens on the previous page's second line.
-  local pages = CommonText.pages("one\ntwo\vthree\ffour")
+  local pages = CommonText.pages("one\ntwo\vthree\ffour{DONE}")
   eq(#pages, 3, "para and cont each end a page")
   eq(table.concat(pages[1], "|"), "one|two", "line is the second row")
   eq(table.concat(pages[2], "|"), "two|three", "cont scrolls the row up")
@@ -410,18 +436,18 @@ do
     if type(text.labels) ~= "table" then
       check(true, "cache predates the NAMED_TEXT seed; re-import (SKIP)")
     else
-      local missing, wrong = {}, {}
-      for label, want in pairs(PINNED) do
+      local missing = {}
+      for label, want in pairs(RAW_PINNED) do
         local key = text.labels[label]
         if not key then
           missing[#missing + 1] = label
-        elseif text[key] ~= want then
-          wrong[#wrong + 1] = label
         end
+        eq(key and text[key], want,
+          label .. ": raw characters and terminator match the ROM")
+        eq(CommonText.plain(key and text[key]), PINNED[label],
+          label .. ": displayed characters match the transcription")
       end
       eq(table.concat(missing, ", "), "", "every seeded label is in the cache")
-      eq(table.concat(wrong, ", "), "",
-        "and every string matches the transcription exactly")
       for _, label in ipairs(EMPTY_LABELS) do
         check(text.labels[label] ~= nil,
           label .. " is seeded even though it is empty")

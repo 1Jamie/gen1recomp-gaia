@@ -132,6 +132,7 @@ local function mon(v)
     experience = Wire.num(v.experience, nil, 0, MAX_INT),
     hp = Wire.num(v.hp, nil, 0, 65535),
     status = Wire.str(v.status, nil, MAX_STRING),
+    sleepTurns = v.status == "SLP" and Wire.num(v.sleepTurns, nil, 1, 7) or nil,
     nickname = Wire.str(v.nickname, nil, MAX_NAME),
     dvs = statMap(v.dvs),
     statExp = statMap(v.statExp),

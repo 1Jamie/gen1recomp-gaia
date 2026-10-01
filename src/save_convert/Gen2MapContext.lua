@@ -24,8 +24,6 @@
 --     MAPOBJECT_OBJECT_STRUCT_ID of -1, "no struct spawned yet";
 --   * the remaining map-object slots get 0 / -1, the empty pattern;
 --   * every NPC object struct is cleared (ClearObjectStructs), and the
---     engine respawns them from wMapObjects the same way it does after any
---     ordinary warp;
 --   * wObjectMasks is zeroed and wObjectFollow_Leader/Follower reset to -1;
 --   * wCurMapObjectEventCount and wCurMapObjectEventsPointer are set to the
 --     new map's count and its object list's ROM address, which is what a
@@ -38,12 +36,6 @@
 -- value below was summed from the pret .sym files and cross-checked against
 -- Gen2Layout's own rows: pokecrystal wMapGroup $DCB5 lands at 0x2843 and
 -- pokegold's at 0x2868, which are the numbers Gen2Layout already ships.
---
--- Known limitation, deliberate: wObjectMasks starts at zero, so an object a
--- scene script would hide is visible until the first re-entry runs that
--- scene. Objects hidden by their own event flag, which is nearly all of
--- them, hide correctly, because the flag lives in wEventFlags and travels
--- with the save.
 --
 -- Pure Lua, no love.*: shared by the runtime exporter, the CLI and the tests.
 
@@ -115,6 +107,45 @@ local function signedU8(v)
   return v % 256
 end
 
+local function eventSet(events, id)
+  local byte = math.floor(id / 8)
+  return math.floor((tonumber(events[byte] or events[tostring(byte)]) or 0) / 2 ^ (id % 8)) % 2 == 1
+end
+
+function Gen2MapContext.objectMaskBytes(id, def, gameVersion, save)
+  local O = Gen2MapContext.offsetsFor(gameVersion)
+  local events = type(save) == "table" and type(save.events) == "table" and save.events or {}
+  local rtc = type(save) == "table" and type(save.rtc) == "table" and save.rtc or {}
+  local hour = tonumber((type(rtc.saved) == "table" and rtc.saved.hour) or rtc.hour) or 0
+  hour = math.floor(hour) % 24
+  local timeMask = hour >= 4 and hour < 10 and 1 or hour >= 10 and hour < 18 and 2 or 4
+  local carrier = type(save) == "table" and type(save.mapObjectMasks) == "table" and save.mapObjectMasks or {}
+  local overrides = carrier.map == id and type(carrier.masks) == "table" and carrier.masks or {}
+  local raw = carrier.map == id and type(carrier.raw) == "table" and carrier.raw or {}
+  local out = {}
+  for i = 1, NUM_OBJECTS do out[i] = type(raw[i]) == "number" and u8(raw[i]) or i == 1 and 0 or 0xFF end
+  for i, obj in ipairs(def.objects or {}) do
+    local flag = obj.eventFlag or 0xFFFF
+    local masked = obj.spriteId == 0 or flag ~= 0xFFFF and (flag >= 0xFF00 or eventSet(events, flag))
+    local hours = obj.hours or {}
+    local a, b = hours[1] or -1, hours[2] or -1
+    if a == -1 then
+      masked = masked or b ~= -1 and math.floor(b / timeMask) % 2 == 0
+    elseif a ~= b then
+      masked = masked or (a < b and (hour < a or hour > b) or a > b and hour > b and hour < a)
+    end
+    local override = overrides[i]
+    if override ~= nil then
+      if type(override) ~= "boolean" then return nil, "map object mask must be a boolean" end
+      masked = override
+    end
+    local slot = O.firstObjectSlot + i
+    local carried = raw[slot]
+    out[slot] = type(carried) == "number" and (carried ~= 0) == masked and u8(carried) or masked and 0xFF or 0
+  end
+  return out
+end
+
 -- One wMapObjects slot from the extractor's decoded object_event, laid out
 -- exactly as CopyMapObjectEvents leaves it: -1 for the struct id, then the
 -- thirteen ROM bytes verbatim, then the two bytes the struct pads to
@@ -180,8 +211,100 @@ local function connectionSource(dir, rect, nw, nh)
   return nw * rect.src
 end
 
+local DECO_DEFAULT = { bed = 2, poster = 16 }
+
+-- pokecrystal engine/overworld/decorations.asm:1087
+local function tileCallbackBlocks(data, id, def, save)
+  if id ~= "PLAYERS_HOUSE_2F" then
+    local callback
+    for _, row in ipairs(def.callbacks or {}) do
+      if row.callback == "MAPCALLBACK_TILES" then callback = row break end
+    end
+    if not callback then return {} end
+    local scripts = data and data.scripts
+    local key = callback.scriptKey
+    if type(scripts) ~= "table" or type(scripts[key]) ~= "table" then
+      return nil, "map cache has no tile callback script (re-import the ROM)"
+    end
+    local out, index, value = {}, 1, 0
+    local events = type(save) == "table" and type(save.events) == "table" and save.events or {}
+    local flags = type(save) == "table" and type(save.engineFlags) == "table" and save.engineFlags or {}
+    for _ = 1, 4096 do
+      local commands = scripts[key]
+      local cmd = commands and commands[index]
+      if type(cmd) ~= "table" then return nil, "map tile callback script is incomplete (re-import the ROM)" end
+      index = index + 1
+      local op = cmd.op
+      if op == "checkevent" and type(cmd.event) == "number" then
+        local byte = math.floor(cmd.event / 8)
+        value = math.floor((tonumber(events[byte] or events[tostring(byte)]) or 0) / 2 ^ (cmd.event % 8)) % 2
+      elseif op == "checkflag" and type(cmd.flag) == "number" then
+        value = (flags[cmd.flag] == true or flags[tostring(cmd.flag)] == true) and 1 or 0
+      elseif op == "sjump" or op == "farsjump"
+          or (op == "iftrue" and value ~= 0) or (op == "iffalse" and value == 0) then
+        key, index = cmd.script, 1
+        if type(scripts[key]) ~= "table" then
+          return nil, "map tile callback branch is missing (re-import the ROM)"
+        end
+      elseif op == "iftrue" or op == "iffalse" then
+      elseif op == "changeblock" then
+        local args = cmd.args or {}
+        local x, y, block = cmd.x or args[1], cmd.y or args[2], cmd.block or args[3]
+        if type(x) ~= "number" or type(y) ~= "number" or type(block) ~= "number" then
+          return nil, "map tile callback has an invalid block edit (re-import the ROM)"
+        end
+        x, y = math.floor(x / 2), math.floor(y / 2)
+        if x >= 0 and y >= 0 and x < def.width and y < def.height then
+          out[y * def.width + x + 1] = u8(block)
+        end
+      elseif op == "endcallback" then
+        return out
+      else
+        return nil, "map tile callback uses unsupported command " .. tostring(op)
+      end
+    end
+    return nil, "map tile callback exceeds the command limit"
+  end
+  local Decorations = require("src.core.gen2.Decorations")
+  local state = type(save) == "table" and type(save.decorations) == "table" and save.decorations or DECO_DEFAULT
+  local w, h = tonumber(def.width), tonumber(def.height)
+  local out = {}
+  for _, tile in ipairs(Decorations.tiles(state)) do
+    if w and h and tile.x >= 0 and tile.x < w and tile.y >= 0 and tile.y < h then
+      out[tile.y * w + tile.x + 1] = tile.block
+    end
+  end
+  return out
+end
+
+function Gen2MapContext.hasTiles(data, group, number)
+  local id, def = findMap(data, group, number)
+  if id == "PLAYERS_HOUSE_2F" then return true end
+  for _, row in ipairs((def and def.callbacks) or {}) do
+    if row.callback == "MAPCALLBACK_TILES" then return true end
+  end
+  return false
+end
+
+function Gen2MapContext.tilesChanged(data, group, number, before, after)
+  local id, def = findMap(data, group, number)
+  if not def then return nil, "unknown map" end
+  local a, why = tileCallbackBlocks(data, id, def, before)
+  if not a then return nil, why end
+  local b
+  b, why = tileCallbackBlocks(data, id, def, after)
+  if not b then return nil, why end
+  for at, block in pairs(a) do
+    if block ~= (b[at] or (def.blocks or {})[at]) then return true end
+  end
+  for at, block in pairs(b) do
+    if block ~= (a[at] or (def.blocks or {})[at]) then return true end
+  end
+  return false
+end
+
 -- home/map.asm:1829, :1065
-local function screenWindow(data, def, x, y)
+local function screenWindow(data, def, x, y, patched)
   local blocks, w, h = def.blocks, tonumber(def.width), tonumber(def.height)
   if type(blocks) ~= "table" or not w or not h then
     return nil, "map cache has no block data (re-import the ROM)"
@@ -221,7 +344,7 @@ local function screenWindow(data, def, x, y)
       local col = at % stride - 3
       local block
       if row >= 0 and row < h and col >= 0 and col < w then
-        block = blocks[row * w + col + 1] or 0
+        block = (patched and patched[row * w + col + 1]) or blocks[row * w + col + 1] or 0
       else
         block = fill[at]
       end
@@ -248,7 +371,7 @@ end
 -- Returns nil plus a reason when the map is unknown to this data set or the
 -- cache predates the extractor field this needs, so callers refuse the
 -- export rather than write one that continues wrong.
-function Gen2MapContext.build(data, gameVersion, group, number, x, y)
+function Gen2MapContext.build(data, gameVersion, group, number, x, y, save)
   local O = Gen2MapContext.offsetsFor(gameVersion)
   if not O then return nil, "no Gen 2 layout for " .. tostring(gameVersion) end
   local id, def = findMap(data, group, number)
@@ -290,8 +413,7 @@ function Gen2MapContext.build(data, gameVersion, group, number, x, y)
   -- the coordinates sit where CopyMapObjectEvents put them, +2 and +3.
   writes[O.mapObjects + 2] = { u8(y + 4), u8(x + 4) }
 
-  -- ClearObjectStructs, for the twelve NPC structs. The engine spawns fresh
-  -- ones from wMapObjects the same way it does after a warp.
+  -- pokecrystal engine/overworld/player_object.asm:227
   local cleared = {}
   for _ = 1, (NUM_OBJECT_STRUCTS - 1) * OBJECT_LENGTH do cleared[#cleared + 1] = 0 end
   writes[O.objectStructs + OBJECT_LENGTH] = cleared
@@ -306,9 +428,21 @@ function Gen2MapContext.build(data, gameVersion, group, number, x, y)
   -- Nobody is following anybody across an export.
   writes[O.objectFollow] = { 0xFF, 0xFF }
 
-  local masks = {}
-  for _ = 1, NUM_OBJECTS do masks[#masks + 1] = 0 end
+  local masks, maskError = Gen2MapContext.objectMaskBytes(id, def, gameVersion, save)
+  if not masks then return nil, maskError end
   writes[O.objectMasks] = masks
+  local rows, spriteError = require("src.save_convert.Gen2ObjectContext").rows(data, gameVersion, def, save, x, y, masks, first)
+  if not rows then return nil, spriteError end
+  local struct = 0
+  for i in ipairs(objects) do
+    local row = rows[i]
+    if row and struct < NUM_OBJECT_STRUCTS - 1 then
+      struct = struct + 1
+      local slot = first + i - 1
+      slots[(slot - 1) * MAPOBJECT_LENGTH + 1] = struct
+      for j = 1, OBJECT_LENGTH do cleared[(struct - 1) * OBJECT_LENGTH + j] = row[j] end
+    end
+  end
 
   writes[O.objectEventCount] = { u8(#objects) }
   writes[O.objectEventsPointer] = {
@@ -316,11 +450,69 @@ function Gen2MapContext.build(data, gameVersion, group, number, x, y)
     math.floor(def.objectEventsAddr / 256) % 256,
   }
 
-  local screen, why = screenWindow(data, def, x, y)
+  local patched, why = tileCallbackBlocks(data, id, def, save)
+  if not patched then return nil, why end
+  local screen
+  screen, why = screenWindow(data, def, x, y, patched)
   if not screen then return nil, why end
   writes[O.screenSave] = screen
 
   return { writes = writes, mapId = id }
+end
+
+-- home/map.asm:1829
+function Gen2MapContext.reposition(data, gameVersion, group, number, x, y, save)
+  local O = Gen2MapContext.offsetsFor(gameVersion)
+  if not O then return nil, "no Gen 2 layout for " .. tostring(gameVersion) end
+  local id, def = findMap(data, group, number)
+  if not def then
+    return nil, ("unknown map %d/%d"):format(tonumber(group) or -1, tonumber(number) or -1)
+  end
+  x, y = math.floor(tonumber(x) or 0), math.floor(tonumber(y) or 0)
+  local patched, why = tileCallbackBlocks(data, id, def, save)
+  if not patched then return nil, why end
+  local screen
+  screen, why = screenWindow(data, def, x, y, patched)
+  if not screen then return nil, why end
+  return {
+    mapId = id,
+    writes = {
+      [O.mapObjects + 2] = { u8(y + 4), u8(x + 4) },
+      [O.objectStructs + STRUCT_MAP_X] = { u8(x + 4) },
+      [O.objectStructs + STRUCT_MAP_Y] = { u8(y + 4) },
+      [O.objectStructs + STRUCT_LAST_MAP_X] = { u8(x + 4) },
+      [O.objectStructs + STRUCT_LAST_MAP_Y] = { u8(y + 4) },
+      [O.screenSave] = screen,
+    },
+  }
+end
+
+-- pokecrystal engine/overworld/player_object.asm:227
+function Gen2MapContext.repositionObjects(data, gameVersion, group, number, x, y, save, bytes)
+  local O = Gen2MapContext.offsetsFor(gameVersion)
+  local _, def = findMap(data, group, number)
+  if not O or not def then return nil, "map object context is missing" end
+  local objects = require("src.save_convert.Gen2ObjectContext")
+  local carried = objects.carried(def, bytes, O)
+  local masks = {}
+  for i = 1, NUM_OBJECTS do masks[i] = bytes[O.objectMasks + i - 1] or 0 end
+  local rows, why = objects.rows(data, gameVersion, carried, save, x, y, masks, O.firstObjectSlot)
+  if not rows then return nil, why end
+  local cleared, writes = {}, {}
+  for i = 1, (NUM_OBJECT_STRUCTS - 1) * OBJECT_LENGTH do cleared[i] = 0 end
+  writes[O.objectStructs + OBJECT_LENGTH] = cleared
+  local struct = 0
+  for i, obj in ipairs(carried.objects) do
+    local id = obj.spriteId == 0 and 0 or 0xFF
+    if rows[i] and struct < NUM_OBJECT_STRUCTS - 1 then
+      struct = struct + 1
+      id = struct
+      for j = 1, OBJECT_LENGTH do cleared[(struct - 1) * OBJECT_LENGTH + j] = rows[i][j] end
+    end
+    writes[O.mapObjects + (O.firstObjectSlot + i - 1) * MAPOBJECT_LENGTH] = { id }
+  end
+  writes[O.objectFollow] = { 0xFF, 0xFF }
+  return writes
 end
 
 -- STRUCT_MAP_Y and STRUCT_LAST_MAP_Y are documented above and pinned by the

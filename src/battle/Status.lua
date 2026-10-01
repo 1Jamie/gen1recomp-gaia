@@ -73,6 +73,7 @@ Status.RECORDS = {
     beforeMovePriority = 40,
     beforeMove = function(battler, _, battle)
       battler.sleepTurns = (battler.sleepTurns or 1) - 1
+      battler.mon.sleepTurns = battler.sleepTurns > 0 and battler.sleepTurns or nil
       if battler.sleepTurns <= 0 then
         battler.mon.status = nil
         -- wakes, loses the turn
@@ -84,6 +85,7 @@ Status.RECORDS = {
     end,
     onInflict = function(battle, target, opts, display)
       target.sleepTurns = battle.rng(1, 7)
+      target.mon.sleepTurns = target.sleepTurns
       return { romText(battle.data, "_FellAsleepText",
         "%s\nfell asleep!", display) }
     end,

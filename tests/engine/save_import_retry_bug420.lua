@@ -136,7 +136,8 @@ local SaveConvert = require("src.save_convert.SaveConvert")
 -- The audio entry is single-quoted on purpose: gate_meta_coverage.lua treats a
 -- double-quoted registry name anywhere in the test corpus as that registry's
 -- unit test, and this suite is not the mod audio registry's.
-local GENERATED = { "pokemon", "moves", "items", "maps", "tilesets", 'audio', 'encounters' }
+local GENERATED = { "pokemon", "moves", "items", "maps", "tilesets", 'audio', 'encounters',
+  'field', 'trainerHeaders' }
 
 local function prefixes()
   local seen = {}
@@ -199,18 +200,16 @@ do
   eq(#reads, 0, "and shares the set exportSav already warmed")
 end
 
--- The require path still has to carry SaveConvert under plain luajit, where
--- there is no cache to read from.
 do
   reads = {}
   cacheFails = true
+  SaveConvert.setGen1DataStub(nil)
   local ok, data, err = pcall(SaveConvert.loadData, "red")
   cacheFails = false
-  check(ok, "an unreadable cache falls back instead of raising: " .. tostring(data))
-  if loadfile("data/generated/maps.lua") then
-    check(type(data) == "table",
-      "the require path still resolves the tables headless: " .. tostring(err))
-  end
+  check(ok, "an unreadable cache returns instead of raising: " .. tostring(data))
+  eq(data, nil, "an unreadable edition cache never falls back to mounted data")
+  check(err and err:find("Red", 1, true), "the refusal names the unreadable Red cache")
+  eq(fakeCache.prefix, SENTINEL, "a failed cache read restores launcher state")
 end
 
 -- ------------------------------------------------------------------

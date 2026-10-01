@@ -1761,7 +1761,27 @@ end
 function SaveData.writeSlot(version, slotId, saveTable)
   version = version or GameVersion.get()
   if not knownVersion(version) then return false, "unknown version" end
-  return writeSlotIn(version, slotId, saveTable)
+  local imported = type(saveTable) == "table" and saveTable.importedOptions
+  if type(imported) ~= "table" then return writeSlotIn(version, slotId, saveTable) end
+  local body = {}
+  for k, v in pairs(saveTable) do
+    if k ~= "importedOptions" then body[k] = v end
+  end
+  local ok, err = writeSlotIn(version, slotId, body)
+  if not ok then return ok, err end
+  local info = GameVersion.info(version)
+  if info and info.generation == 2 then
+    local Gen2Save = require("src.core.gen2.Save")
+    local opts = Gen2Save.loadOptions()
+    for k, v in pairs(imported) do opts[k] = v end
+    Gen2Save.saveOptions(opts)
+  else
+    local opts = SaveData.loadOptions()
+    for k, v in pairs(imported) do opts[k] = v end
+    SaveData.saveOptions(opts)
+  end
+  saveTable.importedOptions = nil
+  return true
 end
 
 -- Delete a registered slot: remove its main/.bak/.tmp files, drop it from the
@@ -2630,6 +2650,10 @@ function SaveData.load(version)
   end
   SaveData.runMigrations(data)
   data.options = SaveData.loadOptions()
+  local loadInfo = type(data.version) == "string" and GameVersion.info(data.version)
+  if loadInfo and loadInfo.generation == 2 then
+    data.options = require("src.core.gen2.Save").loadOptions()
+  end
   local mapped = SaveData.selectedPlaythroughId(data)
   if type(mapped) == "string" and mapped ~= "" then
     data.meta.playthroughId = mapped

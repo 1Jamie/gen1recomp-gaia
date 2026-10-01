@@ -16,7 +16,7 @@ if not loadfile("data/generated/pokemon.lua") then
   os.exit(0)
 end
 
-local data = assert(SaveConvert.loadData("red"))
+local data = require("tests.save_compat._codec").gen1Data("red")
 local stampMapWindow = loadfile("tests/fixture_data/map_window.lua")()
 for mapId in pairs(data.maps) do stampMapWindow(data, mapId) end
 

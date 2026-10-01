@@ -648,6 +648,7 @@ local function makeBattler(data, mon, isPlayer, save)
     -- while the tilemap still shows the prior condition until the next
     -- post-action HUD refresh (core.asm after Execute*Move)
     shownStatus = mon.status,
+    sleepTurns = mon.status == "SLP" and mon.sleepTurns or nil, -- engine/battle/core.asm:3331
     stages = {},
     -- volatile state; Transform/Conversion/Mimic override the cur* fields
     curStats = mon.stats,
@@ -4221,6 +4222,7 @@ function BattleState:preRechargeChecks(user, target)
   local mon = user.mon
   if mon.status == "SLP" then
     user.sleepTurns = (user.sleepTurns or 1) - 1
+    mon.sleepTurns = user.sleepTurns > 0 and user.sleepTurns or nil
     if user.sleepTurns <= 0 then
       mon.status = nil
       self:sayNext(self:romText("_WokeUpText", "%s\nwoke up!", displayName(user)))

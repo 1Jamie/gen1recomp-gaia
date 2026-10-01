@@ -15,9 +15,9 @@ CacheContract.VERSION_FORMAT = {
   -- export re-anchoring a save onto another map writes back into
   -- wCurMapObjectEventsPointer. A v10 cache has no address to write, and
   -- such an export is refused until the ROM re-imports.
-  gold = "rom-cache-v12:",
-  silver = "rom-cache-v12:",
-  crystal = "rom-cache-v12-crystal4:",
+  gold = "rom-cache-v13:",
+  silver = "rom-cache-v13:",
+  crystal = "rom-cache-v13-crystal5:",
   -- engine/overworld/map_sprites.asm:181, engine/battle/animations.asm:2600
   -- data/pikachu/pikachu_pic_animation.asm:340
   yellow = "rom-cache-v12-yellow2:",

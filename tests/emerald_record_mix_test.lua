@@ -290,7 +290,7 @@ do
   eq(order[1] .. order[2] .. order[3], "231", "MAY's even id picks {1, 2, 0}")
   local _, packets = mix({ A, B, C })
   local randSum = DaycareMail.randSum(packets[1])
-  eq(randSum, Tv.TVSHOW_POKEMON_TODAY_CAUGHT + 1, "sum uses raw first 256 TV bytes after normal-show deactivation")
+  eq(randSum, 0, "sum uses the current blank TV slots after normal-show deactivation")
 
   eq(OldMan.current(A), OldMan.GIDDY, "MAY <- BRENDAN's Giddy")
   eq(OldMan.current(B), OldMan.BARD, "BRENDAN <- CHRIS's bard")

@@ -49,13 +49,13 @@ local SaveData = require("src.core.SaveData")
 local GameVersion = require("src.core.GameVersion")
 local SaveFileIO = require("src.import.SaveFileIO")
 local SaveConvert = require("src.save_convert.SaveConvert")
-local Gen3Save = require("src.save_convert.Gen3Save")
-local L = require("src.save_convert.Gen3Layout")
+local Gen3Save = require("src.save_convert.Gen3Save").forVersion(GAME)
+local L = Gen3Save.L
 local Schema = require("src.core.game3.save_schema_firered")
 local Party = require("src.core.game3.party")
 local Pokemon = require("src.core.game3.pokemon")
 
-local CART = unrle(require("tests.fixture_data.gen3_saves").images.fr_rich_game)
+local CART = unrle(require("tests.fixture_data.gen3_saves").images[GAME == "leafgreen" and "lg_rich_game" or "fr_rich_game"])
 local realFs = love.filesystem
 
 local function fresh(version)
@@ -72,7 +72,7 @@ local function exported(files, version)
   return files[("exports/%s/gen1recomp-%s-%s.sav"):format(version, version, tostring(SaveData.activeSlot(version)))]
 end
 
-for _, version in ipairs({ "firered", "leafgreen" }) do
+for _, version in ipairs({ GAME }) do
   local files = fresh(version)
   files["picked.sav"] = CART
   local ok, slotId = SaveFileIO.importToSlot("picked.sav", version)
@@ -84,7 +84,8 @@ for _, version in ipairs({ "firered", "leafgreen" }) do
   local same = b and b.storage == a.storage and b.sb1:sub(0x15) == a.sb1:sub(0x15) and b.sb1:sub(1, 0xC) == a.sb1:sub(1, 0xC)
   check(same, version .. " the cart template's bytes survive outside the continue warp")
   local c = bytes and Gen3Save.decode(bytes)
-  check(c and c.specialSaveWarpFlags == L.CONTINUE_GAME_WARP, version .. " export continues through the continue-game warp")
+  check(c and c.specialSaveWarpFlags == Gen3Save.decode(CART).specialSaveWarpFlags and b.sb1 == a.sb1,
+    version .. " an unmoved player keeps the cart's save-warp flags and continue warp")
 end
 
 do
@@ -104,7 +105,7 @@ do
   SaveData.setActiveSlot(GAME, slot)
   local bytes = exported(files, GAME)
   local c = bytes and Gen3Save.decode(bytes)
-  check(c ~= nil, "the port-born export decodes as a valid FireRed flash")
+  check(c ~= nil, "the port-born export decodes as a valid " .. GAME .. " flash")
   if c then
     check(c.counter == 1 and c.frlgMarker == 1, "fresh first save with the FRLG marker")
     check(c.location.group == 3 and c.location.num == 0 and c.posX == 12 and c.posY == 16, "Pallet Town 12,16")
@@ -145,7 +146,8 @@ do
   local ok, slot = SaveFileIO.importToSlot("picked.sav", GAME)
   check(ok == true, "cart imported for the NEW GAME case")
   local cartFile = ("saves/%s/%s.cart"):format(GAME, slot)
-  check(files[cartFile] ~= nil, "the import keeps the cart beside the slot")
+  check(files[cartFile] == nil, "the import writes no sidecar")
+  files[cartFile] = CART
   local s = Schema.newGame({ version = GAME, name = "NEWBIE", rivalName = "RIVAL", rngSeed = 7 })
   s.map, s.x, s.y = "FR_PALLET_TOWN", 12, 16
   check(SaveData.save(Schema.toSaveTable(s)) ~= false, "NEW GAME saves over the imported slot")
@@ -160,7 +162,8 @@ do
   ok, slot = SaveFileIO.importToSlot("picked.sav", GAME)
   local keep = SaveData.load(GAME)
   check(SaveData.save(keep) ~= false, "the imported player saves again")
-  check(files[("saves/%s/%s.cart"):format(GAME, slot)] ~= nil, "the imported player keeps the cart")
+  check(type(keep.modData) == "table" and type(keep.modData.cartImage) == "string",
+    "the imported player keeps the cart inside the slot")
 end
 
 love.filesystem = realFs

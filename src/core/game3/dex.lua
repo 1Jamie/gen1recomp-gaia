@@ -366,6 +366,7 @@ function Dex.enableNational(session)
   session.dex = session.dex or {}
   session.dex.national = true
   if nat.magic then session.dex.nationalMagic = nat.magic end
+  if row.family == "rse" then session.pokedex = { mode = 1, order = 0 } end
   session.flags = session.flags or {}
   session.vars = session.vars or {}
   local Flags = require("src.core.game3.scripting.flags")

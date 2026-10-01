@@ -3214,11 +3214,11 @@ function RomImporter:exportSave(version, format, scope, slotId)
   version = self:_resolveSaveVersion(version)
   local noticeScope = scope or version
   local IO = require("src.import.SaveFileIO")
-  local ok, res
+  local ok, res, exportNote
   if format == "lua" then
     ok, res = IO.exportLuaSlot(version, slotId, cartOfScope(scope))
   else
-    ok, res = IO.exportActiveSlot(version)
+    ok, res, exportNote = IO.exportActiveSlot(version)
   end
   if not ok then
     self.saveNotice[noticeScope] = { ok = false, text = tostring(res) }
@@ -3265,7 +3265,9 @@ function RomImporter:exportSave(version, format, scope, slotId)
     return
   end
   local dir = res:match("^(.*)[/\\][^/\\]+$")
-  self.saveNotice[noticeScope] = { ok = true, text = "Exported to " .. res, dir = dir }
+  local text = "Exported to " .. res
+  if exportNote then text = text .. "\n" .. exportNote end
+  self.saveNotice[noticeScope] = { ok = true, text = text, dir = dir }
 end
 
 -- Delete a save slot from the registry and disk, then refresh the panel.  If the

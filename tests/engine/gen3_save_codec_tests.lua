@@ -296,7 +296,7 @@ do
   eq(p[1].status, "PSN", "party 1 poisoned")
   eq(p[1].ppBonusesPacked, 3, "party 1 PP ups")
   eq(p[1].item, 200, "party 1 held item")
-  eq(p[1].cartExtra.championRibbon, true, "party 1 champion ribbon kept")
+  eq(p[1].championRibbon, true, "party 1 champion ribbon kept")
   eq(p[1].cartImport, true, "party mons are finished on first load")
   eq(p[2].species, 277, "Treecko keeps its internal species")
   eq(p[2].otName, "PKHEX", "Treecko keeps its foreign OT")
@@ -304,7 +304,7 @@ do
   eq(p[3].nickname, "EGG", "the egg is named EGG")
   eq(p[3].eggCycles, 10, "the egg keeps its cycles")
   eq(p[4].species, 201, "Unown")
-  eq(p[4].cartExtra.modernFatefulEncounter, true, "Unown fateful bit kept")
+  eq(p[4].modernFatefulEncounter, true, "Unown fateful bit kept")
   eq(save.storage.currentBox, 2, "current box is 1-based")
   eq(save.storage.boxes[2].mons[20].species, 150, "box 2 slot 20 straddles storage chunks")
   eq(save.storage.boxes[2].mons[20].level, nil, "box levels wait for the first load")
@@ -313,7 +313,7 @@ do
   eq(save.storage.boxes[3].name, "CUSTOM", "a renamed box keeps its name")
   eq(save.storage.boxes[3].wallpaper, 6, "a changed wallpaper is 1-based")
   eq(save.storage.boxes[1].name, "BOX 1", "a default box name takes the port default")
-  eq(save.storage.boxes[5].wallpaper, 5, "a default wallpaper takes the port default")
+  eq(save.storage.boxes[5].wallpaper, 1, "a cart wallpaper w is w + 1 in the port, defaults included")
   same_eq(save.storage.items, { { id = 13, qty = 1 }, { id = 20, qty = 3 } }, "PC items")
   same_eq(save.bag.pockets.ITEMS, { { id = 13, qty = 10 }, { id = 68, qty = 5 }, { id = 23, qty = 99 } }, "bag items")
   same_eq(save.bag.pockets.KEY_ITEMS, { { id = 360, qty = 1 }, { id = 364, qty = 1 } }, "key items")
@@ -389,28 +389,26 @@ do
   eq(#out, L.FLASH_SIZE, "a template export is a 128K flash image")
   local a, b = assert(Gen3Save.readBlocks(rich)), assert(Gen3Save.readBlocks(out))
   eq(b.counter, a.counter + 1, "the export is the next save after the cart's")
-  local ok, where = onlyIn(byteRuns(a.sb2, b.sb2), { { 0x09, 0x09 } })
-  check(ok, "SaveBlock2 only changes the continue flag (" .. tostring(where) .. ")")
-  ok, where = onlyIn(byteRuns(a.sb1, b.sb1), { { 0x0C, 0x13 } })
-  check(ok, "SaveBlock1 only changes the continue warp (" .. tostring(where) .. ")")
+  eq(#byteRuns(a.sb2, b.sb2), 0, "SaveBlock2 is byte-identical when the player did not move")
+  eq(#byteRuns(a.sb1, b.sb1), 0, "SaveBlock1 is byte-identical when the player did not move")
   eq(#byteRuns(a.storage, b.storage), 0, "PC storage is byte-identical")
   for s = 28, 31 do
     eq(out:sub(s * 0x1000 + 1, (s + 1) * 0x1000), rich:sub(s * 0x1000 + 1, (s + 1) * 0x1000),
       "sector " .. s .. " (Hall of Fame / Trainer Tower) is kept from the cart")
   end
   local c = assert(Gen3Save.decode(out))
-  eq(c.specialSaveWarpFlags, L.CONTINUE_GAME_WARP, "the export continues through the continue-game warp")
-  same_eq(c.continueGameWarp, { group = 4, num = 1, warpId = -1, x = 6, y = 6 }, "continue warp is the bedroom")
+  local src = assert(Gen3Save.decode(rich))
+  eq(c.specialSaveWarpFlags, src.specialSaveWarpFlags, "an unmoved player keeps the cart's save-warp flags")
+  same_eq(c.continueGameWarp, src.continueGameWarp, "an unmoved player keeps the cart's continue warp")
+  same_eq(c.location, src.location, "an unmoved player keeps the cart's location warp")
   eq(c.encryptionKey, a.sb2:byte(0xF21) + a.sb2:byte(0xF22) * 256 + a.sb2:byte(0xF23) * 65536 + a.sb2:byte(0xF24) * 16777216,
     "the cart's encryption key is kept for the unmodeled key-XORed fields")
 
   local again = reload(assert(SaveConvert.importSav(out, "firered", "firered")))
-  local cw = again.continueGameWarp
-  again.continueGameWarp, again.specialSaveWarpFlags = nil, nil
   local base = reload(save)
-  base.continueGameWarp, base.specialSaveWarpFlags = nil, nil
+  eq(Gen3Save.slotTemplate(again), out, "the re-import carries the exported image as its template")
+  again.modData.cartImage, base.modData.cartImage = nil, nil
   same_eq(again, base, "import(export(cart slot)) equals the slot")
-  same_eq(cw, { map = "FR_PLAYERS_HOUSE_2F", warpId = -1, x = 6, y = 6 }, "the re-import sees the continue warp")
 
   local moved = reload(save)
   moved.map, moved.x, moved.y = "FR_VIRIDIAN_CITY", 26, 28
@@ -435,9 +433,12 @@ do
   eq(m.vars[0x4031], 2, "a var set by name is set")
   local mblk = assert(Gen3Save.readBlocks(mb))
   -- include/global.h:793
-  eq(mblk.sb1:sub(0x1301, 0x2CA0), a.sb1:sub(0x1301, 0x2CA0), "the quest log is kept from the cart")
+  eq(mblk.sb1:sub(0x1301, 0x2CA0), string.rep("\0", 0x19A0), "a map change resets the quest log")
   -- include/global.h:352
-  eq(mblk.sb2:sub(0x899, 0xAF0), a.sb2:sub(0x899, 0xAF0), "map view and link battle records are kept")
+  eq(mblk.sb2:sub(0x899, 0xA98), string.rep("\0", 0x200), "a map change resets the map view")
+  eq(mblk.sb1:sub(0x6A1, 0x8E0), string.rep("\0", 0x240), "a map change resets the object events")
+  eq(m.specialSaveWarpFlags % 2, L.CONTINUE_GAME_WARP, "a moved player continues through the continue-game warp")
+  eq(mblk.sb2:sub(0xA99, 0xAF0), a.sb2:sub(0xA99, 0xAF0), "link battle records are kept")
   -- include/global.h:807
   eq(mblk.sb1:sub(0x3121, 0x3A18), a.sb1:sub(0x3121, 0x3A18), "mystery gift data is kept")
 end
@@ -496,7 +497,12 @@ do
   eq(#bytes, L.FLASH_SIZE, "a fresh export is a 128K flash image")
   local c = assert(Gen3Save.decode(bytes))
   eq(c.counter, 1, "a fresh export is a first save")
-  eq(c.encryptionKey, 0, "a fresh export starts with key 0")
+  check(c.encryptionKey ~= 0, "a fresh export gets a nonzero derived key")
+  eq(c.encryptionKey, Gen3Save.deriveKey(12345, 54321, nil, 0), "the fresh key is derived from TID, SID and playthrough")
+  local raw = assert(Gen3Save.readBlocks(bytes))
+  local function w32(s, o) return s:byte(o + 1) + s:byte(o + 2) * 256 + s:byte(o + 3) * 65536 + s:byte(o + 4) * 16777216 end
+  eq(w32(raw.sb2, 0xF20), c.encryptionKey, "the key sits at SB2 0xF20")
+  check(w32(raw.sb2, 0xAF8) ~= 0, "SB2 0xAF8 (berry powder XOR key) is nonzero for OpenHome")
   eq(c.specialSaveWarpFlags, L.CONTINUE_GAME_WARP, "continue-game warp flag set")
   same_eq(c.continueGameWarp, { group = 3, num = 0, warpId = -1, x = 12, y = 16 }, "continue warp is Pallet 12,16")
   same_eq(c.location, { group = 3, num = 0, warpId = -1, x = 12, y = 16 }, "location")
@@ -763,7 +769,10 @@ do
   local out = assert(Gen3Save.exportPort(stranger, stubOpts({ template = rich })))
   local c = assert(Gen3Save.decode(out))
   eq(c.counter, 1, "another player's cart is not used as the template (first save)")
-  eq(c.encryptionKey, 0, "another player's key is not reused")
+  check(c.encryptionKey ~= 0, "the slot's own key is used, never 0")
+  stranger.modData.cartKey = nil
+  local derived = assert(Gen3Save.decode(assert(Gen3Save.exportPort(stranger, stubOpts({ template = rich })))))
+  eq(derived.encryptionKey, Gen3Save.deriveKey(1111, 2222, nil, 0), "a slot with no key of its own derives one, not the other cart's")
   eq(c.name, "NEWBIE", "the export is the slot's player")
   local other = out:sub(14 * 0x1000 * (1 - c.slot) + 1, 14 * 0x1000 * (2 - c.slot))
   eq(other, string.rep("\255", 14 * 0x1000), "no copy of the other player's save rides in the older slot")

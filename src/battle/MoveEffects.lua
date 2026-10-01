@@ -241,6 +241,7 @@ MoveEffects.primary = {
       mon.hp = mon.stats.hp
       mon.status = "SLP"
       user.sleepTurns = 2
+      mon.sleepTurns = 2
       user.toxicCounter = nil
       return { romText(battle.data, "_StartedSleepingEffect", "%s\nstarted sleeping!", displayName(user)) }
     end

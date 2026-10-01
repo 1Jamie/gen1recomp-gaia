@@ -129,6 +129,15 @@ local function trainer_name_records_restore(v)
   return out
 end
 
+-- pokeemerald/include/global.h:206
+local function pokedex_view(v)
+  if type(v) ~= "table" then return nil end
+  local mode, order = math.floor(tonumber(v.mode) or 0), math.floor(tonumber(v.order) or 0)
+  if mode < 0 or mode > 1 then mode = 0 end
+  if order < 0 or order > 5 then order = 0 end
+  return { mode = mode, order = order }
+end
+
 --- Factory for a pristine New Game after Oak intro finishes.
 function Schema.newGame(opts)
   opts = opts or {}
@@ -242,6 +251,7 @@ function Schema.toSaveTable(session)
     bag = session.bag,
     inventory = session.bag, -- SaveData compatibility alias
     dex = session.dex,
+    pokedex = pokedex_view(session.pokedex),
     map = session.map,
     x = session.x,
     y = session.y,
@@ -351,6 +361,7 @@ function Schema.fromSaveTable(save)
     party = require("src.core.game3.storage").compactParty(save.party or {}),
     bag = bag,
     dex = save.dex or {},
+    pokedex = pokedex_view(save.pokedex),
     money = save.money or 0,
     coins = save.coins or 0,
     berryPowder = tonumber(save.berryPowder) or 0,

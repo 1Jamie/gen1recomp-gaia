@@ -1851,17 +1851,27 @@ end
 -- CheckMagikarpLength's four answers, and the record it keeps.
 do
   local record = { player = { name = "GOLD" } }
-  local karp = { species = "MAGIKARP", otId = 1000,
-    dvs = { attack = 15, defense = 15, speed = 15, special = 15 } }
-  local chosen = karp
+  local dvs = { attack = 15, defense = 15, speed = 15, special = 15 }
+  local long = { species = "MAGIKARP", otId = 0, ot = "KURT", dvs = dvs }
+  local short = { species = "MAGIKARP", otId = 1000, ot = "KURT", dvs = dvs }
+  local chosen = short
   local vm = specialVm(0, { order = { "x" }, hooks = {
     save = function() return record end,
-    party = function() return { karp } end,
+    party = function() return { long } end,
     monName = function(sp) return sp end,
     selectPartyMon = function(_, done) done(1, chosen) end } })
+  Specials.HANDLERS.MagikarpHouseSign(vm)
+  eq(vm.stringBuffer, Specials.magikarpLengthText(3, 6), "no record set reads the cart's 3'6\" default")
+  eq(Specials.magikarpBest(record).name, "RALPH", "held by RALPH")
   Specials.HANDLERS.CheckMagikarpLength(vm)
-  eq(vm.scriptVar, 3, "a first measurement always beats the record")
-  check(record.magikarpRecord ~= nil, "and is written down")
+  eq(vm.scriptVar, 2, "3'2\" does not beat the 3'6\" default")
+  check(record.magikarpRecord == nil, "and writes nothing")
+  chosen = long
+  Specials.HANDLERS.CheckMagikarpLength(vm)
+  eq(vm.scriptVar, 3, "5'3\" beats the default")
+  eq(record.magikarpRecord.feet, 5, "feet written")
+  eq(record.magikarpRecord.inches, 3, "inches written")
+  eq(record.magikarpRecord.name, "KURT", "the Magikarp's OT is the holder, not the player")
   Specials.HANDLERS.CheckMagikarpLength(vm)
   eq(vm.scriptVar, 2, "measuring the same fish again does not beat it")
   chosen = { species = "CHIKORITA" }
@@ -1871,8 +1881,7 @@ do
   Specials.HANDLERS.CheckMagikarpLength(vm)
   eq(vm.scriptVar, 1, "and B answers 1")
   Specials.HANDLERS.MagikarpHouseSign(vm)
-  check(vm.stringBuffer:find("'", 1, true) ~= nil,
-    "the house sign prints the record on the wall")
+  eq(vm.stringBuffer, Specials.magikarpLengthText(5, 3), "the house sign prints the record on the wall")
 end
 
 -- SnorlaxAwake needs BOTH halves: the flute channel playing, and the player on

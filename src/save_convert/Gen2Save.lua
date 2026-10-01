@@ -14,6 +14,28 @@ Gen2Save.SAVE_SIZE = 32768
 Gen2Save.PARTY_STRUCT = 48
 Gen2Save.NAME_LENGTH = 11
 Gen2Save.PARTY_LENGTH = 6
+-- pokecrystal constants/pokemon_constants.asm:276
+Gen2Save.EGG = 0xFD
+-- engine/pokemon/breeding.asm:224
+Gen2Save.HATCH_HAPPINESS = 0x78
+-- macros/ram.asm:193
+Gen2Save.MAIL_STRUCT = 47
+Gen2Save.MAILBOX_CAPACITY = 10
+Gen2Save.NUM_BOXES = 14
+Gen2Save.BOX_NAME_LENGTH = 9
+Gen2Save.NUM_UNOWN = 26
+Gen2Save.OPTIONS_LENGTH = 8
+
+Gen2Save.MSG = {
+  sibling = "this is a %s save, not one for the game you picked; import it as %s",
+  checksum = "save data checksum invalid (Gen 2 check values or sum mismatch)",
+  cache = "the %s data cache is missing, so this save's Pokemon, moves and "
+    .. "items cannot be named; import the %s ROM before importing a save for it",
+  foreign = "this is a %s save; only English-region Gold, Silver and Crystal "
+    .. "saves can be imported",
+  bothCopies = "the cartridge image beside this save fails its checksum in both "
+    .. "the primary and the backup copy, so it cannot be written over",
+}
 
 function Gen2Save.layoutFor(gameVersion)
   if gameVersion == "crystal" then return Gen2Layout.crystal end
@@ -21,34 +43,132 @@ function Gen2Save.layoutFor(gameVersion)
   return nil
 end
 
-local function u8(b, o) return b:byte(o + 1) end
-local function be(b, o, n)
-  local v = 0
-  for i = 0, n - 1 do v = v * 256 + b:byte(o + i + 1) end
-  return v
+local Refusal = {}
+local function refuse(msg) error(setmetatable({ msg = msg }, Refusal), 0) end
+
+local function guarded(fn, ...)
+  local ok, a, b = pcall(fn, ...)
+  if ok then return a, b end
+  if type(a) == "table" and getmetatable(a) == Refusal then return nil, a.msg end
+  return nil, "the Gen 2 save codec failed: " .. tostring(a)
 end
 
+local function toTable(s, n)
+  local t = {}
+  n = math.min(n or #s, #s)
+  local i = 0
+  while i < n do
+    local stop = math.min(i + 4096, n)
+    local chunk = { s:byte(i + 1, stop) }
+    for k = 1, #chunk do t[i + k - 1] = chunk[k] end
+    i = stop
+  end
+  return t
+end
+
+local function pack(t, n)
+  local out = {}
+  for i = 0, n - 1 do out[i + 1] = string.char(t[i] or 0) end
+  return table.concat(out)
+end
+
+local function u8(t, o) return t[o] or 0 end
+local function be(t, o, n)
+  local v = 0
+  for i = 0, n - 1 do v = v * 256 + (t[o + i] or 0) end
+  return v
+end
+local function bit(byte, n) return math.floor(byte / 2 ^ n) % 2 == 1 end
+
 -- The cart's text encoding, from Gen2Layout.charmap. 0x50 terminates.
-local function text(b, o, n)
+local function text(t, o, n, lineBreak)
   local out = {}
   for i = 0, n - 1 do
-    local c = b:byte(o + i + 1)
+    local c = t[o + i]
     if not c or c == 0x50 then break end
-    out[#out + 1] = Gen2Layout.charmap[c] or "?"
+    if lineBreak and c == 0x4E then
+      out[#out + 1] = "\n"
+    else
+      out[#out + 1] = Gen2Layout.charmap[c] or "?"
+    end
   end
   return table.concat(out)
+end
+
+local nameCarrier
+
+local function sum16(t, from, toExcl)
+  local sum = 0
+  for i = from, toExcl - 1 do sum = sum + (t[i] or 0) end
+  return sum % 65536
 end
 
 -- Both check values AND the 16-bit sum between them. A blank SRAM sums to a
 -- valid 0 == 0, so the check values are what reject it.
 function Gen2Save.checksumValid(bytes, L)
-  if #bytes < Gen2Save.SAVE_SIZE then return nil end
-  if u8(bytes, L.sCheckValue1) ~= 0x63 then return false end
-  if u8(bytes, L.sCheckValue2) ~= 0x7F then return false end
+  if type(bytes) ~= "string" or #bytes < Gen2Save.SAVE_SIZE then return nil end
+  local b = function(o) return bytes:byte(o + 1) end
+  if b(L.sCheckValue1) ~= 0x63 then return false end
+  if b(L.sCheckValue2) ~= 0x7F then return false end
   local sum = 0
-  for i = L.sGameData, L.sGameDataEnd - 1 do sum = (sum + u8(bytes, i)) % 65536 end
-  local stored = u8(bytes, L.sChecksum) + u8(bytes, L.sChecksum + 1) * 256
+  for i = L.sGameData, L.sGameDataEnd - 1 do sum = (sum + b(i)) % 65536 end
+  local stored = b(L.sChecksum) + b(L.sChecksum + 1) * 256
   return sum == stored
+end
+
+-- pokegold engine/menus/save.asm:772
+function Gen2Save.backupValid(bytes, L)
+  if type(bytes) ~= "string" or #bytes < Gen2Save.SAVE_SIZE then return nil end
+  local B = L.backupSave
+  local b = function(o) return bytes:byte(o + 1) end
+  if b(B.checkValue1) ~= 0x63 or b(B.checkValue2) ~= 0x7F then return false end
+  local sum = 0
+  for _, seg in ipairs(B.segments) do
+    for i = seg[2], seg[2] + seg[3] - 1 do sum = (sum + b(i)) % 65536 end
+  end
+  return sum == b(B.checksum) + b(B.checksum + 1) * 256
+end
+
+local function splice(s, at, part)
+  return s:sub(1, at) .. part .. s:sub(at + #part + 1)
+end
+
+-- pokegold engine/menus/save.asm:538
+function Gen2Save.liveImage(bytes, L)
+  if type(bytes) ~= "string" or #bytes < Gen2Save.SAVE_SIZE then return nil end
+  local img = bytes:sub(1, Gen2Save.SAVE_SIZE)
+  if Gen2Save.checksumValid(img, L) == true then return img, "primary" end
+  if Gen2Save.backupValid(img, L) ~= true then return nil end
+  local B = L.backupSave
+  for _, seg in ipairs(B.segments) do
+    img = splice(img, seg[1], img:sub(seg[2] + 1, seg[2] + seg[3]))
+  end
+  img = splice(img, L.sOptions, img:sub(B.options + 1, B.options + Gen2Save.OPTIONS_LENGTH))
+  img = splice(img, L.sCheckValue1, string.char(0x63))
+  img = splice(img, L.sCheckValue2, string.char(0x7F))
+  local sum = 0
+  for i = L.sGameData, L.sGameDataEnd - 1 do sum = (sum + img:byte(i + 1)) % 65536 end
+  img = splice(img, L.sChecksum, string.char(sum % 256, math.floor(sum / 256)))
+  return img, "backup"
+end
+
+local FOREIGN = {
+  { "Japanese Gold/Silver", 0x2C8B, 0x2D0D },
+  { "Japanese Crystal", 0x2AE2, 0x2D0D },
+  { "Korean Gold/Silver", 0x2DAA, 0x2DAB },
+}
+
+function Gen2Save.foreignRegion(bytes)
+  if type(bytes) ~= "string" or #bytes < Gen2Save.SAVE_SIZE then return nil end
+  if bytes:byte(0x2008 + 1) ~= 0x63 then return nil end
+  for _, row in ipairs(FOREIGN) do
+    local sum = 0
+    for i = 0x2009, row[2] do sum = (sum + bytes:byte(i + 1)) % 65536 end
+    if sum ~= 0 and sum == bytes:byte(row[3] + 1) + bytes:byte(row[3] + 2) * 256 then
+      return row[1]
+    end
+  end
+  return nil
 end
 
 -- The cart stores numbers, the engine is keyed by name. Same shape
@@ -85,8 +205,9 @@ function Gen2Save.crosswalks(data)
       mapIds[id] = { def.group, def.map }
     end
   end
+  local pokemon = byIndex(data.pokemon)
   return {
-    pokemon = byIndex(data.pokemon),
+    pokemon = pokemon,
     moves = byIndex(data.moves),
     items = items,
     maps = maps,
@@ -96,7 +217,31 @@ function Gen2Save.crosswalks(data)
     mapIds = mapIds,
     itemDefs = data.items or {},
     moveDefs = data.moves or {},
+    pokemonDefs = data.pokemon or {},
+    namesSpecies = next(pokemon) ~= nil,
   }
+end
+
+local function redSpecies(data)
+  if type(data.pokemon) ~= "table" or next(data.pokemon) == nil then return false end
+  local maxDex, maxIndex = 0, 0
+  for _, def in pairs(data.pokemon) do
+    if type(def) == "table" then
+      maxDex = math.max(maxDex, tonumber(def.dex) or 0)
+      maxIndex = math.max(maxIndex, tonumber(def.index) or 0)
+    end
+  end
+  if maxDex > 0 then return maxDex <= 151 end
+  return maxIndex <= 151
+end
+
+function Gen2Save.cacheMissing(data)
+  if type(data) ~= "table" then return false end
+  local any = false
+  for _, key in ipairs({ "pokemon", "moves", "items", "maps" }) do
+    if type(data[key]) == "table" and next(data[key]) ~= nil then any = true end
+  end
+  return not any or redSpecies(data)
 end
 
 -- Name if the crosswalk knows it, the raw number if not. Never silently drops
@@ -107,30 +252,55 @@ local function named(map, index)
 end
 
 -- constants/battle_constants.asm: SLP_MASK is bits 0-2, PSN=3 BRN=4 FRZ=5
--- PAR=6. Engine wants an ItemEffects.STATUS_CLASS key, nil when healthy.
-local STATUS_BITS = { { 3, "psn" }, { 4, "brn" }, { 5, "frz" }, { 6, "par" } }
+local STATUS_BITS = { { 3, "poison" }, { 4, "burn" }, { 5, "freeze" }, { 6, "paralyze" } }
+
+local STATUS_CLASS = {
+  sleep = "sleep", slp = "sleep",
+  poison = "poison", psn = "poison", toxic = "poison", tox = "poison",
+  burn = "burn", brn = "burn",
+  freeze = "freeze", frz = "freeze",
+  paralyze = "paralyze", paralysis = "paralyze", par = "paralyze",
+}
 
 local function encodeStatus(name, turns)
-  if name == "slp" then return math.min(math.max(turns or 1, 1), 7) end
+  if name == nil then return 0 end
+  local class = STATUS_CLASS[tostring(name):lower()]
+  if not class then
+    refuse(("status %s has no cartridge representation"):format(tostring(name)))
+  end
+  if class == "sleep" then
+    return math.min(math.max(math.floor(tonumber(turns) or 1), 1), 7)
+  end
   for _, row in ipairs(STATUS_BITS) do
-    if row[2] == name then return 2 ^ row[1] end
+    if row[2] == class then return 2 ^ row[1] end
   end
   return 0
 end
 
 local function decodeStatus(byte)
   local turns = byte % 8
-  if turns > 0 then return "slp", turns end
+  if turns > 0 then return "sleep", turns end
   for _, row in ipairs(STATUS_BITS) do
     if math.floor(byte / 2 ^ row[1]) % 2 == 1 then return row[2], nil end
   end
   return nil, nil
 end
 
+local function statusAgrees(byte, status, turns)
+  local want, wantTurns = decodeStatus(byte)
+  if status == nil then return want == nil end
+  local class = STATUS_CLASS[tostring(status):lower()]
+  if class ~= want then return false end
+  if want == "sleep" then
+    return math.min(math.max(math.floor(tonumber(turns) or 1), 1), 7) == wantTurns
+  end
+  return true
+end
+
 -- Four DVs as nibbles in two bytes; the HP DV is rebuilt from the low bit of
 -- each (pokecrystal engine/pokemon/health.asm).
-local function decodeDVs(bytes, o)
-  local hi, lo = u8(bytes, o), u8(bytes, o + 1)
+local function decodeDVs(t, o)
+  local hi, lo = u8(t, o), u8(t, o + 1)
   local atk = math.floor(hi / 16)
   local def = hi % 16
   local spd = math.floor(lo / 16)
@@ -140,11 +310,11 @@ local function decodeDVs(bytes, o)
 end
 
 -- Five 16-bit stat experience words, in the cart's order.
-local function decodeStatExp(bytes, o)
+local function decodeStatExp(t, o)
   return {
-    hp = be(bytes, o, 2), attack = be(bytes, o + 2, 2),
-    defense = be(bytes, o + 4, 2), speed = be(bytes, o + 6, 2),
-    special = be(bytes, o + 8, 2),
+    hp = be(t, o, 2), attack = be(t, o + 2, 2),
+    defense = be(t, o + 4, 2), speed = be(t, o + 6, 2),
+    special = be(t, o + 8, 2),
   }
 end
 
@@ -160,84 +330,170 @@ local function maxPPOf(base, ppUps)
   return base + (ppUps or 0) * math.min(math.floor(base / 5), 7)
 end
 
+-- engine/pokemon/caught_data.asm:169-199
+local function unpackCaught(b0, b1)
+  return {
+    caughtTime = math.floor(b0 / 0x40),
+    caughtLevel = b0 % 0x40,
+    caughtLocation = b1 % 0x80,
+    caughtByGender = (b1 >= 0x80) and "girl" or "boy",
+  }
+end
+
+local function packCaught(mon)
+  local time = math.floor(tonumber(mon.caughtTime) or 0) % 4
+  local level = math.floor(tonumber(mon.caughtLevel) or 0) % 0x40
+  local location = math.floor(tonumber(mon.caughtLocation) or 0) % 0x80
+  local g = mon.caughtByGender
+  local female = g == "girl" or g == "female" or g == true
+  return time * 0x40 + level, (female and 0x80 or 0) + location
+end
+
+local function hex(t, o, n)
+  local out = {}
+  for i = 0, n - 1 do out[i + 1] = ("%02X"):format(u8(t, o + i)) end
+  return table.concat(out)
+end
+
+local function monFp(mon)
+  local parts = { mon.species, mon.item, mon.level, mon.happiness, mon.otId, mon.experience, mon.pokerus,
+                  mon.hp, mon.maxHp, mon.status, mon.statusTurns, mon.caughtData, mon.caughtTime,
+                  mon.caughtLevel, mon.caughtLocation, mon.caughtByGender, mon.isEgg, mon.eggSteps }
+  for _, mv in ipairs(mon.moves or {}) do
+    parts[#parts + 1] = type(mv) == "table" and (tostring(mv.id) .. ":" .. tostring(mv.pp) .. ":" .. tostring(mv.ppUps)) or mv
+  end
+  for _, group in ipairs({ mon.dvs, mon.statExp, mon.stats }) do
+    if type(group) == "table" then
+      local keys = {}
+      for k in pairs(group) do keys[#keys + 1] = k end
+      table.sort(keys)
+      for _, k in ipairs(keys) do parts[#parts + 1] = k .. "=" .. tostring(group[k]) end
+    end
+  end
+  for i = 1, #parts do parts[i] = tostring(parts[i]) end
+  return table.concat(parts, ",")
+end
+
 -- The first 32 bytes, which a box mon and a party mon share.
-local function decodeSharedMon(bytes, o, x)
-  local moves = {}
+local function decodeSharedMon(t, o, x, crystal, size)
+  local moves, slots, gap, emptyPp = {}, {}, false, nil
   for i = 0, 3 do
-    local id = named(x.moves, u8(bytes, o + 2 + i))
+    local id = named(x.moves, u8(t, o + 2 + i))
+    local ppByte = u8(t, o + 0x17 + i)
     if id then
-      local pp, ppUps = decodePPByte(u8(bytes, o + 0x17 + i))
+      local pp, ppUps = decodePPByte(ppByte)
       local def = x.moveDefs[id]
       local base = type(def) == "table" and def.pp or nil
       moves[#moves + 1] = {
         id = id, pp = pp, ppUps = ppUps, maxPp = maxPPOf(base, ppUps),
       }
+      slots[#slots + 1] = i + 1
+      if i + 1 ~= #slots then gap = true end
+    elseif ppByte ~= 0 then
+      emptyPp = emptyPp or {}
+      emptyPp[i + 1] = ppByte
     end
   end
-  return {
-    species = named(x.pokemon, u8(bytes, o)),
-    item = named(x.items, u8(bytes, o + 1)),
+  local mon = {
+    species = named(x.pokemon, u8(t, o)),
+    item = named(x.items, u8(t, o + 1)),
     moves = moves,
-    otId = be(bytes, o + 6, 2),
-    experience = be(bytes, o + 8, 3),
-    statExp = decodeStatExp(bytes, o + 0x0B),
-    dvs = decodeDVs(bytes, o + 0x15),
-    happiness = u8(bytes, o + 0x1B),
-    pokerus = u8(bytes, o + 0x1C),
-    caughtData = be(bytes, o + 0x1D, 2),
-    level = u8(bytes, o + 0x1F),
+    otId = be(t, o + 6, 2),
+    experience = be(t, o + 8, 3),
+    statExp = decodeStatExp(t, o + 0x0B),
+    dvs = decodeDVs(t, o + 0x15),
+    happiness = u8(t, o + 0x1B),
+    pokerus = u8(t, o + 0x1C),
+    level = u8(t, o + 0x1F),
   }
+  if gap then mon.cartMoveSlots = slots end
+  if emptyPp then mon.cartEmptyPp = emptyPp end
+  if crystal then
+    local c = unpackCaught(u8(t, o + 0x1D), u8(t, o + 0x1E))
+    mon.caughtTime, mon.caughtLevel = c.caughtTime, c.caughtLevel
+    mon.caughtLocation, mon.caughtByGender = c.caughtLocation, c.caughtByGender
+  else
+    mon.caughtData = be(t, o + 0x1D, 2)
+  end
+  if x.namesSpecies and type(mon.species) == "number" then
+    mon.cartRaw = hex(t, o, size)
+  end
+  return mon
 end
 
-local function decodeMon(bytes, o, x)
-  local mon = decodeSharedMon(bytes, o, x)
-  mon.status, mon.statusTurns = decodeStatus(u8(bytes, o + 0x20))
-  mon.hp = be(bytes, o + 0x22, 2)
-  mon.maxHp = be(bytes, o + 0x24, 2)
+local function decodeMon(t, o, x, crystal)
+  local mon = decodeSharedMon(t, o, x, crystal, Gen2Save.PARTY_STRUCT)
+  local statusByte = u8(t, o + 0x20)
+  mon.status, mon.statusTurns = decodeStatus(statusByte)
+  if encodeStatus(mon.status, mon.statusTurns) ~= statusByte then mon.cartStatus = statusByte end
+  mon.hp = be(t, o + 0x22, 2)
+  mon.maxHp = be(t, o + 0x24, 2)
   mon.stats = {
     hp = mon.maxHp,
-    attack = be(bytes, o + 0x26, 2), defense = be(bytes, o + 0x28, 2),
-    speed = be(bytes, o + 0x2A, 2), specialAttack = be(bytes, o + 0x2C, 2),
-    specialDefense = be(bytes, o + 0x2E, 2),
+    attack = be(t, o + 0x26, 2), defense = be(t, o + 0x28, 2),
+    speed = be(t, o + 0x2A, 2), specialAttack = be(t, o + 0x2C, 2),
+    specialDefense = be(t, o + 0x2E, 2),
   }
+  if mon.cartRaw then mon.cartRawFp = monFp(mon) end
   return mon
+end
+
+-- engine/pokemon/breeding.asm:219, :224
+local function markEgg(mon)
+  mon.isEgg = true
+  mon.eggSteps = mon.happiness
+  mon.happiness = Gen2Save.HATCH_HAPPINESS
+end
+
+local function applyListByte(mon, listed, structIndex)
+  if listed == Gen2Save.EGG then
+    markEgg(mon)
+  elseif listed ~= structIndex then
+    mon.cartList = listed
+    mon.cartListFor = structIndex
+  end
 end
 
 -- box_struct: OTs come BEFORE nicknames, and a box mon is 32 bytes with none
 -- of the party's computed stats.
 Gen2Save.BOX_CAPACITY = 20
 Gen2Save.BOX_MON_STRUCT = 32
+Gen2Save.BOX_BYTES = 0x44E
 local BOX_SPECIES, BOX_MONS, BOX_OTS, BOX_NICKS = 0x01, 0x16, 0x296, 0x372
 
-local decodeBoxMon = decodeSharedMon
+local function decodeBox(t, base, x, crystal, label)
+  local count = u8(t, base)
+  if count > Gen2Save.BOX_CAPACITY then
+    refuse(("%s reports %d Pokemon, which is impossible; this is the "
+      .. "wrong layout for this save"):format(label, count))
+  end
+  local mons = {}
+  for i = 0, count - 1 do
+    local o = base + BOX_MONS + i * Gen2Save.BOX_MON_STRUCT
+    local mon = decodeSharedMon(t, o, x, crystal, Gen2Save.BOX_MON_STRUCT)
+    applyListByte(mon, u8(t, base + BOX_SPECIES + i), u8(t, o))
+    mon.ot = text(t, base + BOX_OTS + i * Gen2Save.NAME_LENGTH, Gen2Save.NAME_LENGTH)
+    mon.nickname = text(t, base + BOX_NICKS + i * Gen2Save.NAME_LENGTH, Gen2Save.NAME_LENGTH)
+    mon.cartOt = nameCarrier(t, base + BOX_OTS + i * Gen2Save.NAME_LENGTH, Gen2Save.NAME_LENGTH, mon.ot)
+    mon.cartNick = nameCarrier(t, base + BOX_NICKS + i * Gen2Save.NAME_LENGTH, Gen2Save.NAME_LENGTH, mon.nickname)
+      or (mon.nickname == "" and hex(t, base + BOX_NICKS + i * Gen2Save.NAME_LENGTH, Gen2Save.NAME_LENGTH) or nil)
+    if mon.cartRaw then mon.cartRawFp = monFp(mon) end
+    mons[#mons + 1] = mon
+  end
+  return mons
+end
 
 -- A count past BOX_CAPACITY means the wrong layout, not an odd save.
-function Gen2Save.decodeBoxes(bytes, L, x)
-  local boxes = {}
-  for index, base in ipairs(L.boxes) do
-    local count = u8(bytes, base)
-    if count > Gen2Save.BOX_CAPACITY then
-      return nil, ("box %d reports %d Pokemon, which is impossible; this is the "
-        .. "wrong layout for this save"):format(index, count)
+function Gen2Save.decodeBoxes(bytes, L, x, crystal)
+  local t = type(bytes) == "table" and bytes or toTable(bytes, Gen2Save.SAVE_SIZE)
+  return guarded(function()
+    local boxes = {}
+    for index, base in ipairs(L.boxes) do
+      boxes[index] = decodeBox(t, base, x or Gen2Save.crosswalks(nil), crystal,
+        ("box %d"):format(index))
     end
-    local mons = {}
-    for i = 0, count - 1 do
-      local mon = decodeBoxMon(bytes, base + BOX_MONS + i * Gen2Save.BOX_MON_STRUCT, x)
-      -- The species list beside the mons must agree, which is a free check
-      -- on the layout.
-      local listed = named(x.pokemon, u8(bytes, base + BOX_SPECIES + i))
-      if listed ~= mon.species then
-        return nil, ("box %d slot %d: the species list says %s and the stored "
-          .. "Pokemon says %s; wrong layout for this save")
-          :format(index, i + 1, tostring(listed), tostring(mon.species))
-      end
-      mon.ot = text(bytes, base + BOX_OTS + i * Gen2Save.NAME_LENGTH, Gen2Save.NAME_LENGTH)
-      mon.nickname = text(bytes, base + BOX_NICKS + i * Gen2Save.NAME_LENGTH, Gen2Save.NAME_LENGTH)
-      mons[#mons + 1] = mon
-    end
-    boxes[index] = mons
-  end
-  return boxes
+    return boxes
+  end)
 end
 
 -- The bag. Gen 2 splits it into four pockets, and they are not all shaped the
@@ -245,54 +501,144 @@ end
 -- key item is unique, and TM_HM is a flat run of counts indexed by TM number.
 -- All of the list pockets are terminated by 0xFF as well as counted, and the
 -- count is trusted only as far as the terminator.
--- One bag keyed by item id; PackMenu buckets it by each item's `pocket`.
--- ITEM and BALL are (id, quantity) pairs, KEY_ITEM is bare ids.
-local function addPairs(out, bytes, countAt, listAt, cap, x)
-  local n = u8(bytes, countAt)
-  if n > cap then n = cap end
+local POCKETS = {
+  { name = "ITEM", count = "wNumItems", list = "wItems", cap = 20, pairs = true },
+  { name = "KEY_ITEM", count = "wNumKeyItems", list = "wKeyItems", cap = 25, pairs = false },
+  { name = "BALL", count = "wNumBalls", list = "wBalls", cap = 12, pairs = true },
+}
+local PC_POCKET = { name = "PC", count = "wNumPCItems", list = "wPCItems", cap = 50, pairs = true }
+local POCKET_NAMES = { ITEM = true, KEY_ITEM = true, BALL = true, TM_HM = true }
+
+local function readStacks(t, L, pocket, x)
+  local out = {}
+  local countAt, listAt = L[pocket.count], L[pocket.list]
+  if not (countAt and listAt) then return out end
+  local n = math.min(u8(t, countAt), pocket.cap)
+  local width = pocket.pairs and 2 or 1
   for i = 0, n - 1 do
-    local raw = u8(bytes, listAt + i * 2)
+    local raw = u8(t, listAt + i * width)
     if raw == 0xFF or raw == 0 then break end
-    local id = named(x.items, raw)
-    out[id] = (out[id] or 0) + u8(bytes, listAt + i * 2 + 1)
+    out[#out + 1] = { named(x.items, raw), pocket.pairs and u8(t, listAt + i * 2 + 1) or 1 }
   end
+  return out
 end
 
-local function addIds(out, bytes, countAt, listAt, cap, x)
-  local n = u8(bytes, countAt)
-  if n > cap then n = cap end
-  for i = 0, n - 1 do
-    local raw = u8(bytes, listAt + i)
-    if raw == 0xFF or raw == 0 then break end
-    local id = named(x.items, raw)
-    out[id] = (out[id] or 0) + 1
-  end
+-- constants/item_constants.asm:220-292
+local function tmIndex(n)
+  if n <= 4 then return 0xBF + n - 1 end
+  if n <= 28 then return 0xC4 + n - 5 end
+  if n <= 50 then return 0xDD + n - 29 end
+  return 0xF3 + n - 51
 end
 
--- TM_HM is a flat run of counts indexed by TM number.
-local function addMachines(out, bytes, at, x, items)
+local function isTmIndex(i)
+  return type(i) == "number" and i >= 0xBF and i <= 0xF9 and i ~= 0xC3 and i ~= 0xDC
+end
+
+local function tmNumbers(x)
   local byNumber = {}
-  for id, def in pairs(items or {}) do
-    if type(def) == "table" and def.tmNumber then byNumber[def.tmNumber] = id end
+  for id, def in pairs(x.itemDefs) do
+    if type(def) == "table" and tonumber(def.tmNumber) then byNumber[def.tmNumber] = id end
   end
-  for number, id in pairs(byNumber) do
-    local count = u8(bytes, at + number - 1)
-    if count > 0 then out[id] = (out[id] or 0) + count end
+  return byNumber
+end
+
+local function canonicalStacks(stacks, pairs_)
+  local ids, counts = {}, {}
+  for _, st in ipairs(stacks) do
+    if st[2] > 0 then
+      if counts[st[1]] == nil then ids[#ids + 1] = st[1]; counts[st[1]] = 0 end
+      counts[st[1]] = counts[st[1]] + st[2]
+    end
   end
+  local out = {}
+  for _, id in ipairs(ids) do
+    local n = counts[id]
+    if pairs_ then
+      while n > 0 do
+        local q = math.min(n, 99)
+        out[#out + 1] = { id, q }
+        n = n - q
+      end
+    else
+      for _ = 1, n do out[#out + 1] = { id, 1 } end
+    end
+  end
+  return out
+end
+
+local function sameStacks(a, b)
+  if #a ~= #b then return false end
+  for i = 1, #a do
+    if a[i][1] ~= b[i][1] or a[i][2] ~= b[i][2] then return false end
+  end
+  return true
+end
+
+local function defPocket(x, id)
+  local def = x.itemDefs[id]
+  if type(def) == "table" and POCKET_NAMES[def.pocket] then return def.pocket end
+  return isTmIndex(id) and "TM_HM" or "ITEM"
+end
+
+local function decodeBag(t, L, x)
+  local inventory, order, seen = {}, {}, {}
+  local function add(id, qty)
+    if qty <= 0 then return end
+    if not seen[id] then seen[id] = true; order[#order + 1] = id end
+    inventory[id] = (inventory[id] or 0) + qty
+  end
+  local lists, odd, where = {}, false, {}
+  for _, pocket in ipairs(POCKETS) do
+    local stacks = readStacks(t, L, pocket, x)
+    lists[pocket.name] = stacks
+    for _, s in ipairs(stacks) do
+      add(s[1], s[2])
+      if defPocket(x, s[1]) ~= pocket.name or (where[s[1]] and where[s[1]] ~= pocket.name) then odd = true end
+      where[s[1]] = pocket.name
+    end
+    if not sameStacks(stacks, canonicalStacks(stacks, pocket.pairs)) then odd = true end
+  end
+  local cartBag
+  if odd then
+    cartBag = {}
+    for name, stacks in pairs(lists) do cartBag[name] = stacks end
+  end
+  if L.wTMsHMs then
+    local byNumber = tmNumbers(x)
+    for number = 1, 57 do
+      local id = byNumber[number] or tmIndex(number)
+      local count = u8(t, L.wTMsHMs + number - 1)
+      if count > 0 then add(id, count) end
+    end
+  end
+  local pcItems, pcOrder, pcSeen = {}, {}, {}
+  local pcStacks = readStacks(t, L, PC_POCKET, x)
+  for _, s in ipairs(pcStacks) do
+    if s[2] > 0 then
+      if not pcSeen[s[1]] then pcSeen[s[1]] = true; pcOrder[#pcOrder + 1] = s[1] end
+      pcItems[s[1]] = (pcItems[s[1]] or 0) + s[2]
+    end
+  end
+  if not sameStacks(pcStacks, canonicalStacks(pcStacks, true)) then
+    cartBag = cartBag or {}
+    cartBag.PC = pcStacks
+  end
+  return inventory, order, pcItems, pcOrder, cartBag
 end
 
 -- Byte index -> byte, which is what Save.scrubEvents validates.
-local function decodeFlagBytes(bytes, at, count)
+local function decodeFlagBytes(t, at, count)
   local out = {}
-  for i = 0, count - 1 do out[i] = u8(bytes, at + i) end
+  for i = 0, count - 1 do out[i] = u8(t, at + i) end
   return out
 end
 
 -- A set keyed by species id: save.pokedex.caught[species] = true.
-local function decodeDex(bytes, at, x)
+local function decodeDex(t, at, x)
   local out = {}
   for i = 0, Gen2Save.NUM_SPECIES - 1 do
-    local byte = u8(bytes, at + math.floor(i / 8))
+    local byte = u8(t, at + math.floor(i / 8))
     if math.floor(byte / (2 ^ (i % 8))) % 2 == 1 then
       out[named(x.pokemon, i + 1) or (i + 1)] = true
     end
@@ -312,18 +658,21 @@ Gen2Save.KANTO_BADGES = {
 }
 local function decodeBadges(byte, order)
   local out = {}
-  for bit, name in ipairs(order) do
-    if math.floor(byte / (2 ^ (bit - 1))) % 2 == 1 then out[name] = true end
+  for b, name in ipairs(order) do
+    if math.floor(byte / (2 ^ (b - 1))) % 2 == 1 then out[name] = true end
   end
   return out
 end
 
--- data/events/engine_flags.asm:11-40
+-- data/events/engine_flags.asm:11-40, :65-72
 local ENGINE_FLAG_BITS = {
   wPokegearFlags = { { 1, 0 }, { 0, 1 }, { 2, 2 }, { 3, 3 }, { 4, 7 } },
   wStatusFlags = { { 11, 0 }, { 12, 1 }, { 13, 3 }, { 14, 4 }, { 15, 6 } },
   wStatusFlags2 = {
     { 18, 0 }, { 17, 1 }, { 19, 4 }, { 20, 5 }, { 21, 6 }, { 22, 7 },
+  },
+  wUnlockedUnowns = {
+    { 42, 0 }, { 43, 1 }, { 44, 2 }, { 45, 3 }, { 46, 4 }, { 47, 5 }, { 48, 6 }, { 49, 7 },
   },
 }
 
@@ -344,18 +693,18 @@ end
 -- engine/pokegear/pokegear.asm:2189 HasVisitedSpawn
 local function eachSpawnBit(L, fn)
   if not L.wVisitedSpawns then return end
-  for i, bit in ipairs(FLYPOINT_BITS) do
-    fn(FLYPOINT_FIRST_ID + i - 1, L.wVisitedSpawns + math.floor(bit / 8),
-       2 ^ (bit % 8))
+  for i, b in ipairs(FLYPOINT_BITS) do
+    fn(FLYPOINT_FIRST_ID + i - 1, L.wVisitedSpawns + math.floor(b / 8),
+       2 ^ (b % 8))
   end
 end
 
-local function decodeEngineFlags(bytes, L, gameVersion)
+local function decodeEngineFlags(t, L, gameVersion)
   local out = {}
   for field, rows in pairs(ENGINE_FLAG_BITS) do
     local at = L[field]
     if at then
-      local byte = u8(bytes, at)
+      local byte = u8(t, at)
       for _, row in ipairs(rows) do
         if math.floor(byte / 2 ^ row[2]) % 2 == 1 then
           out[engineId(row[1], gameVersion)] = true
@@ -364,7 +713,7 @@ local function decodeEngineFlags(bytes, L, gameVersion)
     end
   end
   eachSpawnBit(L, function(id, at, mask)
-    if math.floor(u8(bytes, at) / mask) % 2 == 1 then
+    if math.floor(u8(t, at) / mask) % 2 == 1 then
       out[engineId(id, gameVersion)] = true
     end
   end)
@@ -375,140 +724,331 @@ end
 Gen2Save.VARIABLE_SPRITES = 16
 
 -- engine/overworld/overworld.asm:326 GetMonSprite.Variable
-local function decodeVariableSprites(bytes, at, count)
+local function decodeVariableSprites(t, at, count)
   if not at then return nil end
   local out = {}
   for i = 0, count - 1 do
-    local b = u8(bytes, at + i)
-    if b and b ~= 0 then out[i] = b end
+    local b = u8(t, at + i)
+    if b ~= 0 then out[i] = b end
   end
   return out
 end
 
 -- data/maps/scenes.asm:7
-local function decodeMapScenes(bytes, L)
+local function decodeMapScenes(t, L)
   local out = {}
   for mapId, at in pairs(L.sceneVars or {}) do
-    local b = u8(bytes, at)
-    if b and b ~= 0 then out[mapId] = b end
+    local b = u8(t, at)
+    if b ~= 0 then out[mapId] = b end
   end
   return out
+end
+
+-- constants/ram_constants.asm:300-304
+local PLAYER_STATES = { [0] = "normal", [1] = "bike", [4] = "surf", [8] = "surf_pika" }
+local PLAYER_STATE_BYTES = { normal = 0, bike = 1, surf = 4, surf_pika = 8 }
+
+-- ram/wram.asm wOptions..wOptionsEnd; constants/ram_constants.asm:43-78
+local TEXT_SPEEDS = { [1] = "FAST", [3] = "MID", [5] = "SLOW" }
+local TEXT_SPEED_BITS = { FAST = 1, MID = 3, SLOW = 5 }
+local PRINTS = { [0x00] = "LIGHTEST", [0x20] = "LIGHTER", [0x40] = "NORMAL",
+                 [0x60] = "DARKER", [0x7F] = "DARKEST" }
+local PRINT_BYTES = { LIGHTEST = 0x00, LIGHTER = 0x20, NORMAL = 0x40,
+                      DARKER = 0x60, DARKEST = 0x7F }
+
+local function decodeOptions(t, L)
+  local o = L.sOptions
+  local b0 = u8(t, o)
+  return {
+    textSpeed = TEXT_SPEEDS[b0 % 8],
+    battleScene = not bit(b0, 7),
+    battleStyle = bit(b0, 6) and "SET" or "SHIFT",
+    sound = bit(b0, 5) and "STEREO" or "MONO",
+    frame = u8(t, o + 2) % 8 + 1,
+    print = PRINTS[u8(t, o + 4)],
+    menuAccount = bit(u8(t, o + 5), 0),
+  }
+end
+
+local MAIL_ITEMS = {
+  [0x9E] = true, [0xB5] = true, [0xB6] = true, [0xB7] = true, [0xB8] = true,
+  [0xB9] = true, [0xBA] = true, [0xBB] = true, [0xBC] = true, [0xBD] = true,
+}
+local MAIL_LINE = 16
+local MAIL_MESSAGE = 33
+
+-- macros/ram.asm:193 mailmsg; pokegold macros/ram.asm:182
+local function mailShape(crystal)
+  if crystal then
+    return { author = 0x21, authorLength = 8, nationality = 0x29 }
+  end
+  return { author = 0x21, authorLength = 10 }
+end
+
+-- engine/menus/naming_screen.asm:962
+local function decodeMessage(t, at)
+  for k = 0, MAIL_LINE - 1 do
+    local c = t[at + k]
+    if c == 0x50 or c == 0x4E then return text(t, at, MAIL_MESSAGE, true) end
+  end
+  if t[at + MAIL_LINE] ~= 0x4E then return text(t, at, MAIL_MESSAGE, true) end
+  return text(t, at, MAIL_LINE, true)
+    .. text(t, at + MAIL_LINE + 1, MAIL_MESSAGE - MAIL_LINE - 1, true)
+end
+
+local encodeMailInto
+
+local function decodeMail(t, at, x, crystal, noCarrier)
+  local S = mailShape(crystal)
+  local entry = {
+    type = named(x.items, u8(t, at + 0x2E)),
+    message = decodeMessage(t, at),
+    author = text(t, at + S.author, S.authorLength),
+    authorId = be(t, at + 0x2B, 2),
+    species = named(x.pokemon, u8(t, at + 0x2D)),
+  }
+  if S.nationality then entry.nationality = be(t, at + S.nationality, 2) end
+  if not noCarrier then
+    local buf = {}
+    encodeMailInto(buf, 0, entry, x, crystal)
+    for k = 0, Gen2Save.MAIL_STRUCT - 1 do
+      if buf[k] ~= u8(t, at + k) then entry.cartRaw = hex(t, at, Gen2Save.MAIL_STRUCT); break end
+    end
+  end
+  return entry
 end
 
 Gen2Save.NUM_SPECIES = 251
 Gen2Save.EVENT_BYTES = 256
 
--- decode(bytes, gameVersion, data) -> partial save table, err
-function Gen2Save.decode(bytes, gameVersion, data)
+local IMAGES = setmetatable({}, { __mode = "k" })
+
+-- pokecrystal constants/map_object_constants.asm:40 OW_DOWN OW_UP OW_LEFT OW_RIGHT
+local FACING_NAMES = { [0] = "down", "up", "left", "right" }
+local FACING_BITS = { down = 0, up = 1, left = 2, right = 3 }
+local Gen2State = require("src.save_convert.Gen2State")
+
+local function decodeImpl(bytes, gameVersion, data)
   local L = Gen2Save.layoutFor(gameVersion)
-  if not L then return nil, "no Gen 2 layout for " .. tostring(gameVersion) end
+  if not L then refuse("no Gen 2 layout for " .. tostring(gameVersion)) end
   if type(bytes) ~= "string" or #bytes < Gen2Save.SAVE_SIZE then
-    return nil, ("save must be at least %d bytes"):format(Gen2Save.SAVE_SIZE)
+    refuse(("save must be at least %d bytes"):format(Gen2Save.SAVE_SIZE))
   end
-  -- TryLoadSaveFile falls back to VerifyBackupChecksum and loads the backup
-  -- copy, so a save the real cartridge would open must not be refused here.
-  -- Crystal's backup is contiguous and laid out like the primary; Gold and
-  -- Silver split theirs across three sections and have none to offer.
-  if Gen2Save.checksumValid(bytes, L) ~= true then
-    if L.backup and Gen2Save.checksumValid(bytes, L.backup) == true then
-      L = L.backup
-    else
-      return nil, "save data checksum invalid (Gen 2 check values or sum mismatch)"
+  local img, source = Gen2Save.liveImage(bytes, L)
+  if not img then
+    local siblingName = gameVersion == "crystal" and "Gold or Silver" or "Crystal"
+    local sibling = Gen2Save.layoutFor(gameVersion == "crystal" and "gold" or "crystal")
+    if Gen2Save.liveImage(bytes, sibling) then
+      refuse(Gen2Save.MSG.sibling:format(siblingName, siblingName))
     end
+    local region = Gen2Save.foreignRegion(bytes)
+    if region then refuse(Gen2Save.MSG.foreign:format(region)) end
+    refuse(Gen2Save.MSG.checksum)
+  end
+  if data ~= nil and Gen2Save.cacheMissing(data) then
+    local name = gameVersion:sub(1, 1):upper() .. gameVersion:sub(2)
+    refuse(Gen2Save.MSG.cache:format(name, name))
+  end
+  local t = toTable(img, Gen2Save.SAVE_SIZE)
+  local crystal = gameVersion == "crystal"
+  local warnings = {}
+  if source == "backup" then
+    warnings[#warnings + 1] = "the primary copy failed its checksum; imported the backup copy, "
+      .. "as the cartridge itself would"
   end
 
   local x = Gen2Save.crosswalks(data)
-  local count = u8(bytes, L.wPartyCount)
+  local count = u8(t, L.wPartyCount)
   if count > Gen2Save.PARTY_LENGTH then
-    return nil, ("party count %d is impossible; this is probably the wrong layout")
-      :format(count)
+    refuse(("party count %d is impossible; this is probably the wrong layout")
+      :format(count))
   end
   local party = {}
   for i = 0, count - 1 do
-    local mon = decodeMon(bytes, L.wPartyMons + i * Gen2Save.PARTY_STRUCT, x)
-    mon.nickname = text(bytes, L.wPartyMonNicknames + i * Gen2Save.NAME_LENGTH,
+    local o = L.wPartyMons + i * Gen2Save.PARTY_STRUCT
+    local mon = decodeMon(t, o, x, crystal)
+    applyListByte(mon, u8(t, L.wPartySpecies + i), u8(t, o))
+    mon.nickname = text(t, L.wPartyMonNicknames + i * Gen2Save.NAME_LENGTH,
                         Gen2Save.NAME_LENGTH)
-    mon.ot = text(bytes, L.wPartyMonOTs + i * Gen2Save.NAME_LENGTH,
+    mon.ot = text(t, L.wPartyMonOTs + i * Gen2Save.NAME_LENGTH,
                   Gen2Save.NAME_LENGTH)
+    mon.cartOt = nameCarrier(t, L.wPartyMonOTs + i * Gen2Save.NAME_LENGTH, Gen2Save.NAME_LENGTH, mon.ot)
+    mon.cartNick = nameCarrier(t, L.wPartyMonNicknames + i * Gen2Save.NAME_LENGTH, Gen2Save.NAME_LENGTH,
+                               mon.nickname)
+      or (mon.nickname == "" and hex(t, L.wPartyMonNicknames + i * Gen2Save.NAME_LENGTH, Gen2Save.NAME_LENGTH) or nil)
     party[#party + 1] = mon
   end
 
-  local boxes, boxErr = Gen2Save.decodeBoxes(bytes, L, x)
-  if not boxes then return nil, boxErr end
+  local boxes = {}
+  for index, base in ipairs(L.boxes) do
+    boxes[index] = decodeBox(t, base, x, crystal, ("box %d"):format(index))
+  end
+  -- pokegold engine/menus/save.asm:709
+  local curByte = u8(t, L.wCurBox)
+  local curIndex = curByte < Gen2Save.NUM_BOXES and curByte + 1 or 1
+  local archive = L.boxes[curIndex]
+  for k = 0, Gen2Save.BOX_BYTES - 1 do
+    if u8(t, L.sBox + k) ~= u8(t, archive + k) then
+      warnings[#warnings + 1] = ("the active box copy differs from box %d; the cartridge "
+        .. "loads box %d over it, so box %d is what was imported"):format(curIndex, curIndex, curIndex)
+      break
+    end
+  end
 
-  local inventory = {}
-  addPairs(inventory, bytes, L.wNumItems, L.wItems, 20, x)
-  addIds(inventory, bytes, L.wNumKeyItems, L.wKeyItems, 25, x)
-  addPairs(inventory, bytes, L.wNumBalls, L.wBalls, 12, x)
-  if L.wTMsHMs then addMachines(inventory, bytes, L.wTMsHMs, x, (data or {}).items) end
+  local inventory, bagOrder, pcItems, pcOrder, cartBag = decodeBag(t, L, x)
 
-  return {
+  local mail = { party = {}, box = {} }
+  for i, mon in ipairs(party) do
+    local raw = u8(t, L.wPartyMons + (i - 1) * Gen2Save.PARTY_STRUCT + 1)
+    if MAIL_ITEMS[raw] then
+      mail.party[i] = decodeMail(t, L.sPartyMailBackup + (i - 1) * Gen2Save.MAIL_STRUCT, x, crystal)
+    end
+  end
+  local letters = math.min(u8(t, L.sMailboxCountBackup), Gen2Save.MAILBOX_CAPACITY)
+  for k = 1, letters do
+    mail.box[k] = decodeMail(t, L.sMailboxCountBackup + 1 + (k - 1) * Gen2Save.MAIL_STRUCT, x, crystal)
+  end
+
+  local unownDex = {}
+  for i = 0, Gen2Save.NUM_UNOWN - 1 do
+    local b = u8(t, L.wUnownDex + i)
+    if b == 0 then break end
+    unownDex[#unownDex + 1] = b
+  end
+
+  local savingByte = u8(t, L.wMomSavingMoney)
+  local decoded = {
     generation = 2,
     version = gameVersion,
     player = {
-      name = text(bytes, L.wPlayerName, Gen2Save.NAME_LENGTH),
-      id = be(bytes, L.wPlayerID, 2),
-      money = be(bytes, L.wMoney, 3),
-      coins = be(bytes, L.wCoins, 2),
-      badges = decodeBadges(u8(bytes, L.wBadges), Gen2Save.JOHTO_BADGES),
-      kantoBadges = decodeBadges(u8(bytes, L.wKantoBadges), Gen2Save.KANTO_BADGES),
+      name = text(t, L.wPlayerName, Gen2Save.NAME_LENGTH),
+      id = be(t, L.wPlayerID, 2),
+      money = be(t, L.wMoney, 3),
+      coins = be(t, L.wCoins, 2),
+      badges = decodeBadges(u8(t, L.wBadges), Gen2Save.JOHTO_BADGES),
+      kantoBadges = decodeBadges(u8(t, L.wKantoBadges), Gen2Save.KANTO_BADGES),
       -- constants/ram_constants.asm:177 PLAYERGENDER_FEMALE_F
       gender = L.wPlayerGender
-        and (u8(bytes, L.wPlayerGender) % 2 == 1 and "female" or "male") or nil,
+        and (u8(t, L.wPlayerGender) % 2 == 1 and "female" or "male") or nil,
     },
-    rival = { name = text(bytes, L.wRivalName, Gen2Save.NAME_LENGTH) },
-    mom = { name = text(bytes, L.wMomsName, Gen2Save.NAME_LENGTH) },
+    rival = { name = text(t, L.wRivalName, Gen2Save.NAME_LENGTH) },
+    -- constants/ram_constants.asm:254-257
+    mom = {
+      name = text(t, L.wMomsName, Gen2Save.NAME_LENGTH),
+      savedMoney = be(t, L.wMomsMoney, 3),
+      active = bit(savingByte, 7),
+      savingMoney = bit(savingByte, 0),
+      whichItem = u8(t, L.wWhichMomItem),
+      triggerBalance = be(t, L.wMomItemTriggerBalance, 3),
+    },
     party = party,
     boxes = boxes,
-    currentBox = u8(bytes, L.wCurBox) % 16 + 1,
+    currentBox = curIndex,
     boxNames = (function()
       if not L.wBoxNames then return nil end
       local names = {}
-      for i = 1, 14 do
-        names[i] = text(bytes, L.wBoxNames + (i - 1) * 9, 9)
+      for i = 1, Gen2Save.NUM_BOXES do
+        names[i] = text(t, L.wBoxNames + (i - 1) * Gen2Save.BOX_NAME_LENGTH,
+                        Gen2Save.BOX_NAME_LENGTH)
       end
       return names
     end)(),
     inventory = inventory,
+    bagOrder = bagOrder,
+    pcItems = pcItems,
+    pcOrder = pcOrder,
+    cartBag = cartBag,
+    mail = mail,
     -- Species ids, 1-based, so the set keys match save.pokedex.caught[species].
     pokedex = {
-      caught = decodeDex(bytes, L.wPokedexCaught, x),
-      seen = decodeDex(bytes, L.wPokedexSeen, x),
+      caught = decodeDex(t, L.wPokedexCaught, x),
+      seen = decodeDex(t, L.wPokedexSeen, x),
     },
-    events = decodeFlagBytes(bytes, L.wEventFlags, Gen2Save.EVENT_BYTES),
-    mapScenes = decodeMapScenes(bytes, L),
-    engineFlags = decodeEngineFlags(bytes, L, gameVersion),
-    variableSprites = decodeVariableSprites(bytes, L.wVariableSprites,
+    unownDex = unownDex,
+    firstUnownSeen = u8(t, L.wFirstUnownSeen),
+    events = decodeFlagBytes(t, L.wEventFlags, Gen2Save.EVENT_BYTES),
+    mapScenes = decodeMapScenes(t, L),
+    engineFlags = decodeEngineFlags(t, L, gameVersion),
+    variableSprites = decodeVariableSprites(t, L.wVariableSprites,
                                             Gen2Save.VARIABLE_SPRITES),
+    playerState = PLAYER_STATES[u8(t, L.wPlayerState)],
+    options = decodeOptions(t, L),
     -- Save.summary does `save.position.map or save.spawn`.
     position = {
-      map = x.maps[u8(bytes, L.wMapGroup) * 256 + u8(bytes, L.wMapNumber)],
-      mapGroup = u8(bytes, L.wMapGroup), mapNumber = u8(bytes, L.wMapNumber),
-      x = u8(bytes, L.wXCoord), y = u8(bytes, L.wYCoord),
+      map = x.maps[u8(t, L.wMapGroup) * 256 + u8(t, L.wMapNumber)],
+      mapGroup = u8(t, L.wMapGroup), mapNumber = u8(t, L.wMapNumber),
+      x = u8(t, L.wXCoord), y = u8(t, L.wYCoord),
+      facing = FACING_NAMES[math.floor(u8(t, Gen2State.symsFor(gameVersion).wPlayerDirection) / 4) % 4],
     },
     playTime = {
-      hours = be(bytes, L.wGameTimeHours, 2),
-      minutes = u8(bytes, L.wGameTimeMinutes),
-      seconds = L.wGameTimeSeconds and u8(bytes, L.wGameTimeSeconds) or 0,
-      frames = L.wGameTimeFrames and u8(bytes, L.wGameTimeFrames) or 0,
+      hours = be(t, L.wGameTimeHours, 2),
+      minutes = u8(t, L.wGameTimeMinutes),
+      seconds = L.wGameTimeSeconds and u8(t, L.wGameTimeSeconds) or 0,
+      frames = L.wGameTimeFrames and u8(t, L.wGameTimeFrames) or 0,
+      capped = (u8(t, Gen2State.symsFor(gameVersion).wGameTimeCap) % 2 == 1) or nil,
     },
   }
+  local MapContext = require("src.save_convert.Gen2MapContext")
+  local objectOffsets = MapContext.offsetsFor(gameVersion)
+  local mapDef = data and data.maps and data.maps[decoded.position.map]
+  if mapDef then
+    local masks, raw = {}, {}
+    for i = 1, MapContext.NUM_OBJECTS do raw[i] = u8(t, objectOffsets.objectMasks + i - 1) end
+    for i in ipairs(mapDef.objects or {}) do masks[i] = raw[objectOffsets.firstObjectSlot + i] ~= 0 end
+    decoded.mapObjectMasks = { map = decoded.position.map, masks = masks, raw = raw }
+  end
+  local names = {}
+  names.player = nameCarrier(t, L.wPlayerName, Gen2Save.NAME_LENGTH, decoded.player.name)
+  names.rival = nameCarrier(t, L.wRivalName, Gen2Save.NAME_LENGTH, decoded.rival.name)
+  names.mom = nameCarrier(t, L.wMomsName, Gen2Save.NAME_LENGTH, decoded.mom.name)
+  if decoded.boxNames then
+    for i = 1, Gen2Save.NUM_BOXES do
+      local raw = nameCarrier(t, L.wBoxNames + (i - 1) * Gen2Save.BOX_NAME_LENGTH, Gen2Save.BOX_NAME_LENGTH,
+        decoded.boxNames[i], true)
+      if raw then names.boxes = names.boxes or {}; names.boxes[i] = raw end
+    end
+  end
+  if next(names) ~= nil then decoded.cartNames = names end
+  local State = require("src.save_convert.Gen2State")
+  State.decode({ t = t, L = L, S = State.symsFor(gameVersion), x = x, version = gameVersion,
+                 crystal = crystal, util = Gen2Save.util }, decoded)
+  if #warnings > 0 then decoded.warnings = warnings end
+  IMAGES[decoded] = bytes
+  return decoded
+end
+
+function Gen2Save.decode(bytes, gameVersion, data)
+  return guarded(decodeImpl, bytes, gameVersion, data)
 end
 
 -- Everything the cart does not carry comes from a fresh game, exactly as
 -- Gen 1's mergeDefaults does: the decode above models what the SRAM holds,
--- and mail, phone contacts, the unown dex, the hall of fame and the RTC are
--- left to the engine's own defaults rather than invented here.
 --
 -- Loaded lazily. src/core/gen2/Save.lua pulls in love.filesystem at require
 -- time, and this module has to stay require-clean for the headless CLI and
 -- the tests, same rule GenSave follows.
 function Gen2Save.mergeDefaults(decoded, gameVersion)
+  local image = IMAGES[decoded]
   local ok, Save = pcall(require, "src.core.gen2.Save")
-  if not ok then return decoded end
+  if not ok then
+    if image then decoded.rawImport = image end
+    return decoded
+  end
   local base = Save.newGame({ playerName = decoded.player and decoded.player.name })
-  for k, v in pairs(decoded) do base[k] = v end
+  for k, v in pairs(decoded) do
+    if k == "mom" and type(v) == "table" and type(base.mom) == "table" then
+      for mk, mv in pairs(v) do base.mom[mk] = mv end
+    else
+      base[k] = v
+    end
+  end
   base.version = gameVersion
+  if type(decoded.options) == "table" then
+    base.importedOptions = {}
+    for k, v in pairs(decoded.options) do base.importedOptions[k] = v end
+  end
+  base.options = nil
+  if image then base.rawImport = image end
   return base
 end
 
@@ -516,17 +1056,22 @@ end
 -- Export
 -- ------------------------------------------------------------------
 
-local function putU8(t, at, v) t[at] = v % 256 end
+local function putU8(t, at, v) t[at] = math.floor(tonumber(v) or 0) % 256 end
 local function putBE(t, at, v, n)
+  v = math.floor(tonumber(v) or 0)
+  if v < 0 then v = 0 end
   for i = n - 1, 0, -1 do t[at + i] = v % 256; v = math.floor(v / 256) end
 end
 
 -- Engine id back to the cart's number. A raw number passes through, which is
 -- how a save imported without a crosswalk round trips.
-local function indexOf(map, id)
+local function indexOf(map, id, what)
   if id == nil then return 0 end
-  if type(id) == "number" then return id end
-  return map[id] or 0
+  if type(id) == "number" then return math.floor(id) % 256 end
+  local n = map[id]
+  if n then return n end
+  refuse(("%s %s has no index in this game's data, so it cannot be written to a "
+    .. "cartridge"):format(what, tostring(id)))
 end
 
 local function charBytes(str, i)
@@ -545,10 +1090,8 @@ local function glyphChars(glyph)
   return n
 end
 
--- One-CHARACTER glyphs plus PK and MN. The cart's table also carries the
--- ligature halves PO and KE, and accepting those turns a name containing "PO"
--- into 0x70 where the cart had a plain P. #glyph counts BYTES, so a byte test
--- would also drop every multi-byte glyph and turn NIDORAN into NIDORAN?.
+local PAIRS = { PK = true, MN = true, ["'d"] = true, ["'l"] = true, ["'m"] = true,
+                ["'r"] = true, ["'s"] = true, ["'t"] = true, ["'v"] = true }
 local REVERSE = nil
 local function reverseCharmap()
   if REVERSE then return REVERSE end
@@ -557,45 +1100,166 @@ local function reverseCharmap()
     if glyphChars(glyph) == 1 then REVERSE[glyph] = code end
   end
   for code, glyph in pairs(Gen2Layout.charmap) do
-    if glyph == "PK" or glyph == "MN" then REVERSE[glyph] = code end
+    if PAIRS[glyph] then REVERSE[glyph] = code end
   end
   return REVERSE
 end
 
-local function putText(t, at, str, n)
+local function encodeText(str, limit, lineBreak)
   local codes = reverseCharmap()
-  local i, written = 1, 0
-  while i <= #str and written < n - 1 do
+  local out = {}
+  local i = 1
+  str = tostring(str or "")
+  while i <= #str and #out < limit do
     local two = str:sub(i, i + 1)
-    if (two == "PK" or two == "MN") and codes[two] then
-      t[at + written] = codes[two]; i = i + 2
+    if PAIRS[two] and codes[two] then
+      out[#out + 1] = codes[two]; i = i + 2
+    elseif lineBreak and str:sub(i, i) == "\n" then
+      out[#out + 1] = 0x4E; i = i + 1
     else
       local w = charBytes(str, i)
-      t[at + written] = codes[str:sub(i, i + w - 1)] or 0xE6
+      out[#out + 1] = codes[str:sub(i, i + w - 1)] or 0xE6
       i = i + w
     end
-    written = written + 1
   end
-  for k = written, n - 1 do
-    t[at + k] = 0x50
+  return out
+end
+
+-- home/copy_name.asm:5
+local function putName(t, at, str, n, keepTail)
+  str = tostring(str or "")
+  if text(t, at, n) == str then return end
+  local codes = encodeText(str, n)
+  for k, c in ipairs(codes) do t[at + k - 1] = c end
+  if #codes < n then
+    t[at + #codes] = 0x50
+    if not keepTail then
+      for k = #codes + 1, n - 1 do t[at + k] = 0x50 end
+    end
   end
 end
 
 local function putBadges(t, at, owned, order)
   local byte = 0
-  for bit, name in ipairs(order) do
-    if owned and owned[name] then byte = byte + 2 ^ (bit - 1) end
+  for b, name in ipairs(order) do
+    if owned and owned[name] then byte = byte + 2 ^ (b - 1) end
   end
   t[at] = byte
 end
 
-local function putSharedMon(t, o, mon, x)
-  putU8(t, o, indexOf(x.pokemonIndex, mon.species))
-  putU8(t, o + 1, indexOf(x.itemIndex, mon.item))
+local function fromHex(s)
+  local out = {}
+  for h in tostring(s):gmatch("%x%x") do out[#out + 1] = tonumber(h, 16) end
+  return out
+end
+
+local function canonicalName(str, n, zeroTail)
+  local codes = encodeText(str, n)
+  local out = {}
+  for k = 1, n do
+    if codes[k] then out[k] = codes[k]
+    else out[k] = (k == #codes + 1 or not zeroTail) and 0x50 or 0 end
+  end
+  return out
+end
+
+nameCarrier = function(t, at, n, str, zeroTail)
+  local canon = canonicalName(str, n, zeroTail)
+  for k = 1, n do
+    if canon[k] ~= u8(t, at + k - 1) then return hex(t, at, n) end
+  end
+  return nil
+end
+
+local function putNameC(t, at, str, n, keepTail, carrier)
+  str = tostring(str or "")
+  if type(carrier) == "string" and #carrier == n * 2 then
+    local raw = fromHex(carrier)
+    local zero = {}
+    for k = 1, #raw do zero[k - 1] = raw[k] end
+    if text(zero, 0, n) == str then
+      for k = 1, n do t[at + k - 1] = raw[k] end
+      return
+    end
+  end
+  putName(t, at, str, n, keepTail)
+end
+
+
+local function validMoveSlots(slots, n)
+  if type(slots) ~= "table" or #slots ~= n then return false end
+  local last = 0
+  for _, v in ipairs(slots) do
+    if type(v) ~= "number" or v <= last or v > 4 then return false end
+    last = v
+  end
+  return true
+end
+
+local SHINY_ATTACKS = { 2, 3, 6, 7, 10, 11, 14, 15 }
+
+local function isShinyDVs(d)
+  return (d.speed or 0) == 10 and (d.defense or 0) == 10 and (d.special or 0) == 10
+    and ((d.attack or 0) % 4 == 2 or (d.attack or 0) % 4 == 3)
+end
+
+local function middleBits(v) return math.floor((v or 0) / 2) % 4 end
+
+local function unownLetter(d)
+  return math.floor((middleBits(d.attack) * 64 + middleBits(d.defense) * 16
+    + middleBits(d.speed) * 4 + middleBits(d.special)) / 10) + 1
+end
+
+-- pokecrystal engine/gfx/color.asm:8, pokegold engine/gfx/color.asm:8
+local function cartDVs(mon, x)
+  local d = mon.dvs or {}
+  if mon.shiny ~= true or isShinyDVs(d) then return d end
+  local def = x.pokemonDefs[mon.species]
+  local ratio = type(def) == "table" and tonumber(def.genderRatio) or nil
+  local function female(a)
+    return ratio ~= nil and ratio ~= 0xFF and a < math.floor(ratio / 16)
+  end
+  local isUnown = mon.species == "UNOWN"
+  local atk = d.attack or 0
+  local best, bestKey
+  for _, a in ipairs(SHINY_ATTACKS) do
+    local out = { attack = a, defense = 10, speed = 10, special = 10 }
+    local ok = (not isUnown) or unownLetter(out) == unownLetter(d)
+    if ok then
+      local key = (female(a) == female(atk) and 0 or 100) + math.abs(a - atk)
+      if not bestKey or key < bestKey then best, bestKey = out, key end
+    end
+  end
+  if not best then
+    refuse(("a forced-shiny UNOWN of letter %d cannot be written to a cartridge: "
+      .. "no shiny DV pattern keeps its letter"):format(unownLetter(d)))
+  end
+  best.hp = (best.attack % 2) * 8 + (best.defense % 2) * 4 + (best.speed % 2) * 2 + best.special % 2
+  return best
+end
+
+local function putSharedMon(t, o, mon, x, crystal, size)
+  local species = indexOf(x.pokemonIndex, mon.species, "species")
+  if species == 0 then refuse("a Pokemon with no species cannot be written to a cartridge") end
+  putU8(t, o, species)
+  putU8(t, o + 1, indexOf(x.itemIndex, mon.item, "held item"))
+  local moves = mon.moves or {}
+  local n = math.min(#moves, 4)
+  local useSlots = validMoveSlots(mon.cartMoveSlots, n)
+  local placed = {}
+  for k = 1, n do placed[useSlots and mon.cartMoveSlots[k] or k] = { moves[k], k } end
+  local emptyPp = type(mon.cartEmptyPp) == "table" and mon.cartEmptyPp or {}
   for i = 0, 3 do
-    local mv = (mon.moves or {})[i + 1]
-    putU8(t, o + 2 + i,
-      indexOf(x.moveIndex, type(mv) == "table" and mv.id or mv))
+    local slot = placed[i + 1]
+    local mv = slot and slot[1]
+    putU8(t, o + 2 + i, slot and indexOf(x.moveIndex, type(mv) == "table" and mv.id or mv, "move") or 0)
+    if not slot then
+      putU8(t, o + 0x17 + i, tonumber(emptyPp[i + 1]) or 0)
+    elseif type(mv) == "table" then
+      putU8(t, o + 0x17 + i, encodePPByte(mv.pp, mv.ppUps))
+    else
+      putU8(t, o + 0x17 + i, (mon.ppRaw or {})[slot[2]] or (mon.pp or {})[slot[2]] or 0)
+    end
   end
   putBE(t, o + 6, mon.otId or 0, 2)
   putBE(t, o + 8, mon.experience or 0, 3)
@@ -603,89 +1267,306 @@ local function putSharedMon(t, o, mon, x)
   putBE(t, o + 0x0B, se.hp or 0, 2);      putBE(t, o + 0x0D, se.attack or 0, 2)
   putBE(t, o + 0x0F, se.defense or 0, 2); putBE(t, o + 0x11, se.speed or 0, 2)
   putBE(t, o + 0x13, se.special or 0, 2)
-  local d = mon.dvs or {}
+  local d = cartDVs(mon, x)
   putU8(t, o + 0x15, (d.attack or 0) * 16 + (d.defense or 0))
   putU8(t, o + 0x16, (d.speed or 0) * 16 + (d.special or 0))
-  for i = 0, 3 do
-    local mv = (mon.moves or {})[i + 1]
-    if type(mv) == "table" then
-      putU8(t, o + 0x17 + i, encodePPByte(mv.pp, mv.ppUps))
-    else
-      putU8(t, o + 0x17 + i, (mon.ppRaw or {})[i + 1] or (mon.pp or {})[i + 1] or 0)
-    end
+  if mon.isEgg then
+    putU8(t, o + 0x1B, mon.eggSteps or 0)
+  else
+    putU8(t, o + 0x1B, mon.happiness or mon.friendship or 70)
   end
-  putU8(t, o + 0x1B, mon.happiness or mon.friendship or 70)
   -- 0x1C-0x1E belong to the mon, not to the slot: leaving them to the template
   -- means reordering the party gives slot 1 the previous occupant's pokerus
   -- and caught data.
   putU8(t, o + 0x1C, mon.pokerus or 0)
-  putBE(t, o + 0x1D, mon.caughtData or 0, 2)
+  if crystal then
+    if mon.caughtTime ~= nil or mon.caughtLevel ~= nil or mon.caughtLocation ~= nil
+        or mon.caughtByGender ~= nil then
+      local b0, b1 = packCaught(mon)
+      putU8(t, o + 0x1D, b0); putU8(t, o + 0x1E, b1)
+    else
+      putBE(t, o + 0x1D, mon.caughtData or 0, 2)
+    end
+  else
+    putBE(t, o + 0x1D, mon.caughtData or 0, 2)
+  end
   putU8(t, o + 0x1F, mon.level or 0)
+  if mon.cartRaw and type(mon.species) == "number" and (mon.cartRawFp == nil or mon.cartRawFp == monFp(mon)) then
+    local raw = fromHex(mon.cartRaw)
+    if raw[1] == species then
+      for k = 1, math.min(#raw, size) do t[o + k - 1] = raw[k] end
+    end
+  end
+  return species
 end
 
-local function putBoxStruct(t, base, box, x)
+local function listByte(mon, species)
+  if mon.isEgg then return Gen2Save.EGG end
+  if type(mon.cartList) == "number" and mon.cartListFor == species then
+    return mon.cartList % 256
+  end
+  return species
+end
+
+local function nicknameOf(mon, x)
+  local nick = mon.nickname
+  if nick == "" and type(mon.cartNick) == "string" and not mon.isEgg then return "" end
+  if type(nick) == "string" and nick ~= "" then return nick end
+  if mon.isEgg then return "EGG" end
+  if type(mon.name) == "string" and mon.name ~= "" then return mon.name end
+  local def = x.pokemonDefs[mon.species]
+  if type(def) == "table" and type(def.name) == "string" then return def.name end
+  if type(mon.species) == "string" then return mon.species end
+  return "?"
+end
+
+local function putBoxStruct(t, base, box, x, crystal)
   box = box or {}
   local count = math.min(#box, Gen2Save.BOX_CAPACITY)
   putU8(t, base, count)
   for i = 1, count do
     local mon = box[i]
-    putU8(t, base + BOX_SPECIES + i - 1, indexOf(x.pokemonIndex, mon.species))
-    putSharedMon(t, base + BOX_MONS + (i - 1) * Gen2Save.BOX_MON_STRUCT, mon, x)
-    putText(t, base + BOX_OTS + (i - 1) * Gen2Save.NAME_LENGTH,
-            mon.ot or "", Gen2Save.NAME_LENGTH)
-    putText(t, base + BOX_NICKS + (i - 1) * Gen2Save.NAME_LENGTH,
-            mon.nickname or "", Gen2Save.NAME_LENGTH)
+    if type(mon) ~= "table" then refuse(("box slot %d is not a Pokemon"):format(i)) end
+    local species = putSharedMon(t, base + BOX_MONS + (i - 1) * Gen2Save.BOX_MON_STRUCT,
+      mon, x, crystal, Gen2Save.BOX_MON_STRUCT)
+    putU8(t, base + BOX_SPECIES + i - 1, listByte(mon, species))
+    putNameC(t, base + BOX_OTS + (i - 1) * Gen2Save.NAME_LENGTH,
+             mon.ot or "", Gen2Save.NAME_LENGTH, false, mon.cartOt)
+    putNameC(t, base + BOX_NICKS + (i - 1) * Gen2Save.NAME_LENGTH,
+             nicknameOf(mon, x), Gen2Save.NAME_LENGTH, false, mon.cartNick)
   end
   putU8(t, base + BOX_SPECIES + count, 0xFF)
 end
 
--- The bag back into its four pockets, by each item's own `pocket`.
-local function putBag(t, L, inventory, x)
-  local buckets = { ITEM = {}, KEY_ITEM = {}, BALL = {}, TM_HM = {} }
-  for id, count in pairs(inventory or {}) do
+local function aggregate(stacks)
+  local ids, counts = {}, {}
+  for _, s in ipairs(stacks) do
+    if s[2] > 0 and counts[s[1]] == nil then ids[#ids + 1] = s[1]; counts[s[1]] = 0 end
+    if s[2] > 0 then counts[s[1]] = counts[s[1]] + s[2] end
+  end
+  return ids, counts
+end
+
+local function sortKey(x, id)
+  local n = type(id) == "number" and id or x.itemIndex[id]
+  return n or math.huge
+end
+
+local function pocketIds(order, counts, pocketOf, name, x)
+  local ids, seen = {}, {}
+  for _, id in ipairs(type(order) == "table" and order or {}) do
+    if not seen[id] and (counts[id] or 0) > 0 and pocketOf(id) == name then
+      seen[id] = true
+      ids[#ids + 1] = id
+    end
+  end
+  local rest = {}
+  for id, n in pairs(counts) do
+    if not seen[id] and (tonumber(n) or 0) > 0 and pocketOf(id) == name
+        and not (type(id) == "string" and id:find("BADGE", 1, true)) then
+      rest[#rest + 1] = id
+    end
+  end
+  table.sort(rest, function(a, b)
+    local ka, kb = sortKey(x, a), sortKey(x, b)
+    if ka ~= kb then return ka < kb end
+    return tostring(a) < tostring(b)
+  end)
+  for _, id in ipairs(rest) do ids[#ids + 1] = id end
+  return ids
+end
+
+-- engine/items/items.asm:158 PutItemInPocket, :234 RemoveItemFromPocket
+local function adjustCarried(carried, ids, counts, pairs_)
+  local cap = pairs_ and 99 or 1
+  local have, order = {}, {}
+  for _, st in ipairs(carried) do
+    if st[2] > 0 then
+      if have[st[1]] == nil then have[st[1]] = 0; order[#order + 1] = st[1] end
+      have[st[1]] = have[st[1]] + st[2]
+    end
+  end
+  if #order == 0 then return nil end
+  local want, wanted = {}, {}
+  for _, id in ipairs(ids) do
+    want[id] = math.floor(tonumber(counts[id]) or 0)
+    wanted[id] = true
+  end
+  local survivors, seenNew = {}, false
+  for _, id in ipairs(ids) do
+    if have[id] then
+      if seenNew then return nil end
+      survivors[#survivors + 1] = id
+    else
+      seenNew = true
+    end
+  end
+  local k = 0
+  for _, id in ipairs(order) do
+    if wanted[id] then
+      k = k + 1
+      if survivors[k] ~= id then return nil end
+    end
+  end
+  local out = {}
+  for _, st in ipairs(carried) do out[#out + 1] = { st[1], st[2] } end
+  local function remove(id, need)
+    local i = 1
+    while need > 0 and i <= #out do
+      local st = out[i]
+      if st[1] == id and st[2] > 0 then
+        local take = math.min(st[2], need)
+        st[2] = st[2] - take
+        need = need - take
+        if st[2] == 0 then table.remove(out, i) else i = i + 1 end
+      else
+        i = i + 1
+      end
+    end
+  end
+  local function add(id, need)
+    for _, st in ipairs(out) do
+      if need == 0 then break end
+      if st[1] == id and st[2] > 0 and st[2] < cap then
+        local put = math.min(cap - st[2], need)
+        st[2] = st[2] + put
+        need = need - put
+      end
+    end
+    while need > 0 do
+      local q = math.min(need, cap)
+      out[#out + 1] = { id, q }
+      need = need - q
+    end
+  end
+  for _, id in ipairs(order) do
+    local goal = want[id] or 0
+    if goal < have[id] then remove(id, have[id] - goal)
+    elseif goal > have[id] then add(id, goal - have[id]) end
+  end
+  for _, id in ipairs(ids) do
+    if not have[id] and want[id] > 0 then add(id, want[id]) end
+  end
+  return out
+end
+
+-- engine/items/items.asm:208
+local function wantedStacks(ids, counts, pairs_, carried)
+  local cIds, cCounts = aggregate(carried)
+  local same = #cIds == #ids
+  for i = 1, #ids do
+    if not same then break end
+    if cIds[i] ~= ids[i] or cCounts[ids[i]] ~= math.floor(tonumber(counts[ids[i]]) or 0) then
+      same = false
+    end
+  end
+  if same then return carried end
+  local kept = adjustCarried(carried, ids, counts, pairs_)
+  if kept then return kept end
+  local out = {}
+  for _, id in ipairs(ids) do
+    local n = math.floor(tonumber(counts[id]) or 0)
+    if pairs_ then
+      while n > 0 do
+        local q = math.min(n, 99)
+        out[#out + 1] = { id, q }
+        n = n - q
+      end
+    else
+      for _ = 1, n do out[#out + 1] = { id, 1 } end
+    end
+  end
+  return out
+end
+
+local function writeStacks(t, L, pocket, stacks, x)
+  if #stacks > pocket.cap then
+    return { pocket.name, #stacks, pocket.cap }
+  end
+  local countAt, listAt = L[pocket.count], L[pocket.list]
+  local width = pocket.pairs and 2 or 1
+  putU8(t, countAt, #stacks)
+  for i, s in ipairs(stacks) do
+    putU8(t, listAt + (i - 1) * width, indexOf(x.itemIndex, s[1], "item"))
+    if pocket.pairs then putU8(t, listAt + (i - 1) * 2 + 1, s[2]) end
+  end
+  putU8(t, listAt + #stacks * width, 0xFF)
+  return nil
+end
+
+local function putBag(t, L, save, x)
+  local carried, owners = {}, {}
+  local carrier = type(save.cartBag) == "table" and save.cartBag or {}
+  local function carriedFor(name, pocket)
+    local list = carrier[name]
+    if type(list) ~= "table" then list = readStacks(t, L, pocket, x) end
+    local out = {}
+    for _, st in ipairs(list) do
+      if type(st) == "table" and st[1] ~= nil then out[#out + 1] = { st[1], tonumber(st[2]) or 0 } end
+    end
+    return out
+  end
+  local totalCarried = {}
+  for _, pocket in ipairs(POCKETS) do
+    carried[pocket.name] = carriedFor(pocket.name, pocket)
+    for _, s in ipairs(carried[pocket.name]) do
+      owners[s[1]] = owners[s[1]] or {}
+      owners[s[1]][pocket.name] = true
+      totalCarried[s[1]] = (totalCarried[s[1]] or 0) + s[2]
+    end
+  end
+  local inventory = type(save.inventory) == "table" and save.inventory or {}
+  local function ownerOrder(id)
+    for _, pocket in ipairs(POCKETS) do
+      if owners[id] and owners[id][pocket.name] then return pocket.name end
+    end
+  end
+  local function pocketOf(id, name)
+    if owners[id] then
+      if owners[id][name] == nil then return false end
+      if (tonumber(inventory[id]) or 0) == totalCarried[id] then return true end
+      return ownerOrder(id) == name
+    end
     local def = x.itemDefs[id]
-    local pocket = (type(def) == "table" and def.pocket) or "ITEM"
-    if buckets[pocket] == nil then pocket = "ITEM" end
-    buckets[pocket][#buckets[pocket] + 1] = { id = id, count = count, def = def }
+    if type(def) == "table" and POCKET_NAMES[def.pocket] then return def.pocket == name end
+    return (isTmIndex(id) and "TM_HM" or "ITEM") == name
   end
-  -- By cart index, so the order is deterministic. A flat inventory has no
-  -- order of its own, so the pocket order a round trip produces is stable
-  -- rather than original.
-  for _, list in pairs(buckets) do
-    table.sort(list, function(a, b)
-      return indexOf(x.itemIndex, a.id) < indexOf(x.itemIndex, b.id)
-    end)
-  end
-
-  local overflow = nil
-  local function writePairs(countAt, listAt, cap, list, pocket)
-    if #list > cap then overflow = overflow or { pocket, #list, cap } end
-    local n = math.min(#list, cap)
-    putU8(t, countAt, n)
-    for i = 1, n do
-      putU8(t, listAt + (i - 1) * 2, indexOf(x.itemIndex, list[i].id))
-      putU8(t, listAt + (i - 1) * 2 + 1, math.min(list[i].count, 99))
+  for _, pocket in ipairs(POCKETS) do
+    local counts = inventory
+    local cAgg = {}
+    for _, st in ipairs(carried[pocket.name]) do cAgg[st[1]] = (cAgg[st[1]] or 0) + st[2] end
+    for id in pairs(cAgg) do
+      if owners[id] and (tonumber(inventory[id]) or 0) == totalCarried[id] then
+        if counts == inventory then
+          counts = {}
+          for k, v in pairs(inventory) do counts[k] = v end
+        end
+        counts[id] = cAgg[id]
+      end
     end
-    putU8(t, listAt + n * 2, 0xFF)
+    local ids = pocketIds(save.bagOrder, counts, function(id) return pocketOf(id, pocket.name) and pocket.name end,
+      pocket.name, x)
+    local stacks = wantedStacks(ids, counts, pocket.pairs, carried[pocket.name])
+    local overflow = writeStacks(t, L, pocket, stacks, x)
+    if overflow then return overflow end
   end
-  local function writeIds(countAt, listAt, cap, list, pocket)
-    if #list > cap then overflow = overflow or { pocket, #list, cap } end
-    local n = math.min(#list, cap)
-    putU8(t, countAt, n)
-    for i = 1, n do putU8(t, listAt + i - 1, indexOf(x.itemIndex, list[i].id)) end
-    putU8(t, listAt + n, 0xFF)
-  end
-
-  writePairs(L.wNumItems, L.wItems, 20, buckets.ITEM, "ITEM")
-  writeIds(L.wNumKeyItems, L.wKeyItems, 25, buckets.KEY_ITEM, "KEY_ITEM")
-  writePairs(L.wNumBalls, L.wBalls, 12, buckets.BALL, "BALL")
   if L.wTMsHMs then
-    for _, row in ipairs(buckets.TM_HM) do
-      local number = type(row.def) == "table" and row.def.tmNumber
-      if number then putU8(t, L.wTMsHMs + number - 1, math.min(row.count, 99)) end
+    local byNumber = tmNumbers(x)
+    for number = 1, 57 do
+      local id = byNumber[number]
+      local count = (id and tonumber(inventory[id]) or 0) + (tonumber(inventory[tmIndex(number)]) or 0)
+      putU8(t, L.wTMsHMs + number - 1, math.min(math.floor(count), 255))
     end
   end
-  return overflow
+  if type(save.pcItems) == "table" then
+    local carriedPc = carrier.PC
+    if type(carriedPc) ~= "table" then carriedPc = readStacks(t, L, PC_POCKET, x) end
+    local ids = pocketIds(save.pcOrder, save.pcItems, function() return "PC" end, "PC", x)
+    local overflow = writeStacks(t, L, PC_POCKET,
+      wantedStacks(ids, save.pcItems, true, carriedPc), x)
+    if overflow then return overflow end
+  end
+  return nil
 end
 
 local function putEngineFlags(t, L, flags, gameVersion)
@@ -713,12 +1594,174 @@ end
 local function putFlagSet(t, at, set, count, indexFor)
   for i = 0, count - 1 do
     local byteAt = at + math.floor(i / 8)
-    local bit = 2 ^ (i % 8)
+    local b = 2 ^ (i % 8)
     local cur = t[byteAt] or 0
-    local on = math.floor(cur / bit) % 2 == 1
+    local on = math.floor(cur / b) % 2 == 1
     local want = set and set[indexFor(i)] == true
-    if on ~= want then t[byteAt] = want and (cur + bit) or (cur - bit) end
+    if on ~= want then t[byteAt] = want and (cur + b) or (cur - b) end
   end
+end
+
+local function setBit(byte, n, on)
+  local has = bit(byte, n)
+  if has == on then return byte end
+  return on and byte + 2 ^ n or byte - 2 ^ n
+end
+
+local function putOptions(t, L, options)
+  local o = L.sOptions
+  local b0 = t[o] or 0
+  if TEXT_SPEED_BITS[options.textSpeed] then
+    b0 = b0 - b0 % 8 + TEXT_SPEED_BITS[options.textSpeed]
+  end
+  if type(options.battleScene) == "boolean" then b0 = setBit(b0, 7, not options.battleScene) end
+  if options.battleStyle == "SET" or options.battleStyle == "SHIFT" then
+    b0 = setBit(b0, 6, options.battleStyle == "SET")
+  end
+  if options.sound == "STEREO" or options.sound == "MONO" then
+    b0 = setBit(b0, 5, options.sound == "STEREO")
+  end
+  t[o] = b0
+  local frame = tonumber(options.frame)
+  if frame and frame >= 1 and frame <= 8 then
+    t[o + 2] = (t[o + 2] or 0) - (t[o + 2] or 0) % 8 + math.floor(frame) - 1
+  end
+  if PRINT_BYTES[options.print] then t[o + 4] = PRINT_BYTES[options.print] end
+  if type(options.menuAccount) == "boolean" then
+    t[o + 5] = setBit(t[o + 5] or 0, 0, options.menuAccount)
+  end
+end
+
+local function mailEqual(a, b)
+  return a.type == b.type and a.message == b.message and a.author == b.author
+    and a.authorId == b.authorId and a.species == b.species
+    and (a.nationality == nil or b.nationality == nil or a.nationality == b.nationality)
+end
+
+encodeMailInto = function(t, at, shaped, x, crystal)
+  local S = mailShape(crystal)
+  local body = tostring(shaped.message or "")
+  local msg = {}
+  if body:find("\n", 1, true) then
+    msg = encodeText(body, MAIL_MESSAGE, true)
+  else
+    local codes = encodeText(body, MAIL_MESSAGE)
+    if #codes >= MAIL_MESSAGE then
+      msg = codes
+    else
+      for k = 1, math.min(#codes, MAIL_LINE) do msg[k] = codes[k] end
+      if #codes >= MAIL_LINE then
+        msg[MAIL_LINE + 1] = 0x4E
+        for k = MAIL_LINE + 1, #codes do msg[k + 1] = codes[k] end
+      end
+    end
+  end
+  for k = 0, MAIL_MESSAGE - 1 do t[at + k] = msg[k + 1] or 0x50 end
+  if #msg < MAIL_LINE then t[at + MAIL_LINE] = 0x4E end
+  local author = encodeText(tostring(shaped.author or ""), S.authorLength)
+  for k = 0, S.authorLength - 1 do t[at + S.author + k] = author[k + 1] or 0x50 end
+  if S.nationality and tonumber(shaped.nationality) then
+    putBE(t, at + S.nationality, shaped.nationality, 2)
+  elseif S.nationality then
+    putBE(t, at + S.nationality, 0, 2)
+  end
+  putBE(t, at + 0x2B, tonumber(shaped.authorId) or 0, 2)
+  putU8(t, at + 0x2D, shaped.species and indexOf(x.pokemonIndex, shaped.species, "mail species") or 0)
+  putU8(t, at + 0x2E, shaped.type and indexOf(x.itemIndex, shaped.type, "mail item") or 0)
+end
+
+local function putMail(t, at, entry, x, crystal)
+  if type(entry) ~= "table" then return end
+  local shaped = {
+    type = entry.type, message = tostring(entry.message or ""),
+    author = tostring(entry.author or ""), authorId = tonumber(entry.authorId) or 0,
+    species = entry.species, nationality = tonumber(entry.nationality),
+  }
+  if mailEqual(decodeMail(t, at, x, crystal, true), shaped) then return end
+  local raw = type(entry.cartRaw) == "string" and fromHex(entry.cartRaw) or nil
+  if raw and #raw == Gen2Save.MAIL_STRUCT then
+    local zero = {}
+    for k = 1, #raw do zero[k - 1] = raw[k] end
+    if mailEqual(decodeMail(zero, 0, x, crystal, true), shaped) then
+      for k = 0, #raw - 1 do t[at + k] = raw[k + 1] end
+      return
+    end
+  end
+  encodeMailInto(t, at, shaped, x, crystal)
+end
+
+local function putAllMail(t, L, save, x, crystal)
+  local state = save.mail
+  if type(state) ~= "table" then return end
+  local party = type(state.party) == "table" and state.party or {}
+  for i = 1, Gen2Save.PARTY_LENGTH do
+    local entry = party[i]
+    if type(entry) == "table" then
+      for _, base in ipairs({ L.sPartyMail, L.sPartyMailBackup }) do
+        putMail(t, base + (i - 1) * Gen2Save.MAIL_STRUCT, entry, x, crystal)
+      end
+    end
+  end
+  local box = type(state.box) == "table" and state.box or {}
+  if #box > Gen2Save.MAILBOX_CAPACITY then
+    refuse(("the mailbox holds %d letters and a cartridge holds %d")
+      :format(#box, Gen2Save.MAILBOX_CAPACITY))
+  end
+  -- engine/pokemon/mail.asm:239 BackupPartyMonMail
+  for _, base in ipairs({ L.sMailboxCount, L.sMailboxCountBackup }) do
+    putU8(t, base, #box)
+    for k, entry in ipairs(box) do
+      putMail(t, base + 1 + (k - 1) * Gen2Save.MAIL_STRUCT, entry, x, crystal)
+    end
+  end
+end
+
+local function putUnown(t, L, save)
+  if type(save.unownDex) == "table" then
+    local same = true
+    for i = 0, Gen2Save.NUM_UNOWN - 1 do
+      local want = tonumber(save.unownDex[i + 1]) or 0
+      local cur = t[L.wUnownDex + i] or 0
+      if want ~= cur then same = false; break end
+      if want == 0 then break end
+    end
+    if not same then
+      for i = 0, Gen2Save.NUM_UNOWN - 1 do
+        putU8(t, L.wUnownDex + i, tonumber(save.unownDex[i + 1]) or 0)
+      end
+    end
+  end
+  if tonumber(save.firstUnownSeen) then putU8(t, L.wFirstUnownSeen, save.firstUnownSeen) end
+end
+
+local function putMom(t, L, mom, carrier)
+  if type(mom) ~= "table" then return end
+  putNameC(t, L.wMomsName, mom.name or "", Gen2Save.NAME_LENGTH, false, carrier)
+  if tonumber(mom.savedMoney) then putBE(t, L.wMomsMoney, mom.savedMoney, 3) end
+  local b = t[L.wMomSavingMoney] or 0
+  if type(mom.active) == "boolean" then b = setBit(b, 7, mom.active) end
+  if type(mom.savingMoney) == "boolean" then b = setBit(b, 0, mom.savingMoney) end
+  t[L.wMomSavingMoney] = b
+  if tonumber(mom.whichItem) then putU8(t, L.wWhichMomItem, mom.whichItem) end
+  if tonumber(mom.triggerBalance) then putBE(t, L.wMomItemTriggerBalance, mom.triggerBalance, 3) end
+end
+
+-- pokegold engine/menus/save.asm:424 SaveChecksum
+local function seal(t, L)
+  putU8(t, L.sCheckValue1, 0x63)
+  putU8(t, L.sCheckValue2, 0x7F)
+  local sum = sum16(t, L.sGameData, L.sGameDataEnd)
+  putU8(t, L.sChecksum, sum % 256)
+  putU8(t, L.sChecksum + 1, math.floor(sum / 256))
+  local B = L.backupSave
+  for _, seg in ipairs(B.segments) do
+    for k = 0, seg[3] - 1 do t[seg[2] + k] = t[seg[1] + k] end
+  end
+  for k = 0, Gen2Save.OPTIONS_LENGTH - 1 do t[B.options + k] = t[L.sOptions + k] end
+  putU8(t, B.checkValue1, 0x63)
+  putU8(t, B.checkValue2, 0x7F)
+  putU8(t, B.checksum, sum % 256)
+  putU8(t, B.checksum + 1, math.floor(sum / 256))
 end
 
 -- data/default_options.asm, as engine/menus/save.asm:384
@@ -746,14 +1789,11 @@ local PLAYER_PAL_MALE, PLAYER_PAL_FEMALE = 0x80, 0x90
 -- constants/deco_constants.asm:123,140
 local DECO_FEATHERY_BED, DECO_TOWN_MAP = 2, 16
 
--- (engine/menus/intro_menu.asm:28) and ErasePreviousSave
--- (engine/menus/save.asm:333) zero-fill, plus the bytes
--- MapSetupScript_Continue (data/maps/setup_scripts.asm:161) never rebuilds.
-function Gen2Save.blankImage(gameVersion, save, data)
+local function blankImpl(gameVersion, save, data)
   local L = Gen2Save.layoutFor(gameVersion)
-  if not L then return nil, "no Gen 2 layout for " .. tostring(gameVersion) end
+  if not L then refuse("no Gen 2 layout for " .. tostring(gameVersion)) end
   local O = require("src.save_convert.Gen2MapContext").offsetsFor(gameVersion)
-  if not O then return nil, "no Gen 2 layout for " .. tostring(gameVersion) end
+  if not O then refuse("no Gen 2 layout for " .. tostring(gameVersion)) end
 
   local x = Gen2Save.crosswalks(data)
   local pos = (type(save) == "table" and save.position) or nil
@@ -761,8 +1801,8 @@ function Gen2Save.blankImage(gameVersion, save, data)
   local group = (ids and ids[1]) or (pos and tonumber(pos.mapGroup))
   local number = (ids and ids[2]) or (pos and tonumber(pos.mapNumber))
   if not (group and number) then
-    return nil, "a save begun in this game needs the map it stands on to "
-      .. "build a cartridge image from, and this save does not name one"
+    refuse("a save begun in this game needs the map it stands on to "
+      .. "build a cartridge image from, and this save does not name one")
   end
   local px = math.floor(tonumber(pos.x) or 0) + 4
   local py = math.floor(tonumber(pos.y) or 0) + 4
@@ -771,8 +1811,8 @@ function Gen2Save.blankImage(gameVersion, save, data)
   for i = 0, Gen2Save.SAVE_SIZE - 1 do t[i] = 0 end
   for i = 1, #DEFAULT_OPTIONS do t[L.sOptions + i - 1] = DEFAULT_OPTIONS[i] end
   putU8(t, L.wSavedAtLeastOnce, 1)
-  putText(t, L.wRedsName, "RED", Gen2Save.NAME_LENGTH)
-  putText(t, L.wGreensName, "GREEN", Gen2Save.NAME_LENGTH)
+  putName(t, L.wRedsName, "RED", Gen2Save.NAME_LENGTH)
+  putName(t, L.wGreensName, "GREEN", Gen2Save.NAME_LENGTH)
   putBE(t, L.wMomItemTriggerBalance, 2300, 3)
   for _, at in ipairs({ L.wRoamMon1MapGroup, L.wRoamMon2MapGroup,
                         L.wRoamMon3MapGroup }) do
@@ -781,17 +1821,22 @@ function Gen2Save.blankImage(gameVersion, save, data)
   end
   putU8(t, L.wBestMagikarpLengthFeet, 3)
   putU8(t, L.wBestMagikarpLengthInches, 6)
-  putText(t, L.wMagikarpRecordHoldersName, "RALPH", Gen2Save.NAME_LENGTH)
+  putName(t, L.wMagikarpRecordHoldersName, "RALPH", Gen2Save.NAME_LENGTH)
   putU8(t, L.wNumPCItems, 0)
   putU8(t, L.wNumPCItems + 1, 0xFF)
+  -- engine/menus/intro_menu.asm:175, engine/link/mystery_gift.asm:1374
+  putU8(t, L.sMysteryGiftItem, 0)
   putU8(t, L.sMysteryGiftUnlocked, 0xFF)
+  putU8(t, L.sBackupMysteryGiftItem, 0)
+  putU8(t, L.sNumDailyMysteryGiftPartnerIDs, 0xFF)
   -- engine/overworld/decorations.asm:1, :1080
   putU8(t, L.wDecoBed, DECO_FEATHERY_BED)
   putU8(t, L.wDecoPoster, DECO_TOWN_MAP)
   -- engine/menus/intro_menu.asm:148 SetDefaultBoxNames
   if L.wBoxNames then
-    for i = 1, 14 do
-      putText(t, L.wBoxNames + (i - 1) * 9, "BOX" .. i, 9)
+    for i = 1, Gen2Save.NUM_BOXES do
+      putName(t, L.wBoxNames + (i - 1) * Gen2Save.BOX_NAME_LENGTH, "BOX" .. i,
+              Gen2Save.BOX_NAME_LENGTH, true)
     end
   end
 
@@ -825,67 +1870,104 @@ function Gen2Save.blankImage(gameVersion, save, data)
   putU8(t, L.wMapGroup, group)
   putU8(t, L.wMapNumber, number)
 
-  -- Crystal backup initialization
-  if L.backup then
-    if L.backup.sOptions then
-      for i = 1, #DEFAULT_OPTIONS do t[L.backup.sOptions + i - 1] = DEFAULT_OPTIONS[i] end
-    end
-    if L.backup.wSavedAtLeastOnce then putU8(t, L.backup.wSavedAtLeastOnce, 1) end
-    if L.backup.wRedsName then putText(t, L.backup.wRedsName, "RED", Gen2Save.NAME_LENGTH) end
-    if L.backup.wGreensName then putText(t, L.backup.wGreensName, "GREEN", Gen2Save.NAME_LENGTH) end
-    if L.backup.wMomItemTriggerBalance then putBE(t, L.backup.wMomItemTriggerBalance, 2300, 3) end
-    if L.backup.wNumPCItems then
-      putU8(t, L.backup.wNumPCItems, 0)
-      putU8(t, L.backup.wNumPCItems + 1, 0xFF)
-    end
-    if L.backup.wBoxNames then
-      for i = 1, 14 do
-        putText(t, L.backup.wBoxNames + (i - 1) * 9, "BOX" .. i, 9)
-      end
-    end
-    if L.backup.sCheckValue1 then putU8(t, L.backup.sCheckValue1, 0x63) end
-    if L.backup.sCheckValue2 then putU8(t, L.backup.sCheckValue2, 0x7F) end
-  end
-
-  local out = {}
-  for i = 0, Gen2Save.SAVE_SIZE - 1 do out[i + 1] = string.char(t[i]) end
-  return table.concat(out)
+  seal(t, L)
+  return pack(t, Gen2Save.SAVE_SIZE)
 end
 
--- encode(save, gameVersion, template, data) -> bytes, err
---
--- Writes into the cartridge image the save came from.  A save begun in this
--- port has none, so Gen2Save.blankImage builds one and the map window is
--- always rebuilt for where it stands.
-function Gen2Save.encode(save, gameVersion, template, data)
-  local L = Gen2Save.layoutFor(gameVersion)
-  if not L then return nil, "no Gen 2 layout for " .. tostring(gameVersion) end
-  if type(save) ~= "table" then return nil, "expected a save table" end
-  local fresh = type(template) ~= "string"
-  if not fresh and #template < Gen2Save.SAVE_SIZE then
-    return nil, ("the cartridge image beside this save is %d bytes and a Gen 2 "
-      .. "save file is %d; it is truncated or is not a save file")
-      :format(#template, Gen2Save.SAVE_SIZE)
+-- engine/menus/intro_menu.asm:28
+function Gen2Save.blankImage(gameVersion, save, data)
+  return guarded(blankImpl, gameVersion, save, data)
+end
+
+-- pokecrystal engine/overworld/decorations.asm:1139
+local function bedroomObjects(save, version, data, x, t, L, fresh)
+  local pos = save.position or {}
+  local ids = pos.map and x.mapIds[pos.map]
+  local group, number = (ids and ids[1]) or pos.mapGroup, (ids and ids[2]) or pos.mapNumber
+  if x.maps[(group or 0) * 256 + (number or 0)] ~= "PLAYERS_HOUSE_2F" then return save, false end
+  local Decorations = require("src.core.gen2.Decorations")
+  local state = type(save.decorations) == "table" and save.decorations or { bed = 2, poster = 16 }
+  local S, offsets = Gen2State.symsFor(version), {}
+  for i, slot in ipairs(Decorations.SLOTS) do offsets[slot] = S.wDecoBed + i - 1 end
+  local initialize = fresh or group ~= t[L.wMapGroup] or number ~= t[L.wMapNumber]
+  local affected = {}
+  for i, object in ipairs(Decorations.OBJECT_SLOTS) do
+    if initialize or (state[object.slot] or 0) ~= (t[offsets[object.slot]] or 0) then affected[i] = true end
   end
+  if next(affected) == nil then return save, false end
+  local function copy(source)
+    local out = {}; for key, value in pairs(source or {}) do out[key] = value end; return out
+  end
+  local out = copy(save)
+  out.events, out.variableSprites = copy(save.events), copy(save.variableSprites)
+  if type(save.events) ~= "table" then
+    for i = 0, Gen2Save.EVENT_BYTES - 1 do out.events[i] = t[L.wEventFlags + i] or 0 end
+  end
+  local carrier = type(save.mapObjectMasks) == "table" and save.mapObjectMasks or {}
+  out.mapObjectMasks = { map = "PLAYERS_HOUSE_2F", masks = carrier.map == "PLAYERS_HOUSE_2F" and copy(carrier.masks) or {},
+    raw = carrier.map == "PLAYERS_HOUSE_2F" and carrier.raw or nil }
+  local def = data.maps.PLAYERS_HOUSE_2F
+  for i, row in ipairs(Decorations.visibility(state)) do
+    if affected[i] then
+      local object = def and def.objects and def.objects[i]
+      local flag = object and object.eventFlag or row.flag
+      local index, mask = math.floor(flag / 8), 2 ^ (flag % 8)
+      local byte = tonumber(out.events[index] or out.events[tostring(index)]) or 0
+      out.events[index] = byte - math.floor(byte / mask) % 2 * mask + (row.hidden and mask or 0)
+      if not row.hidden then out.variableSprites[row.sprite] = row.byte end
+      out.mapObjectMasks.masks[i] = row.hidden
+    end
+  end
+  return out, true
+end
+
+local function encodeImpl(save, gameVersion, template, data)
+  local L = Gen2Save.layoutFor(gameVersion)
+  if not L then refuse("no Gen 2 layout for " .. tostring(gameVersion)) end
+  if type(save) ~= "table" then refuse("expected a save table") end
+  if type(template) ~= "string" and type(save.rawImport) == "string" then
+    template = save.rawImport
+  end
+  local fresh = type(template) ~= "string"
+  local base, tail
   if fresh then
-    local built, why = Gen2Save.blankImage(gameVersion, save, data)
-    if not built then return nil, why end
-    template = built
+    base = blankImpl(gameVersion, save, data)
+    tail = ""
+  else
+    if #template < Gen2Save.SAVE_SIZE then
+      refuse(("the cartridge image beside this save is %d bytes and a Gen 2 "
+        .. "save file is %d; it is truncated or is not a save file")
+        :format(#template, Gen2Save.SAVE_SIZE))
+    end
+    base = Gen2Save.liveImage(template, L)
+    if not base then refuse(Gen2Save.MSG.bothCopies) end
+    tail = template:sub(Gen2Save.SAVE_SIZE + 1)
   end
 
+  if type(data) == "table" and redSpecies(data) then
+    local name = gameVersion:sub(1, 1):upper() .. gameVersion:sub(2)
+    refuse(Gen2Save.MSG.cache:format(name, name))
+  end
+  local crystal = gameVersion == "crystal"
   local x = Gen2Save.crosswalks(data)
-  local t = {}
-  for i = 0, Gen2Save.SAVE_SIZE - 1 do t[i] = template:byte(i + 1) end
+  local t = toTable(base, Gen2Save.SAVE_SIZE)
+  local templateGroup, templateNumber = t[L.wMapGroup], t[L.wMapNumber]
+  local templateX, templateY = t[L.wXCoord], t[L.wYCoord]
+  local changedBedroomObjects
+  save, changedBedroomObjects = bedroomObjects(save, gameVersion, data, x, t, L, fresh)
 
   local p = save.player or {}
-  putText(t, L.wPlayerName, p.name or "", Gen2Save.NAME_LENGTH)
+  local cn = type(save.cartNames) == "table" and save.cartNames or {}
+  putNameC(t, L.wPlayerName, p.name or "", Gen2Save.NAME_LENGTH, false, cn.player)
   putBE(t, L.wPlayerID, p.id or 0, 2)
   putBE(t, L.wMoney, p.money or 0, 3)
   putBE(t, L.wCoins, p.coins or 0, 2)
   putBadges(t, L.wBadges, p.badges, Gen2Save.JOHTO_BADGES)
   putBadges(t, L.wKantoBadges, p.kantoBadges, Gen2Save.KANTO_BADGES)
-  putText(t, L.wRivalName, (save.rival or {}).name or "", Gen2Save.NAME_LENGTH)
-  putText(t, L.wMomsName, (save.mom or {}).name or "", Gen2Save.NAME_LENGTH)
+  putNameC(t, L.wRivalName, (save.rival or {}).name or "", Gen2Save.NAME_LENGTH, false, cn.rival)
+  if type(save.mom) == "table" then
+    putMom(t, L, save.mom, cn.mom)
+  end
   -- engine/menus/init_gender.asm:38
   if L.wPlayerGender then
     local byte = t[L.wPlayerGender] or 0
@@ -894,83 +1976,94 @@ function Gen2Save.encode(save, gameVersion, template, data)
   end
 
   local party = save.party or {}
+  if type(party) ~= "table" then refuse("the party is not a list of Pokemon") end
+  for i, mon in ipairs(party) do
+    if type(mon) ~= "table" then refuse(("party slot %d is not a Pokemon"):format(i)) end
+  end
+  if save.boxes ~= nil and type(save.boxes) ~= "table" then refuse("the boxes are not a list") end
   if #party > Gen2Save.PARTY_LENGTH then
-    return nil, ("a party of %d cannot be written to a cartridge"):format(#party)
+    refuse(("a party of %d cannot be written to a cartridge"):format(#party))
   end
   putU8(t, L.wPartyCount, #party)
   for i, mon in ipairs(party) do
-    putU8(t, L.wPartySpecies + i - 1, indexOf(x.pokemonIndex, mon.species))
     local o = L.wPartyMons + (i - 1) * Gen2Save.PARTY_STRUCT
-    putSharedMon(t, o, mon, x)
-    putU8(t, o + 0x20, encodeStatus(mon.status, mon.statusTurns))
+    local species = putSharedMon(t, o, mon, x, crystal, Gen2Save.BOX_MON_STRUCT)
+    putU8(t, L.wPartySpecies + i - 1, listByte(mon, species))
+    local statusByte = encodeStatus(mon.status, mon.statusTurns)
+    local carried = tonumber(mon.cartStatus)
+    if carried and statusAgrees(carried, mon.status, mon.statusTurns) then statusByte = carried end
+    putU8(t, o + 0x20, statusByte)
     putBE(t, o + 0x22, mon.hp or 0, 2)
     local st = mon.stats or {}
     putBE(t, o + 0x24, mon.maxHp or st.hp or 0, 2)
     putBE(t, o + 0x26, st.attack or 0, 2);  putBE(t, o + 0x28, st.defense or 0, 2)
     putBE(t, o + 0x2A, st.speed or 0, 2);   putBE(t, o + 0x2C, st.specialAttack or 0, 2)
     putBE(t, o + 0x2E, st.specialDefense or 0, 2)
-    putText(t, L.wPartyMonNicknames + (i - 1) * Gen2Save.NAME_LENGTH,
-            mon.nickname or "", Gen2Save.NAME_LENGTH)
-    putText(t, L.wPartyMonOTs + (i - 1) * Gen2Save.NAME_LENGTH,
-            mon.ot or "", Gen2Save.NAME_LENGTH)
+    if mon.cartRaw and type(mon.species) == "number" and (mon.cartRawFp == nil or mon.cartRawFp == monFp(mon)) then
+      local raw = fromHex(mon.cartRaw)
+      if raw[1] == species and #raw >= Gen2Save.PARTY_STRUCT then
+        for k = 1, Gen2Save.PARTY_STRUCT do t[o + k - 1] = raw[k] end
+      end
+    end
+    putNameC(t, L.wPartyMonNicknames + (i - 1) * Gen2Save.NAME_LENGTH,
+             nicknameOf(mon, x), Gen2Save.NAME_LENGTH, false, mon.cartNick)
+    putNameC(t, L.wPartyMonOTs + (i - 1) * Gen2Save.NAME_LENGTH,
+             mon.ot or "", Gen2Save.NAME_LENGTH, false, mon.cartOt)
   end
   putU8(t, L.wPartySpecies + #party, 0xFF)
 
-  for index, base in ipairs(L.boxes) do
+  local liveByte = t[L.wCurBox] or 0
+  local liveIdx = liveByte < Gen2Save.NUM_BOXES and liveByte + 1 or 1
+  local liveBefore = {}
+  for k = 0, Gen2Save.BOX_BYTES - 1 do liveBefore[k] = t[L.boxes[liveIdx] + k] end
+
+  for index, boxBase in ipairs(L.boxes) do
     local box = (save.boxes or {})[index] or {}
+    if type(box) ~= "table" then refuse(("box %d is not a list of Pokemon"):format(index)) end
     if #box > Gen2Save.BOX_CAPACITY then
-      return nil, ("box %d holds %d, which a cartridge cannot"):format(index, #box)
+      refuse(("box %d holds %d, which a cartridge cannot"):format(index, #box))
     end
-    putBoxStruct(t, base, box, x)
+    putBoxStruct(t, boxBase, box, x, crystal)
   end
 
-  -- Write active box in Bank 1
-  local curBoxIdx = math.max(1, math.min(save.currentBox or 1, 14))
-  local activeBox = (save.boxes or {})[curBoxIdx] or {}
-  if L.sBox then
-    putBoxStruct(t, L.sBox, activeBox, x)
+  -- pokegold engine/menus/save.asm:825
+  local curByte = t[L.wCurBox] or 0
+  local curBoxIdx = curByte < Gen2Save.NUM_BOXES and curByte + 1 or 1
+  if tonumber(save.currentBox) then
+    curBoxIdx = math.max(1, math.min(math.floor(save.currentBox), Gen2Save.NUM_BOXES))
+    if not (curBoxIdx == 1 and curByte >= Gen2Save.NUM_BOXES) then
+      putU8(t, L.wCurBox, curBoxIdx - 1)
+    end
   end
-
-  -- Bank 0 Party Mail
-  local MAIL_STRUCT_LEN = 47
-  for i = 1, Gen2Save.PARTY_LENGTH do
-    local mon = party[i]
-    local slotBase = (L.sPartyMail or 0) + (i - 1) * MAIL_STRUCT_LEN
-    if mon and (mon.item and (mon.item:find("_MAIL$") or mon.item == "LITEBLUEMAIL" or mon.item == "PORTRAITMAIL")) then
-      local entry = (save.mail and save.mail.party and save.mail.party[i]) or {}
-      local msg = entry.message or ""
-      local author = entry.author or mon.ot or p.name or ""
-      local authorId = entry.authorId or mon.otId or p.id or 0
-      local speciesId = indexOf(x.pokemonIndex, mon.species)
-      local itemId = indexOf(x.itemIndex, mon.item)
-      putText(t, slotBase, msg, 32)
-      putText(t, slotBase + 32, author, 11)
-      putBE(t, slotBase + 43, authorId, 2)
-      putU8(t, slotBase + 45, speciesId)
-      putU8(t, slotBase + 46, itemId)
-    else
-      for k = 0, MAIL_STRUCT_LEN - 1 do
-        t[slotBase + k] = 0
-      end
+  local unchanged = curBoxIdx == liveIdx
+  for k = 0, Gen2Save.BOX_BYTES - 1 do
+    if not unchanged then break end
+    unchanged = t[L.boxes[curBoxIdx] + k] == liveBefore[k]
+  end
+  local liveCount = t[L.sBox] or 0
+  local liveValid = liveCount <= Gen2Save.BOX_CAPACITY and t[L.sBox + BOX_SPECIES + liveCount] == 0xFF
+  if fresh or not unchanged or not liveValid then
+    for k = 0, Gen2Save.BOX_BYTES - 1 do
+      t[L.sBox + k] = t[L.boxes[curBoxIdx] + k]
     end
   end
 
-  -- Refuse rather than drop. Without item defs every item buckets into ITEM,
-  -- which holds 20, and a real bag is bigger than that.
-  local overflow = putBag(t, L, save.inventory, x)
+  putAllMail(t, L, save, x, crystal)
+
+  local overflow = putBag(t, L, save, x)
   if overflow then
-    return nil, ("the %s pocket would need %d slots and a cartridge has %d; "
+    refuse(("the %s pocket would need %d slots and a cartridge has %d; "
       .. "the item table for this game is needed to sort the bag")
-      :format(overflow[1], overflow[2], overflow[3])
+      :format(overflow[1], overflow[2], overflow[3]))
   end
-  if save.currentBox then putU8(t, L.wCurBox, (save.currentBox - 1) % 16) end
   -- engine/menus/intro_menu.asm:148 SetDefaultBoxNames
   if L.wBoxNames then
     local names = save.boxNames or {}
-    for i = 1, 14 do
+    for i = 1, Gen2Save.NUM_BOXES do
       local name = names[i]
       if type(name) ~= "string" or name == "" then name = "BOX" .. i end
-      putText(t, L.wBoxNames + (i - 1) * 9, name, 9)
+      putNameC(t, L.wBoxNames + (i - 1) * Gen2Save.BOX_NAME_LENGTH, name,
+               Gen2Save.BOX_NAME_LENGTH, true, (cn.boxes or {})[i])
     end
   end
 
@@ -979,9 +2072,12 @@ function Gen2Save.encode(save, gameVersion, template, data)
     putFlagSet(t, L.wPokedexCaught, save.pokedex.caught, Gen2Save.NUM_SPECIES, species)
     putFlagSet(t, L.wPokedexSeen, save.pokedex.seen, Gen2Save.NUM_SPECIES, species)
   end
-  for i = 0, Gen2Save.EVENT_BYTES - 1 do
-    local byte = (save.events or {})[i]
-    if type(byte) == "number" then putU8(t, L.wEventFlags + i, byte) end
+  putUnown(t, L, save)
+  if type(save.events) == "table" then
+    for i = 0, Gen2Save.EVENT_BYTES - 1 do
+      local byte = save.events[i] or save.events[tostring(i)]
+      putU8(t, L.wEventFlags + i, type(byte) == "number" and byte or 0)
+    end
   end
   if L.sceneVars and type(save.mapScenes) == "table" then
     for mapId, at in pairs(L.sceneVars) do
@@ -990,7 +2086,12 @@ function Gen2Save.encode(save, gameVersion, template, data)
     end
   end
   if type(save.engineFlags) == "table" then
-    putEngineFlags(t, L, save.engineFlags, gameVersion)
+    local flags = save.engineFlags
+    local bikeId = engineId(19, gameVersion)
+    if flags[bikeId] == nil and save.bikeShopCall == true then
+      flags = setmetatable({ [bikeId] = true }, { __index = save.engineFlags })
+    end
+    putEngineFlags(t, L, flags, gameVersion)
   end
   -- engine/overworld/scripting.asm:869 Script_variablesprite
   if L.wVariableSprites and type(save.variableSprites) == "table" then
@@ -999,6 +2100,11 @@ function Gen2Save.encode(save, gameVersion, template, data)
       if type(b) == "number" then putU8(t, L.wVariableSprites + i, b) end
     end
   end
+  local state = PLAYER_STATE_BYTES[save.playerState]
+  if state and (PLAYER_STATES[t[L.wPlayerState] or 0] or "normal") ~= save.playerState then
+    putU8(t, L.wPlayerState, state)
+  end
+  if type(save.options) == "table" then putOptions(t, L, save.options) end
 
   local pos = save.position
   if pos then
@@ -1007,6 +2113,12 @@ function Gen2Save.encode(save, gameVersion, template, data)
     putU8(t, L.wMapNumber, (ids and ids[2]) or pos.mapNumber or 0)
     putU8(t, L.wXCoord, pos.x or 0)
     putU8(t, L.wYCoord, pos.y or 0)
+    local dirAt = Gen2State.symsFor(gameVersion).wPlayerDirection
+    local face = FACING_BITS[pos.facing]
+    if face and math.floor((t[dirAt] or 0) / 4) % 4 ~= face then
+      local byte = t[dirAt] or 0
+      t[dirAt] = byte - byte % 16 + byte % 4 + face * 4
+    end
   end
 
   -- The save may now stand on a different map than the cartridge image it
@@ -1015,22 +2127,89 @@ function Gen2Save.encode(save, gameVersion, template, data)
   -- blocks from the ROM but keeps the saved object window
   -- (MapSetupScript_Continue runs LoadMapAttributes_SkipObjects), so a
   -- moved save needs that window rebuilt for where it stands, or the new
-  -- map continues with the old map's people in it. Same-map exports leave
-  -- the template's window untouched, byte for byte.
-  local templateGroup = template:byte(L.wMapGroup + 1)
-  local templateNumber = template:byte(L.wMapNumber + 1)
-  if fresh or t[L.wMapGroup] ~= templateGroup
-      or t[L.wMapNumber] ~= templateNumber then
-    local Gen2MapContext = require("src.save_convert.Gen2MapContext")
-    local ctx, why = Gen2MapContext.build(data, gameVersion,
-      t[L.wMapGroup], t[L.wMapNumber], t[L.wXCoord], t[L.wYCoord])
-    if not ctx then
-      return nil, ("this save cannot be exported onto map %d/%d: %s")
-        :format(t[L.wMapGroup], t[L.wMapNumber], tostring(why))
+  local Gen2MapContext = require("src.save_convert.Gen2MapContext")
+  local ctx, why
+  if fresh or t[L.wMapGroup] ~= templateGroup or t[L.wMapNumber] ~= templateNumber then
+    ctx, why = Gen2MapContext.build(data, gameVersion,
+      t[L.wMapGroup], t[L.wMapNumber], t[L.wXCoord], t[L.wYCoord], save)
+  elseif t[L.wXCoord] ~= templateX or t[L.wYCoord] ~= templateY then
+    ctx, why = Gen2MapContext.reposition(data, gameVersion,
+      t[L.wMapGroup], t[L.wMapNumber], t[L.wXCoord], t[L.wYCoord], save)
+    if ctx then
+      local objects
+      objects, why = Gen2MapContext.repositionObjects(data, gameVersion,
+        t[L.wMapGroup], t[L.wMapNumber], t[L.wXCoord], t[L.wYCoord], save, t)
+      if objects then for at, values in pairs(objects) do ctx.writes[at] = values end else ctx = nil end
     end
-    for offset, values in pairs(ctx.writes) do
-      for i, value in ipairs(values) do t[offset + i - 1] = value % 256 end
+  else
+    ctx = { writes = {} }
+    if Gen2MapContext.hasTiles(data, t[L.wMapGroup], t[L.wMapNumber]) then
+      local prior, err = Gen2Save.decode(base, gameVersion, data)
+      if not prior then refuse(err) end
+      local changed
+      changed, why = Gen2MapContext.tilesChanged(data, t[L.wMapGroup], t[L.wMapNumber], prior, save)
+      if changed == nil then
+        ctx = nil
+      elseif changed then
+        ctx, why = Gen2MapContext.reposition(data, gameVersion,
+          t[L.wMapGroup], t[L.wMapNumber], t[L.wXCoord], t[L.wYCoord], save)
+      end
     end
+  end
+  if not ctx then
+    refuse(("this save cannot be exported onto map %d/%d: %s")
+      :format(t[L.wMapGroup], t[L.wMapNumber], tostring(why)))
+  end
+  for offset, values in pairs(ctx.writes) do
+    for i, value in ipairs(values) do t[offset + i - 1] = value % 256 end
+  end
+  local mapId = x.maps[t[L.wMapGroup] * 256 + t[L.wMapNumber]]
+  local mapDef = data and data.maps and data.maps[mapId]
+  local maskState = save.mapObjectMasks
+  if mapDef and type(maskState) == "table" and maskState.map == mapId then
+    local masks, err = Gen2MapContext.objectMaskBytes(mapId, mapDef, gameVersion, save)
+    if not masks then refuse(err) end
+    local O = Gen2MapContext.offsetsFor(gameVersion)
+    for i in ipairs(mapDef.objects or {}) do
+      local slot = O.firstObjectSlot + i - 1
+      local at, value = O.objectMasks + slot, masks[slot + 1]
+      local old = t[at] or 0
+      if old ~= value then
+        t[at] = value
+        if value ~= 0 then
+          local struct = t[O.mapObjects + slot * Gen2MapContext.MAPOBJECT_LENGTH]
+          if struct and struct > 0 and struct < Gen2MapContext.NUM_OBJECT_STRUCTS then
+            for j = 0, Gen2MapContext.OBJECT_LENGTH - 1 do
+              t[O.objectStructs + struct * Gen2MapContext.OBJECT_LENGTH + j] = 0
+            end
+            t[O.mapObjects + slot * Gen2MapContext.MAPOBJECT_LENGTH] = 0xFF
+          end
+        elseif old ~= 0 then
+          local mapAt = O.mapObjects + slot * Gen2MapContext.MAPOBJECT_LENGTH
+          if t[mapAt] == 0xFF then
+            local objects = require("src.save_convert.Gen2ObjectContext")
+            local rows, spriteError = objects.rows(data, gameVersion, objects.carried(mapDef, t, O),
+              save, t[L.wXCoord], t[L.wYCoord], masks, O.firstObjectSlot)
+            if not rows then refuse(spriteError) end
+            if rows[i] then
+              local free
+              for n = 1, Gen2MapContext.NUM_OBJECT_STRUCTS - 1 do
+                if (t[O.objectStructs + n * Gen2MapContext.OBJECT_LENGTH] or 0) == 0 then free = n break end
+              end
+              if not free then refuse("the current map has too many visible cartridge objects") end
+              t[mapAt] = free
+              for j, byte in ipairs(rows[i]) do t[O.objectStructs + free * Gen2MapContext.OBJECT_LENGTH + j - 1] = byte end
+            end
+          end
+        end
+      end
+    end
+  end
+  if changedBedroomObjects then
+    local objects, err = Gen2MapContext.repositionObjects(data, gameVersion,
+      t[L.wMapGroup], t[L.wMapNumber], t[L.wXCoord], t[L.wYCoord], save, t)
+    if not objects then refuse(err) end
+    for at, values in pairs(objects) do for i, byte in ipairs(values) do t[at + i - 1] = byte end end
   end
   local pt = save.playTime
   if pt then
@@ -1040,42 +2219,41 @@ function Gen2Save.encode(save, gameVersion, template, data)
     if L.wGameTimeFrames then putU8(t, L.wGameTimeFrames, pt.frames or 0) end
   end
 
-  putU8(t, L.sCheckValue1, 0x63)
-  putU8(t, L.sCheckValue2, 0x7F)
-  local sum = 0
-  for i = L.sGameData, L.sGameDataEnd - 1 do sum = (sum + t[i]) % 65536 end
-  putU8(t, L.sChecksum, sum % 256)
-  putU8(t, L.sChecksum + 1, math.floor(sum / 256) % 256)
+  local State = require("src.save_convert.Gen2State")
+  State.encode({ t = t, L = L, S = State.symsFor(gameVersion), x = x, version = gameVersion,
+                 crystal = crystal, fresh = fresh, util = Gen2Save.util }, save)
 
-  -- Crystal Backup mirroring & checksum in Bank 0
-  if L.backup and L.backup.sGameData and L.backup.sGameDataEnd then
-    local delta = L.backup.sGameData - L.sGameData
-    for i = L.sGameData, L.sGameDataEnd - 1 do
-      t[i + delta] = t[i]
-    end
-    if L.backup.sOptions and L.sOptions then
-      for i = 1, #DEFAULT_OPTIONS do
-        t[L.backup.sOptions + i - 1] = t[L.sOptions + i - 1]
-      end
-    end
-    if L.backup.sCheckValue1 then putU8(t, L.backup.sCheckValue1, 0x63) end
-    if L.backup.sCheckValue2 then putU8(t, L.backup.sCheckValue2, 0x7F) end
-    local bsum = 0
-    for i = L.backup.sGameData, L.backup.sGameDataEnd - 1 do
-      bsum = (bsum + t[i]) % 65536
-    end
-    if L.backup.sChecksum then
-      putU8(t, L.backup.sChecksum, bsum % 256)
-      putU8(t, L.backup.sChecksum + 1, math.floor(bsum / 256) % 256)
-    end
+  local capAt = State.symsFor(gameVersion).wGameTimeCap
+  if pt and pt.capped and (t[capAt] or 0) % 2 == 0 then t[capAt] = (t[capAt] or 0) + 1 end
+
+  seal(t, L)
+  if sum16(t, L.sGameData, L.sGameDataEnd) % 256 == 0 and (fresh or pack(t, Gen2Save.SAVE_SIZE) ~= base) then
+    local pad = L.wGreensName + Gen2Save.NAME_LENGTH - 1
+    t[pad] = ((t[pad] or 0) + 1) % 256
+    seal(t, L)
   end
 
-  local out = {}
-  for i = 0, Gen2Save.SAVE_SIZE - 1 do out[i + 1] = string.char(t[i]) end
   -- Whatever followed the 32 KiB of SRAM is the cart's RTC footer. Dropping it
   -- resets the clock, which costs the player daily events and the bug contest
   -- and earns them the clock-adjustment penalty.
-  return table.concat(out) .. template:sub(Gen2Save.SAVE_SIZE + 1)
+  return pack(t, Gen2Save.SAVE_SIZE) .. tail
+end
+
+Gen2Save.util = {
+  u8 = u8, be = be, bit = bit, setBit = setBit, putU8 = putU8, putBE = putBE,
+  text = text, encodeText = encodeText, putName = putName, hex = hex, fromHex = fromHex,
+  named = named, indexOf = indexOf, refuse = refuse, sum16 = sum16,
+  decodeBoxMon = function(t, o, x, crystal)
+    local mon = decodeSharedMon(t, o, x, crystal, Gen2Save.BOX_MON_STRUCT)
+    return mon
+  end,
+  putBoxMon = function(t, o, mon, x, crystal)
+    return putSharedMon(t, o, mon, x, crystal, Gen2Save.BOX_MON_STRUCT)
+  end,
+}
+
+function Gen2Save.encode(save, gameVersion, template, data)
+  return guarded(encodeImpl, save, gameVersion, template, data)
 end
 
 return Gen2Save

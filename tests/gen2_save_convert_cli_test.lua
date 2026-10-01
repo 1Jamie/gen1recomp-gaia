@@ -60,12 +60,12 @@ write(goldPath, SaveSerializer.encode({
               dvs = { atk = 15, def = 15, spd = 15, spc = 15 } } },
 }))
 
-local out = run(("luajit tools/save_convert/convert.lua export %q %q")
+local out = run(("GOLD_CACHE= luajit tools/save_convert/convert.lua export %q %q")
   :format(goldPath, outPath))
 -- Gen 2 no longer needs the cartridge image the save came from (#2283): one
 -- is synthesized. What it does need is the map the save stands on, which this
-check(out:find("does not name one", 1, true) ~= nil,
-  "exporting a Gold slot that names no map is refused, and says why: "
+check(out:find("data cache is missing", 1, true) ~= nil,
+  "exporting a Gold slot without a Gen 2 cache is refused, and says why: "
     .. (out:gsub("%s+$", "")))
 check(out:find("no cartridge image to write", 1, true) == nil,
   "and not with the old lineage refusal: " .. (out:gsub("%s+$", "")))

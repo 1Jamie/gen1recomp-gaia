@@ -71,7 +71,8 @@ mobile/dist/
 /build/tiled/
 
 # Local visual scratch from minigame development (not wired to CI).
-/tests/fixtures/
+/tests/fixtures/*
+!/tests/fixtures/save/
 
 # per-machine iOS bundle-id pin (see scripts/build_ios.sh)
 mobile/ios/bundle_id.local

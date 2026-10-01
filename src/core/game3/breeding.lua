@@ -557,6 +557,24 @@ function Breeding.hatchMon(session, mon)
   -- pokefirered/src/daycare.c:1654 SetMonData(mon, MON_DATA_NICKNAME, name)
   mon.nickname = ""
   mon.name = (Pokemon.name and Pokemon.name(species)) or mon.name
+  -- pokefirered/src/daycare.c:1626
+  mon.language = 2
+  -- pokefirered/src/pokemon.c:1796
+  local trainerId = session and tonumber(session.trainerId or session.id or session.playerId)
+  if trainerId then
+    mon.otId = trainerId % 65536
+    mon.otSecretId = (tonumber(session.secretId) or math.floor(trainerId / 65536)) % 65536
+    mon.otName = session.name or session.playerName or mon.otName or mon.ot
+    mon.ot = mon.otName
+    mon.otGender = require("src.core.game3.party").otGender(session)
+    mon.isShiny = nil
+  end
+  if type(mon.cartExtra) == "table" then
+    mon.cartExtra.nicknameBytes = nil
+    mon.cartExtra.nicknameLanguage = nil
+    mon.cartExtra.nicknameRaw = nil
+    if trainerId then mon.cartExtra.otNameRaw = nil end
+  end
   -- pokefirered/src/daycare.c:1631 friendship = 120
   mon.friendship = 120
   mon.happiness = 120

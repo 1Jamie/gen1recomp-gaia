@@ -92,8 +92,8 @@ end
 local SaveConvert = require("src.save_convert.SaveConvert")
 local SaveData = require("src.core.SaveData")
 local stampMapWindow = loadfile("tests/fixture_data/map_window.lua")()
-local yellowData = assert(SaveConvert.loadData("yellow"))
-local redData = assert(SaveConvert.loadData("red"))
+local yellowData = require("tests.save_compat._codec").gen1Data("yellow")
+local redData = require("tests.save_compat._codec").gen1Data("red")
 stampMapWindow(yellowData, "REDS_HOUSE_2F")
 stampMapWindow(redData, "REDS_HOUSE_2F")
 

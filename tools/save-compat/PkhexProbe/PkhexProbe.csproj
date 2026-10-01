@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>14</LangVersion>
+    <RootNamespace>PkhexProbe</RootNamespace>
+    <PkhexCoreProject Condition="'$(PkhexCoreProject)' == ''">../pkhex-src/PKHeX.Core/PKHeX.Core.csproj</PkhexCoreProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(PkhexCoreProject)" />
+  </ItemGroup>
+</Project>

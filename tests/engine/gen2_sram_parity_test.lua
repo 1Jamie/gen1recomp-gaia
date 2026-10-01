@@ -106,16 +106,17 @@ do
   check(bytes ~= nil, "crystal: encode succeeds")
 
   -- Verify Backup Check Values in Bank 0
-  eq(u8(bytes, L.backup.sCheckValue1), 0x63, "sBackupCheckValue1 at 0x1208 is 0x63")
-  eq(u8(bytes, L.backup.sCheckValue2), 0x7F, "sBackupCheckValue2 at 0x1F0F is 0x7F")
+  eq(u8(bytes, L.backupSave.checkValue1), 0x63, "sBackupCheckValue1 at 0x1208 is 0x63")
+  eq(u8(bytes, L.backupSave.checkValue2), 0x7F, "sBackupCheckValue2 at 0x1F0F is 0x7F")
 
-  -- Verify backup checksum passes Gen2Save.checksumValid on backup layout
-  eq(Gen2Save.checksumValid(bytes, L.backup), true, "backup save checksum validates cleanly in Bank 0")
+  eq(Gen2Save.backupValid(bytes, L), true, "backup save checksum validates cleanly in Bank 0")
+  eq(be(bytes, L.backupSave.checksum, 1) + be(bytes, L.backupSave.checksum + 1, 1) * 256,
+     be(bytes, L.sChecksum, 1) + be(bytes, L.sChecksum + 1, 1) * 256, "backup checksum equals the primary's")
 
   -- Verify player name in backup
   local backName = {}
   for i = 0, 10 do
-    local c = u8(bytes, L.backup.wPlayerName + i)
+    local c = u8(bytes, L.wPlayerName - L.sGameData + L.backupSave.segments[1][2] + i)
     if c == 0x50 then break end
     backName[#backName + 1] = Gen2Layout.charmap[c]
   end
@@ -148,13 +149,14 @@ do
     eq(u8(bytes, L.wPlayerName + i), 0x50, "Player name padded with 0x50 at byte " .. i)
   end
 
-  -- Verify 9-byte box name: 'M', 'A', 'I', 'N', followed by five 0x50 bytes
+  -- engine/menus/intro_menu.asm:148, home/copy_name.asm:5
   eq(u8(bytes, L.wBoxNames + 0), 0x8C, "B1 'M'")
   eq(u8(bytes, L.wBoxNames + 1), 0x80, "B2 'A'")
   eq(u8(bytes, L.wBoxNames + 2), 0x88, "B3 'I'")
   eq(u8(bytes, L.wBoxNames + 3), 0x8D, "B4 'N'")
-  for i = 4, 8 do
-    eq(u8(bytes, L.wBoxNames + i), 0x50, "Box name padded with 0x50 at byte " .. i)
+  eq(u8(bytes, L.wBoxNames + 4), 0x50, "Box name terminated with 0x50")
+  for i = 5, 8 do
+    eq(u8(bytes, L.wBoxNames + i), 0x00, "Box name keeps the zero tail after its terminator at byte " .. i)
   end
 
   -- Verify party mon nickname padding
@@ -234,13 +236,21 @@ do
   }
 
   local bytes = Gen2Save.encode(save, "crystal", nil, fixture())
-  -- Slot 1 Mail in Bank 0 (0x0000)
-  eq(be(bytes, 0x0000 + 43, 2), 7777, "Slot 1 mail authorId matches")
-  eq(u8(bytes, 0x0000 + 45), 25, "Slot 1 mail species matches PIKACHU (25)")
-  eq(u8(bytes, 0x0000 + 46), 158, "Slot 1 mail type matches FLOWER_MAIL (158)")
-
-  -- Slot 2 (no mail) is zeroed in Bank 0 (0x002F)
-  eq(u8(bytes, 47), 0, "Slot 2 (no mail) is 0x00")
+  local L = Gen2Save.layoutFor("crystal")
+  -- ram/sram.asm:8 sPartyMail, :14 sPartyMailBackup
+  for _, base in ipairs({ L.sPartyMail, L.sPartyMailBackup }) do
+    eq(be(bytes, base + 43, 2), 7777, ("0x%04X: slot 1 mail authorId matches"):format(base))
+    eq(u8(bytes, base + 45), 25, ("0x%04X: slot 1 mail species matches PIKACHU (25)"):format(base))
+    eq(u8(bytes, base + 46), 158, ("0x%04X: slot 1 mail type matches FLOWER_MAIL (158)"):format(base))
+    eq(u8(bytes, base + 47), 0, ("0x%04X: slot 2 (no mail) is 0x00"):format(base))
+  end
+  for i = 0, 0x5FF do
+    if u8(bytes, i) ~= 0 then check(false, ("sScratch byte 0x%04X is untouched"):format(i)) break end
+  end
+  local back = assert(Gen2Save.decode(bytes, "crystal", fixture()))
+  eq(back.mail.party[1].message, "HELLO WORLD", "the letter imports back")
+  eq(back.mail.party[1].author, "MAILER", "with its author")
+  eq(back.mail.party[2], nil, "and a mon holding a POTION has no letter")
 end
 
 print("[test] 7. Full Save Roundtrip & Parity Verification")

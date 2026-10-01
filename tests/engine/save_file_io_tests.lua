@@ -75,6 +75,7 @@ if not cacheHasMapWindow then
 end
 local stampMapWindow = loadfile("tests/fixture_data/map_window.lua")()
 for mapId in pairs(data.maps) do stampMapWindow(data, mapId) end
+SaveConvert.setGen1DataStub(assert(SaveConvert.gen1DataFromDir(".")), "red")
 
 -- independent checksum re-derivation (complement of the additive byte sum) so
 -- the export sanity check does not trust the encoder that wrote it

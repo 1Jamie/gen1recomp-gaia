@@ -108,8 +108,15 @@ for _, name in ipairs({ "em_battle", "em_fresh", "em_doctored" }) do
       check(out ~= nil, name .. " exports through SaveConvert (" .. tostring(xerr) .. ")")
       if out then
         local a, b = E.readBlocks(bytes), E.readBlocks(out)
-        for _, blk in ipairs(E.L.BLOCKS) do
-          check(a[blk.key] == b[blk.key], name .. " " .. blk.key .. " byte-identical through the native schema")
+        if o.key == 0 then
+          local ca, cb = E.decode(bytes), E.decode(out)
+          check(cb.encryptionKey ~= 0 and cb.encryptionKey ~= 1, name .. " key 0 is re-keyed through the native schema")
+          eq(cb.money, ca.money, name .. " money survives the re-key")
+          check(a.storage == b.storage, name .. " storage byte-identical through the native schema")
+        else
+          for _, blk in ipairs(E.L.BLOCKS) do
+            check(a[blk.key] == b[blk.key], name .. " " .. blk.key .. " byte-identical through the native schema")
+          end
         end
         for sec = 28, 31 do
           local off = sec * 0x1000
@@ -139,11 +146,23 @@ do
     eq(c.money, 3000, "fresh export money")
     eq(E.mapFor(c.location.group, c.location.num), "EM_INSIDE_OF_TRUCK", "fresh export starts in the truck")
     eq(#c.pcItems, 1, "fresh export PC potion")
-    eq(c.encryptionKey, 0, "fresh export key 0 like NewGameInitData")
+    eq(save.encryptionKey, 0, "the native new game keeps key 0 like NewGameInitData")
+    check(c.encryptionKey ~= 0 and c.encryptionKey ~= 1, "fresh export gets a derived key readers type as Emerald")
+    eq(c.encryptionKey, E.deriveKey(4321, sess.secretId, save.meta and save.meta.playthroughId, 0),
+      "the fresh key is derived from TID, SID and playthrough")
     eq(c.easyChatBattle.start[1], 8 * 512 + 15, "fresh export battle-start words (EC_WORD_ARE)")
     eq(c.easyChatBattle.lost[5], 3 * 512 + 48, "fresh export battle-lost words (EC_WORD_LOST)")
     local again = assert(SaveConvert.importSav(out, "emerald", "emerald"))
     eq(again.name, "BRENDAN", "fresh export re-imports")
+    eq(again.encryptionKey, c.encryptionKey, "the re-import keeps the derived key")
+    local sess2 = Schema.fromSaveTable(again)
+    eq(sess2.encryptionKey, c.encryptionKey, "the engine accepts a nonzero key at import")
+    local same_flags = true
+    for k, v in pairs(save.flags or {}) do if v and not sess2.flags[k] then same_flags = false end end
+    check(same_flags, "the re-key leaves story flags alone")
+    local back = Schema.toSaveTable(sess2)
+    back.modData.cartImage = nil
+    eq(SaveConvert.exportSav(back, "emerald", nil), out, "export(import(export)) is a fixed point")
   end
 end
 
@@ -151,7 +170,7 @@ do
   local _, msg = SaveConvert.importSav(unrle(FR.images.fr_rich_game), "emerald", "emerald")
   eq(msg, E.MSG.frlg, "a FireRed cart dropped on Emerald says so")
   local _, frMsg = SaveConvert.importSav(unrle(F.images.em_fresh), "firered", "firered")
-  eq(frMsg, Gen3Save.MSG.notFrlg, "an Emerald cart dropped on FireRed says so")
+  eq(frMsg, Gen3Save.MSG.emerald, "an Emerald cart dropped on FireRed says so")
   local _, gen1 = SaveConvert.mainChecksumValid(unrle(F.images.em_fresh), "red")
   eq(gen1, "That is an Emerald (Game Boy Advance) save, not a save for this game.", "an Emerald cart dropped on Red")
 end

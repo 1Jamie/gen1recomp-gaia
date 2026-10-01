@@ -1,5 +1,6 @@
 local bit = require("bit")
 local band, bor, bxor, lshift, rshift = bit.band, bit.bor, bit.bxor, bit.lshift, bit.rshift
+local ImagePack = require("src.save_convert.gen3_port.imagepack")
 
 local function build(L)
   local Gen3Save = {}
@@ -7,9 +8,12 @@ local function build(L)
   Gen3Save.MSG = {
     size = "A FireRed/LeafGreen save must be 128 KB (or 64 KB); this one is %d bytes.",
     notFrlg = "That is a Ruby/Sapphire/Emerald save, not FireRed/LeafGreen.",
+    rs = "That is a Ruby/Sapphire save, not FireRed/LeafGreen.",
+    emerald = "That is an Emerald save, not FireRed/LeafGreen.",
     japanese = "Japanese FireRed/LeafGreen saves can't be imported.",
     empty = "That save file is empty (no game was ever saved).",
     corrupt = "Both copies of the save in that file are damaged.",
+    damagedTemplate = "Cannot export because the preserved cartridge image is damaged. Reimport the original cartridge save to restore it.",
     olderSlot = "The newest copy of that save was damaged, so the previous save was imported.",
   }
   if L.FAMILY == "emerald" then
@@ -43,7 +47,11 @@ local function build(L)
   local function charmap()
     if not CHARMAP then
       local TextIR = require("src.core.game3.scripting.text_ir")
-      CHARMAP, EXTRA = TextIR.CHARMAP, TextIR.EXTRA_SYMBOL or {}
+      CHARMAP, EXTRA = {}, TextIR.EXTRA_SYMBOL or {}
+      for code, ch in pairs(TextIR.CHARMAP) do CHARMAP[code] = ch end
+      for code, ch in pairs(L.CHARMAP_LATIN or {}) do
+        if CHARMAP[code] == nil then CHARMAP[code] = ch end
+      end
     end
     return CHARMAP
   end
@@ -162,8 +170,12 @@ local function build(L)
 
   function Gen3Save.normalizeSize(bytes)
     local n = #bytes
-    if n >= L.FLASH_SIZE and n <= L.FLASH_SIZE + L.MAX_TRAILER then return bytes:sub(1, L.FLASH_SIZE), 2 end
-    if n >= L.HALF_FLASH_SIZE and n <= L.HALF_FLASH_SIZE + L.MAX_TRAILER then return bytes:sub(1, L.HALF_FLASH_SIZE), 1 end
+    if n >= L.FLASH_SIZE and n <= L.FLASH_SIZE + L.MAX_TRAILER then
+      return bytes:sub(1, L.FLASH_SIZE), 2, bytes:sub(L.FLASH_SIZE + 1)
+    end
+    if n >= L.HALF_FLASH_SIZE and n <= L.HALF_FLASH_SIZE + L.MAX_TRAILER then
+      return bytes:sub(1, L.HALF_FLASH_SIZE), 1, ""
+    end
     return nil
   end
 
@@ -220,11 +232,11 @@ local function build(L)
 
   function Gen3Save.readBlocks(bytes)
     if type(bytes) ~= "string" then return nil, "size" end
-    local s, slots = Gen3Save.normalizeSize(bytes)
+    local s, slots, trailer = Gen3Save.normalizeSize(bytes)
     if not s then return nil, "size" end
     local slot, extra = Gen3Save.pickSlot(s, slots)
     if not slot then return nil, extra end
-    local out = { counter = slot.counter, slot = slot.slot, olderSlot = extra == true, image = s }
+    local out = { counter = slot.counter, slot = slot.slot, olderSlot = extra == true, image = s, trailer = trailer }
     for _, blk in ipairs(L.BLOCKS) do
       local parts = {}
       for id = blk.first, blk.last do
@@ -314,6 +326,7 @@ local function build(L)
     -- src/pokemon.c:2994
     if not mon.checksumOk then
       mon.isBadEgg, mon.isEggFlag, mon.isEgg = true, true, true
+      mon.raw = raw
     end
     return mon
   end
@@ -321,6 +334,7 @@ local function build(L)
   function Gen3Save.decodePartyMon(raw)
     local mon = Gen3Save.decodeBoxMon(raw:sub(1, L.BOX_MON_SIZE))
     if not mon then return nil end
+    if mon.raw then mon.raw = raw end
     for _, f in ipairs(L.PARTY_EXTRA) do mon[f[1]] = readValue(raw, f[2], f[3]) end
     return mon
   end
@@ -383,6 +397,7 @@ local function build(L)
 
   -- src/pokemon.c:2797
   function Gen3Save.encodeBoxMon(mon)
+    if type(mon.raw) == "string" and #mon.raw >= L.BOX_MON_SIZE then return mon.raw:sub(1, L.BOX_MON_SIZE) end
     local B = L.BOX_MON
     local sec = newBuf(L.BOX_MON.secureWords * 4)
     local pos = L.SUBSTRUCT_ORDER[mon.personality % 24]
@@ -418,7 +433,7 @@ local function build(L)
     elseif mon.nicknameRaw and Gen3Save.decodeString(mon.nicknameRaw, 0, B.nicknameLength) == mon.nickname then
       out:bytes(B.nickname, mon.nicknameRaw)
     else
-      out:bytes(B.nickname, Gen3Save.encodeString(mon.nickname, B.nicknameLength))
+      out:bytes(B.nickname, Gen3Save.encodeString(mon.nickname, B.nicknameLength, 0xFF))
     end
     out:w8(B.language, mon.language or 2)
     local F = L.BOX_MON_FLAGS
@@ -429,7 +444,7 @@ local function build(L)
     if mon.otNameRaw and Gen3Save.decodeString(mon.otNameRaw, 0, B.otNameLength) == mon.otName then
       out:bytes(B.otName, mon.otNameRaw)
     else
-      out:bytes(B.otName, Gen3Save.encodeString(mon.otName, B.otNameLength))
+      out:bytes(B.otName, Gen3Save.encodeString(mon.otName, B.otNameLength, 0xFF))
     end
     out:w8(B.markings, mon.markings or 0)
     out:w16(B.checksum, secureChecksum(plain))
@@ -440,6 +455,7 @@ local function build(L)
   end
 
   function Gen3Save.encodePartyMon(mon)
+    if type(mon.raw) == "string" and #mon.raw >= L.PARTY_MON_SIZE then return mon.raw:sub(1, L.PARTY_MON_SIZE) end
     local b = newBuf(L.PARTY_MON_SIZE)
     b:bytes(0, Gen3Save.encodeBoxMon(mon))
     for _, f in ipairs(L.PARTY_EXTRA) do writeValue(b, f[2], f[3], nil, mon[f[1]] or (f[1] == "mail" and 0xFF or 0)) end
@@ -584,7 +600,7 @@ local function build(L)
         b:w32(o + H.tid, m.tid or 0)
         b:w32(o + H.personality, m.personality or 0)
         b:w16(o + H.speciesLevel, (m.species or 0) % 512 + ((m.level or 0) % 128) * 512)
-        b:bytes(o + H.nick, Gen3Save.encodeString(m.nickname, H.nickLength))
+        b:bytes(o + H.nick, Gen3Save.encodeString(m.nickname, H.nickLength, 0xFF))
       end
     end
     return b:str()
@@ -594,13 +610,15 @@ local function build(L)
     local blocks, why = Gen3Save.readBlocks(bytes)
     if not blocks then
       local fam = why == "corrupt" and Gen3Save.sniff(bytes)
-      if fam and fam ~= L.FAMILY then return nil, L.MARKER and "notFrlg" or fam end
+      if fam and fam ~= L.FAMILY then return nil, L.MARKER and (Gen3Save.MSG[fam] and fam or "notFrlg") or fam end
       return nil, why
     end
     local sb2, sb1, st = blocks.sb2, blocks.sb1, blocks.storage
     if L.MARKER then
       -- src/new_game.c:121
-      if u32(sb2, L.MARKER.off) ~= L.MARKER.value then return nil, "notFrlg" end
+      if u32(sb2, L.MARKER.off) ~= L.MARKER.value then
+        return nil, Gen3Save.sniff(bytes) == "rs" and "rs" or "notFrlg"
+      end
     else
       local fam = Gen3Save.sniff(bytes)
       if fam and fam ~= L.FAMILY then return nil, fam end
@@ -631,6 +649,7 @@ local function build(L)
       local o = OE.off + i * OE.size
       if band(u8(sb1, o + E.flags), 1) == 1 and band(u8(sb1, o + E.isPlayerByte), 1) == 1 then
         out.player = {
+          offset = o,
           facing = band(u8(sb1, o + E.facing), 15),
           graphicsId = u8(sb1, o + E.graphicsId),
           x = s16(sb1, o + E.currentX) - L.MAP_OFFSET,
@@ -667,7 +686,7 @@ local function build(L)
     if FC then
       out.fameChecker = {}
       for i = 0, FC.count - 1 do
-        local w = u16(sb1, FC.off + i * 2)
+        local w = u16(sb1, FC.off + i * FC.stride)
         out.fameChecker[i + 1] = { pickState = bits(w, 0, FC.pickBits), flavorTextFlags = bits(w, FC.flavorShift, FC.flavorBits),
           unk = bits(w, FC.unkShift, 2) }
       end
@@ -723,6 +742,9 @@ local function build(L)
     template = template or {}
     local key = t.encryptionKey or 0
     local sb2 = newBuf(L.BLOCKS[1].size, template.sb2)
+    if not template.sb2 then
+      for _, p in ipairs(L.NEW_GAME_SB2 or {}) do sb2:w8(p[1], p[2]) end
+    end
     local o = t.options or {}
     local word = 0
     for _, f in ipairs(L.OPTIONS_BITS) do word = word + ((o[f[1]] or 0) % 2 ^ f[3]) * 2 ^ f[2] end
@@ -743,6 +765,16 @@ local function build(L)
         lb:fill(LR.off + i * LR.size, LR.size, 0)
         lb:w8(LR.off + i * LR.size, 0xFF)
       end
+    end
+    if t.resetMapState then
+      local OE, MV = L.OBJECT_EVENTS, L.MAP_VIEW
+      sb1:fill(OE.off, OE.count * OE.size, 0)
+      if MV then (MV.block == "sb2" and sb2 or sb1):fill(MV.off, MV.size, 0) end
+      -- src/quest_log.c:202
+      if L.QUEST_LOG then sb1:fill(L.QUEST_LOG.off, L.QUEST_LOG.size, 0) end
+    elseif t.player and t.playerFacing then
+      local at = t.player.offset + L.OBJECT_EVENT.facing
+      sb1:w8(at, t.playerFacing % 16 + t.playerFacing % 16 * 16)
     end
     fields.partyCount = #(t.party or {})
     Gen3Save.writeFields(sb1, L.SB1, fields, key)
@@ -778,7 +810,7 @@ local function build(L)
     if FC and t.fameChecker then
       for i = 0, FC.count - 1 do
         local r = t.fameChecker[i + 1] or {}
-        sb1:w16(FC.off + i * 2, ((r.pickState or 0) % 2 ^ FC.pickBits) + ((r.flavorTextFlags or 0) % 2 ^ FC.flavorBits) * 2 ^ FC.flavorShift
+        sb1:w16(FC.off + i * FC.stride, ((r.pickState or 0) % 2 ^ FC.pickBits) + ((r.flavorTextFlags or 0) % 2 ^ FC.flavorBits) * 2 ^ FC.flavorShift
           + ((r.unk or 0) % 4) * 2 ^ FC.unkShift)
       end
     end
@@ -972,6 +1004,18 @@ local function build(L)
     return nil, 0
   end
 
+  local STAT_ALIASES = { linkBattleWins = 23, linkBattleLosses = 24, linkBattleDraws = 25 }
+  Gen3Save.STAT_ALIASES = STAT_ALIASES
+
+  local function portGameStats(stats)
+    local out = {}
+    for k, v in pairs(stats) do out[k] = v end
+    for name, id in pairs(STAT_ALIASES) do
+      if stats[id] then out[name] = stats[id] end
+    end
+    return out
+  end
+
   function Gen3Save.toPortMon(c, party)
     local moves, pp = {}, {}
     for i = 1, 4 do
@@ -1006,6 +1050,10 @@ local function build(L)
       pp = pp,
       evs = c.evs,
       ivs = c.ivs,
+      contest = c.contest,
+      ribbons = c.ribbons - (c.championRibbon and 2 ^ L.RIBBON_CHAMPION_BIT or 0) - (c.modernFatefulEncounter and 2 ^ L.RIBBON_FATEFUL_BIT or 0),
+      championRibbon = c.championRibbon or false,
+      modernFatefulEncounter = c.modernFatefulEncounter or false,
       pokerus = c.pokerus,
       metLocation = c.metLocation,
       metLevel = c.metLevel,
@@ -1013,31 +1061,45 @@ local function build(L)
       pokeball = c.pokeball,
       abilityNum = c.abilityNum,
       cartExtra = {
-        contest = c.contest,
-        ribbons = c.ribbons,
-        championRibbon = c.championRibbon or nil,
-        modernFatefulEncounter = c.modernFatefulEncounter or nil,
         flagsRaw = c.flagsRaw,
         unknown = c.unknown,
         growthFiller = c.growthFiller,
       },
       cartImport = true,
     }
+    local gap, seenEmpty = false, false
+    for i = 1, 4 do
+      if (c.moves[i] or 0) == 0 then
+        seenEmpty = true
+        if (c.pp[i] or 0) ~= 0 then gap = true end
+      elseif seenEmpty then
+        gap = true
+      end
+    end
+    if gap then
+      mon.cartExtra.moveSlots = { moves = { c.moves[1], c.moves[2], c.moves[3], c.moves[4] },
+        pp = { c.pp[1], c.pp[2], c.pp[3], c.pp[4] } }
+    end
     if c.isEgg then
       mon.nickname, mon.name = "EGG", "EGG"
       mon.eggCycles = c.friendship
     end
     if c.nicknameBytes then
       mon.cartExtra.nicknameBytes = { c.nicknameBytes:byte(1, -1) }
+      mon.cartExtra.nicknameLanguage = c.language
     end
     if c.nicknameRaw then
       mon.cartExtra.nicknameRaw = { c.nicknameRaw:byte(1, -1) }
       mon.cartExtra.otNameRaw = { c.otNameRaw:byte(1, -1) }
     end
+    if c.raw then
+      mon.cartRaw = (c.raw:gsub(".", function(ch) return string.format("%02X", ch:byte()) end))
+    end
     if party then
       mon.level = c.level
       mon.hp = c.hp
       mon.status, mon.sleep = portStatus(c.status)
+      if c.status ~= 0 then mon.cartExtra.statusRaw = c.status end
       mon.maxHp, mon.attack, mon.defense = c.maxHp, c.attack, c.defense
       mon.speed, mon.spAtk, mon.spDef = c.speed, c.spAtk, c.spDef
       if c.mail < L.MAIL.count then mon.mail = c.mail end
@@ -1050,8 +1112,7 @@ local function build(L)
     return name
   end
 
-  local function portWallpaper(w, b)
-    if w == (b - 1) % L.DEFAULT_WALLPAPER_MOD then return ((b - 1) % 16) + 1 end
+  local function portWallpaper(w)
     return w + 1
   end
 
@@ -1102,7 +1163,8 @@ local function build(L)
     for i, rec in ipairs(c.mail or {}) do
       if rec.itemId ~= 0 then
         mail = mail or {}
-        mail[i] = { words = rec.words, playerName = rec.playerName, trainerId = rec.trainerId, species = rec.species,
+        local own = rec.trainerIdRaw == c.trainerId + c.secretId * 65536
+        mail[i] = { words = rec.words, playerName = rec.playerName, trainerId = (own or rec.trainerIdRaw < 65536) and rec.trainerId or rec.trainerIdRaw, species = rec.species,
           itemId = rec.itemId, design = isMailItem(rec.itemId) and rec.itemId - L.MAIL_ITEM_FIRST or nil }
       end
     end
@@ -1181,6 +1243,7 @@ local function build(L)
       bag = { pockets = pockets },
       dex = { seen = {}, owned = {}, caught = {}, national = national, nationalUnlocked = national or nil,
         unownPersonality = c.unownPersonality, spindaPersonality = c.spindaPersonality },
+      pokedex = ((c.dexMode or 0) ~= 0 or (c.dexOrder or 0) ~= 0) and { mode = c.dexMode or 0, order = c.dexOrder or 0 } or nil,
       map = map,
       x = c.posX,
       y = c.posY,
@@ -1205,7 +1268,7 @@ local function build(L)
       flashLevel = c.flashLevel,
       trainerId = c.trainerId,
       secretId = c.secretId,
-      gameStats = c.gameStats,
+      gameStats = portGameStats(c.gameStats),
       game_cleared = has(c.flags, resolved().gameClear),
       hallOfFameTeams = hofTeams,
       hasHallOfFameRecords = #hofTeams > 0,
@@ -1246,7 +1309,8 @@ local function build(L)
     if not mapFor(cart.location.group, cart.location.num) then
       return nil, Gen3Save.MSG.corrupt
     end
-    return Gen3Save.toPortSave(cart, version), nil, cart.olderSlot and Gen3Save.MSG.olderSlot or nil
+    local save, note = Gen3Save.stampImport(Gen3Save.toPortSave(cart, version), bytes, cart, version)
+    return save, nil, note
   end
 
   local function num(v, d)
@@ -1325,12 +1389,51 @@ local function build(L)
     return names[k] or names[prefix .. k]
   end
 
+  local function secondAbility(species)
+    local ok, Pokemon = pcall(require, "src.core.game3.pokemon")
+    if not (ok and type(Pokemon) == "table") then return nil end
+    if Pokemon._abilities == nil and Pokemon.install then pcall(Pokemon.install, Pokemon._cache) end
+    local row = Pokemon._abilities and Pokemon._abilities[species]
+    if type(row) ~= "table" then return nil end
+    return (tonumber(row[2]) or 0) ~= 0
+  end
+
+  local RIBBON_CHAMPION_MASK = 2 ^ 15
+  local RIBBON_FATEFUL_MASK = 2 ^ 31
+
+  local function ribbonWord(mon, x)
+    local word = tonumber(mon.ribbons)
+    if word == nil then
+      if type(mon.ribbons) == "table" then
+        local ok, Ribbons = pcall(require, "src.core.game3.rse.ribbons")
+        if ok and Ribbons and Ribbons.word then
+          local okw, w = pcall(Ribbons.word, mon)
+          if okw then word = tonumber(w) end
+        end
+      end
+    end
+    word = word or num(x.ribbons, 0)
+    word = word % U32
+    local function setBit(w, mask, on)
+      local has = math.floor(w / mask) % 2 == 1
+      if on and not has then return w + mask end
+      if not on and has then return w - mask end
+      return w
+    end
+    if mon.championRibbon ~= nil then word = setBit(word, RIBBON_CHAMPION_MASK, mon.championRibbon == true) end
+    if mon.modernFatefulEncounter ~= nil then word = setBit(word, RIBBON_FATEFUL_MASK, mon.modernFatefulEncounter == true) end
+    return word
+  end
+
   function Gen3Save.fromPortMon(mon, ctx, party)
     ctx = ctx or {}
     local x = type(mon.cartExtra) == "table" and mon.cartExtra or {}
     local species = num(mon.species or mon.speciesId, 0)
+    local nationalMiss
     if mon.speciesNumbering == "national" then
+      local nat = species
       species = (ctx.speciesFromNational and ctx.speciesFromNational(species)) or 0
+      if species == 0 then nationalMiss = nat end
     end
     local moves, pp, portPp = {}, {}, type(mon.pp) == "table" and mon.pp or {}
     for i = 1, 4 do
@@ -1344,6 +1447,26 @@ local function build(L)
       end
       if moves[i] == 0 then pp[i] = 0 end
     end
+    local slots = x.moveSlots
+    if type(slots) == "table" and type(slots.moves) == "table" and type(slots.pp) == "table" then
+      local cm, cp = {}, {}
+      for i = 1, 4 do
+        local mv = num(slots.moves[i], 0)
+        if mv ~= 0 then
+          cm[#cm + 1] = mv
+          cp[#cp + 1] = num(slots.pp[i], 0)
+        end
+      end
+      local same = true
+      for i = 1, 4 do
+        if (cm[i] or 0) ~= moves[i] or (cp[i] or 0) ~= pp[i] then same = false end
+      end
+      if same then
+        for i = 1, 4 do
+          moves[i], pp[i] = num(slots.moves[i], 0), num(slots.pp[i], 0)
+        end
+      end
+    end
     local tid = num(ctx.trainerId, 0)
     local otId = num(mon.otId, tid) % 65536
     local sid = num(mon.otSecretId, nil)
@@ -1351,15 +1474,17 @@ local function build(L)
     local isEgg = mon.isEgg == true
     -- src/daycare.c:1098
     local language = num(mon.language, isEgg and L.LANGUAGE_JAPANESE or L.LANGUAGE_ENGLISH)
-    local nicknameBytes
-    if type(x.nicknameBytes) == "table" then
-      nicknameBytes = string.char(unpack(x.nicknameBytes))
-    elseif isEgg and language == L.LANGUAGE_JAPANESE then
-      nicknameBytes = L.EGG_NICKNAME
-    end
     local nickname = mon.nickname
     if type(nickname) ~= "string" or nickname == "" then
       nickname = mon.name or (ctx.speciesName and ctx.speciesName(species)) or ""
+    end
+    local nicknameBytes
+    if isEgg and nickname == "EGG" then
+      if type(x.nicknameBytes) == "table" and num(x.nicknameLanguage, language) == language then
+        nicknameBytes = string.char(unpack(x.nicknameBytes))
+      elseif language == L.LANGUAGE_JAPANESE then
+        nicknameBytes = L.EGG_NICKNAME
+      end
     end
     local personality = num(mon.personality, 0) % U32
     local item = mon.item or mon.heldItem
@@ -1387,7 +1512,7 @@ local function build(L)
       moves = moves,
       pp = pp,
       evs = statTable(mon.evs, L.EV_KEYS, 255),
-      contest = statTable(x.contest, L.CONTEST_KEYS, 255),
+      contest = statTable(type(mon.contest) == "table" and mon.contest or x.contest, L.CONTEST_KEYS, 255),
       pokerus = num(mon.pokerus, 0),
       metLocation = num(mon.metLocation, 0),
       metLevel = num(mon.metLevel, isEgg and 0 or num(mon.level, 0)),
@@ -1396,16 +1521,26 @@ local function build(L)
       otGender = num(mon.otGender, ctx.gender or 0),
       ivs = statTable(mon.ivs, L.IV_KEYS, 31),
       -- src/pokemon.c:1857
-      abilityNum = num(mon.abilityNum, personality % 2),
-      ribbons = num(x.ribbons, 0),
+      abilityNum = mon.abilityNum ~= nil and num(mon.abilityNum) or (secondAbility(species) == false and 0 or personality % 2),
+      ribbons = ribbonWord(mon, x),
     }
-    if x.ribbons == nil then
+    if mon.ribbons == nil and x.ribbons == nil then
       if x.championRibbon then c.ribbons = c.ribbons + 2 ^ L.RIBBON_CHAMPION_BIT end
       if x.modernFatefulEncounter then c.ribbons = c.ribbons + 2 ^ L.RIBBON_FATEFUL_BIT end
+    end
+    if type(mon.cartRaw) == "string" and #mon.cartRaw % 2 == 0 and not mon.cartRaw:find("[^%x]") then
+      c.raw = mon.cartRaw:gsub("%x%x", function(h) return string.char(tonumber(h, 16)) end)
+    elseif species == 0 then
+      c.missingSpecies = nationalMiss or 0
     end
     if party then
       local maxHp = num(mon.maxHp or (type(mon.stats) == "table" and mon.stats.hp), 0)
       c.status = cartStatus(mon)
+      local sr = tonumber(x.statusRaw)
+      if sr then
+        local k, sleep = portStatus(sr)
+        if c.status == cartStatus({ status = k, sleep = sleep }) then c.status = sr % U32 end
+      end
       c.level = clamp(num(mon.level, 1), 1, 100)
       c.mail = ctx.mailIndex and ctx.mailIndex(mon, c) or L.MAIL_NONE
       c.maxHp = maxHp
@@ -1433,14 +1568,22 @@ local function build(L)
     }
   end
 
-  local function itemList(list, count, ctx)
-    local out = {}
+  local function itemList(list, count, ctx, notes, label)
+    local out, dropped = {}, 0
     for _, it in ipairs(type(list) == "table" and list or {}) do
-      if #out >= count then break end
       local id = type(it) == "table" and it.id
       local qty = type(it) == "table" and num(it.qty, 0) or 0
       id = id ~= nil and ((ctx.itemId and ctx.itemId(id)) or num(id, 0)) or 0
-      if id ~= 0 and qty > 0 then out[#out + 1] = { id = id, qty = clamp(qty, 0, 65535) } end
+      if id ~= 0 and qty > 0 then
+        if #out >= count then
+          dropped = dropped + 1
+        else
+          out[#out + 1] = { id = id, qty = clamp(qty, 0, 65535) }
+        end
+      end
+    end
+    if dropped > 0 and notes then
+      notes[#notes + 1] = ("%d item slot(s) did not fit in the cartridge's %s (%d slots) and were left out."):format(dropped, label, count)
     end
     return out
   end
@@ -1452,8 +1595,8 @@ local function build(L)
 
   local function cartWallpaper(w, b)
     w = num(w, nil)
-    if w == nil or w == ((b - 1) % 16) + 1 then return (b - 1) % L.DEFAULT_WALLPAPER_MOD end
-    return clamp(w - 1, 0, L.WALLPAPER_MAX or 15)
+    if w == nil then return clamp((b - 1) % L.DEFAULT_WALLPAPER_MOD, 0, L.WALLPAPER_MAX) end
+    return clamp(w - 1, 0, L.WALLPAPER_MAX)
   end
 
   local function portOptions(save, version)
@@ -1473,6 +1616,7 @@ local function build(L)
 
   Gen3Save.MSG.noMap = "That save is on a map the cartridge does not have."
   Gen3Save.MSG.noData = "Import this game's ROM again before exporting a cartridge save."
+  Gen3Save.MSG.badSpecies = "Pokemon #%d (%s) has no cartridge species number, so the save can't be exported."
 
   function Gen3Save.ownerOf(bytes)
     local blocks = Gen3Save.readBlocks(bytes)
@@ -1496,17 +1640,40 @@ local function build(L)
 
   function Gen3Save.fromPortSave(save, opts)
     opts = opts or {}
-    local c, blocks
-    if type(opts.template) == "string" then c, blocks = Gen3Save.decode(opts.template) end
-    if c and not Gen3Save.templateBelongs(c, save) then c, blocks = nil, nil end
+    local c, blocks, orig
+    local md = type(save.modData) == "table" and save.modData or {}
+    local candidates = { opts.template, md.cartImage }
+    local damaged
+    for i = 1, 2 do
+      local source = candidates[i]
+      if not c and source ~= nil and source ~= false then
+        local tpl = ImagePack.unpack(source)
+        if type(tpl) ~= "string" then
+          damaged = true
+        else
+          c, blocks = Gen3Save.decode(tpl)
+          if not c then
+            damaged = true
+          elseif not Gen3Save.templateBelongs(c, save) then
+            c, blocks = nil, nil
+          else
+            orig = Gen3Save.decode(tpl)
+          end
+        end
+      end
+    end
+    if not c and damaged then return nil, Gen3Save.MSG.damagedTemplate end
     if not c then c, blocks = freshCart(), nil end
     if not opts.toNational then return nil, Gen3Save.MSG.noData end
+    local tplTower = c.trainerTowerBest
     local tid, sid = num(save.trainerId, 0) % 65536, num(save.secretId, 0) % 65536
     local function cartMail(r)
       if type(r) ~= "table" or num(r.itemId, 0) == 0 then return nil end
-      local rt = num(r.trainerId, 0) % 65536
+      local full = num(r.trainerId, 0) % U32
+      local rt = full % 65536
       return { words = type(r.words) == "table" and r.words or {}, playerName = r.playerName, species = num(r.species, 0),
-        itemId = num(r.itemId, 0), trainerId = rt, trainerIdRaw = rt == tid and rt + sid * 65536 or rt }
+        itemId = num(r.itemId, 0), trainerId = rt,
+        trainerIdRaw = full >= 65536 and full or (rt == tid and rt + sid * 65536 or rt) }
     end
     local pool = {}
     for i = 1, L.MAIL.count do pool[i] = cartMail(type(save.mail) == "table" and save.mail[i] or nil) end
@@ -1563,16 +1730,23 @@ local function build(L)
     local here = Gen3Save.cartWarp({ map = save.map, warpId = -1, x = x, y = y })
     if not here then return nil, Gen3Save.MSG.noMap end
     local layout = opts.mapLayoutId and opts.mapLayoutId(here.group, here.num)
-    if layout then
-      c.location, c.posX, c.posY, c.mapLayoutId = here, x, y, layout
-    elseif not blocks then
-      return nil, Gen3Save.MSG.noData
-    end
+    local sameMap = orig and orig.location.group == here.group and orig.location.num == here.num
+    if not layout and sameMap then layout = orig.mapLayoutId end
+    if not layout then return nil, Gen3Save.MSG.noData end
+    c.location, c.posX, c.posY, c.mapLayoutId = here, x, y, layout
     local warpFlags = num(save.specialSaveWarpFlags, 0)
     local cont = band(warpFlags, L.CONTINUE_GAME_WARP) ~= 0 and Gen3Save.cartWarp(save.continueGameWarp) or nil
     -- src/overworld.c:1706
     c.continueGameWarp = cont or here
     c.specialSaveWarpFlags = bor(warpFlags, L.CONTINUE_GAME_WARP) % 256
+    if sameMap and x == orig.posX and y == orig.posY and warpFlags == orig.specialSaveWarpFlags then
+      c.location, c.continueGameWarp, c.specialSaveWarpFlags = orig.location, orig.continueGameWarp, orig.specialSaveWarpFlags
+    end
+    if orig and not sameMap then c.resetMapState = true end
+    c.playerFacing = nil
+    if orig and orig.player and (L.FACING[orig.player.facing] or "down") ~= save.facing then
+      for code, name in pairs(L.FACING) do if name == save.facing then c.playerFacing = code end end
+    end
     c.dynamicWarp = Gen3Save.cartWarp(save.dynamicWarp) or L.EMPTY_WARP
     c.escapeWarp = Gen3Save.cartWarp(save.escapeWarp) or L.EMPTY_WARP
     local ci = type(save.modData) == "table" and type(save.modData.cartImport) == "table" and save.modData.cartImport or {}
@@ -1601,7 +1775,18 @@ local function build(L)
       end
       c.storage.boxes[b] = box
     end
-    c.pcItems = itemList(st.items, L.PC_ITEMS.count, ctx)
+    for i, m in ipairs(c.party) do
+      if m.missingSpecies then return nil, Gen3Save.MSG.badSpecies:format(m.missingSpecies, "party slot " .. i) end
+    end
+    for b, box in ipairs(c.storage.boxes) do
+      for sl, m in pairs(box.mons) do
+        if m.missingSpecies then
+          return nil, Gen3Save.MSG.badSpecies:format(m.missingSpecies, ("box %d slot %d"):format(b, sl))
+        end
+      end
+    end
+    c.notes = c.notes or {}
+    c.pcItems = itemList(st.items, L.PC_ITEMS.count, ctx, c.notes, "PC item storage")
     local pockets = type(save.bag) == "table" and type(save.bag.pockets) == "table" and save.bag.pockets or {}
     c.pockets = {}
     for _, p in ipairs(L.POCKETS) do c.pockets[p.key] = itemList(pockets[p.key], p.count, ctx) end
@@ -1623,6 +1808,10 @@ local function build(L)
     end
     local dex = type(save.dex) == "table" and save.dex or {}
     local N = resolved().national
+    local pdx = type(save.pokedex) == "table" and save.pokedex or nil
+    if pdx and tonumber(pdx.mode) then
+      c.dexMode, c.dexOrder = math.floor(tonumber(pdx.mode)), math.floor(tonumber(pdx.order) or 0)
+    end
     if not blocks and L.RSE_NATIONAL_VAR and vars[L.RSE_NATIONAL_VAR] == nil then
       -- src/event_data.c:71
       vars[L.RSE_NATIONAL_VAR] = L.RSE_NATIONAL_VALUE
@@ -1631,6 +1820,10 @@ local function build(L)
     -- src/event_data.c:99
     if dex.national == true or dex.nationalUnlocked == true or dex.isNationalUnlocked == true
         or save.national_dex_unlocked == true or flags[N.flag] or vars[N.var] == N.varValue then
+      if L.DEX_MODE_NATIONAL and not (orig and orig.dexNationalMagic == N.magic) then
+        -- pokeemerald/src/event_data.c:69
+        c.dexMode, c.dexOrder = L.DEX_MODE_NATIONAL, 0
+      end
       c.dexNationalMagic = N.magic
       vars[N.var] = N.varValue
       flags[N.flag] = true
@@ -1653,16 +1846,28 @@ local function build(L)
     for _, nat in ipairs(type(ci.dexOwned) == "table" and ci.dexOwned or {}) do owned[nat - 1] = true end
     -- src/pokedex_screen.c:2252
     for i in pairs(owned) do seen[i] = true end
-    local seenList = bitList(seen)
-    c.dexSeen, c.dexSeen1, c.dexSeen2 = seenList, seenList, seenList
-    c.dexOwned = bitList(owned)
+    local function withHigh(set, origList)
+      local out = {}
+      for i in pairs(set) do out[i] = true end
+      for _, i in ipairs(origList or {}) do
+        if i >= L.NATIONAL_DEX_SPECIES then out[i] = true end
+      end
+      return bitList(out)
+    end
+    c.dexSeen = withHigh(seen, orig and orig.dexSeen)
+    c.dexSeen1 = withHigh(seen, orig and orig.dexSeen1)
+    c.dexSeen2 = withHigh(seen, orig and orig.dexSeen2)
+    c.dexOwned = withHigh(owned, orig and orig.dexOwned)
     c.unownPersonality = num(dex.unownPersonality, c.unownPersonality or 0)
     c.spindaPersonality = num(dex.spindaPersonality, c.spindaPersonality or 0)
 
     c.gameStats = {}
     for k, v in pairs(type(save.gameStats) == "table" and save.gameStats or {}) do
-      local id = tonumber(k)
-      if id and id >= 0 and id < L.GAME_STATS.count and num(v, 0) ~= 0 then c.gameStats[id] = num(v, 0) % U32 end
+      local id = tonumber(k) or STAT_ALIASES[k]
+      local value = num(v, 0) % U32
+      if id and id >= 0 and id < L.GAME_STATS.count and value ~= 0 and value > (c.gameStats[id] or 0) then
+        c.gameStats[id] = value
+      end
     end
     c.easyChatProfile = c.easyChatProfile or {}
     for i = 1, L.PORT_PROFILE_WORDS do
@@ -1771,8 +1976,13 @@ local function build(L)
 
     local r = save.roamer
     if type(r) == "table" then
-      local ivs, ivw = statTable(r.ivs, L.IV_KEYS, 31), 0
+      local src = type(r.ivs) == "table" and r.ivs or {}
+      local alias = { atk = "attack", def = "defense", spe = "speed", spa = "spAtk", spd = "spDef" }
+      local named = {}
+      for _, k in ipairs(L.IV_KEYS) do named[k] = src[k] or src[alias[k]] end
+      local ivs, ivw = statTable(type(r.ivs) == "number" and r.ivs or named, L.IV_KEYS, 31), 0
       for i, k in ipairs(L.IV_KEYS) do ivw = ivw + ivs[k] * 2 ^ ((i - 1) * 5) end
+      if tonumber(r.ivWord) then ivw = ivw + math.floor(tonumber(r.ivWord) / 2 ^ 30) % 4 * 2 ^ 30 end
       c.roamer = {
         ivs = ivw,
         personality = num(r.pid or r.personality, 0) % U32,
@@ -1799,16 +2009,128 @@ local function build(L)
       if #rec > 0 then teams[#teams + 1] = rec end
     end
     c.hallOfFame = teams
+    local key = Gen3Save.resolveKey(c, save, blocks)
+    if blocks and key ~= c.encryptionKey and L.TRAINER_TOWER and c.trainerTowerBest == nil then
+      c.trainerTowerBest = tplTower
+    end
+    c.encryptionKey = key
     return c, blocks
+  end
+
+  function Gen3Save.keyValid(k, powder)
+    k = tonumber(k)
+    if not k or k % 1 ~= 0 or k <= 0 or k >= U32 then return false end
+    if L.FAMILY == "emerald" then return k ~= 1 end
+    return k ~= (tonumber(powder) or 0) % U32
+  end
+
+  local function fnv(h, s)
+    for i = 1, #s do
+      h = bxor(h, s:byte(i)) % U32
+      h = (h * 0x193 + (h % 256) * 16777216) % U32
+    end
+    return h
+  end
+
+  function Gen3Save.deriveKey(tid, sid, playthroughId, powder)
+    local seed = ("%d:%d:%s"):format(num(tid, 0) % 65536, num(sid, 0) % 65536, tostring(playthroughId or ""))
+    local h = fnv(2166136261, seed)
+    for salt = 0, 255 do
+      local k = fnv(h, string.char(salt))
+      if k ~= 1 and k ~= (tonumber(powder) or 0) % U32 and Gen3Save.keyValid(k, powder) then return k end
+    end
+    return 0x9E3779B9
+  end
+
+  function Gen3Save.storedKey(save)
+    if type(save) ~= "table" then return nil end
+    if L.FAMILY == "emerald" then return tonumber(save.encryptionKey) end
+    local md = type(save.modData) == "table" and save.modData or {}
+    return tonumber(md.cartKey)
+  end
+
+  function Gen3Save.resolveKey(c, save, blocks)
+    if blocks and Gen3Save.keyValid(c.encryptionKey, c.berryPowder) then return c.encryptionKey end
+    local stored = Gen3Save.storedKey(save)
+    if Gen3Save.keyValid(stored, c.berryPowder) then return stored end
+    local meta = type(save.meta) == "table" and save.meta or {}
+    return Gen3Save.deriveKey(c.trainerId, c.secretId, meta.playthroughId, c.berryPowder)
+  end
+
+  function Gen3Save.slotTemplate(save)
+    local md = type(save) == "table" and type(save.modData) == "table" and save.modData or nil
+    return md and type(md.cartImage) == "string" and ImagePack.unpack(md.cartImage) or nil
+  end
+
+  function Gen3Save.recordMixTvPrefix(save, shows)
+    if L.FAMILY ~= "emerald" then return nil end
+    local template = Gen3Save.slotTemplate(save)
+    local blocks
+    if template then local _, b = Gen3Save.decode(template); if type(b) == "table" then blocks = b end end
+    local buf = newBuf(L.BLOCKS[2].size, blocks and blocks.sb1)
+    local off = L.RSE.sb1.tvShows
+    if not blocks then
+      local md = type(save.modData) == "table" and save.modData or {}
+      local imported = type(md.cartImport) == "table" and md.cartImport or {}
+      local raw = imported.recordMixTvBytes256
+      if type(raw) == "table" then
+        for i = 1, 256 do buf:w8(off + i - 1, num(raw[i], 0) % 256) end
+      end
+    end
+    local Rse = require("src.save_convert.gen3_port.rse")
+    Rse.SECTIONS.tvShows.write({ L = L, codec = Gen3Save, sb1 = buf:str(), w1 = buf }, { tvShows = shows })
+    return buf:str():sub(off + 1, off + 256)
   end
 
   function Gen3Save.exportPort(save, opts)
     local c, blocks = Gen3Save.fromPortSave(save, opts)
     if not c then return nil, blocks end
+    return Gen3Save.finishFlash(c, blocks, Gen3Save.encodeBlocks(c, blocks)), #(c.notes or {}) > 0 and table.concat(c.notes, " ") or nil
+  end
+
+  function Gen3Save.finishFlash(c, blocks, encoded)
     local hof = #c.hallOfFame > 0 and Gen3Save.encodeHof(c.hallOfFame) or nil
+    if blocks and hof then
+      local orig = Gen3Save.decode(blocks.image)
+      local function same(a, b)
+        if type(a) ~= type(b) then return false end
+        if type(a) ~= "table" then return a == b end
+        for k, v in pairs(a) do if not same(v, b[k]) then return false end end
+        for k in pairs(b) do if a[k] == nil then return false end end
+        return true
+      end
+      if orig and same(orig.hallOfFame, c.hallOfFame) then hof = nil end
+    end
     local counter = blocks and (blocks.counter + 1) % U32 or 1
-    return Gen3Save.buildFlash(Gen3Save.encodeBlocks(c, blocks),
-      { counter = counter, image = blocks and blocks.image, hof = hof })
+    local flash = Gen3Save.buildFlash(encoded, { counter = counter, image = blocks and blocks.image, hof = hof })
+    return flash .. (blocks and #blocks.image == L.FLASH_SIZE and blocks.trailer or "")
+  end
+
+  function Gen3Save.gameOf(c)
+    local codes = L.GAME_CODES or {}
+    local tally = {}
+    local function count(m)
+      if m and not m.isEgg and m.otId == c.trainerId and m.otSecretId == c.secretId and codes[m.metGame] then
+        tally[m.metGame] = (tally[m.metGame] or 0) + 1
+      end
+    end
+    for _, m in ipairs(c.party or {}) do count(m) end
+    for _, box in ipairs(c.storage and c.storage.boxes or {}) do
+      for _, m in pairs(box.mons) do count(m) end
+    end
+    local best, n = nil, 0
+    for code, k in pairs(tally) do
+      if k > n or (k == n and best and code < best) then best, n = code, k end
+    end
+    return best and codes[best] or nil
+  end
+
+  function Gen3Save.stampImport(save, bytes, cart, version)
+    save.modData = type(save.modData) == "table" and save.modData or {}
+    save.modData.cartImage = ImagePack.pack(bytes) or bytes
+    save.modData.cartGame = Gen3Save.gameOf(cart) or version
+    if L.FAMILY ~= "emerald" then save.modData.cartKey = cart.encryptionKey end
+    return save, cart.olderSlot and Gen3Save.MSG.olderSlot or nil
   end
 
   if L.PORT then require(L.PORT).install(Gen3Save) end

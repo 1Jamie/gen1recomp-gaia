@@ -645,7 +645,7 @@ REQUIRED_SYMBOLS = {
     # ShakeGrass' SPRITEMOVEDATA_GRASS object draws.
     "GrassRustleGFX",
     "PokemonCries", "SFX",
-    "OverworldSprites", "ChrisSpriteGFX", "Moves", "EvosAttacksPointers",
+    "OverworldSprites", "OutdoorSprites", "ChrisSpriteGFX", "Moves", "EvosAttacksPointers",
     # data/sprites/sprite_mons.asm: one species byte per SPRITE_POKEMON id,
     # which GetMonSprite's .Icon arm feeds to LoadOverworldMonIcon
     "SpriteMons",

@@ -19,7 +19,13 @@ love = love or require("tests.love_stub")
 -- SaveData is stubbed so this stays about the gate: the real one wants a
 -- filesystem and a registry, and neither is the subject here.
 local written = {}
+local carts = {}
+local cartFs = {
+  write = function(rel, bytes) carts[rel] = bytes return true end,
+  createDirectory = function() return true end,
+}
 package.loaded["src.core.SaveData"] = {
+  portableFs = function() return cartFs end,
   load = function() return { meta = {} } end,
   activeSlot = function() return "slot1" end,
   buildMeta = function(_, m) return m or {} end,
@@ -34,6 +40,15 @@ local check, eq = T.check, T.eq
 local Gen2Save = require("src.save_convert.Gen2Save")
 local SaveConvert = require("src.save_convert.SaveConvert")
 local SaveFileIO = require("src.import.SaveFileIO")
+
+local function gen2Data()
+  SaveConvert.setGen2DataStub({
+    pokemon = { CHIKORITA = { index = 152, dex = 152 }, CELEBI = { index = 251, dex = 251 } },
+    moves = { TACKLE = { index = 33, pp = 35 } },
+    items = { POTION = { index = 18, pocket = "ITEM" } },
+    maps = {},
+  })
+end
 
 -- The size a real Gen 2 cart save actually is: 32768 of SRAM plus an 18-byte
 -- RTC footer. Verified against a real Gold cartridge in an emulator core,
@@ -69,10 +84,21 @@ end
 -- The report: a real-sized Gen 2 save imports
 -- ------------------------------------------------------------------
 
-for _, version in ipairs({ "gold", "silver", "crystal" }) do
+do
+  local ok, err = SaveFileIO.importToSlot(savFile(validSave("silver")), "silver")
+  eq(ok, false, "silver: without its data cache the import is refused (G2-17)")
+  check(type(err) == "string" and err:find("data cache is missing", 1, true) ~= nil,
+    "silver: and the reason names the missing cache -- " .. tostring(err))
+  check(type(err) == "string" and err:find("checksum", 1, true) == nil,
+    "silver: not a checksum -- " .. tostring(err))
+end
+gen2Data()
+
+for _, version in ipairs({ "gold", "crystal" }) do
   local trailing = GEN2_CART_SAVE_SIZE - Gen2Save.SAVE_SIZE
   local path = savFile(validSave(version, trailing))
   written = {}
+  carts = {}
   -- force is deliberately NOT passed: the footer is the normal shape of a Gen
   -- 2 cart save, so it must not raise the oversize confirmation either.
   local ok, err = SaveFileIO.importToSlot(path, version)
@@ -81,6 +107,12 @@ for _, version in ipairs({ "gold", "silver", "crystal" }) do
   check(type(err) ~= "string" or err:find("checksum", 1, true) == nil,
     version .. ": and is never blamed on a checksum -- " .. tostring(err))
   eq(#written, 1, version .. ": the slot is written")
+  local cart = carts[("saves/%s/slot1.cart"):format(version)]
+  eq(cart, nil, version .. ": no sidecar cart image is written")
+  eq(written[1] and type(written[1].rawImport) == "string" and #written[1].rawImport,
+    GEN2_CART_SAVE_SIZE, version .. ": and so does the image kept in the slot")
+  local out = written[1] and Gen2Save.encode(written[1], version, nil, nil)
+  eq(out and #out, GEN2_CART_SAVE_SIZE, version .. ": an export re-appends the footer")
 end
 
 -- ------------------------------------------------------------------

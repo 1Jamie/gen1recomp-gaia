@@ -338,6 +338,8 @@ function RomExtractorGen2:extractConstants()
   self:beginStage("Game constants")
   local data = copy(self.manifest.constants)
   data.generation = 2
+  data.spriteContext = require("src.import.Gen2SpriteMetadata").read(
+    self.rom, self.symbols, data, self.edition)
   self:write("constants", data)
   self:tick("Game constants", 1, 1)
   return data

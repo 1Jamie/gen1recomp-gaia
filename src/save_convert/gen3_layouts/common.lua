@@ -132,6 +132,8 @@ C.HOF = { teams = 50, monsPerTeam = 6, monSize = 20, tid = 0, personality = 4, s
 
 -- include/constants/flags.h:44
 C.TEMP_FLAGS_END = 0x1F
+-- include/constants/pokedex.h:6
+C.NATIONAL_DEX_SPECIES = 386
 -- include/constants/game_stat.h:5
 C.GAME_STAT_FIRST_HOF_PLAY_TIME = 1
 -- include/save_location.h:5
@@ -143,6 +145,20 @@ C.FACING = { [1] = "down", [2] = "up", [3] = "left", [4] = "right" }
 C.DEFAULT_BOX_NAME = "BOX%d"
 -- src/pokemon_storage_system_menu.c:420
 C.DEFAULT_WALLPAPER_MOD = 4
+-- include/pokemon_storage_system.h:40
+C.WALLPAPER_MAX = 15
+
+-- charmap.txt:2
+C.CHARMAP_LATIN = {
+  [0x01] = "À", [0x02] = "Á", [0x03] = "Â", [0x04] = "Ç", [0x05] = "È", [0x06] = "É", [0x07] = "Ê", [0x08] = "Ë",
+  [0x09] = "Ì", [0x0B] = "Î", [0x0C] = "Ï", [0x0D] = "Ò", [0x0E] = "Ó", [0x0F] = "Ô", [0x10] = "Œ", [0x11] = "Ù",
+  [0x12] = "Ú", [0x13] = "Û", [0x14] = "Ñ", [0x15] = "ß", [0x16] = "à", [0x17] = "á", [0x19] = "ç", [0x1A] = "è",
+  [0x1B] = "é", [0x1C] = "ê", [0x1D] = "ë", [0x1E] = "ì", [0x20] = "î", [0x21] = "ï", [0x22] = "ò", [0x23] = "ó",
+  [0x24] = "ô", [0x25] = "œ", [0x26] = "ù", [0x27] = "ú", [0x28] = "û", [0x29] = "ñ", [0x2A] = "º", [0x2B] = "ª",
+  [0x51] = "¿", [0x52] = "¡", [0x5A] = "Í", [0x68] = "â", [0x6F] = "í",
+  -- charmap.txt:148
+  [0xF1] = "Ä", [0xF2] = "Ö", [0xF3] = "Ü", [0xF4] = "ä", [0xF5] = "ö", [0xF6] = "ü",
+}
 
 C.EMPTY_WARP = { group = -1, num = -1, warpId = -1, x = -1, y = -1 }
 

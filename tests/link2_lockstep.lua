@@ -103,6 +103,21 @@ local function fighter(id, level, item)
   return mon
 end
 
+do
+  local mon = fighter("QUICKMON", 12)
+  mon.status = "poison"
+  mon.hp = 1
+  local packed = Protocol.packMon2(mon)
+  local forced = assert(Protocol.unpackMon2(DATA, packed, { forceLevel = 50, strict = true }))
+  eq(forced.level, 50, "Gen 2 forced-level party rebuilds at the agreed level")
+  eq(forced.status, nil, "Gen 2 forced-level party clears the saved status")
+  eq(forced.hp, forced.stats.hp, "Gen 2 forced-level party starts at full HP")
+  local real = assert(Protocol.unpackMon2(DATA, packed, { forceLevel = "ANY", strict = true }))
+  eq(real.level, 12, "Gen 2 ANY keeps the saved level")
+  eq(real.status, "poison", "Gen 2 ANY keeps the saved status")
+  eq(real.hp, 1, "Gen 2 ANY keeps the saved HP")
+end
+
 -- ---------------------------------------------------------------- harness
 
 local function fakeInput()

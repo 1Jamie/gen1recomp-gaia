@@ -327,8 +327,17 @@ for _, name in ipairs({ "em_battle", "em_fresh", "em_doctored" }) do
     check(out ~= nil, name .. " exports (" .. tostring(xerr) .. ")")
     if out then
       local a, b = E.readBlocks(bytes), E.readBlocks(out)
-      for _, blk in ipairs(L.BLOCKS) do
-        check(a[blk.key] == b[blk.key], name .. " " .. blk.key .. " byte-identical after import/export")
+      if F.oracle[name].key == 0 then
+        local ca, cb = E.decode(bytes), E.decode(out)
+        check(cb.encryptionKey ~= 0 and cb.encryptionKey ~= 1, name .. " key 0 is re-keyed so readers see Emerald")
+        eq(cb.money, ca.money, name .. " money survives the re-key")
+        same_eq(cb.pockets, ca.pockets, name .. " bag survives the re-key")
+        same_eq(cb.gameStats, ca.gameStats, name .. " game stats survive the re-key")
+        eq(a.storage, b.storage, name .. " storage byte-identical after import/export")
+      else
+        for _, blk in ipairs(L.BLOCKS) do
+          check(a[blk.key] == b[blk.key], name .. " " .. blk.key .. " byte-identical after import/export")
+        end
       end
       for sec = 28, 31 do
         local o = sec * 0x1000
@@ -389,7 +398,7 @@ do
   local _, msg = E.importPort(fr, "emerald")
   eq(msg, E.MSG.frlg, "FireRed-into-Emerald message")
   local _, frWhy = Gen3Save.decode(IMAGES.em_battle)
-  eq(frWhy, "notFrlg", "an Emerald save is refused by the FireRed codec")
+  eq(frWhy, "emerald", "an Emerald save is refused by the FireRed codec and named")
   local _, small = E.importPort(string.rep("\0", 32768), "emerald")
   eq(small, E.MSG.size:format(32768), "size sentence names Emerald")
   local _, empty = E.importPort(string.rep("\255", 0x20000), "emerald")
@@ -412,7 +421,7 @@ do
   local b = Gen3Save.forVersion("leafgreen").decode(fr)
   eq(a.money, b.money, "leafgreen uses the FireRed codec")
   eq(a.nicknameRaw, nil, "FireRed decode carries no raw name fields")
-  check(a.party[1] and a.party[1].nicknameRaw == nil, "FireRed mons carry no raw name bytes")
+  check(a.party[1] and #a.party[1].nicknameRaw == 10, "FireRed mons keep their raw name bytes like Emerald")
 end
 
 do

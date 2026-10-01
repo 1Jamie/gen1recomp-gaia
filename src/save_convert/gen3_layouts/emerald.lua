@@ -79,7 +79,13 @@ L.SB1 = {
 }
 
 -- pokeemerald/include/global.h:998
-L.MAP_VIEW = { off = 0x0034, size = 0x200 }
+L.MAP_VIEW = { block = "sb1", off = 0x0034, size = 0x200 }
+-- pokeemerald/src/new_game.c:123
+L.NEW_GAME_SB2 = { { 0xEE1, 0xFF }, { 0xEE9, 0xFF } }
+-- pokeemerald/src/event_data.c:69
+L.DEX_MODE_NATIONAL = 1
+L.TRAINER_NAME_RECORDS = { off = 0x3B98, count = 20 }
+L.GAME_CODES = { [3] = "emerald" }
 
 L.PARTY_OFFSET = 0x0238
 

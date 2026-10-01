@@ -39,6 +39,15 @@ local function menu_text(act)
   return RomText.at("sMenuTexts", (assert(MENU_TEXT[act], act)))
 end
 
+local function wallpaper_count(session)
+  local count = #PcChrome.wallpaperNames()
+  local walda = type(session) == "table" and session.waldaPhrase
+  -- pokeemerald/src/pokemon_storage_system.c:4334
+  if require("src.core.game3.profile").family(session) == "rse" and type(walda) == "table"
+      and walda.unlocked == true and PcChrome.hasFriends() then count = count + 1 end
+  return count
+end
+
 BoxStorageUI.open = false
 BoxStorageUI.mode = "browse" -- browse | action_menu | box_menu | pick_box | pick_wallpaper | party_drawer | message
 BoxStorageUI.subMode = "move" -- withdraw | deposit | move | move_items
@@ -550,11 +559,12 @@ function BoxStorageUI.handleInput(input)
 
   -- Pick Wallpaper
   if BoxStorageUI.mode == "pick_wallpaper" then
+    local count = wallpaper_count(BoxStorageUI._session)
     if input:wasPressed("up") then
-      BoxStorageUI.wallpaperCursor = ((BoxStorageUI.wallpaperCursor - 2) % 16) + 1
+      BoxStorageUI.wallpaperCursor = ((BoxStorageUI.wallpaperCursor - 2) % count) + 1
       se(5)
     elseif input:wasPressed("down") then
-      BoxStorageUI.wallpaperCursor = (BoxStorageUI.wallpaperCursor % 16) + 1
+      BoxStorageUI.wallpaperCursor = (BoxStorageUI.wallpaperCursor % count) + 1
       se(5)
     elseif input:wasPressed("a") then
       local box = current_box_data()
@@ -889,9 +899,12 @@ function BoxStorageUI.draw()
     Window.stdFrame(Window.template(5, 2, 14, 10))
     -- pokefirered/src/pokemon_storage_system_tasks.c:279
     Window.printPx(RomText.plain("gText_PickTheWallpaper"), 44, 18, { small = true })
+    local count = wallpaper_count(BoxStorageUI._session)
     for i = 1, 4 do
-      local wpId = ((BoxStorageUI.wallpaperCursor - 1 + i - 1) % 16) + 1
-      local wpName = RomText.at("sMenuTexts", menu_text_forest(BoxStorageUI._session) + wpId - 1)
+      local wpId = ((BoxStorageUI.wallpaperCursor - 1 + i - 1) % count) + 1
+      local textId = wpId > #PcChrome.wallpaperNames() and menu_text_forest(BoxStorageUI._session) - 1
+        or menu_text_forest(BoxStorageUI._session) + wpId - 1
+      local wpName = RomText.at("sMenuTexts", textId)
       local yPx = 34 + (i - 1) * 14
       if i == 1 then Window.cursorPx(44, yPx) end
       Window.printPx(wpName, 52, yPx)

@@ -52,13 +52,14 @@ end
 -- A real cart seals both copies, and the game rewrites the backup from the
 -- primary on every successful load.
 local function seal(b, L)
-  if L.backup then
-    for i = 0, (L.sGameDataEnd - L.sGameData) - 1 do
-      b[L.backup.sGameData + i] = b[L.sGameData + i]
-    end
-    sealOne(b, L.backup)
-  end
   sealOne(b, L)
+  local B = L.backupSave
+  for _, seg in ipairs(B.segments) do
+    for i = 0, seg[3] - 1 do b[seg[2] + i] = b[seg[1] + i] end
+  end
+  for i = 0, 7 do b[B.options + i] = b[L.sOptions + i] end
+  b[B.checkValue1], b[B.checkValue2] = 0x63, 0x7F
+  b[B.checksum], b[B.checksum + 1] = b[L.sChecksum], b[L.sChecksum + 1]
 end
 local function pack(b)
   local out = {}
@@ -265,7 +266,7 @@ do
   eq(evCount, Gen2Save.EVENT_BYTES, "one entry per event byte")
 
   -- 0 is truthy in Lua, so a raw status byte makes healthy mons look ill.
-  eq(m.status, "brn", "status is the engine's class string")
+  eq(m.status, "burn", "status is the engine's class string")
   eq(save.boxes[3][1].status, nil, "and nil when healthy, not 0")
 end
 
@@ -304,7 +305,7 @@ do
 
   save.inventory = { POTION = 7, BICYCLE = 1, POKE_BALL = 12, TM_HEADBUTT = 1 }
   save.currentBox = 5
-  save.party[1].status, save.party[1].statusTurns = "slp", 3
+  save.party[1].status, save.party[1].statusTurns = "sleep", 3
   save.party[1].pokerus = 0x34
   save.party[1].caughtData = 0x1234
   save.events[9] = 0xA5
@@ -334,7 +335,7 @@ do
   eq(back.party[1].pokerus, 0x34, "pokerus rides the mon")
   eq(back.party[1].caughtData, 0x1234, "so does caught data")
 
-  eq(back.party[1].status, "slp", "status survives as a class")
+  eq(back.party[1].status, "sleep", "status survives as a class")
   eq(back.party[1].statusTurns, 3, "with its turn count")
   eq(back.events[9], 0xA5, "event bytes are written")
 
@@ -378,8 +379,9 @@ end
 do
   eq(Gen2Layout.goldSilver.wPlayerGender, nil,
      "Gold and Silver have no gender byte")
-  eq(Gen2Layout.crystal.wPlayerGender, Gen2Layout.crystal.backup.wPlayerGender,
-     "the Crystal backup shares the primary's gender byte")
+  local seg = Gen2Layout.crystal.backupSave.segments[1]
+  check(Gen2Layout.crystal.wPlayerGender >= seg[1] + seg[3],
+     "the Crystal gender byte sits outside the backed-up block, in sCrystalData")
 
   local cart = build("crystal", false, true)
   local save = assert(Gen2Save.decode(cart, "crystal"))
@@ -409,10 +411,10 @@ do
   end
   shape(Gen2Layout.goldSilver, 59, "gold/silver")
   shape(Gen2Layout.crystal, 79, "crystal")
-  shape(Gen2Layout.crystal.backup, 79, "crystal backup")
   eq(Gen2Layout.goldSilver.sceneVars.ELMS_LAB, 0x2534, "gold wElmsLabSceneID")
   eq(Gen2Layout.crystal.sceneVars.ELMS_LAB, 0x2515, "crystal wElmsLabSceneID")
-  eq(Gen2Layout.crystal.backup.sceneVars.ELMS_LAB,
+  local seg = Gen2Layout.crystal.backupSave.segments[1]
+  eq(Gen2Layout.crystal.sceneVars.ELMS_LAB - seg[1] + seg[2],
      Gen2Layout.crystal.sceneVars.ELMS_LAB - 0xE00, "the backup copy is the same byte shifted")
 end
 
@@ -439,6 +441,7 @@ end
 -- engine/menus/start_menu.asm (#1900)
 do
   local StartMenu = require("src.ui.gen2.StartMenu")
+  SaveConvert.setGen2DataStub(CROSSWALK)
   local imported = assert(SaveConvert.importSav(build("gold"), "gold", "gold"))
   local menu = setmetatable({ save = imported }, { __index = StartMenu })
   local rows = {}
@@ -490,25 +493,36 @@ end
 -- LoadBackupPlayerData. Refusing on the primary alone reports a save the game
 -- itself would load as corrupt, which is what #1832 was about.
 
-do
-  local L = Gen2Save.layoutFor("crystal")
-  check(L.backup ~= nil, "Crystal carries a backup layout")
-  eq(Gen2Save.layoutFor("gold").backup, nil,
-    "Gold and Silver split theirs across three sections, so they have none")
+for _, version in ipairs({ "gold", "silver", "crystal" }) do
+  local L = Gen2Save.layoutFor(version)
+  eq(#L.backupSave.segments, version == "crystal" and 1 or 5,
+    version .. ": the backup is the segments ram/sram.asm lays out")
 
-  local good = build("crystal")
-  local at = L.sChecksum + 1
-  local broken = good:sub(1, at - 1)
-    .. string.char((good:byte(at) + 1) % 256) .. good:sub(at + 1)
-
-  eq(Gen2Save.checksumValid(broken, L), false, "the primary is now corrupt")
-  eq(Gen2Save.checksumValid(broken, L.backup), true, "the backup is not")
-  local save, err = Gen2Save.decode(broken, "crystal")
-  check(save ~= nil, "so the save still opens -- " .. tostring(err))
-  if save then
-    eq(save.player.name, "ASH", "and reads the same player out of the backup")
-    eq(save.mapScenes.ELMS_LAB, 2, "and the same map scenes out of the backup")
+  local good = build(version)
+  local function flip(s, at)
+    return s:sub(1, at) .. string.char((s:byte(at + 1) + 1) % 256) .. s:sub(at + 2)
   end
+  local junkAt = L.wPlayerStruct + 30
+  local broken = flip(good, junkAt)
+
+  eq(Gen2Save.checksumValid(broken, L), false, version .. ": the primary is now corrupt")
+  eq(Gen2Save.backupValid(broken, L), true, version .. ": the backup is not")
+  local save, err = Gen2Save.decode(broken, version)
+  check(save ~= nil, version .. ": so the save still opens -- " .. tostring(err))
+  if save then
+    eq(save.player.name, "ASH", version .. ": and reads the same player out of the backup")
+    eq(save.mapScenes.ELMS_LAB, 2, version .. ": and the same map scenes out of the backup")
+    local out = assert(Gen2Save.encode(save, version, broken))
+    eq(out:byte(junkAt + 1), good:byte(junkAt + 1),
+      version .. ": export starts from the backup, so the corrupt primary byte is not carried")
+    eq(Gen2Save.checksumValid(out, L), true, version .. ": the primary is sealed")
+    eq(Gen2Save.backupValid(out, L), true, version .. ": and so is the backup")
+  end
+  local both = flip(broken, L.backupSave.checksum)
+  local none, why = Gen2Save.decode(both, version)
+  eq(none, nil, version .. ": a save failing both copies is refused")
+  local refused, rwhy = Gen2Save.encode(save or {}, version, both)
+  eq(refused, nil, version .. ": and is never written over -- " .. tostring(rwhy))
 end
 
 -- ------------------------------------------------------------------
@@ -519,8 +533,8 @@ do
   local goldBytes = build("gold")
   local wrong, err = Gen2Save.decode(goldBytes, "crystal")
   check(wrong == nil, "a Gold save read with Crystal's table is refused")
-  check(type(err) == "string" and err:find("checksum", 1, true) ~= nil,
-    "and refused by the guard, not by luck -- got: " .. tostring(err))
+  check(type(err) == "string" and err:find("Gold or Silver", 1, true) ~= nil,
+    "and refused by the guard, naming the sibling game -- got: " .. tostring(err))
   check(Gen2Layout.goldSilver.wPartyMons ~= Gen2Layout.crystal.wPartyMons,
     "the two layouts really do disagree about where the party is")
 end
@@ -530,6 +544,7 @@ end
 -- ------------------------------------------------------------------
 
 do
+  SaveConvert.setGen2DataStub(CROSSWALK)
   local save, err = SaveConvert.importSav(build("gold"), "gold", "gold")
   check(save ~= nil, "importSav accepts a Gen 2 save now -- " .. tostring(err))
   if save then
@@ -587,6 +602,7 @@ else
       local out, err = Gen2Save.encode(save, fixtureVersion, bytes, {})
       if out then
         eq(#out, #bytes, "the exported image keeps the cart's size, RTC and all")
+        check(out == bytes, "and an untouched import exports back byte for byte")
         local back = assert(Gen2Save.decode(out, fixtureVersion))
         eq(back.player.name, save.player.name, "the player survives the round trip")
         eq(#back.party, #save.party, "and the party")

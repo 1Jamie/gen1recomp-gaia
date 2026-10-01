@@ -158,6 +158,7 @@ fi
 
 run_tier "T0 ROM builder version routing" python3 tests/build_rom_data_cli_test.py
 run_tier "T0 ROM manifest generator pin/overrides" python3 tests/rom_manifest_generator_test.py
+run_tier "T0 save conversion CLI" python3 tests/save_convert_cli_test.py
 run_tier "T0 Yellow title OBP eye remap" python3 tests/title_pikachu_obp_test.py
 run_tier "T0 Crystal manifest + specials coverage" "$LUA" tests/crystal_import_test.lua
 run_tier "T0 switch CI workflow content gate" "$LUA" tests/switch_ci_workflows_test.lua
@@ -175,6 +176,7 @@ run_tier "T1/T2 engine invariants + parity gates" "$LUA" tests/run_engine.lua
 # Gen 2 / Crystal: ROM-free (own fixtures, or a self-skip on a missing cache),
 # so it runs here rather than behind the Red content gate below.
 run_tier "T2 Gen 2 / Crystal suites" "$LUA" tests/run_gen2.lua
+run_tier "T2 save compat (R1/R2 round trips, reader validator)" "$LUA" tests/run_save_compat.lua
 run_tier "T4 mod-SDK" "$LUA" tests/run_modkit.lua
 run_tier "T4 modkit dev tooling (fixture)" "$LUA" tests/modkit_tests.lua
 
@@ -297,6 +299,8 @@ run_emerald_tier() {
     [ -f "$t" ] || continue
     "$LUA" "$t" || { echo "FAIL $t"; rc=1; }
   done
+  POKEPORT_RANDOM_GAME=emerald "$LUA" tests/game3_cart_random_sessions_test.lua \
+    || { echo "FAIL tests/game3_cart_random_sessions_test.lua (emerald)"; rc=1; }
   return $rc
 }
 run_tier "T6e emerald suites" run_emerald_tier

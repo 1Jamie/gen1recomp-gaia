@@ -79,6 +79,7 @@ function Protocol.packMon(mon)
     exp = mon.exp,
     hp = mon.hp,
     status = mon.status,
+    sleepTurns = mon.status == "SLP" and mon.sleepTurns or nil,
     nickname = mon.nickname,
     dvs = mon.dvs,
     statExp = mon.statExp,
@@ -158,7 +159,9 @@ function Protocol.unpackMon(data, packed, opts)
   local forced = forceLevel
   local hp = forced and stats.hp
     or math.max(0, math.min(stats.hp, math.floor(num(packed.hp, stats.hp))))
-  local status = forced and nil or text(packed.status)
+  local status = not forced and text(packed.status) or nil
+  local sleepTurns = status == "SLP"
+    and math.max(1, math.min(7, math.floor(num(packed.sleepTurns, 1)))) or nil
   -- preserve the sender's original-trainer identity (party_struct MON_OTID +
   -- wPartyMonOT on a real cable), clamped/typed like every other field so a
   -- tampered packet can't inject a bad ID or a huge name.  Left nil when the
@@ -179,6 +182,7 @@ function Protocol.unpackMon(data, packed, opts)
     stats = stats,
     hp = hp,
     status = status,
+    sleepTurns = sleepTurns,
     nickname = text(packed.nickname),
     ot = ot,
     otId = otId,
@@ -341,7 +345,7 @@ function Protocol.unpackMon2(data, packed, opts)
   local forced = forceLevel
   local hp = forced and stats.hp
     or math.max(0, math.min(stats.hp, math.floor(num(packed.hp, stats.hp))))
-  local status = forced and nil or text(packed.status)
+  local status = not forced and text(packed.status) or nil
   local packedOtId = num(packed.otId)
   local otId = packedOtId
     and math.max(0, math.min(65535, math.floor(packedOtId))) or nil

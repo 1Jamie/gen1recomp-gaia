@@ -323,6 +323,10 @@ eq(walkedToHatch, 255 + karpCycles * 256,
   "the hand-off reset the cadence, so the cart's 255 + cycles * 256 steps hatch it")
 
 print("[test] 10. AddHatchedMonToParty makes it a real POKeMON")
+local eggPersonality, eggGender, eggNature = egg.personality, Pokemon.gender(MAGIKARP, egg.personality), egg.nature
+local eggIvs = {}
+for k, v in pairs(egg.ivs) do eggIvs[k] = v end
+egg.otId, egg.otSecretId, egg.otName, egg.ot, egg.otGender = 999, 123, "OTHER", "OTHER", 1
 Breeding.hatchMon(session, egg)
 eq(egg.isEgg, false, "it is no longer an egg")
 eq(egg.level, 5, "it hatches at level 5")
@@ -332,5 +336,11 @@ eq(egg.name, Pokemon.name(MAGIKARP), "and it is called by its species name")
 check(session.dex.seen[MAGIKARP], "the hatch registered it as seen")
 check(session.dex.owned[MAGIKARP], "and as caught")
 check((tonumber(egg.maxHp) or 0) > 0, "its stats were calculated")
+eq(egg.personality, eggPersonality, "hatching keeps the fixed personality")
+eq(Pokemon.gender(MAGIKARP, egg.personality), eggGender, "hatching keeps the personality-derived gender")
+eq(egg.nature, eggNature, "hatching keeps the personality-derived nature")
+for k, v in pairs(eggIvs) do eq(egg.ivs[k], v, "hatching keeps the inherited " .. k .. " IV") end
+eq(egg.otId, session.trainerId, "a traded egg receives this player's trainer ID")
+eq(egg.otName, session.name, "a traded egg receives this player's trainer name")
 
 finish()

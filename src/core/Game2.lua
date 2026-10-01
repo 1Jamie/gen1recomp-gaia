@@ -964,6 +964,18 @@ function Game2:snapshotSave()
     }
     self.save.events = world.events and world.events:serialize()
       or self.save.events
+    if type(world.objectMasks) == "table" then
+      local previous = self.save.mapObjectMasks
+      local state = { map = world.map.id, masks = {},
+        raw = type(previous) == "table" and previous.map == world.map.id and previous.raw or nil }
+      for i, obj in ipairs((world.map.def and world.map.def.objects) or {}) do
+        local key = world:objectMaskKey(obj, i)
+        state.masks[i] = world.objectMasks[key]
+      end
+      self.save.mapObjectMasks = state
+    else
+      self.save.mapObjectMasks = nil
+    end
     self.save.mapScenes = world.mapScenes or self.save.mapScenes
     -- wPlayerState, out of the same sPlayerData block the flags and the scene
     -- ids come from: save on the BICYCLE and the reload has to come back on

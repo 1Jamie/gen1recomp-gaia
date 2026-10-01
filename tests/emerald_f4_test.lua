@@ -276,7 +276,85 @@ local im = Islands.manifest()
 eq(#im.deoxysRockCoords, 11, "eleven rock positions")
 eq(im.deoxysRockCoords[1][1], 15, "rock starts at x 15")
 eq(#im.deoxysRockMaxSteps, 10, "ten step caps")
-eq(#im.gifts, 3, "three wonder card ticket scripts")
+-- pokeemerald/data/mystery_gift.s:19
+local giftSpecs = {
+  { "aurora", "MysteryGiftScript_AuroraTicket", 3 },
+  { "mystic", "MysteryGiftScript_MysticTicket", 3 },
+  { "oldSeaMap", "MysteryGiftScript_OldSeaMap", 3 },
+  { "surfPichu", "MysteryGiftScript_SurfPichu", 9 },
+  { "battleCard", "MysteryGiftScript_BattleCard", 2 },
+  { "stampCard", "MysteryGiftScript_StampCard", 1 },
+  { "alteringCave", "MysteryGiftScript_AlteringCave", 2 },
+}
+eq(#im.gifts, #giftSpecs, "seven supported wonder card gift bundles")
+local gifts, giftScripts = {}, {}
+for i, spec in ipairs(giftSpecs) do
+  local gift = im.gifts[i] or {}
+  eq(gift.id, spec[1], "wonder card gift " .. i .. " is " .. spec[1])
+  eq((gift.labels or {})[1], spec[2], spec[1] .. " starts at the original script")
+  eq(#(gift.keys or {}), spec[3], spec[1] .. " carries its branch scripts")
+  eq(gift.script, (gift.keys or {})[1], spec[1] .. " entry points to the first extracted script")
+  gifts[spec[1]] = gift
+  for j, key in ipairs(gift.keys or {}) do
+    local rows = im.giftScripts[key]
+    check(type(rows) == "table" and #rows > 0, spec[1] .. " branch " .. j .. " is extracted")
+    giftScripts[gift.labels[j]] = rows
+    for _, row in ipairs(rows or {}) do
+      if row.op == "vmessage" then
+        check(im.giftTexts[row[1]] ~= nil, spec[1] .. " message resolves to extracted text")
+      end
+    end
+  end
+end
+local function scriptHas(rows, op, ...)
+  local args = { ... }
+  for _, row in ipairs(rows or {}) do
+    if row.op == op then
+      local same = true
+      for i, value in ipairs(args) do if row[i] ~= value then same = false end end
+      if same then return true end
+    end
+  end
+  return false
+end
+local function givesItem(rows, item)
+  for i, row in ipairs(rows or {}) do
+    local quantity, give = rows[i + 1], rows[i + 2]
+    if row.op == "setorcopyvar" and row[1] == C:var("VAR_0x8000") and row[2] == item
+        and quantity and quantity.op == "setorcopyvar" and quantity[1] == C:var("VAR_0x8001")
+        and quantity[2] == 1 and give and give.op == "callstd" and give[1] == 0 then return true end
+  end
+  return false
+end
+-- pokeemerald/data/scripts/gift_aurora_ticket.inc:14
+for _, spec in ipairs({
+  { "aurora", "ITEM_AURORA_TICKET", "FLAG_ENABLE_SHIP_BIRTH_ISLAND", "FLAG_RECEIVED_AURORA_TICKET" },
+  { "mystic", "ITEM_MYSTIC_TICKET", "FLAG_ENABLE_SHIP_NAVEL_ROCK", "FLAG_RECEIVED_MYSTIC_TICKET" },
+  { "oldSeaMap", "ITEM_OLD_SEA_MAP", "FLAG_ENABLE_SHIP_FARAWAY_ISLAND", "FLAG_RECEIVED_OLD_SEA_MAP" },
+}) do
+  local rows = im.giftScripts[gifts[spec[1]].script]
+  check(givesItem(rows, C:require("items", spec[2])), spec[1] .. " gives its original key item once")
+  check(scriptHas(rows, "setflag", C:require("flags", spec[3])), spec[1] .. " enables its destination")
+  check(scriptHas(rows, "setflag", C:require("flags", spec[4])), spec[1] .. " records receipt")
+end
+-- pokeemerald/data/scripts/gift_pichu.inc:30
+check(scriptHas(giftScripts.SurfPichu_GiveEgg, "giveegg", C:require("species", "SPECIES_PICHU")),
+  "Surf Pichu card gives a Pichu egg")
+for slot = 1, 5 do
+  check(scriptHas(giftScripts["SurfPichu_Slot" .. slot], "setmonmove", slot, 2, C:require("moves", "MOVE_SURF")),
+    "Surf Pichu branch installs Surf in party slot " .. slot)
+end
+-- pokeemerald/data/scripts/gift_battle_card.inc:12
+check(givesItem(giftScripts.MysteryGiftScript_BattleCard, C:require("items", "ITEM_POTION")),
+  "Battle Card prize is one Potion")
+-- pokeemerald/data/scripts/gift_stamp_card.inc:4
+check(scriptHas(giftScripts.MysteryGiftScript_StampCard, "specialvar", C:var("VAR_0x8008"),
+  C:special("GetMysteryGiftCardStat")), "Stamp Card reads the saved card's stamp limit")
+-- pokeemerald/data/scripts/gift_altering_cave.inc:3
+check(scriptHas(giftScripts.MysteryGiftScript_AlteringCave, "addvar", C:var("VAR_ALTERING_CAVE_WILD_SET"), 1),
+  "Altering Cave card advances the encounter set")
+check(scriptHas(giftScripts.MysteryGiftScript_AlteringCave, "setvar", C:var("VAR_ALTERING_CAVE_WILD_SET"), 0),
+  "Altering Cave card wraps the encounter set")
 Rse.setVar("VAR_DEOXYS_ROCK_LEVEL", 0, sess)
 local results = {}
 for i = 1, 11 do
@@ -299,6 +377,10 @@ eq(Islands.pendingGift(sess).id, "aurora", "the Aurora Ticket is the first wonde
 eq(Rse.var("VAR_DISTRIBUTE_EON_TICKET", sess), 1, "the Eon Ticket distribution var is raised")
 Rse.setFlag("FLAG_RECEIVED_AURORA_TICKET", true, sess)
 eq(Islands.pendingGift(sess).id, "mystic", "then the Mystic Ticket")
+Rse.setFlag("FLAG_RECEIVED_MYSTIC_TICKET", true, sess)
+eq(Islands.pendingGift(sess).id, "oldSeaMap", "then the Old Sea Map")
+Rse.setFlag("FLAG_RECEIVED_OLD_SEA_MAP", true, sess)
+check(Islands.pendingGift(sess) == nil, "receiving all three tickets leaves no automatic gift pending")
 
 -- pokeemerald/src/apprentice.c:722
 local am = Ap.manifest()

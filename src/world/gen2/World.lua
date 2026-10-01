@@ -8164,6 +8164,20 @@ function World:loadObjectMasks(opts)
   self.maskScripted = scripted
 end
 
+function World:restoreObjectMasks(state)
+  if type(state) ~= "table" or not self.map or state.map ~= self.map.id then return false end
+  self.objectMasks, self.maskScripted = self.objectMasks or {}, self.maskScripted or {}
+  for i, obj in ipairs((self.map.def and self.map.def.objects) or {}) do
+    local masked = type(state.masks) == "table" and state.masks[i]
+    if type(masked) == "boolean" then
+      local key = self:objectMaskKey(obj, i)
+      if self.objectMasks[key] ~= masked then self.maskScripted[key] = true end
+      self.objectMasks[key] = masked
+    end
+  end
+  return true
+end
+
 -- InitializeVisibleSprites (engine/overworld/player_object.asm:223)
 function World:objectSpawnable(obj)
   local map = self.map
@@ -10242,6 +10256,8 @@ function World:setMap(mapId, cx, cy, facing, opts)
   -- LoadObjectMasks itself, the load this map visit's masks come from.  Every
   -- appear/disappear after it moves one byte of its own.
   self:loadObjectMasks()
+  local savedMasks = self.game and self.game.save and self.game.save.mapObjectMasks
+  if opts.continue then self:restoreObjectMasks(savedMasks) end
   -- CheckUpdatePlayerSprite (engine/overworld/map_setup.asm), which every map
   -- setup script runs: the Cycling Road puts the player ON the bike, an
   -- INDOOR / DUNGEON map takes them off it, and the surf arms follow

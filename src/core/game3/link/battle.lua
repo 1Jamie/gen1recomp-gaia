@@ -1310,13 +1310,20 @@ local function bumpRecord(entry, outcome)
 end
 
 -- pokefirered/src/battle_records.c:355 UpdateLinkBattleGameStats
-local GAME_STAT = { [1] = "linkBattleWins", [2] = "linkBattleLosses", [3] = "linkBattleDraws" }
+local GAME_STAT = {
+  [1] = { id = 23, key = "linkBattleWins" },
+  [2] = { id = 24, key = "linkBattleLosses" },
+  [3] = { id = 25, key = "linkBattleDraws" },
+}
 local function bumpGameStat(s, outcome)
-  local key = GAME_STAT[outcome]
-  if not (key and type(s) == "table") then return end
+  local stat = GAME_STAT[outcome]
+  if not (stat and type(s) == "table") then return end
   if type(s.gameStats) ~= "table" then s.gameStats = {} end
-  local n = tonumber(s.gameStats[key]) or 0
-  if n < LB.RECORD_MAX then s.gameStats[key] = n + 1 end
+  local gs = s.gameStats
+  local n = tonumber(gs[stat.id])
+  if n == nil then n = tonumber(gs[stat.key]) or 0 end
+  gs[stat.key] = nil
+  gs[stat.id] = n < LB.RECORD_MAX and n + 1 or n
 end
 
 -- pokefirered/src/battle_records.c:376 AddOpponentLinkBattleRecord

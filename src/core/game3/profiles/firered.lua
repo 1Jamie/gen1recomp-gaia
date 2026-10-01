@@ -59,7 +59,8 @@ return {
     -- pokefirered/src/item.c:495
     sortHmsFirst = { TM_CASE = true },
     sortById = {},
-    pcItems = 50,
+    -- pokefirered/include/constants/global.h:35
+    pcItems = 30,
     pcSlotMax = 999,
   },
 

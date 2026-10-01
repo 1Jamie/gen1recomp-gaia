@@ -295,8 +295,9 @@ check(scSave and scSave.player and scSave.player.id == 12345,
 check(scSave and scSave.inventory and scSave.inventory.POKE_BALL == 5,
       "SaveConvert.importSav: decoded bag items survive the merge")
 -- merge over new-game defaults
-check(scSave and scSave.options == nil,
-      "SaveConvert.importSav: no options table rides the imported save")
+check(scSave and type(scSave.options) == "table"
+      and scSave.options.textSpeed == bytes2:byte(GenSave.OFFSETS.options + 1) % 8,
+      "SaveConvert.importSav: wOptions rides the imported save")
 check(scSave and type(scSave.defeatedTrainers) == "table" and type(scSave.modData) == "table"
       and scSave.repelSteps == 0,
       "SaveConvert.importSav: default defeatedTrainers/modData/repelSteps merged in")
@@ -304,8 +305,9 @@ check(scSave and type(scSave.defeatedTrainers) == "table" and type(scSave.modDat
 check(scSave and scSave.meta and scSave.meta.version == 2,
       "SaveConvert.importSav: save is tagged with the requested version")
 -- derived heal/outdoor anchors
-check(scSave and scSave.lastHeal and scSave.lastHeal.map == scSave.player.map,
-      "SaveConvert.importSav: lastHeal derives from the decoded position")
+check(scSave and scSave.lastHeal and scSave.lastHeal.map
+      == GenSave.crosswalks(data).mapsByIndex[bytes2:byte(GenSave.OFFSETS.lastBlackoutMap + 1)],
+      "SaveConvert.importSav: lastHeal comes from wLastBlackoutMap")
 check(scSave and scSave.lastOutdoor and scSave.lastOutdoor.id ~= nil,
       "SaveConvert.importSav: lastOutdoor is set")
 -- The original SRAM image carries the current-map cache that Red restores on
@@ -567,16 +569,18 @@ do
   check(ob2:byte(OFF.options + 1) == 3,
         ("wOptions defaults to medium text, shift style, effects on ($%02X)"):format(
           ob2:byte(OFF.options + 1)))
-  -- ...but with a template the cartridge's own byte wins (the round-trip
-  -- invariant): an imported save's FAST+SET options must not be flattened
-  -- to the session defaults on re-export
   local tpl = {}
   for i = 1, GenSave.SAVE_SIZE do tpl[i] = string.char(0) end
-  tpl[OFF.options + 1] = string.char(0xC1)
+  tpl[OFF.options + 1] = string.char(0xF1)
   local ob3 = GenSave.encode(o2, data, table.concat(tpl))
-  check(ob3:byte(OFF.options + 1) == 0xC1,
-        ("wOptions survives from the template on re-export ($%02X)"):format(
+  check(ob3:byte(OFF.options + 1) == 0x33,
+        ("wOptions follows the save's options and keeps the template's sound bits ($%02X)"):format(
           ob3:byte(OFF.options + 1)))
+  local back = GenSave.decode(ob3, data)
+  back.options.battleStyle, back.options.animations, back.options.textSpeed = "set", false, 1
+  local ob4 = GenSave.encode(back, data, nil)
+  check(ob4:byte(OFF.options + 1) == 0xF1,
+        ("an imported FAST+SET+sound 3 wOptions round-trips ($%02X)"):format(ob4:byte(OFF.options + 1)))
 end
 
 -- (3) catchRate: Pokemon.new stamps the as-caught byte, evolution keeps it,

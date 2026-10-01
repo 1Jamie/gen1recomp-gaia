@@ -2283,22 +2283,17 @@ function Tv.deactivateAllNormalShows(session)
 end
 
 function Tv.mixExport(session)
-  local s = Tv.state(sessionOf(session))
+  session = sessionOf(session)
+  local s = Tv.state(session)
   local out = { tvShows = copy(s.tvShows), pokeNews = copy(s.pokeNews), trainerId = Tv.playerId(session) }
-  local raw = type(session) == "table" and session.modData and session.modData.cartImport
-    and session.modData.cartImport.recordMixTvBytes256
-  if type(raw) == "table" then
-    local sum = 0
-    for i = 1, 256 do sum = sum + (tonumber(raw[i]) or 0) end
-    -- pokeemerald/src/record_mixing.c:220 deactivates normal slots before sending this sum.
-    for slot = 0, Tv.NUM_NORMAL_TVSHOW_SLOTS - 1 do
-      local kindIndex, activeIndex = slot * 36 + 1, slot * 36 + 2
-      if Tv.groupOf(tonumber(raw[kindIndex]) or 0) == Tv.TVGROUP.NORMAL then
-        sum = sum - (tonumber(raw[activeIndex]) or 0)
-      end
-    end
-    out.tvShowByteSum = sum % 256
+  local sending = copy(out.tvShows)
+  for slot = 0, Tv.NUM_NORMAL_TVSHOW_SLOTS - 1 do
+    if Tv.groupOf(sending[slot].kind) == Tv.TVGROUP.NORMAL then sending[slot].active = false end
   end
+  local raw = require("src.save_convert.Gen3Save").forVersion("emerald").recordMixTvPrefix(session, sending)
+  local sum = 0
+  for i = 1, 256 do sum = sum + raw:byte(i) end
+  out.tvShowByteSum = sum % 256
   return out
 end
 

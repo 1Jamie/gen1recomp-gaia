@@ -1004,7 +1004,7 @@ local function dispatch(vm, row)
           slot.qty = (tonumber(slot.qty) or 0) + qty
           ok = true
         end
-      elseif #storage.items < Storage.PC_ITEMS_COUNT then
+      elseif #storage.items < Storage.pcItemsCount(session) then
         storage.items[#storage.items + 1] = { id = item, qty = math.min(qty, Storage.MAX_ITEM_QTY) }
         ok = true
       end

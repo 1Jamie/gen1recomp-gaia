@@ -143,7 +143,7 @@ function Tower.chooseSpecialTrainer(sess)
   local sizes = D.manifest().towerPartySizes
   for i = 1, Util.BATTLE_TOWER_RECORD_COUNT do
     local rec = f.towerRecords[i]
-    if type(rec) == "table" and next(rec) ~= nil then
+    if type(rec) == "table" and next(rec) ~= nil and rec.checksumValid ~= false then
       local valid = 0
       for _, mon in ipairs(rec.party or {}) do
         if (tonumber(mon.species) or 0) ~= 0 and (tonumber(mon.level) or 0) <= D.enemyLevel(lvl, sess.party) then
@@ -158,6 +158,12 @@ function Tower.chooseSpecialTrainer(sess)
   if mode == M.SINGLES then
     local th = D.manifest().apprenticeChallengeThreshold
     for i, app in ipairs(sess.apprentices or {}) do
+      if app.checksumValid == false then
+        -- pokeemerald/src/battle_tower.c:3183
+        app = require("src.core.game3.rse.frontier.apprentice").newSaved()
+        app.language = 0
+        sess.apprentices[i] = app
+      end
       local q = tonumber(app.numQuestions) or 0
       if (tonumber(app.lvlMode) or 0) ~= 0 and th[q + 1] == ws and app.lvlMode - 1 == lvl then
         ids[#ids + 1] = i - 1 + D.TRAINER_RECORD_MIXING_APPRENTICE

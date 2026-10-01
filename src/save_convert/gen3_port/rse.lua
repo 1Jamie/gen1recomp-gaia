@@ -59,6 +59,16 @@ local function section(def)
   Rse.SECTIONS[def.name] = def
   return def
 end
+Rse.FRLG_SECTIONS = {}
+function Rse.defineSection(def, families)
+  families = families or { emerald = true }
+  if families.emerald then section(def) end
+  if families.frlg then
+    Rse.FRLG_SECTIONS[#Rse.FRLG_SECTIONS + 1] = def
+    Rse.FRLG_SECTIONS[def.name] = def
+  end
+  return def
+end
 
 -- pokeemerald/include/global.h:529
 section({
@@ -291,7 +301,6 @@ section({
   fields = { "pokeNews", "gabbyAndTyData", "outbreakPokemonSpecies", "outbreakLocationMapNum", "outbreakLocationMapGroup",
     "outbreakPokemonLevel", "outbreakUnused1", "outbreakUnused2", "outbreakPokemonMoves", "outbreakUnused3",
     "outbreakPokemonProbability", "outbreakDaysLeft" },
-  template = { "tvShows" },
   read = function(x)
     local o, out = x.L.RSE.sb1, { pokeNews = {} }
     for i = 0, o.pokeNewsCount - 1 do
@@ -393,8 +402,7 @@ section({
     for i = 0, o.contestWinnerCount - 1 do
       local b = o.contestWinners + i * 32
       list[i + 1] = { personality = u32(x.sb1, b), trainerId = u32(x.sb1, b + 4), species = u16(x.sb1, b + 8),
-        contestCategory = u8(x.sb1, b + 10), monName = bytesAt(x.sb1, b + 11, 11), trainerName = bytesAt(x.sb1, b + 22, 8),
-        contestRank = u8(x.sb1, b + 30) }
+        contestCategory = u8(x.sb1, b + 10), contestRank = u8(x.sb1, b + 30) }
     end
     local res, r = {}, x.L.RSE.sb2.contestLinkResults
     for cat = 0, 4 do
@@ -411,8 +419,6 @@ section({
       x.w1:w32(b + 4, num(w.trainerId))
       x.w1:w16(b + 8, num(w.species))
       x.w1:w8(b + 10, num(w.contestCategory))
-      putBytes(x.w1, b + 11, w.monName, 11)
-      putBytes(x.w1, b + 22, w.trainerName, 8)
       x.w1:w8(b + 30, num(w.contestRank))
     end
     local res, r = type(v.contestLinkResults) == "table" and v.contestLinkResults or {}, x.L.RSE.sb2.contestLinkResults
@@ -428,29 +434,31 @@ section({
   fields = { "linkBattleRecords" },
   read = function(x)
     local LR, list = x.L.LINK_BATTLE_RECORDS, {}
+    local s = LR.block == "sb2" and x.sb2 or x.sb1
     for i = 0, LR.count - 1 do
       local b = LR.off + i * LR.size
-      if u8(x.sb1, b) ~= 0xFF and u8(x.sb1, b) ~= 0 then
-        list[#list + 1] = { name = x.codec.decodeString(x.sb1, b, 8), trainerId = u16(x.sb1, b + 8),
-          wins = u16(x.sb1, b + 10), losses = u16(x.sb1, b + 12), draws = u16(x.sb1, b + 14) }
+      if u8(s, b) ~= 0xFF and u8(s, b) ~= 0 then
+        list[#list + 1] = { name = x.codec.decodeString(s, b, 8), trainerId = u16(s, b + 8),
+          wins = u16(s, b + 10), losses = u16(s, b + 12), draws = u16(s, b + 14) }
       end
     end
     return { linkBattleRecords = list }
   end,
   write = function(x, v)
     local LR, list = x.L.LINK_BATTLE_RECORDS, type(v.linkBattleRecords) == "table" and v.linkBattleRecords or {}
+    local w = LR.block == "sb2" and x.w2 or x.w1
     for i = 0, LR.count - 1 do
       local b, e = LR.off + i * LR.size, list[i + 1]
-      x.w1:fill(b, LR.size, 0)
+      w:fill(b, LR.size, 0)
       if type(e) == "table" and tostring(e.name or "") ~= "" then
-        x.w1:bytes(b, x.codec.encodeString(e.name, 8))
-        x.w1:w16(b + 8, num(e.trainerId))
-        x.w1:w16(b + 10, num(e.wins))
-        x.w1:w16(b + 12, num(e.losses))
-        x.w1:w16(b + 14, num(e.draws))
+        w:bytes(b, x.codec.encodeString(e.name, 8))
+        w:w16(b + 8, num(e.trainerId))
+        w:w16(b + 10, num(e.wins))
+        w:w16(b + 12, num(e.losses))
+        w:w16(b + 14, num(e.draws))
       else
         -- pokeemerald/src/battle_records.c:94
-        x.w1:w8(b, 0xFF)
+        w:w8(b, 0xFF)
       end
     end
   end,
@@ -488,9 +496,9 @@ section({
   name = "trainerNameRecords",
   fields = { "trainerNameRecords" },
   read = function(x)
-    local o, list = x.L.RSE.sb1, {}
-    for i = 0, o.trainerNameRecordCount - 1 do
-      local b = o.trainerNameRecords + i * 12
+    local o, list = x.L.TRAINER_NAME_RECORDS, {}
+    for i = 0, o.count - 1 do
+      local b = o.off + i * 12
       local id = u32(x.sb1, b)
       if id ~= 0 or u8(x.sb1, b + 4) ~= 0xFF and u8(x.sb1, b + 4) ~= 0 then
         list[#list + 1] = { trainerId = id % 65536, name = x.codec.decodeString(x.sb1, b + 4, 8) }
@@ -499,9 +507,9 @@ section({
     return { trainerNameRecords = list }
   end,
   write = function(x, v)
-    local o, list = x.L.RSE.sb1, type(v.trainerNameRecords) == "table" and v.trainerNameRecords or {}
-    for i = 0, o.trainerNameRecordCount - 1 do
-      local b, e = o.trainerNameRecords + i * 12, list[i + 1]
+    local o, list = x.L.TRAINER_NAME_RECORDS, type(v.trainerNameRecords) == "table" and v.trainerNameRecords or {}
+    for i = 0, o.count - 1 do
+      local b, e = o.off + i * 12, list[i + 1]
       x.w1:fill(b, 12, 0)
       if type(e) == "table" then
         x.w1:w32(b, num(e.trainerId))
@@ -545,8 +553,13 @@ section({
     if type(v.frontier) ~= "table" then return end
     local Util = require("src.core.game3.rse.frontier.util")
     local base = Util.CART_BASE
+    local keep = {}
+    for _, row in ipairs(Util.CART_LAYOUT) do
+      if row[3] == "bits" then keep[row[2]] = (keep[row[2]] or 255) - (2 ^ row[5] - 1) * 2 ^ row[4] end
+    end
     Util.toCart(function(off, size, value)
       value = num(value)
+      if keep[off] then value = band(x.w2.b[base + off] or 0, keep[off]) + value % 256 end
       if size == 1 then x.w2:w8(base + off, value % 256)
       elseif size == 2 then x.w2:w16(base + off, value)
       else x.w2:w32(base + off, value) end
@@ -554,10 +567,7 @@ section({
   end,
 })
 
-section({ name = "trainerHill", fields = {}, template = { "trainerHill", "trainerHillTimes" } })
 section({ name = "apprentice", fields = {}, template = { "playerApprentice", "apprentices" } })
-section({ name = "lilycoveLady", fields = {}, template = { "lilycoveLady" } })
-section({ name = "oldMan", fields = {}, template = { "oldMan" } })
 
 -- pokeemerald/include/global.h:746
 section({
@@ -579,17 +589,22 @@ section({
   end,
 })
 section({ name = "lottery", fields = {}, vars = true })
+section({ name = "easyChat", fields = {} })
 
-local function context(codec, blocks, w1, w2)
-  return { L = codec.L, codec = codec, sb1 = blocks.sb1, sb2 = blocks.sb2, w1 = w1, w2 = w2 }
+local function context(codec, blocks, w1, w2, notes)
+  return { L = codec.L, codec = codec, sb1 = blocks.sb1, sb2 = blocks.sb2, w1 = w1, w2 = w2, notes = notes }
 end
 
-function Rse.readSections(codec, blocks, out)
+local function merge(dst, src)
+  for k, v in pairs(src) do
+    if type(v) == "table" and type(dst[k]) == "table" then merge(dst[k], v) else dst[k] = v end
+  end
+end
+
+function Rse.readSections(codec, blocks, out, sections)
   local x = context(codec, blocks)
-  for _, s in ipairs(Rse.SECTIONS) do
-    if s.read then
-      for k, v in pairs(s.read(x)) do out[k] = v end
-    end
+  for _, s in ipairs(sections or Rse.SECTIONS) do
+    if s.read then merge(out, s.read(x)) end
   end
   return out
 end
@@ -600,18 +615,19 @@ local function pick(save, fields)
   return out
 end
 
-function Rse.writeSections(codec, encoded, template, save)
+function Rse.writeSections(codec, encoded, template, save, sections)
   local newBuf = codec.newBuf
   local w1, w2 = newBuf(#encoded.sb1, encoded.sb1), newBuf(#encoded.sb2, encoded.sb2)
   local base = template and context(codec, template) or nil
-  for _, s in ipairs(Rse.SECTIONS) do
+  local notes = {}
+  for _, s in ipairs(sections or Rse.SECTIONS) do
     if s.write then
       local want = pick(save, s.fields)
       local present = false
       for _, f in ipairs(s.fields) do if save[f] ~= nil then present = true end end
       if present then
         local t1, t2 = newBuf(#encoded.sb1, w1:str()), newBuf(#encoded.sb2, w2:str())
-        local tx = context(codec, encoded, t1, t2)
+        local tx = context(codec, encoded, t1, t2, notes)
         s.write(tx, want)
         local changed = true
         if base then
@@ -622,7 +638,7 @@ function Rse.writeSections(codec, encoded, template, save)
       end
     end
   end
-  return { sb2 = w2:str(), sb1 = w1:str(), storage = encoded.storage }
+  return { sb2 = w2:str(), sb1 = w1:str(), storage = encoded.storage, notes = notes }
 end
 
 local function splice(s, off, part)
@@ -736,6 +752,10 @@ function Rse.finishImport(save, data)
   return save
 end
 
+for _, name in ipairs({ "tv_shows", "records", "town", "frlg_extra" }) do
+  require("src.save_convert.gen3_port.sections." .. name)(Rse)
+end
+
 function Rse.install(codec)
   local toPortSave, fromPortSave = codec.toPortSave, codec.fromPortSave
 
@@ -744,25 +764,20 @@ function Rse.install(codec)
     local cart, blocks = codec.decode(bytes)
     if not cart then return nil, codec.message(blocks, #bytes) end
     if not codec.mapFor(cart.location.group, cart.location.num) then return nil, codec.MSG.corrupt end
-    local save = Rse.augment(codec, toPortSave(cart, version), cart, blocks)
-    return save, nil, cart.olderSlot and codec.MSG.olderSlot or nil
+    local save, note = codec.stampImport(Rse.augment(codec, toPortSave(cart, version), cart, blocks), bytes, cart, version)
+    return save, nil, note
   end
 
   function codec.fromPortSave(save, opts)
     local c, blocks = fromPortSave(save, opts)
     if not c then return nil, blocks end
-    local orig = blocks and type(opts) == "table" and type(opts.template) == "string" and codec.decode(opts.template)
-    if orig and c.location.group == orig.location.group and c.location.num == orig.location.num
-        and c.posX == orig.posX and c.posY == orig.posY and num(save.specialSaveWarpFlags) == orig.specialSaveWarpFlags then
-      c.location, c.continueGameWarp, c.specialSaveWarpFlags = orig.location, orig.continueGameWarp, orig.specialSaveWarpFlags
-    end
+    local orig = blocks and codec.decode(blocks.image)
     if orig and opts.healWarp and not same(c.lastHealLocation, orig.lastHealLocation) then
       local was = codec.mapFor(orig.lastHealLocation.group, orig.lastHealLocation.num)
       local a = was and opts.healWarp(was)
       local b = type(save.healMap) == "string" and opts.healWarp(save.healMap)
       if a and b and same(a, b) then c.lastHealLocation = orig.lastHealLocation end
     end
-    if save.encryptionKey ~= nil and not blocks then c.encryptionKey = num(save.encryptionKey) % U32 end
     c.roamer = Rse.cartRoamer(save.roamer, c.roamer)
     if save.savedWeather ~= nil then c.weather = num(save.savedWeather) % 256 end
     if save.weatherCycleStage ~= nil then c.weatherCycleStage = num(save.weatherCycleStage) % 256 end
@@ -772,15 +787,10 @@ function Rse.install(codec)
   function codec.exportPort(save, opts)
     local c, blocks = codec.fromPortSave(save, opts)
     if not c then return nil, blocks end
-    local hof = #c.hallOfFame > 0 and codec.encodeHof(c.hallOfFame) or nil
-    if blocks and hof then
-      local orig = codec.decode(blocks.image)
-      if orig and same(orig.hallOfFame, c.hallOfFame) then hof = nil end
-    end
-    local counter = blocks and (blocks.counter + 1) % U32 or 1
     local encoded = Rse.writeSections(codec, codec.encodeBlocks(c, blocks), blocks, save)
     if blocks then encoded = Rse.keepUnchanged(codec, encoded, blocks) end
-    return codec.buildFlash(encoded, { counter = counter, image = blocks and blocks.image, hof = hof })
+    for _, n in ipairs(c.notes or {}) do encoded.notes[#encoded.notes + 1] = n end
+    return codec.finishFlash(c, blocks, encoded), #encoded.notes > 0 and table.concat(encoded.notes, " ") or nil
   end
 
   codec.port = Rse

@@ -123,9 +123,11 @@ for _, version in ipairs({ "firered", "leafgreen" }) do
     check(info == nil, version .. " " .. shape[1] .. " never asks to confirm")
     eq(#SaveData.listSlots(version), 1, version .. " " .. shape[1] .. " creates one slot")
     eq(SaveData.activeSlot(version), slotId, version .. " " .. shape[1] .. " is made active")
-    eq(files[("saves/%s/%s.cart"):format(version, tostring(slotId))], shape[2],
-      version .. " " .. shape[1] .. " keeps the cart image beside the slot")
+    eq(files[("saves/%s/%s.cart"):format(version, tostring(slotId))], nil,
+      version .. " " .. shape[1] .. " writes no sidecar cart image")
     local back = SaveSerializer.decode(SaveData.readSlotSource(version, slotId) or "")
+    check(back and back.modData and type(back.modData.cartImage) == "string",
+      version .. " " .. shape[1] .. " keeps the cart image inside the slot")
     eq(back and back.version, version, version .. " " .. shape[1] .. " slot is tagged " .. version)
     eq(back and back.money, 123456, version .. " " .. shape[1] .. " money")
     eq(back and back.party and #back.party, 4, version .. " " .. shape[1] .. " party")
@@ -162,6 +164,8 @@ for _, version in ipairs({ "firered", "leafgreen" }) do
   local ok, slotId = SaveFileIO.importToSlot(writeTmp(files, "picked_save.sav", FR_CART), version)
   eq(ok, true, version .. " cart imported for the stale-template check")
   local cartFile = ("saves/%s/%s.cart"):format(version, tostring(slotId))
+  eq(files[cartFile], nil, version .. " the import writes no sidecar")
+  files[cartFile] = FR_CART
   local same = SaveSerializer.decode(SaveData.readSlotSource(version, slotId))
   check(SaveData.save(same) ~= false, version .. " the imported player saves")
   check(files[cartFile] ~= nil, version .. " the imported player's cart stays")

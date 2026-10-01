@@ -926,8 +926,8 @@ function Pokegear.new(game, opts)
   self.cards = self:visibleCards()
   self.cardIndex = 1
   self.mode = "strip" -- strip | card
-  self.tuningKnob = game and game.radioTuningSave == self.save
-    and game.radioTuningKnob or 0
+  self.tuningKnob = (type(self.save) == "table" and tonumber(self.save.radioTuningKnob))
+    or (game and game.radioTuningSave == self.save and game.radioTuningKnob) or 0
   -- wPokegearPhoneCursorPosition / wPokegearPhoneScrollPosition, both of which
   -- are ZERO based on the cart: the cursor runs 0..PHONE_DISPLAY_HEIGHT - 1
   -- inside the visible window and the scroll runs 0..CONTACT_LIST_SIZE -
@@ -1325,6 +1325,7 @@ function Pokegear:tuneRadio()
     self.game.radioTuningKnob = self.tuningKnob
     self.game.radioTuningSave = self.save
   end
+  if type(self.save) == "table" then self.save.radioTuningKnob = self.tuningKnob end
   local row = self:currentStation()
   local station = row and row.station
   self.radioTuned = true

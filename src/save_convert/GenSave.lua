@@ -13,12 +13,11 @@
 -- layout, wMainData field order, party_struct/box_struct sizes) is right.
 --
 -- SRAM layout (32768 bytes = 4 banks x 8192): bank 0 is sprite buffers +
--- Hall of Fame (not modeled -- see "explicitly out of scope" in the
--- save-converter plan); bank 1 is "Save Data" (sPlayerName through
+-- Hall of Fame; bank 1 is "Save Data" (sPlayerName through
 -- sMainDataCheckSum); banks 2/3 are the 12 PC boxes (6 each) + checksums.
 --
 -- Fields with no equivalent in save.lua (current sprite/animation state,
--- connection-header cache, Day Care, Safari Zone, HOF roster) are
+-- connection-header cache, Day Care, Safari Zone) are
 -- intentionally not modeled: on export, encode() starts from the
 -- ORIGINAL imported bytes as a template when available (GenSave.decode
 -- stashes them) so that scratch state round-trips untouched instead of
@@ -65,7 +64,7 @@ O.xCoord = O.mainData + 107                               -- 1B
 O.lastMap = O.mainData + 110                              -- 1B
 O.numPcItems = O.mainData + 579                           -- 1B
 O.pcItems = O.mainData + 580                              -- 101B (50 x (id,qty) + $FF term)
-O.currentBoxNum = O.mainData + 681                        -- 1B (bits 0-6: box 0-11, bit 7: unused here)
+O.currentBoxNum = O.mainData + 681                        -- 1B (bits 0-6: box 0-11, bit 7: BIT_HAS_CHANGED_BOXES)
 O.coins = O.mainData + 685                                -- 2B BCD
 -- wTownVisitedFlag (ram/wram.asm:2057): the FLY destination set, a
 -- flag_array NUM_CITY_MAPS whose bit index IS the town's map index (see the
@@ -129,6 +128,33 @@ O.playTimeFrames = O.mainData + 1870                      -- 1B (0-59, 1/60s tic
 O.pikachuHappiness = O.mainData + 377
 O.pikachuMood = O.mainData + 378                          -- engine/menus/save.asm:260
 O.pikachuEmotionModifier = O.mainData + 421               -- ram/wram.asm:2090
+O.numHoFTeams = O.mainData + 683                          -- ram/wram.asm:1904
+O.walkBikeSurf = O.townVisited - 11                       -- ram/wram.asm:2053
+O.lastBlackoutMap = O.townVisited + 14                    -- ram/wram.asm:2083
+O.mapPalOffset = 0x2609                                   -- ram/wram.asm:1780
+O.safariGateScript = 0x28CB                               -- ram/wram.asm:1968
+O.hiddenCoinFlags = 0x29AA                                -- ram/wram.asm:2048
+O.safariSteps = 0x29B9                                    -- ram/wram.asm:2060
+O.fossilItem = 0x29BB                                     -- ram/wram.asm:2063
+O.fossilMon = 0x29BC
+O.beatGymFlags = 0x29D6                                   -- ram/wram.asm:2107
+O.statusFlags6 = 0x29DE                                   -- ram/wram.asm:2116
+O.trashFirst = 0x29EF                                     -- ram/wram.asm:2136
+O.trashSecond = 0x29F0
+O.safariBalls = 0x2CF3                                    -- ram/wram.asm:2208
+O.dayCare = 0x2CF4                                        -- ram/wram.asm:2212
+O.surfHiScore = 0x2741                                    -- pokeyellow ram/wram.asm:2084
+local function isDarkMap(data, mapId)
+  local dark = type(data.field) == "table" and data.field.darkMaps
+  for _, id in ipairs(type(dark) == "table" and dark.maps or {}) do
+    if id == mapId then return true end
+  end
+  return false
+end
+local DAYCARE_SIZE = 1 + 2 * NAME_LENGTH + BOX_STRUCT_SIZE
+local DAYCARE_OT = 1 + NAME_LENGTH
+local DAYCARE_MON = 1 + 2 * NAME_LENGTH
+local FOSSIL_ITEM_FOR_MON = { KABUTO = "DOME_FOSSIL", OMANYTE = "HELIX_FOSSIL", AERODACTYL = "OLD_AMBER" }
 O.mainDataSize = 1929                                     -- wMainDataEnd - wMainDataStart
 
 O.spriteData = O.mainData + O.mainDataSize
@@ -155,6 +181,13 @@ O.checksumEnd = O.curBoxData + BOX_REGION_SIZE + 1        -- + sTileAnimations (
 O.mainChecksum = O.checksumEnd                            -- 1B
 
 O.identityTag = 8192                                       -- ram/sram.asm:14
+O.padByte = 0x2009
+O.padByteTagged = 0x2024
+O.hallOfFame = 0x0598                                      -- ram/sram.asm:9
+local HOF_MON = 16                                         -- constants/pokemon_data_constants.asm:63
+local HOF_TEAM = PARTY_LENGTH * HOF_MON
+local HOF_TEAM_CAPACITY = 50
+local TRAINER_NAME_MAX = 7
 GenSave.IDENTITY_MAGIC = "G1RC"
 GenSave.IDENTITY_ID_LENGTH = 32
 
@@ -228,6 +261,14 @@ function GenSave.mainChecksumValid(bytes)
   return checksum(bytes, O.checksumStart, O.checksumEnd) == u8(bytes, O.mainChecksum)
 end
 
+function GenSave.looksLikeJapaneseSave(bytes)
+  if type(bytes) ~= "string" or #bytes < 0x3595 then return false end
+  if checksum(bytes, O.checksumStart, 0x3594) ~= u8(bytes, 0x3594) then return false end
+  local party, box = u8(bytes, 0x2ED5), u8(bytes, 0x302D)
+  return party <= PARTY_LENGTH and u8(bytes, 0x2ED6 + party) == 0xFF
+    and box <= 30 and u8(bytes, 0x302E + box) == 0xFF
+end
+
 -- flag_array packs LSB-first within each byte (bit 0 of byte 0 = index 0).
 -- This is pokered's runtime FlagAction convention (home/predef macros): it
 -- takes flag number N, addresses byte N/8, and builds the mask by rotating
@@ -273,28 +314,35 @@ local function decodeName(bytes, off, len)
   for i = 0, len - 1 do
     local b = u8(bytes, off + i)
     if b == 0x50 then break end
-    out[#out + 1] = charmap.byByte[b] or "?"
+    out[#out + 1] = charmap.byByte[b] or ("<$%02X>"):format(b)
   end
   return table.concat(out)
 end
 
-local function encodeName(buf, off, len, text, padTail)
+local function encodeName(buf, off, len, text, padTail, maxChars)
   local i, pos = 0, 1
-  while i < len - 1 and pos <= #text do
+  local limit = math.min(len - 1, maxChars or len - 1)
+  text = tostring(text or "")
+  while i < limit and pos <= #text do
     -- a bracketed control token (e.g. "<DOT>", from decodeName reading a
     -- byte with no plain-glyph mapping) is ONE game character despite
     -- being several text bytes here; match it as a whole unit first, or
     -- it would fall through to per-byte matching and turn into "?" x5
     local bracket = text:match("^(<[^<>]*>)", pos)
-    local ch, clen
-    if bracket and charmap.byToken[bracket] then
+    local rawByte = bracket and bracket:match("^<%$(%x%x)>$")
+    local ch, clen, code
+    if rawByte then
+      ch, clen, code = bracket, #bracket, tonumber(rawByte, 16)
+    elseif bracket and charmap.byToken[bracket] then
       ch, clen = bracket, #bracket
+    elseif text:byte(pos) == 0x27 and charmap.byToken[text:sub(pos, pos + 1)] then
+      ch, clen = text:sub(pos, pos + 1), 2
     else
       local b0 = text:byte(pos)
       clen = (b0 < 0x80 and 1) or (b0 < 0xE0 and 2) or (b0 < 0xF0 and 3) or 4
       ch = text:sub(pos, pos + clen - 1)
     end
-    setByte(buf, off + i, charmap.byToken[ch] or charmap.byToken["?"] or 0x50)
+    setByte(buf, off + i, code or charmap.byToken[ch] or charmap.byToken["?"] or 0x50)
     i, pos = i + 1, pos + clen
   end
   -- Write exactly ONE $50 terminator.  The tail past it is $50-padded only
@@ -376,16 +424,12 @@ local EXTRA_FLAG_BITS = {
   EVENT_GAVE_GUARDS_DRINK = { O.statusFlags1, 6 },
   EVENT_GOT_LAPRAS        = { O.statusFlags4, 0 },
   EVENT_STARTED_ELITE_4   = { O.elite4Flags, 1 },
-  EVENT_TRADED_NIDORINO_FOR_NIDORINA   = { O.tradeFlags, 0 },
-  EVENT_TRADED_ABRA_FOR_MR_MIME        = { O.tradeFlags, 1 },
-  EVENT_TRADED_PONYTA_FOR_SEEL         = { O.tradeFlags, 3 },
-  EVENT_TRADED_SPEAROW_FOR_FARFETCHD   = { O.tradeFlags, 4 },
-  EVENT_TRADED_SLOWBRO_FOR_LICKITUNG   = { O.tradeFlags, 5 },
-  EVENT_TRADED_POLIWHIRL_FOR_JYNX      = { O.tradeFlags, 6 },
-  EVENT_TRADED_RAICHU_FOR_ELECTRODE    = { O.tradeFlags, 7 },
-  EVENT_TRADED_VENONAT_FOR_TANGELA     = { O.tradeFlags, 8 },
-  EVENT_TRADED_NIDORAN_M_FOR_NIDORAN_F = { O.tradeFlags, 9 },
 }
+
+local function tradeFlagsOf(data)
+  if type(data.tradeFlags) == "table" then return data.tradeFlags end
+  return require("src.save_convert.data.trade_flags")
+end
 
 -- port-local name -> the wEventFlags name it means (#396)
 local FLAG_ALIAS = {
@@ -405,15 +449,19 @@ local YELLOW_STARTER = "PIKACHU"
 -- STATUS_* bits (constants/battle_constants.asm): 0-2 sleep-turns-left,
 -- 3 PSN, 4 BRN, 5 FRZ, 6 PAR
 local STATUS_BIT = { PSN = 3, BRN = 4, FRZ = 5, PAR = 6 }
+local STATUS_ORDER = { "PSN", "BRN", "FRZ", "PAR" }
 local function decodeStatus(b)
   if bit.band(b, 7) > 0 then return "SLP" end
-  for name, bitIdx in pairs(STATUS_BIT) do
-    if bit.band(b, bit.lshift(1, bitIdx)) ~= 0 then return name end
+  for _, name in ipairs(STATUS_ORDER) do
+    if bit.band(b, bit.lshift(1, STATUS_BIT[name])) ~= 0 then return name end
   end
   return nil
 end
-local function encodeStatus(status)
-  if status == "SLP" then return 7 end
+local function encodeStatus(status, sleepTurns)
+  if status == "SLP" then
+    local n = math.floor(tonumber(sleepTurns) or 1)
+    return math.max(1, math.min(7, n))
+  end
   if status and STATUS_BIT[status] then return bit.lshift(1, STATUS_BIT[status]) end
   return 0
 end
@@ -533,22 +581,52 @@ end
 -- species) but re-derived from data.pokemon[species].types on encode.
 -- ------------------------------------------------------------------
 
-local function decodeMon(bytes, off, isParty, cw)
+local function hexOf(bytes, off, len)
+  return (bytes:sub(off + 1, off + len):gsub(".", function(c)
+    return ("%02X"):format(c:byte())
+  end))
+end
+
+local function unhex(s)
+  if type(s) ~= "string" or #s % 2 ~= 0 or s:find("[^%x]") then return nil end
+  return (s:gsub("%x%x", function(h) return string.char(tonumber(h, 16)) end))
+end
+
+local function putRaw(buf, off, raw, len)
+  for i = 1, math.min(#raw, len) do buf[off + i] = raw:sub(i, i) end
+end
+
+local function decodeMon(bytes, off, isParty, cw, listByte)
   local speciesIdx = u8(bytes, off)
-  if speciesIdx == 0 then return nil end -- empty slot
   local species = cw.pokemonByIndex[speciesIdx]
-  local hp = u16be(bytes, off + 1)
-  local boxLevel = u8(bytes, off + 3)
-  local status = decodeStatus(u8(bytes, off + 4))
-  local catchRate = u8(bytes, off + 7)
-  local moves = {}
+  local carrier = species == nil or (listByte ~= nil and listByte ~= speciesIdx)
+  local moves, slots, gap, emptyPP = {}, {}, false, nil
   for i = 0, 3 do
     local moveIdx = u8(bytes, off + 8 + i)
+    if moveIdx == 0 and u8(bytes, off + 29 + i) ~= 0 then
+      emptyPP = emptyPP or {}
+      emptyPP[i + 1] = u8(bytes, off + 29 + i)
+    end
     if moveIdx > 0 then
+      local id = cw.movesByIndex[moveIdx]
+      if not id then carrier = true end
       local pp, ppUps = decodePPByte(u8(bytes, off + 29 + i))
-      moves[#moves + 1] = { id = cw.movesByIndex[moveIdx], pp = pp, ppUps = ppUps }
+      moves[#moves + 1] = { id = id, pp = pp, ppUps = ppUps }
+      slots[#slots + 1] = i + 1
+      if i + 1 ~= #slots then gap = true end
     end
   end
+  if carrier then
+    return {
+      cartRaw = hexOf(bytes, off, isParty and PARTY_STRUCT_SIZE or BOX_STRUCT_SIZE),
+      cartListSpecies = listByte,
+    }
+  end
+  local hp = u16be(bytes, off + 1)
+  local boxLevel = u8(bytes, off + 3)
+  local statusByte = u8(bytes, off + 4)
+  local status = decodeStatus(statusByte)
+  local catchRate = u8(bytes, off + 7)
   local otId = u16be(bytes, off + 12)
   local exp = u24be(bytes, off + 14)
   local statExp = {
@@ -567,8 +645,13 @@ local function decodeMon(bytes, off, isParty, cw)
     -- that do not match the ROM base stats, and re-deriving would corrupt them.
     typeBytes = { u8(bytes, off + 5), u8(bytes, off + 6) },
   }
+  if status == "SLP" then mon.sleepTurns = bit.band(statusByte, 7) end
+  if encodeStatus(status, mon.sleepTurns) ~= statusByte then mon.cartStatus = statusByte end
+  if gap then mon.cartMoveSlots = slots end
+  if emptyPP then mon.cartEmptyPP = emptyPP end
   if isParty then
     mon.level = u8(bytes, off + 33)
+    if boxLevel ~= mon.level then mon.boxLevel = boxLevel end
     mon.stats = {
       hp = u16be(bytes, off + 34), attack = u16be(bytes, off + 36),
       defense = u16be(bytes, off + 38), speed = u16be(bytes, off + 40),
@@ -578,15 +661,35 @@ local function decodeMon(bytes, off, isParty, cw)
   return mon
 end
 
-local function encodeMon(buf, off, mon, isParty, cw)
-  if not mon then
-    setByte(buf, off, 0)
-    return
+local function speciesIndexOf(cw, mon)
+  local idx = cw.pokemonIndex[mon.species]
+  if not idx or idx == 0 then
+    error(("this save cannot be exported: %s has no Gen 1 species index"):format(tostring(mon.species)), 0)
   end
-  setByte(buf, off, cw.pokemonIndex[mon.species] or 0)
+  return idx
+end
+
+local function validMoveSlots(slots, n)
+  if type(slots) ~= "table" or #slots ~= n then return false end
+  local last = 0
+  for _, s in ipairs(slots) do
+    if type(s) ~= "number" or s <= last or s > 4 then return false end
+    last = s
+  end
+  return true
+end
+
+local function encodeMon(buf, off, mon, isParty, cw, save)
+  setByte(buf, off, speciesIndexOf(cw, mon))
   setU16be(buf, off + 1, mon.hp or 0)
-  setByte(buf, off + 3, mon.level or 1)
-  setByte(buf, off + 4, encodeStatus(mon.status))
+  setByte(buf, off + 3, (isParty and mon.boxLevel) or mon.level or 1)
+  local status = encodeStatus(mon.status, mon.sleepTurns)
+  local cartStatus = tonumber(mon.cartStatus)
+  if cartStatus and decodeStatus(cartStatus) == mon.status
+      and (mon.status ~= "SLP" or bit.band(cartStatus, 7) == status) then
+    status = cartStatus
+  end
+  setByte(buf, off + 4, status)
   local def = cw.speciesDefs[mon.species]
   if mon.typeBytes then
     -- reproduce the exact stored type bytes captured on decode (faithful
@@ -599,12 +702,20 @@ local function encodeMon(buf, off, mon, isParty, cw)
     setByte(buf, off + 6, TYPE_INDEX[t[2] or t[1]] or 0)
   end
   setByte(buf, off + 7, mon.catchRate or (def and def.catchRate) or 0)
+  local moves = mon.moves or {}
+  local n = math.min(#moves, 4)
+  local useSlots = validMoveSlots(mon.cartMoveSlots, n)
+  local placed = {}
+  for k = 1, n do placed[useSlots and mon.cartMoveSlots[k] or k] = moves[k] end
   for i = 0, 3 do
-    local mv = mon.moves and mon.moves[i + 1]
+    local mv = placed[i + 1]
     setByte(buf, off + 8 + i, mv and (cw.movesIndex[mv.id] or 0) or 0)
-    setByte(buf, off + 29 + i, mv and encodePPByte(mv.pp, mv.ppUps) or 0)
+    local pad = type(mon.cartEmptyPP) == "table" and tonumber(mon.cartEmptyPP[i + 1]) or 0
+    setByte(buf, off + 29 + i, mv and encodePPByte(mv.pp, mv.ppUps) or pad)
   end
-  setU16be(buf, off + 12, mon.otId or 0)
+  local otId = mon.otId
+  if otId == nil and not mon.traded then otId = save.player and save.player.id end
+  setU16be(buf, off + 12, otId or 0)
   setU24be(buf, off + 14, mon.exp or 0)
   local se = mon.statExp or {}
   setU16be(buf, off + 17, se.hp or 0)
@@ -624,47 +735,250 @@ local function encodeMon(buf, off, mon, isParty, cw)
   end
 end
 
+local function listLayout(base, cap, structSize)
+  local monsAt = base + 2 + cap
+  local otAt = monsAt + cap * structSize
+  return monsAt, otAt, otAt + cap * NAME_LENGTH
+end
+
+local function decodeList(bytes, base, cap, structSize, isParty, cw, where)
+  local list = {}
+  local monsAt, otAt, nickAt = listLayout(base, cap, structSize)
+  for i = 0, math.min(u8(bytes, base), cap) - 1 do
+    local mon = decodeMon(bytes, monsAt + i * structSize, isParty, cw, u8(bytes, base + 1 + i))
+    local otOff, nickOff = otAt + i * NAME_LENGTH, nickAt + i * NAME_LENGTH
+    if mon.cartRaw then
+      mon.cartOt = hexOf(bytes, otOff, NAME_LENGTH)
+      mon.cartNick = hexOf(bytes, nickOff, NAME_LENGTH)
+      mon.cartSlot = { where = where, index = i + 1 }
+      mon.nickname = decodeName(bytes, nickOff, NAME_LENGTH)
+    else
+      mon.ot = decodeName(bytes, otOff, NAME_LENGTH)
+      -- a stored name equal to the species' standard name means NOT
+      -- nicknamed, which this project spells as nil (#257)
+      mon.nickname = importedNickname(cw, mon.species, decodeName(bytes, nickOff, NAME_LENGTH))
+    end
+    list[#list + 1] = mon
+  end
+  return list
+end
+
+local function encodeList(buf, base, cap, structSize, isParty, mons, save, cw, padTail)
+  local n = math.min(#mons, cap)
+  setByte(buf, base, n)
+  local monsAt, otAt, nickAt = listLayout(base, cap, structSize)
+  local playerName = (save.player and save.player.name) or "RED"
+  for i = 0, n - 1 do
+    local mon = mons[i + 1]
+    local monOff = monsAt + i * structSize
+    local otOff, nickOff = otAt + i * NAME_LENGTH, nickAt + i * NAME_LENGTH
+    local raw = unhex(mon.cartRaw)
+    if raw then
+      putRaw(buf, monOff, raw, structSize)
+      setByte(buf, base + 1 + i, tonumber(mon.cartListSpecies) or raw:byte(1))
+      local ot, nick = unhex(mon.cartOt), unhex(mon.cartNick)
+      if ot then putRaw(buf, otOff, ot, NAME_LENGTH) end
+      if nick then putRaw(buf, nickOff, nick, NAME_LENGTH) end
+    else
+      encodeMon(buf, monOff, mon, isParty, cw, save)
+      setByte(buf, base + 1 + i, speciesIndexOf(cw, mon))
+      encodeName(buf, otOff, NAME_LENGTH, mon.ot or playerName, padTail, TRAINER_NAME_MAX)
+      -- no nickname stores the species' DISPLAY name, not its ROM constant id
+      -- ("NIDORAN_M" would charmap the "_" to "?") (#257)
+      encodeName(buf, nickOff, NAME_LENGTH, mon.nickname or speciesName(cw, mon.species), padTail)
+    end
+  end
+  -- $FF-terminate the species index list right after the last real mon. The
+  -- struct, OT-name and nickname bytes of the empty slots past n are left
+  -- exactly as the template holds them (original stale data -> byte-identical
+  -- round-trip) or zero on a fresh export -- the game never reads past the
+  -- count, so this matches how it leaves those bytes itself.
+  setByte(buf, base + 1 + n, 0xFF)
+end
+
+local function copyList(list)
+  local out = {}
+  for i, v in ipairs(type(list) == "table" and list or {}) do out[i] = v end
+  return out
+end
+
+local function withCarriers(save)
+  local party = copyList(save.party)
+  local boxes = {}
+  for b = 1, 12 do boxes[b] = copyList(save.boxes and save.boxes[b]) end
+  local orphans = type(save.orphaned) == "table" and save.orphaned.mons
+  for _, mon in ipairs(type(orphans) == "table" and orphans or {}) do
+    local slot = type(mon) == "table" and mon.cartRaw and mon.cartSlot
+    if type(slot) == "table" then
+      local list, cap
+      if slot.where == "party" then
+        list, cap = party, PARTY_LENGTH
+      elseif boxes[tonumber(slot.where) or 0] then
+        list, cap = boxes[tonumber(slot.where)], MONS_PER_BOX
+      end
+      if not (list and #list < cap) then
+        list = nil
+        for b = 1, 12 do
+          if #boxes[b] < MONS_PER_BOX then list = boxes[b]; break end
+        end
+      end
+      if list then
+        local at = math.max(1, math.min(tonumber(slot.index) or (#list + 1), #list + 1))
+        table.insert(list, at, mon)
+      end
+    end
+  end
+  return party, boxes
+end
+
 -- ------------------------------------------------------------------
 -- Bag / PC items: (id, qty) byte pairs, $FF-terminated
 -- ------------------------------------------------------------------
 
-local function decodeItemList(bytes, off, capacity, cw)
-  local inventory, order = {}, {}
+local function decodeItemRows(bytes, off, capacity)
+  local rows = {}
   for i = 0, capacity - 1 do
     local idByte = u8(bytes, off + i * 2)
     if idByte == 0xFF then break end
-    local qty = u8(bytes, off + i * 2 + 1)
-    local id = cw.itemsByIndex[idByte]
-    if id then
-      inventory[id] = qty
-      order[#order + 1] = id
+    rows[#rows + 1] = { idByte, u8(bytes, off + i * 2 + 1) }
+  end
+  return rows
+end
+
+local function foldRows(rows, cw)
+  local inventory, order = {}, {}
+  for _, r in ipairs(rows) do
+    local id = cw.itemsByIndex[r[1]]
+    if id and not BADGE_BY_BIT_SET[id] and r[2] > 0 then
+      if not inventory[id] then order[#order + 1] = id end
+      inventory[id] = (inventory[id] or 0) + r[2]
     end
   end
   return inventory, order
 end
 
-local function encodeItemList(buf, off, capacity, inventory, order, cw)
-  local i = 0
-  local seen = {}
-  local function put(id, qty)
-    if i >= capacity or not qty or qty <= 0 then return end
-    local idByte = cw.itemsIndex[id]
-    if not idByte then return end
-    setByte(buf, off + i * 2, idByte)
-    setByte(buf, off + i * 2 + 1, math.min(qty, 99))
-    i = i + 1
-    seen[id] = true
+local function modelRows(inventory, order, capacity, cw)
+  local rows, seen, ids, rest = {}, {}, {}, {}
+  for _, id in ipairs(type(order) == "table" and order or {}) do
+    if not seen[id] then seen[id] = true; ids[#ids + 1] = id end
   end
-  for _, id in ipairs(order or {}) do
-    if inventory[id] and not seen[id] then put(id, inventory[id]) end
+  for id in pairs(inventory or {}) do
+    if not seen[id] then rest[#rest + 1] = id end
   end
-  for id, qty in pairs(inventory or {}) do
-    if not seen[id] then put(id, qty) end
+  table.sort(rest, function(a, b)
+    local ia, ib = cw.itemsIndex[a] or 1e9, cw.itemsIndex[b] or 1e9
+    if ia ~= ib then return ia < ib end
+    return tostring(a) < tostring(b)
+  end)
+  for _, id in ipairs(rest) do ids[#ids + 1] = id end
+  for _, id in ipairs(ids) do
+    local qty = tonumber((inventory or {})[id])
+    local idx = cw.itemsIndex[id]
+    if qty and qty > 0 and idx and not BADGE_BY_BIT_SET[id] then
+      qty = math.floor(qty)
+      while qty > 0 and #rows < capacity do
+        local q = math.min(qty, 99)
+        rows[#rows + 1] = { idx, q }
+        qty = qty - q
+      end
+    end
   end
-  setByte(buf, off + i * 2, 0xFF)
-  return i -- count actually written (badges etc. in `inventory` that
-           -- aren't real items are silently skipped by put(), so this
-           -- can be less than #inventory -- see the wNumBagItems caller)
+  return rows
+end
+
+local function sameRows(a, b)
+  if #a ~= #b then return false end
+  for i = 1, #a do
+    if a[i][1] ~= b[i][1] or a[i][2] ~= b[i][2] then return false end
+  end
+  return true
+end
+
+local function validRows(rows)
+  if type(rows) ~= "table" then return nil end
+  for _, r in ipairs(rows) do
+    if type(r) ~= "table" or type(r[1]) ~= "number" or type(r[2]) ~= "number" then return nil end
+  end
+  return rows
+end
+
+local function decodeItems(bytes, off, capacity, cw)
+  local rows = decodeItemRows(bytes, off, capacity)
+  local inventory, order = foldRows(rows, cw)
+  local carrier = nil
+  if not sameRows(modelRows(inventory, order, capacity, cw), rows) then carrier = rows end
+  return inventory, order, carrier
+end
+
+local function encodeItems(buf, countOff, off, capacity, inventory, order, carrier, cw)
+  local rows = modelRows(inventory, order, capacity, cw)
+  carrier = validRows(carrier)
+  if carrier then
+    local inv, ord = foldRows(carrier, cw)
+    if sameRows(modelRows(inv, ord, capacity, cw), rows) then
+      rows = carrier
+    else
+      for _, r in ipairs(carrier) do
+        if #rows >= capacity then break end
+        if not cw.itemsByIndex[r[1]] or BADGE_BY_BIT_SET[cw.itemsByIndex[r[1]]] then
+          rows[#rows + 1] = r
+        end
+      end
+    end
+  end
+  local n = math.min(#rows, capacity)
+  for i = 1, n do
+    setByte(buf, off + (i - 1) * 2, rows[i][1])
+    setByte(buf, off + (i - 1) * 2 + 1, rows[i][2])
+  end
+  setByte(buf, off + n * 2, 0xFF)
+  setByte(buf, countOff, n)
+end
+
+local function eachTrainerEvent(data, fn)
+  local headers = data.trainerHeaders
+  if type(headers) ~= "table" or type(data.maps) ~= "table" then return end
+  for mapId, def in pairs(data.maps) do
+    local perMap = type(def) == "table" and def.label and headers[def.label]
+    if type(perMap) == "table" then
+      local wild = {}
+      for _, obj in ipairs(def.objects or {}) do
+        if type(obj) == "table" and obj.pokemon and obj.index then wild[obj.index] = true end
+      end
+      for idx, h in pairs(perMap) do
+        if type(h) == "table" and type(h.event) == "string" and type(idx) == "number" and not wild[idx] then
+          fn(mapId .. "_obj_" .. idx, h.event)
+        end
+      end
+    end
+  end
+end
+
+-- data/maps/special_warps.asm:64
+local function blackoutSpots()
+  local spots = {}
+  for _, row in ipairs(require("src.save_convert.data.blackout_maps")) do spots[row[1]] = row end
+  return spots
+end
+
+local function blackoutTown(cw, data, heal)
+  local spots = blackoutSpots()
+  local function usable(id)
+    return type(id) == "string" and spots[id] ~= nil and cw.mapsIndex[id] ~= nil
+  end
+  if type(heal.outdoor) == "table" and usable(heal.outdoor.id) then return heal.outdoor.id end
+  if usable(heal.map) then return heal.map end
+  if type(data.maps) ~= "table" or type(heal.map) ~= "string" then return nil end
+  local towns = {}
+  for id in pairs(spots) do towns[#towns + 1] = id end
+  table.sort(towns)
+  for _, id in ipairs(towns) do
+    local def = data.maps[id]
+    for _, warp in ipairs(type(def) == "table" and def.warps or {}) do
+      if warp.destMap == heal.map and usable(id) then return id end
+    end
+  end
+  return nil
 end
 
 -- ------------------------------------------------------------------
@@ -673,6 +987,9 @@ end
 
 function GenSave.decode(bytes, data, opts)
   assert(#bytes == GenSave.SAVE_SIZE, "expected a 32768-byte save")
+  if GenSave.looksLikeJapaneseSave(bytes) then
+    error("Japanese Gen 1 cartridge saves are not supported", 0)
+  end
   local cw = GenSave.crosswalks(data)
   local warnings = {}
   local function warn(msg) warnings[#warnings + 1] = msg end
@@ -706,11 +1023,11 @@ function GenSave.decode(bytes, data, opts)
     if bitGet(bytes, O.pokedexSeen, bitIdx) then save.pokedex.seen[species] = true end
   end
 
-  save.inventory, save.bagOrder = decodeItemList(bytes, O.bagItems, 20, cw)
-  save.pcItems, save.pcOrder = decodeItemList(bytes, O.pcItems, 50, cw)
+  save.inventory, save.bagOrder, save.cartBag = decodeItems(bytes, O.bagItems, 20, cw)
+  save.pcItems, save.pcOrder, save.cartPc = decodeItems(bytes, O.pcItems, 50, cw)
 
   -- badges: truthy save.inventory[id] entries (src/inventory/Badges.lua),
-  -- set AFTER decodeItemList since that call replaces save.inventory
+  -- set AFTER the bag decode since that call replaces save.inventory
   local badgesByte = u8(bytes, O.badges)
   for i = 0, NUM_BADGES - 1 do
     if bit.band(badgesByte, bit.lshift(1, i)) ~= 0 then
@@ -718,60 +1035,81 @@ function GenSave.decode(bytes, data, opts)
     end
   end
 
-  -- party
-  local partyCount = u8(bytes, O.partyCount)
-  for i = 0, math.min(partyCount, PARTY_LENGTH) - 1 do
-    local mon = decodeMon(bytes, O.partyMons + i * PARTY_STRUCT_SIZE, true, cw)
-    if mon then
-      mon.ot = decodeName(bytes, O.partyMonOT + i * NAME_LENGTH, NAME_LENGTH)
-      -- a stored name equal to the species' standard name means NOT
-      -- nicknamed, which this project spells as nil (#257)
-      mon.nickname = importedNickname(cw, mon.species,
-        decodeName(bytes, O.partyMonNicks + i * NAME_LENGTH, NAME_LENGTH))
-      save.party[#save.party + 1] = mon
-    end
-  end
+  -- engine/menus/main_menu.asm InitOptions
+  local ob = u8(bytes, O.options)
+  save.options = {
+    textSpeed = bit.band(ob, 0x07),
+    battleStyle = bit.band(ob, 0x40) ~= 0 and "set" or "shift",
+    animations = bit.band(ob, 0x80) == 0,
+  }
+  local sound = bit.band(bit.rshift(ob, 4), 3)
+  if sound ~= 0 then save.options.sound = sound end
+  save.importedOptions = {
+    textSpeed = save.options.textSpeed,
+    battleStyle = save.options.battleStyle,
+    animations = save.options.animations,
+  }
+
+  save.party = decodeList(bytes, O.partyData, PARTY_LENGTH, PARTY_STRUCT_SIZE, true, cw, "party")
 
   -- current box (bank 1) + the 11 stored boxes (banks 2/3)
+  -- engine/menus/save.asm:365
   for i = 1, 12 do save.boxes[i] = {} end
-  local function decodeBoxRegion(base, boxNum)
-    local count = u8(bytes, base)
-    for i = 0, math.min(count, MONS_PER_BOX) - 1 do
-      local mon = decodeMon(bytes, base + 22 + i * BOX_STRUCT_SIZE, false, cw)
-      if mon then
-        mon.ot = decodeName(bytes, base + 22 + MONS_PER_BOX * BOX_STRUCT_SIZE + i * NAME_LENGTH, NAME_LENGTH)
-        mon.nickname = importedNickname(cw, mon.species,
-          decodeName(bytes, base + 22 + MONS_PER_BOX * (BOX_STRUCT_SIZE + NAME_LENGTH) + i * NAME_LENGTH, NAME_LENGTH))
-        table.insert(save.boxes[boxNum], mon)
+  local boxByte = u8(bytes, O.currentBoxNum)
+  local initialized = bit.band(boxByte, 0x80) ~= 0
+  local rawBox = bit.band(boxByte, 0x7F)
+  local curBoxNum = nil
+  if rawBox <= 11 then
+    curBoxNum = rawBox + 1
+    save.boxes[curBoxNum] = decodeList(bytes, O.curBoxData, MONS_PER_BOX, BOX_STRUCT_SIZE, false, cw, curBoxNum)
+    save.currentBox = curBoxNum
+  else
+    save.cartBoxNum = rawBox
+    save.currentBox = 1
+  end
+  if initialized then
+    for b = 1, 12 do
+      if b ~= curBoxNum then
+        local base = b <= 6 and (O.box1 + (b - 1) * BOX_REGION_SIZE) or (O.box7 + (b - 7) * BOX_REGION_SIZE)
+        save.boxes[b] = decodeList(bytes, base, MONS_PER_BOX, BOX_STRUCT_SIZE, false, cw, b)
       end
     end
   end
-  local curBoxNum = bit.band(u8(bytes, O.currentBoxNum), 0x7F) -- 0-based box index
-  curBoxNum = math.max(1, math.min(12, curBoxNum + 1))
-  decodeBoxRegion(O.curBoxData, curBoxNum)
-  for b = 1, 6 do
-    if b + 0 ~= curBoxNum then decodeBoxRegion(O.box1 + (b - 1) * BOX_REGION_SIZE, b) end
-  end
-  for b = 7, 12 do
-    if b ~= curBoxNum then decodeBoxRegion(O.box7 + (b - 7) * BOX_REGION_SIZE, b) end
-  end
-  save.currentBox = curBoxNum
 
-  -- event flags (only bits with a known name are decoded)
+  -- constants/event_constants.asm
   local events = data.eventFlags
   if events then
+    local raw = {}
+    local anyRaw = false
+    for i = 0, 319 do raw[i] = u8(bytes, O.eventFlags + i) end
     for bitIdx, name in pairs(events.byBit) do
+      local byteIdx = math.floor(bitIdx / 8)
       if bitGet(bytes, O.eventFlags, bitIdx) then save.flags[name] = true end
+      raw[byteIdx] = bit.band(raw[byteIdx], bit.bnot(bit.lshift(1, bitIdx % 8)))
     end
+    local hex = {}
+    for i = 0, 319 do
+      if raw[i] ~= 0 then anyRaw = true end
+      hex[i + 1] = ("%02X"):format(raw[i])
+    end
+    if anyRaw then save.flagsRaw = table.concat(hex) end
   end
 
   -- the same progress under names that are not wEventFlags bits (#396)
   for name, spec in pairs(EXTRA_FLAG_BITS) do
     if bitGet(bytes, spec[1], spec[2]) then save.flags[name] = true end
   end
+  for bitIdx, name in pairs(tradeFlagsOf(data)) do
+    if bitGet(bytes, O.tradeFlags, bitIdx) then save.flags[name] = true end
+  end
   for portName, vanillaName in pairs(FLAG_ALIAS) do
     if save.flags[vanillaName] then save.flags[portName] = true end
   end
+
+  save.defeatedTrainers = {}
+  eachTrainerEvent(data, function(key, event)
+    if save.flags[event] then save.defeatedTrainers[key] = true end
+  end)
 
   -- scripts/OaksLab.asm:335, :900-901
   if save.flags.EVENT_GOT_STARTER then
@@ -790,6 +1128,15 @@ function GenSave.decode(bytes, data, opts)
   if data.gameVersion == "yellow" then
     local rival = u8(bytes, O.rivalStarter)
     if rival >= 1 and rival <= 3 then save.rivalStarter = rival end
+  end
+  local starterFlag = false
+  for _, species in ipairs({ "BULBASAUR", "CHARMANDER", "SQUIRTLE", YELLOW_STARTER }) do
+    if save.flags["EVENT_CHOSE_" .. species] then starterFlag = true end
+  end
+  if not starterFlag then
+    local ps, rs = u8(bytes, O.playerStarter), u8(bytes, O.rivalStarter)
+    if data.gameVersion == "yellow" then rs = 0 end
+    if ps ~= 0 or rs ~= 0 then save.cartStarters = { ps, rs } end
   end
 
   -- wToggleableObjectFlags -> save.objectToggles (bit set = hidden).  A few
@@ -818,6 +1165,43 @@ function GenSave.decode(bytes, data, opts)
         save.hiddenTaken[row[1] .. "_" .. row[2] .. "_" .. row[3]] = true
       end
     end
+  end
+
+  local coinSpots = require("src.save_convert.data.hidden_coins")
+  for i, row in ipairs(coinSpots) do
+    if bitGet(bytes, O.hiddenCoinFlags, i - 1) then
+      save.hiddenTaken = save.hiddenTaken or {}
+      save.hiddenTaken[row[1] .. "_" .. row[2] .. "_" .. row[3]] = true
+    end
+  end
+
+  if save.flags.EVENT_IN_SAFARI_ZONE then
+    save.safari = { balls = u8(bytes, O.safariBalls), steps = u16be(bytes, O.safariSteps) }
+  end
+
+  local dayCareIn = u8(bytes, O.dayCare)
+  if dayCareIn ~= 0 then
+    local mon = decodeMon(bytes, O.dayCare + DAYCARE_MON, false, cw, nil)
+    if mon.cartRaw then
+      save.daycare = { cartRaw = hexOf(bytes, O.dayCare, DAYCARE_SIZE) }
+    else
+      mon.ot = decodeName(bytes, O.dayCare + DAYCARE_OT, NAME_LENGTH)
+      mon.nickname = importedNickname(cw, mon.species, decodeName(bytes, O.dayCare + 1, NAME_LENGTH))
+      save.daycare = { mon = mon, steps = 0, depositLevel = mon.level }
+    end
+  end
+
+  if bitGet(bytes, O.statusFlags6, 5) then save.forcedBike = true end
+  if bitGet(bytes, O.statusFlags4, 2) then save.usedPokecenter = true end
+
+  local trashFirst, trashSecond = u8(bytes, O.trashFirst), u8(bytes, O.trashSecond)
+  if trashFirst ~= 0 or trashSecond ~= 0 then
+    save.trashPuzzle = { first = trashFirst, second = trashSecond }
+  end
+
+  if save.flags.EVENT_GAVE_FOSSIL_TO_LAB then
+    local fossil = cw.pokemonByIndex[u8(bytes, O.fossilMon)]
+    if FOSSIL_ITEM_FOR_MON[fossil or ""] then save.labFossilMon = fossil end
   end
 
   -- FLY destinations.  wTownVisitedFlag's bit index IS the town's map index:
@@ -851,19 +1235,66 @@ function GenSave.decode(bytes, data, opts)
   else
     warn(("unknown map index %d, defaulting spawn"):format(mapIdx))
   end
+  if mapId and isDarkMap(data, mapId) and u8(bytes, O.mapPalOffset) == 0 then save.flashLit = true end
   local lastMapIdx = u8(bytes, O.lastMap)
   local lastMapId = cw.mapsByIndex[lastMapIdx]
-  if lastMapId then save.lastOutdoor = { id = lastMapId } end
+  if lastMapId then
+    save.lastOutdoor = { id = lastMapId }
+  else
+    save.cartLastMap = lastMapIdx
+  end
+
+  -- engine/events/set_blackout_map.asm:19
+  local blackoutIdx = u8(bytes, O.lastBlackoutMap)
+  local spot = blackoutSpots()[cw.mapsByIndex[blackoutIdx] or ""]
+  if spot then
+    save.lastHeal = { map = spot[1], x = spot[2], y = spot[3] }
+  else
+    local pallet = require("src.save_convert.data.blackout_maps")[1]
+    save.lastHeal = { map = pallet[1], x = pallet[2], y = pallet[3] }
+    save.cartBlackoutMap = blackoutIdx
+  end
+
+  -- ram/wram.asm:2053
+  local walk = u8(bytes, O.walkBikeSurf)
+  if walk == 1 then save.onBike = true elseif walk == 2 then save.player.surfing = true end
 
   -- play time: this project stores save.playTime as a single float of
   -- SECONDS (src/core/Game.lua accumulates dt each frame; StartMenu /
   -- TrainerCard / TitleState render it H:MM via t/3600 and (t/60)%60).
   -- Fold the Gen1 H/M/S/F fields into that one number; frames are 1/60s
   -- sub-second ticks, kept as a fraction so an export recovers them exactly.
-  save.playTime = u8(bytes, O.playTimeHours) * 3600
+  local hours = u8(bytes, O.playTimeHours)
+  save.playTime = hours * 3600
                 + u8(bytes, O.playTimeMinutes) * 60
                 + u8(bytes, O.playTimeSeconds)
                 + u8(bytes, O.playTimeFrames) / 60
+  local maxed = u8(bytes, O.playTimeMaxed)
+  if maxed ~= 0 or hours == 255 then save.playTimeMaxed = maxed end
+
+  -- engine/menus/save.asm:655
+  local numHoF = u8(bytes, O.numHoFTeams)
+  local stored = math.min(numHoF, HOF_TEAM_CAPACITY)
+  if stored > 0 then
+    save.hallOfFame = {}
+    for t = 0, stored - 1 do
+      local team = {}
+      for s = 0, PARTY_LENGTH - 1 do
+        local at = O.hallOfFame + t * HOF_TEAM + s * HOF_MON
+        local sp = u8(bytes, at)
+        if sp == 0xFF then break end
+        local species = cw.pokemonByIndex[sp]
+        if species then
+          team[#team + 1] = { species = species, level = u8(bytes, at + 1),
+            nickname = importedNickname(cw, species, decodeName(bytes, at + 2, NAME_LENGTH)) }
+        else
+          team[#team + 1] = { cartRaw = hexOf(bytes, at, HOF_MON), level = u8(bytes, at + 1) }
+        end
+      end
+      save.hallOfFame[#save.hallOfFame + 1] = team
+    end
+  end
+  if numHoF > stored then save.hallOfFameTotal = numHoF end
 
   -- Yellow starter friendship (save.pikachuHappiness,
   -- src/world/PikachuFollower.lua reads it; pokeyellow's
@@ -875,6 +1306,16 @@ function GenSave.decode(bytes, data, opts)
     save.pikachuMood = u8(bytes, O.pikachuMood)
     local modifier = u8(bytes, O.pikachuEmotionModifier)
     save.pikachuEmotionModifier = modifier ~= 0 and modifier or nil
+  end
+
+  if data.gameVersion == "yellow" then
+    local lo, hi = u8(bytes, O.surfHiScore), u8(bytes, O.surfHiScore + 1)
+    if lo % 16 < 10 and hi % 16 < 10 and math.floor(lo / 16) < 10 and math.floor(hi / 16) < 10 then
+      local score = readBcd(bytes, O.surfHiScore + 1, 1) * 100 + readBcd(bytes, O.surfHiScore, 1)
+      if score > 0 then save.surfingHighScore = score end
+    else
+      save.cartSurfHiScore = { lo, hi }
+    end
   end
 
   save.warnings = warnings
@@ -903,9 +1344,25 @@ function GenSave.readIdentity(bytes)
     bytes:sub(off + #magic + 1, off + #magic + GenSave.IDENTITY_ID_LENGTH) } })
 end
 
+local function sum8(s, from, toExcl)
+  local sum = 0
+  for i = from + 1, toExcl do sum = sum + s:byte(i) end
+  return sum % 256
+end
+
+local function looksLikeGen2(s)
+  local crystal = sum8(s, 0x2009, 0x2B83) == s:byte(0x2D0D + 1)
+    and sum8(s, 0x1209, 0x1D83) == s:byte(0x1F0D + 1)
+  local gs = sum8(s, 0x2009, 0x2D69) == s:byte(0x2D69 + 1)
+    and (sum8(s, 0x15C7, 0x17ED) + sum8(s, 0x3D96, 0x3F40) + sum8(s, 0x0C6B, 0x10E8)
+      + sum8(s, 0x7E39, 0x7E6D) + sum8(s, 0x10E8, 0x15C7)) % 256 == s:byte(0x7E6D + 1)
+  return crystal or gs
+end
+
 function GenSave.encode(save, data, template)
   local cw = GenSave.crosswalks(data)
   local src = template or save.rawImport
+  if type(src) ~= "string" or #src ~= GenSave.SAVE_SIZE then src = nil end
   local buf = {}
   if src then
     for i = 1, GenSave.SAVE_SIZE do buf[i] = src:sub(i, i) end
@@ -919,22 +1376,26 @@ function GenSave.encode(save, data, template)
     local tag = GenSave.IDENTITY_MAGIC .. identity
     for i = 1, #tag do buf[O.identityTag + i] = tag:sub(i, i) end
   end
+  local padAt = (src and src:sub(O.identityTag + 1, O.identityTag + 4) == GenSave.IDENTITY_MAGIC or identity)
+    and O.padByteTagged or O.padByte
 
   local padTail = not src
-  encodeName(buf, O.playerName, NAME_LENGTH, (save.player and save.player.name) or "RED", padTail)
-  encodeName(buf, O.rivalName, NAME_LENGTH, (save.player and save.player.rival) or "BLUE", padTail)
+  encodeName(buf, O.playerName, NAME_LENGTH, (save.player and save.player.name) or "RED", padTail, TRAINER_NAME_MAX)
+  encodeName(buf, O.rivalName, NAME_LENGTH, (save.player and save.player.rival) or "BLUE", padTail, TRAINER_NAME_MAX)
   setU16be(buf, O.playerId, (save.player and save.player.id) or 0)
   -- wOptions (engine/menus/main_menu.asm InitOptions): bit 7 = battle
   -- effects OFF, bit 6 = SET style, bits 2-0 = text speed -- the recomp's
   -- textSpeed 1/3/5 are pokered's exact FAST/MEDIUM/SLOW values
-  -- (SaveData.defaultOptions).  Templateless exports only: with a
-  -- template the byte survives untouched (the round-trip invariant), and
-  -- decode() never reads it back anyway.
-  if not src then
-    local opts = save.options or {}
-    local ob = (tonumber(opts.textSpeed) or 3) % 8
+  -- (SaveData.defaultOptions).
+  local opts = save.options
+  if type(opts) == "table" or not src then
+    opts = type(opts) == "table" and opts or {}
+    local ob = src and u8(src, O.options) or 0
+    ob = bit.bor(bit.band(ob, 0x38), bit.band(math.floor(tonumber(opts.textSpeed) or 3), 0x07))
     if opts.battleStyle == "set" then ob = bit.bor(ob, 0x40) end
     if opts.animations == false then ob = bit.bor(ob, 0x80) end
+    local sound = tonumber(opts.sound)
+    if sound then ob = bit.bor(bit.band(ob, 0xCF), bit.lshift(bit.band(math.floor(sound), 3), 4)) end
     setByte(buf, O.options, ob)
   end
   setBcd(buf, O.money, 3, math.min(save.money or 0, 999999))
@@ -956,58 +1417,72 @@ function GenSave.encode(save, data, template)
           (save.pokedex and save.pokedex.seen and save.pokedex.seen[species]) and true or false)
   end
 
-  -- Badges occupy real item IDs in data/generated/items.lua (Gen1's item
-  -- ID space includes them, $01-$08, for the "got the BOULDERBADGE!"
-  -- text display), but this project's save.lua stores them as truthy
-  -- save.inventory[id] entries alongside actual bag items (see the badge
-  -- block above and src/inventory/Badges.lua) -- a real save NEVER
-  -- writes them into wBagItems (they only ever live in wObtainedBadges,
-  -- already encoded above), so they must be filtered out here or they'd
-  -- corrupt the bag with bogus "badge items".
-  local bagInventory = {}
-  for id, qty in pairs(save.inventory or {}) do
-    if not BADGE_BY_BIT_SET[id] then bagInventory[id] = qty end
-  end
-  local bagN = encodeItemList(buf, O.bagItems, 20, bagInventory, save.bagOrder, cw)
-  setByte(buf, O.numBagItems, bagN)
-  local pcN = encodeItemList(buf, O.pcItems, 50, save.pcItems or {}, save.pcOrder, cw)
-  setByte(buf, O.numPcItems, pcN)
+  -- Badges occupy real item IDs in data/generated/items.lua, but this
+  -- project's save.lua stores them as truthy save.inventory[id] entries
+  -- alongside actual bag items (see the badge block above and
+  -- src/inventory/Badges.lua) -- a real save NEVER writes them into
+  -- wBagItems (they only ever live in wObtainedBadges, already encoded
+  -- above), so they must be filtered out here or they'd corrupt the bag
+  -- with bogus "badge items".
+  encodeItems(buf, O.numBagItems, O.bagItems, 20, save.inventory or {}, save.bagOrder, save.cartBag, cw)
+  encodeItems(buf, O.numPcItems, O.pcItems, 50, save.pcItems or {}, save.pcOrder, save.cartPc, cw)
 
+  local flags = type(save.flags) == "table" and save.flags or {}
   local events = data.eventFlags
-  if events and save.flags then
-    for name in pairs(save.flags) do
-      local bitIdx = events.byName[name]
-      if bitIdx then bitSet(buf, O.eventFlags, bitIdx, true) end
+  if events then
+    local beaten = {}
+    eachTrainerEvent(data, function(key, event)
+      if type(save.defeatedTrainers) == "table" and save.defeatedTrainers[key] then beaten[event] = true end
+    end)
+    local raw = unhex(save.flagsRaw)
+    if raw and #raw ~= 320 then raw = nil end
+    local named = {}
+    for bitIdx in pairs(events.byBit) do
+      local byteIdx = math.floor(bitIdx / 8)
+      named[byteIdx] = bit.bor(named[byteIdx] or 0, bit.lshift(1, bitIdx % 8))
     end
-    for portName, vanillaName in pairs(FLAG_ALIAS) do
-      local bitIdx = events.byName[vanillaName]
-      if bitIdx and save.flags[portName] then bitSet(buf, O.eventFlags, bitIdx, true) end
+    for i = 0, 319 do
+      local b = raw and raw:byte(i + 1) or (src and u8(src, O.eventFlags + i)) or 0
+      setByte(buf, O.eventFlags + i, bit.band(b, bit.bnot(named[i] or 0)))
+    end
+    local portOf = {}
+    for portName, vanillaName in pairs(FLAG_ALIAS) do portOf[vanillaName] = portName end
+    for bitIdx, name in pairs(events.byBit) do
+      if flags[name] or (portOf[name] and flags[portOf[name]]) or beaten[name] then
+        bitSet(buf, O.eventFlags, bitIdx, true)
+      end
     end
   end
 
   -- Non-wEventFlags progress, written both ways: this port's save is the only
   -- authority for these names, so a flag it does not hold must clear the
   -- template's bit rather than survive in the export (#396).
-  if save.flags then
-    for name, spec in pairs(EXTRA_FLAG_BITS) do
-      bitSet(buf, spec[1], spec[2], save.flags[name] and true or false)
-    end
+  for name, spec in pairs(EXTRA_FLAG_BITS) do
+    bitSet(buf, spec[1], spec[2], flags[name] and true or false)
+  end
+  for bitIdx, name in pairs(tradeFlagsOf(data)) do
+    bitSet(buf, O.tradeFlags, bitIdx, flags[name] and true or false)
   end
 
+  local cartStarters = type(save.cartStarters) == "table" and save.cartStarters
+  if cartStarters then
+    if tonumber(cartStarters[1]) then setByte(buf, O.playerStarter, cartStarters[1]) end
+    if tonumber(cartStarters[2]) and data.gameVersion ~= "yellow" then setByte(buf, O.rivalStarter, cartStarters[2]) end
+  end
   -- scripts/OaksLab.asm:322-323, :900-901
   if data.gameVersion == "yellow" then
-    if save.flags and save.flags["EVENT_CHOSE_" .. YELLOW_STARTER] then
+    if flags["EVENT_CHOSE_" .. YELLOW_STARTER] then
       setByte(buf, O.playerStarter, cw.pokemonIndex[YELLOW_STARTER] or 0)
     end
     local rival = tonumber(save.rivalStarter)
     if rival and rival >= 1 and rival <= 3 then
       setByte(buf, O.rivalStarter, rival)
     end
-  elseif save.flags then
-    for species, rival in pairs(PLAYER_TO_RIVAL) do
-      if save.flags["EVENT_CHOSE_" .. species] then
+  else
+    for _, species in ipairs({ "BULBASAUR", "CHARMANDER", "SQUIRTLE" }) do
+      if flags["EVENT_CHOSE_" .. species] then
         setByte(buf, O.playerStarter, cw.pokemonIndex[species] or 0)
-        setByte(buf, O.rivalStarter, cw.pokemonIndex[rival] or 0)
+        setByte(buf, O.rivalStarter, cw.pokemonIndex[PLAYER_TO_RIVAL[species]] or 0)
       end
     end
   end
@@ -1067,60 +1542,133 @@ function GenSave.encode(save, data, template)
     end
   end
 
-  -- party
-  local party = save.party or {}
-  local partyN = math.min(#party, PARTY_LENGTH)
-  setByte(buf, O.partyCount, partyN)
-  for i = 0, partyN - 1 do
-    local mon = party[i + 1]
-    encodeMon(buf, O.partyMons + i * PARTY_STRUCT_SIZE, mon, true, cw)
-    setByte(buf, O.partySpecies + i, cw.pokemonIndex[mon.species] or 0)
-    encodeName(buf, O.partyMonOT + i * NAME_LENGTH, NAME_LENGTH,
-              mon.ot or (save.player and save.player.name) or "RED", padTail)
-    -- no nickname stores the species' DISPLAY name, not its ROM constant id
-    -- ("NIDORAN_M" would charmap the "_" to "?") (#257)
-    encodeName(buf, O.partyMonNicks + i * NAME_LENGTH, NAME_LENGTH,
-              mon.nickname or speciesName(cw, mon.species), padTail)
-  end
-  -- $FF-terminate the species index list right after the last real mon. The
-  -- struct, OT-name and nickname bytes of the empty slots past partyN are left
-  -- exactly as the template holds them (original stale data -> byte-identical
-  -- round-trip) or zero on a fresh export -- the game never reads past the
-  -- count, so this matches how it leaves those bytes itself.
-  setByte(buf, O.partySpecies + partyN, 0xFF)
-
-  -- boxes: current box mirrors save.currentBox into sCurBoxData; all 12
-  -- also get written into their bank-2/3 slot (sCurBoxData is a working
-  -- copy the real game keeps in sync on every PC visit, so keeping both
-  -- copies consistent here matches that invariant)
-  local function encodeBoxRegion(base, mons)
-    local n = math.min(#mons, MONS_PER_BOX)
-    setByte(buf, base, n)
-    for i = 0, n - 1 do
-      local mon = mons[i + 1]
-      encodeMon(buf, base + 22 + i * BOX_STRUCT_SIZE, mon, false, cw)
-      setByte(buf, base + 1 + i, cw.pokemonIndex[mon.species] or 0)
-      encodeName(buf, base + 22 + MONS_PER_BOX * BOX_STRUCT_SIZE + i * NAME_LENGTH, NAME_LENGTH,
-                mon.ot or (save.player and save.player.name) or "RED", padTail)
-      encodeName(buf, base + 22 + MONS_PER_BOX * (BOX_STRUCT_SIZE + NAME_LENGTH) + i * NAME_LENGTH, NAME_LENGTH,
-                mon.nickname or speciesName(cw, mon.species), padTail)  -- #257, as above
+  local coinSpotsOut = require("src.save_convert.data.hidden_coins")
+  do
+    local taken = save.hiddenTaken or {}
+    for i, row in ipairs(coinSpotsOut) do
+      bitSet(buf, O.hiddenCoinFlags, i - 1, taken[row[1] .. "_" .. row[2] .. "_" .. row[3]] and true or false)
     end
-    -- $FF-terminate the species list after the last real mon; empty slots past
-    -- n keep their template bytes (byte-identical round-trip) or zero (fresh
-    -- export), just as the game leaves stale box data untouched past the count.
-    setByte(buf, base + 1 + n, 0xFF)
   end
-  local boxes = save.boxes or {}
-  local curBoxNum = math.max(1, math.min(12, save.currentBox or 1))
-  encodeBoxRegion(O.curBoxData, boxes[curBoxNum] or {})
-  -- bit 7 of wCurBoxNum is the "box system initialized" flag, not part of the
-  -- 0-11 index; preserve it from the template, or set it on a templateless
-  -- export (any save we emit has an initialized box system).
-  local prevBoxByte = buf[O.currentBoxNum + 1]
-  local boxHiBit = (src and prevBoxByte) and bit.band(prevBoxByte:byte(), 0x80) or 0x80
-  setByte(buf, O.currentBoxNum, bit.bor(bit.band(curBoxNum - 1, 0x7F), boxHiBit))
-  for b = 1, 6 do encodeBoxRegion(O.box1 + (b - 1) * BOX_REGION_SIZE, boxes[b] or {}) end
-  for b = 7, 12 do encodeBoxRegion(O.box7 + (b - 7) * BOX_REGION_SIZE, boxes[b] or {}) end
+
+  local safari = type(save.safari) == "table" and save.safari or nil
+  if safari then
+    setByte(buf, O.safariBalls, math.max(0, math.min(255, math.floor(tonumber(safari.balls) or 0))))
+    setU16be(buf, O.safariSteps, math.max(0, math.min(65535, math.floor(tonumber(safari.steps) or 0))))
+  end
+  local eventBits = data.eventFlags and data.eventFlags.byName
+  if eventBits then
+    if eventBits.EVENT_IN_SAFARI_ZONE then
+      bitSet(buf, O.eventFlags, eventBits.EVENT_IN_SAFARI_ZONE, safari ~= nil)
+    end
+    if eventBits.EVENT_SAFARI_GAME_OVER then
+      bitSet(buf, O.eventFlags, eventBits.EVENT_SAFARI_GAME_OVER,
+        save.safariGameOver == true or (flags.EVENT_SAFARI_GAME_OVER == true and safari == nil))
+    end
+  end
+
+  -- scripts/SafariZoneGate.asm:8
+  local SAFARI_GATE_LEAVING = 5
+  local sameSafari = safari and src and eventBits and eventBits.EVENT_IN_SAFARI_ZONE
+    and bitGet(src, O.eventFlags, eventBits.EVENT_IN_SAFARI_ZONE)
+    and u8(src, O.safariBalls) == safari.balls and u16be(src, O.safariSteps) == safari.steps
+  if sameSafari then
+    setByte(buf, O.safariGateScript, u8(src, O.safariGateScript))
+  elseif safari or save.safariGameOver == true then
+    setByte(buf, O.safariGateScript, SAFARI_GATE_LEAVING)
+  elseif src and eventBits and eventBits.EVENT_IN_SAFARI_ZONE
+      and bitGet(src, O.eventFlags, eventBits.EVENT_IN_SAFARI_ZONE)
+      and u8(src, O.safariGateScript) == SAFARI_GATE_LEAVING then
+    setByte(buf, O.safariGateScript, 0)
+  end
+
+  local dayCare = save.daycare
+  local dayCareMon = type(dayCare) == "table" and type(dayCare.mon) == "table" and dayCare.mon
+  if dayCareMon then
+    local mon = {}
+    for k, v in pairs(dayCareMon) do mon[k] = v end
+    mon.level = tonumber(dayCare.depositLevel) or dayCareMon.level
+    mon.exp = math.min(0xFFFFFF, (tonumber(dayCareMon.exp) or 0) + math.floor(tonumber(dayCare.steps) or 0))
+    mon.boxLevel = nil
+    local was = src and u8(src, O.dayCare) or 0
+    setByte(buf, O.dayCare, was ~= 0 and was or 1)
+    encodeMon(buf, O.dayCare + DAYCARE_MON, mon, false, cw, save)
+    encodeName(buf, O.dayCare + 1, NAME_LENGTH, mon.nickname or speciesName(cw, mon.species), padTail)
+    encodeName(buf, O.dayCare + DAYCARE_OT, NAME_LENGTH, mon.ot or (save.player and save.player.name) or "RED",
+      padTail, TRAINER_NAME_MAX)
+  elseif type(dayCare) == "table" and unhex(dayCare.cartRaw) then
+    putRaw(buf, O.dayCare, unhex(dayCare.cartRaw), DAYCARE_SIZE)
+  else
+    setByte(buf, O.dayCare, 0)
+  end
+
+  bitSet(buf, O.statusFlags6, 5, save.forcedBike == true)
+  bitSet(buf, O.statusFlags4, 2, save.usedPokecenter == true)
+  -- scripts/OaksLab.asm:933
+  local starterBit = eventBits and eventBits.EVENT_GOT_STARTER
+  if starterBit then
+    local now = flags.EVENT_GOT_STARTER == true
+    if not src or bitGet(src, O.eventFlags, starterBit) ~= now then bitSet(buf, O.statusFlags4, 3, now) end
+  end
+
+  local trash = save.trashPuzzle
+  if type(trash) == "table" then
+    if tonumber(trash.first) then setByte(buf, O.trashFirst, trash.first) end
+    if tonumber(trash.second) then setByte(buf, O.trashSecond, trash.second) end
+  end
+
+  local fossilIdx = save.labFossilMon and cw.pokemonIndex[save.labFossilMon]
+  local fossilItem = FOSSIL_ITEM_FOR_MON[save.labFossilMon or ""]
+  if fossilIdx and fossilItem and cw.itemsIndex[fossilItem] then
+    setByte(buf, O.fossilMon, fossilIdx)
+    setByte(buf, O.fossilItem, cw.itemsIndex[fossilItem])
+  end
+
+  do
+    local was = src and u8(src, O.badges) or 0
+    local changed = bit.bxor(was, badgesByte)
+    local beat = src and u8(src, O.beatGymFlags) or 0
+    setByte(buf, O.beatGymFlags, bit.bor(bit.band(beat, bit.bnot(changed)), bit.band(badgesByte, changed)))
+  end
+
+  local party, boxes = withCarriers(save)
+  encodeList(buf, O.partyData, PARTY_LENGTH, PARTY_STRUCT_SIZE, true, party, save, cw, padTail)
+
+  -- engine/menus/save.asm:421
+  local cartBoxNum = tonumber(save.cartBoxNum)
+  local curBoxNum = math.max(1, math.min(12, math.floor(tonumber(save.currentBox) or 1)))
+  local keepRawBox = cartBoxNum and cartBoxNum > 11 and cartBoxNum <= 0x7F and curBoxNum == 1
+  local boxHiBit = 0x80
+  if src then boxHiBit = bit.band(u8(src, O.currentBoxNum), 0x80) end
+  local writeBanks = not src or boxHiBit ~= 0
+  if not writeBanks then
+    for b = 1, 12 do
+      if (keepRawBox or b ~= curBoxNum) and #boxes[b] > 0 then writeBanks = true end
+    end
+  end
+  if writeBanks then boxHiBit = 0x80 end
+  if keepRawBox then
+    setByte(buf, O.currentBoxNum, bit.bor(cartBoxNum, boxHiBit))
+    if not src then
+      setByte(buf, O.curBoxData, 0)
+      setByte(buf, O.curBoxData + 1, 0xFF)
+    end
+  else
+    encodeList(buf, O.curBoxData, MONS_PER_BOX, BOX_STRUCT_SIZE, false, boxes[curBoxNum], save, cw, padTail)
+    setByte(buf, O.currentBoxNum, bit.bor(curBoxNum - 1, boxHiBit))
+  end
+  if writeBanks then
+    for b = 1, 12 do
+      local base = b <= 6 and (O.box1 + (b - 1) * BOX_REGION_SIZE) or (O.box7 + (b - 7) * BOX_REGION_SIZE)
+      if b == curBoxNum and not keepRawBox then
+        if not src or bit.band(u8(src, O.currentBoxNum), 0x80) == 0 then
+          setByte(buf, base, 0)
+          setByte(buf, base + 1, 0xFF)
+        end
+      else
+        encodeList(buf, base, MONS_PER_BOX, BOX_STRUCT_SIZE, false, boxes[b], save, cw, padTail)
+      end
+    end
+  end
 
   -- map + position
   local px = math.floor(tonumber(save.player and save.player.x) or 0)
@@ -1130,9 +1678,39 @@ function GenSave.encode(save, data, template)
     setByte(buf, O.yCoord, py)
     setByte(buf, O.xCoord, px)
   end
-  if save.lastOutdoor and save.lastOutdoor.id then
-    setByte(buf, O.lastMap, cw.mapsIndex[save.lastOutdoor.id] or 0)
+  if save.player and save.player.map then
+    if isDarkMap(data, save.player.map) then
+      local was = src and u8(src, O.mapPalOffset) or 0
+      setByte(buf, O.mapPalOffset, save.flashLit and 0 or (was ~= 0 and was or 6))
+    else
+      setByte(buf, O.mapPalOffset, 0)
+    end
   end
+  if save.lastOutdoor and save.lastOutdoor.id then
+    if tonumber(save.cartLastMap) and save.lastOutdoor.id == (save.player and save.player.map) then
+      setByte(buf, O.lastMap, save.cartLastMap)
+    else
+      setByte(buf, O.lastMap, cw.mapsIndex[save.lastOutdoor.id] or 0)
+    end
+  end
+
+  -- engine/events/set_blackout_map.asm:19
+  local heal = save.lastHeal
+  if type(heal) == "table" then
+    local target = blackoutTown(cw, data, heal)
+    local idx = target and cw.mapsIndex[target]
+    local raw = tonumber(save.cartBlackoutMap)
+    if raw and target == "PALLET_TOWN" and type(heal.outdoor) ~= "table" then
+      setByte(buf, O.lastBlackoutMap, raw)
+    elseif idx then
+      setByte(buf, O.lastBlackoutMap, idx)
+    end
+  end
+
+  -- ram/wram.asm:2053
+  local walk = (save.player and save.player.surfing) and 2 or (save.onBike and 1) or 0
+  if walk == 0 and src and u8(src, O.walkBikeSurf) > 2 then walk = u8(src, O.walkBikeSurf) end
+  setByte(buf, O.walkBikeSurf, walk)
 
   -- Current-map engine state (see src/save_convert/MapContext.lua).  A
   -- Continue restores this window from the save and never rebuilds it, so a
@@ -1177,11 +1755,13 @@ function GenSave.encode(save, data, template)
   -- play time: split save.playTime (seconds) back into H/M/S/F. The real
   -- game freezes the clock at 255h and sets wPlayTimeMaxed once past it, so
   -- mirror that cap rather than letting hours overflow a single byte.
-  local totalFrames = math.floor((save.playTime or 0) * 60 + 0.5)
+  -- engine/play_time.asm:36
+  local totalFrames = math.floor((tonumber(save.playTime) or 0) * 60 + 0.5)
   local hours = math.floor(totalFrames / 216000) -- 3600s * 60 frames
+  local maxedRaw = tonumber(save.playTimeMaxed)
   if hours > 255 then
     setByte(buf, O.playTimeHours, 255)
-    setByte(buf, O.playTimeMaxed, 1)
+    setByte(buf, O.playTimeMaxed, (maxedRaw and maxedRaw ~= 0) and maxedRaw or 0xFF)
     setByte(buf, O.playTimeMinutes, 59)
     setByte(buf, O.playTimeSeconds, 59)
     setByte(buf, O.playTimeFrames, 59)
@@ -1190,10 +1770,55 @@ function GenSave.encode(save, data, template)
     local mins = math.floor(rem / 3600); rem = rem - mins * 3600
     local secs = math.floor(rem / 60)
     setByte(buf, O.playTimeHours, hours)
-    setByte(buf, O.playTimeMaxed, 0)
+    setByte(buf, O.playTimeMaxed, maxedRaw or (hours == 255 and 0xFF or 0))
     setByte(buf, O.playTimeMinutes, mins)
     setByte(buf, O.playTimeSeconds, secs)
     setByte(buf, O.playTimeFrames, rem - secs * 60)
+  end
+
+  -- engine/menus/save.asm:655
+  local hof = save.hallOfFame
+  if type(hof) == "table" then
+    local total = #hof
+    local first = math.max(1, total - HOF_TEAM_CAPACITY + 1)
+    for k = first, total do
+      local team = type(hof[k]) == "table" and hof[k] or {}
+      local base = O.hallOfFame + (k - first) * HOF_TEAM
+      local n = 0
+      for s = 1, #team do
+        if n >= PARTY_LENGTH then break end
+        local mon = team[s]
+        local at = base + n * HOF_MON
+        local raw = type(mon) == "table" and unhex(mon.cartRaw)
+        local idx = type(mon) == "table" and cw.pokemonIndex[mon.species]
+        if raw then
+          putRaw(buf, at, raw, HOF_MON)
+          n = n + 1
+        elseif idx and idx ~= 0 then
+          setByte(buf, at, idx)
+          setByte(buf, at + 1, math.max(0, math.min(255, math.floor(tonumber(mon.level) or 1))))
+          encodeName(buf, at + 2, NAME_LENGTH, mon.nickname or speciesName(cw, mon.species), padTail)
+          n = n + 1
+        end
+      end
+      if n < PARTY_LENGTH then setByte(buf, base + n * HOF_MON, 0xFF) end
+    end
+    local importedTotal = math.max(0, math.floor(tonumber(save.hallOfFameTotal) or 0))
+    local earned = math.max(0, total - math.min(importedTotal, HOF_TEAM_CAPACITY))
+    setByte(buf, O.numHoFTeams, math.min(255, math.max(total, importedTotal + earned)))
+  end
+
+  if data.gameVersion == "yellow" then
+    local score = tonumber(save.surfingHighScore)
+    local cartHi = type(save.cartSurfHiScore) == "table" and save.cartSurfHiScore
+    if score then
+      score = math.max(0, math.min(9999, math.floor(score)))
+      setBcd(buf, O.surfHiScore + 1, 1, math.floor(score / 100))
+      setBcd(buf, O.surfHiScore, 1, score % 100)
+    elseif cartHi then
+      setByte(buf, O.surfHiScore, tonumber(cartHi[1]) or 0)
+      setByte(buf, O.surfHiScore + 1, tonumber(cartHi[2]) or 0)
+    end
   end
 
   -- Yellow starter friendship back out (see O.pikachuHappiness); Red/Blue
@@ -1219,21 +1844,29 @@ function GenSave.encode(save, data, template)
   -- Per pokered (engine/menus/save.asm SaveSAVtoSRAM / CalcCheckSum): each box
   -- gets its own checksum, and the bank aggregate is CalcCheckSum over the
   -- ENTIRE six-box region (6 x 1122 bytes), not a sum of the six box sums.
-  local function boxChecksum(base) return checksum(out, base, base + BOX_REGION_SIZE) end
-  for b = 0, 5 do
-    setByte(outBuf, O.boxBank2IndividualChecksums + b,
-            boxChecksum(O.box1 + b * BOX_REGION_SIZE))
+  if writeBanks then
+    local function boxChecksum(base) return checksum(out, base, base + BOX_REGION_SIZE) end
+    for b = 0, 5 do
+      setByte(outBuf, O.boxBank2IndividualChecksums + b,
+              boxChecksum(O.box1 + b * BOX_REGION_SIZE))
+    end
+    setByte(outBuf, O.boxBank2Checksum,
+            checksum(out, O.box1, O.box1 + 6 * BOX_REGION_SIZE))
+    for b = 0, 5 do
+      setByte(outBuf, O.boxBank3IndividualChecksums + b,
+              boxChecksum(O.box7 + b * BOX_REGION_SIZE))
+    end
+    setByte(outBuf, O.boxBank3Checksum,
+            checksum(out, O.box7, O.box7 + 6 * BOX_REGION_SIZE))
   end
-  setByte(outBuf, O.boxBank2Checksum,
-          checksum(out, O.box1, O.box1 + 6 * BOX_REGION_SIZE))
-  for b = 0, 5 do
-    setByte(outBuf, O.boxBank3IndividualChecksums + b,
-            boxChecksum(O.box7 + b * BOX_REGION_SIZE))
-  end
-  setByte(outBuf, O.boxBank3Checksum,
-          checksum(out, O.box7, O.box7 + 6 * BOX_REGION_SIZE))
 
-  return table.concat(outBuf)
+  out = table.concat(outBuf)
+  for _ = 1, 255 do
+    if not looksLikeGen2(out) then break end
+    setByte(outBuf, padAt, (outBuf[padAt + 1]:byte() % 255) + 1)
+    out = table.concat(outBuf)
+  end
+  return out
 end
 
 return GenSave

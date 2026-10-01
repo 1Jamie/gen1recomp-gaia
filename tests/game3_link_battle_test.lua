@@ -421,8 +421,8 @@ eq((tonumber(records[1] and records[1].wins) or 0)
   + (tonumber(records[1] and records[1].losses) or 0)
   + (tonumber(records[1] and records[1].draws) or 0), 1, "with exactly one battle in it")
 local stats = session.gameStats or {}
-eq((tonumber(stats.linkBattleWins) or 0) + (tonumber(stats.linkBattleLosses) or 0)
-  + (tonumber(stats.linkBattleDraws) or 0), 1, "and one GAME_STAT_LINK_BATTLE_* bump")
+eq((tonumber(stats[23]) or 0) + (tonumber(stats[24]) or 0)
+  + (tonumber(stats[25]) or 0), 1, "and one GAME_STAT_LINK_BATTLE_* bump")
 local card = session.trainerCard or {}
 eq((tonumber(card.linkBattleWins) or 0) + (tonumber(card.linkBattleLosses) or 0), 1,
   "the trainer card counts it too")
@@ -450,9 +450,23 @@ eq(session.linkBattleRecords[1].wins, 4, "and its wins accumulate")
 session.linkBattleRecords[1].wins = LB.RECORD_MAX
 LB.addOpponentRecord(session, "P1", 0x1001, LB.B_OUTCOME.WON)
 eq(session.linkBattleRecords[1].wins, LB.RECORD_MAX, "a win count never passes 9999")
-session.gameStats.linkBattleWins = LB.RECORD_MAX
+session.gameStats[23] = LB.RECORD_MAX
 LB.addOpponentRecord(session, "P1", 0x1001, LB.B_OUTCOME.WON)
-eq(session.gameStats.linkBattleWins, LB.RECORD_MAX, "nor does the game stat")
+eq(session.gameStats[23], LB.RECORD_MAX, "nor does the game stat")
+
+session.gameStats = { [23] = 7, linkBattleWins = 7 }
+LB.addOpponentRecord(session, "P1", 0x1001, LB.B_OUTCOME.WON)
+eq(session.gameStats[23], 8, "a bump lands on the numeric GAME_STAT_LINK_BATTLE_WINS slot")
+eq(session.gameStats.linkBattleWins, nil, "and no named shadow key is left behind")
+do
+  local Records = require("src.ui.game3.trainer_tower_records")
+  Records._session = session
+  local text = Records.totalText(session)
+  eq(text:find("8", 1, true) ~= nil, true, "the total-record text shows the engine-bumped win")
+end
+session.gameStats = { linkBattleWins = 5 }
+LB.addOpponentRecord(session, "P1", 0x1001, LB.B_OUTCOME.WON)
+eq(session.gameStats[23], 6, "a legacy named count folds into the numeric slot")
 
 print("[test] 11. SavePlayerParty and LoadPlayerParty bracket the exchange")
 Link.reset()

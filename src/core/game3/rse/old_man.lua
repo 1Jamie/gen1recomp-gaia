@@ -34,7 +34,7 @@ end
 local function setupBard(sess)
   local lyrics = Town.data().bard.defaultLyrics
   return { id = OldMan.BARD, hasChangedSong = false, language = Town.GAME_LANGUAGE,
-    songLyrics = copy(lyrics, OldMan.NUM_BARD_SONG_WORDS, 0), newSongLyrics = copy(lyrics, OldMan.NUM_BARD_SONG_WORDS, 0),
+    songLyrics = copy(lyrics, OldMan.NUM_BARD_SONG_WORDS, 0), newSongLyrics = copy(nil, OldMan.NUM_BARD_SONG_WORDS, 0),
     playerName = "", playerTrainerId = 0 }
 end
 
@@ -47,7 +47,7 @@ end
 local function setupStoryteller()
   return { id = OldMan.STORYTELLER, alreadyRecorded = false, gameStatIDs = copy(nil, OldMan.NUM_STORYTELLER_TALES, 0),
     trainerNames = copy(nil, OldMan.NUM_STORYTELLER_TALES, ""), statValues = copy(nil, OldMan.NUM_STORYTELLER_TALES, 0),
-    language = copy(nil, OldMan.NUM_STORYTELLER_TALES, Town.GAME_LANGUAGE) }
+    language = copy(nil, OldMan.NUM_STORYTELLER_TALES, 0) }
 end
 
 -- pokeemerald/src/mauville_old_man.c:100

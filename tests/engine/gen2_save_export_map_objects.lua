@@ -1,6 +1,5 @@
 -- A Gen 2 export that moved maps carries the new map's object window
 -- (data/maps/setup_scripts.asm MapSetupScript_Continue, home/map.asm
--- ReadObjectEvents). Same-map exports leave the template's window alone,
 -- byte for byte, which is the #1852 guarantee these tests also pin.
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
@@ -17,10 +16,11 @@ local STRUCT = Gen2MapContext.OBJECT_LENGTH
 -- across its whole object window so both preservation and rebuild are
 -- visible in the bytes. Synthesized, not checked in: a real .sav is
 -- personal data, same rule tests/engine/gen2_save_import.lua follows.
-local function template(L, O, group, number)
+local function template(L, O, group, number, x, y)
   local b = {}
   for i = 0, SIZE - 1 do b[i] = 0 end
   b[L.wMapGroup], b[L.wMapNumber] = group, number
+  b[L.wXCoord], b[L.wYCoord] = x or 0, y or 0
   for i = 0, Gen2MapContext.NUM_OBJECTS * MAPOBJECT - 1 do
     b[O.mapObjects + i] = 0xA0 + i % 16
   end
@@ -43,8 +43,8 @@ end
 
 -- The map the moved save lands on: two objects, one carrying every field a
 -- real object_event can, one minimal.
-local function fixtureData(group, number)
-  return {
+local function fixtureData(group, number, version)
+  local data = {
     pokemon = {}, moves = {}, items = {},
     maps = {
       FIX_HOUSE = {
@@ -73,6 +73,11 @@ local function fixtureData(group, number)
       },
     },
   }
+  require("tests.fixtures.save.gen2_sprite_metadata")(data, version or "gold")
+  for _, id in ipairs({ 0x11, 0x2F }) do
+    data.constants.spriteContext.rows[id] = { type = 1, length = 12, palette = 0 }
+  end
+  return data
 end
 
 local function save(group, number, x, y)
@@ -89,11 +94,10 @@ for _, spec in ipairs({
   { version = "gold", L = Gen2Layout.goldSilver, O = Gen2MapContext.OFFSETS.goldSilver },
 }) do
   local L, O = spec.L, spec.O
-  local tpl = template(L, O, 21, 14)
+  local tpl = template(L, O, 21, 14, 6, 1)
 
-  -- Same map: the template's whole object window survives untouched.
   local bytes, err = Gen2Save.encode(save(21, 14, 6, 1), spec.version, tpl,
-    fixtureData(21, 14))
+    fixtureData(21, 14, spec.version))
   T.check(bytes, spec.version .. " same-map export succeeds: " .. tostring(err))
   local windowSame = true
   for i = 0, Gen2MapContext.NUM_OBJECTS * MAPOBJECT - 1 do
@@ -102,20 +106,52 @@ for _, spec in ipairs({
       break
     end
   end
-  T.check(windowSame, spec.version .. ": same-map export leaves wMapObjects byte-identical")
+  T.check(windowSame, spec.version .. ": unmoved export leaves wMapObjects byte-identical")
   T.eq(u8(bytes, O.objectEventCount), 9,
-    spec.version .. ": same-map export leaves the object count alone")
+    spec.version .. ": unmoved export leaves the object count alone")
+  T.eq(bytes:sub(O.screenSave + 1, O.screenSave + 30), tpl:sub(O.screenSave + 1, O.screenSave + 30),
+    spec.version .. ": unmoved export leaves wScreenSave alone")
+
+  local away = template(L, O, 21, 14, 2, 1)
+  bytes, err = Gen2Save.encode(save(21, 14, 6, 1), spec.version, away, fixtureData(21, 14, spec.version))
+  T.check(bytes, spec.version .. " same-map move exports: " .. tostring(err))
+  T.eq(u8(bytes, O.mapObjects + 2), 1 + 4, spec.version .. ": same-map move: player map object y")
+  T.eq(u8(bytes, O.mapObjects + 3), 6 + 4, spec.version .. ": same-map move: player map object x")
+  T.eq(u8(bytes, O.objectStructs + Gen2MapContext.STRUCT_MAP_X), 6 + 4,
+    spec.version .. ": same-map move: player struct x")
+  T.eq(u8(bytes, O.objectStructs + Gen2MapContext.STRUCT_MAP_Y), 1 + 4,
+    spec.version .. ": same-map move: player struct y")
+  local npcSame = true
+  for i = MAPOBJECT, Gen2MapContext.NUM_OBJECTS * MAPOBJECT - 1 do
+    local index = i / MAPOBJECT - O.firstObjectSlot + 1
+    if (index % 1 ~= 0 or index < 1 or index > 2) and
+        u8(bytes, O.mapObjects + i) ~= u8(away, O.mapObjects + i) then npcSame = false break end
+  end
+  T.check(npcSame, spec.version .. ": same-map move preserves carried object attributes")
+  T.eq(u8(bytes, O.objectStructs + STRUCT), 0, spec.version .. ": same-map move removes hidden or out-of-view actors")
+  T.eq(u8(bytes, O.objectEventCount), 9, spec.version .. ": same-map move leaves the object count alone")
+  local moved = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x02, 0x03, 0x04, 0x00, 0x00, 0x00,
+    0x12, 0x13, 0x14, 0x00, 0x00, 0x00,
+    0x22, 0x23, 0x24, 0x00, 0x00, 0x00,
+  }
+  for i, want in ipairs(moved) do
+    T.eq(u8(bytes, O.screenSave + i - 1), want,
+      ("%s: same-map move screen block %d"):format(spec.version, i))
+  end
 
   -- Moved: the window is the NEW map's, exactly as ReadObjectEvents lays
   -- it out.
   bytes, err = Gen2Save.encode(save(21, 15, 6, 1), spec.version, tpl,
-    fixtureData(21, 15))
+    fixtureData(21, 15, spec.version))
   T.check(bytes, spec.version .. " moved export succeeds: " .. tostring(err))
 
   -- home/map.asm:941 ReadObjectEvents (pokecrystal home/map.asm:572)
   local slot1 = O.mapObjects + O.firstObjectSlot * MAPOBJECT
   local expected = {
-    0xFF, 0x2F, 5 + 4, 3 + 4, 0x07,
+    1, 0x2F, 5 + 4, 3 + 4, 0x07,
     2 * 16 + 1, 0xFF, 20, 4 * 16 + 2, 0x00,
     0xCD, 0x6B, 0xA5, 0x02, 0, 0,
   }
@@ -154,18 +190,18 @@ for _, spec in ipairs({
   T.eq(u8(bytes, O.mapObjects + 1), u8(tpl, O.mapObjects + 1),
     spec.version .. ": player map object sprite keeps the template's byte")
 
-  -- The player struct moves with them; the NPC structs are cleared.
+  -- pokecrystal engine/overworld/player_object.asm:415
   T.eq(u8(bytes, O.objectStructs + Gen2MapContext.STRUCT_MAP_X), 6 + 4,
     spec.version .. ": player struct map x")
   T.eq(u8(bytes, O.objectStructs + Gen2MapContext.STRUCT_MAP_Y), 1 + 4,
     spec.version .. ": player struct map y")
-  T.eq(u8(bytes, O.objectStructs + STRUCT), 0, spec.version .. ": NPC struct 1 cleared")
+  T.eq(u8(bytes, O.objectStructs + STRUCT), 0x2F, spec.version .. ": NPC struct 1 visible on Continue")
   T.eq(u8(bytes, O.objectStructs + 12 * STRUCT + STRUCT - 1), 0,
     spec.version .. ": NPC struct 12 cleared to its last byte")
 
   -- Masks, follow, count and pointer.
-  T.eq(u8(bytes, O.objectMasks), 0, spec.version .. ": object masks cleared")
-  T.eq(u8(bytes, O.objectMasks + 15), 0, spec.version .. ": all sixteen of them")
+  T.eq(u8(bytes, O.objectMasks), 0, spec.version .. ": player mask visible")
+  T.eq(u8(bytes, O.objectMasks + 15), 0xFF, spec.version .. ": unused object mask hidden")
   T.eq(u8(bytes, O.objectFollow), 0xFF, spec.version .. ": follow leader reset")
   T.eq(u8(bytes, O.objectFollow + 1), 0xFF, spec.version .. ": follow follower reset")
   T.eq(u8(bytes, O.objectEventCount), 2, spec.version .. ": object count")
@@ -178,17 +214,17 @@ for _, spec in ipairs({
   -- Refusals: an unknown map, and a cache from before the extractor kept
   -- the object-table address.
   local refused, why = Gen2Save.encode(save(9, 9, 0, 0), spec.version, tpl,
-    fixtureData(21, 15))
+    fixtureData(21, 15, spec.version))
   T.check(refused == nil and why:find("unknown map 9/9", 1, true),
     spec.version .. ": unknown map refuses: " .. tostring(why))
 
-  local stale = fixtureData(21, 15)
+  local stale = fixtureData(21, 15, spec.version)
   stale.maps.FIX_HOUSE.objectEventsAddr = nil
   refused, why = Gen2Save.encode(save(21, 15, 0, 0), spec.version, tpl, stale)
   T.check(refused == nil and why:find("re%-import the ROM"),
     spec.version .. ": stale cache refuses with the re-import hint: " .. tostring(why))
 
-  local noBlocks = fixtureData(21, 15)
+  local noBlocks = fixtureData(21, 15, spec.version)
   noBlocks.maps.FIX_HOUSE.blocks = nil
   refused, why = Gen2Save.encode(save(21, 15, 0, 0), spec.version, tpl, noBlocks)
   T.check(refused == nil and why:find("no block data", 1, true),
@@ -277,7 +313,7 @@ for _, spec in ipairs({
   end
 
   -- engine/menus/intro_menu.asm:148
-  bytes = Gen2Save.encode(save(21, 15, 0, 0), spec.version, tpl, fixtureData(21, 15))
+  bytes = Gen2Save.encode(save(21, 15, 0, 0), spec.version, tpl, fixtureData(21, 15, spec.version))
   T.check(bytes, spec.version .. ": an export with no box names at all")
   if bytes then
     local box1 = { 0x81, 0x8E, 0x97, 0xF7, 0x50 }

@@ -877,8 +877,8 @@ function Link.localTrainerCard()
     hofDebutHours = s.hofDebutHours,
     hofDebutMinutes = s.hofDebutMinutes,
     hofDebutSeconds = s.hofDebutSeconds,
-    linkBattleWins = card.linkBattleWins or stats.linkBattleWins,
-    linkBattleLosses = card.linkBattleLosses or stats.linkBattleLosses,
+    linkBattleWins = card.linkBattleWins or stats[23] or stats.linkBattleWins,
+    linkBattleLosses = card.linkBattleLosses or stats[24] or stats.linkBattleLosses,
     -- pokefirered/src/trainer_card.c:824
     pokemonTrades = math.min(0xFFFF, tonumber(stats[21]) or 0),
     -- pokefirered/src/trainer_card.c:876

@@ -40,12 +40,32 @@ FIELDS = [
     "wMomItemTriggerBalance", "wRoamMon1MapGroup", "wRoamMon2MapGroup",
     "wRoamMon3MapGroup", "wBestMagikarpLengthFeet", "wBestMagikarpLengthInches",
     "wMagikarpRecordHoldersName", "wDecoBed", "wDecoPoster", "wScreenSave",
+    # ram/wram.asm wPlayerData
+    "wMomsMoney", "wMomSavingMoney", "wWhichMomItem", "wPCItems",
+    "wLastDexMode", "wWhichRegisteredItem", "wRegisteredItem",
+    "wUnownDex", "wUnlockedUnowns", "wFirstUnownSeen",
 ]
 GUARDS = ["sCheckValue1", "sCheckValue2", "sChecksum", "sGameData", "sGameDataEnd"]
 
 # ram/sram.asm -- bank 0 labels, outside the copied WRAM block: file offset is
 # bank * 0x2000 + (addr - $A000).
-RAW_SRAM = ["sOptions", "sMysteryGiftUnlocked"]
+RAW_SRAM = ["sOptions", "sMysteryGiftItem", "sMysteryGiftUnlocked",
+            "sBackupMysteryGiftItem", "sNumDailyMysteryGiftPartnerIDs",
+            "sPartyMail", "sPartyMailBackup", "sMailboxCount",
+            "sMailboxCountBackup", "sBox"]
+
+SRAM_EXTRA = ["sHallOfFame", "sHallOfFameEnd", "sLinkBattleStats", "sLinkBattleStatsEnd",
+              "sRTCStatusFlags", "sLuckyNumberDay", "sLuckyIDNumber",
+              "sMysteryGiftData", "sBackupMysteryGiftItemEnd", "sGSBallFlag",
+              "sGSBallFlagBackup", "sCrystalData", "sBattleTowerChallengeState",
+              "sNrOfBeatenBattleTowerTrainers", "sBTChoiceOfLevelGroup", "sBTTrainers",
+              "sBattleTowerSaveFileFlags", "sBattleTowerReward", "sBTMonOfTrainers",
+              "sMailboxes", "sMailboxesBackup", "sStackTop",
+              "sDailyMysteryGiftPartnerIDs", "sMysteryGiftDecorationsReceived",
+              "sMysteryGiftTimer", "sMysteryGiftTrainerHouseFlag", "sMysteryGiftPartnerName",
+              "sMysteryGiftUnusedFlag", "sMysteryGiftTrainer", "sLinkBattleRecord"]
+
+WRAM_NAME = re.compile(r"^w[A-Za-z0-9_]+$")
 
 # ram/sram.asm:138-144
 SRAM_FIELDS = [("wPlayerGender", "sCrystalData", "wCrystalData")]
@@ -67,44 +87,53 @@ def load(path):
     return out
 
 
-# The backup copy the game falls back to when the primary checksum fails
-# (TryLoadSaveFile -> VerifyBackupChecksum). Crystal's is contiguous and laid
-# out exactly like the primary, so it is the same table shifted. Gold and
-# Silver split theirs across three sections and are not derivable this way,
-# which is why only Crystal gets one.
-BACKUP_NEED = ["sBackupGameData", "sBackupGameDataEnd", "sBackupCheckValue1",
-               "sBackupCheckValue2", "sBackupChecksum", "sGameData"]
+# engine/menus/save.asm:538 TryLoadSaveFile; pokegold ram/sram.asm Backup Save 1-3
+GS_BACKUP = [
+    ("sPlayerData1", "sBackupPlayerData1", "wPlayerData1", "wPlayerData1End"),
+    ("sPlayerData2", "sBackupPlayerData2", "wPlayerData2", "wPlayerData2End"),
+    ("sPlayerData3", "sBackupPlayerData3", "wPlayerData3", "wPlayerData3End"),
+    ("sCurMapData", "sBackupCurMapData", "wCurMapData", "wCurMapDataEnd"),
+    ("sPokemonData", "sBackupPokemonData", "wPokemonData", "wPokemonDataEnd"),
+]
+BACKUP_GUARDS = ["sBackupOptions", "sBackupCheckValue1", "sBackupCheckValue2",
+                 "sBackupChecksum"]
 
 
-def backup_delta(sym):
-    if any(n not in sym for n in BACKUP_NEED):
-        return None
-    off = lambda n: sym[n][0] * 0x2000 + (sym[n][1] - 0xA000)
-    return off("sBackupGameData") - off("sGameData")
+def file_off(sym, n):
+    return sym[n][0] * 0x2000 + (sym[n][1] - 0xA000)
 
 
-def backup_table(sym, rows, label):
-    if any(n not in sym for n in BACKUP_NEED):
-        return None
-    off = lambda n: sym[n][0] * 0x2000 + (sym[n][1] - 0xA000)
-    # File offsets, not raw addresses: the backup lives in SRAM bank 0 and the
-    # primary in bank 1, so an address-only delta is off by a bank.
-    delta = backup_delta(sym)
-    guards = {"sCheckValue1": off("sBackupCheckValue1"),
-              "sCheckValue2": off("sBackupCheckValue2"),
-              "sChecksum": off("sBackupChecksum"),
-              "sGameData": off("sBackupGameData"),
-              "sGameDataEnd": off("sBackupGameDataEnd")}
-    absolute = {n for n, _, _ in SRAM_FIELDS} | set(RAW_SRAM)
-    out = []
-    for name, value in rows:
-        if name in guards:
-            out.append((name, guards[name]))
-        elif name in absolute:
-            out.append((name, value))
-        else:
-            out.append((name, value + delta))
-    return out
+def backup_save(sym, label):
+    missing = [n for n in BACKUP_GUARDS if n not in sym]
+    if missing:
+        sys.exit(f"{label}: symbol file is missing {missing}")
+    segs = []
+    if "sBackupGameData" in sym:
+        segs.append((file_off(sym, "sGameData"), file_off(sym, "sBackupGameData"),
+                     file_off(sym, "sGameDataEnd") - file_off(sym, "sGameData")))
+    else:
+        for prim, back, w0, w1 in GS_BACKUP:
+            need = [prim, back, w0, w1]
+            if any(n not in sym for n in need):
+                sys.exit(f"{label}: symbol file is missing one of {need}")
+            segs.append((file_off(sym, prim), file_off(sym, back),
+                         sym[w1][1] - sym[w0][1]))
+    lo, hi = file_off(sym, "sGameData"), file_off(sym, "sGameDataEnd")
+    covered = sorted((a, a + n) for a, _, n in segs)
+    at = lo
+    for a, b in covered:
+        if a != at:
+            sys.exit(f"{label}: backup segments do not tile sGameData at 0x{at:04X}")
+        at = b
+    if at != hi:
+        sys.exit(f"{label}: backup segments end at 0x{at:04X}, not 0x{hi:04X}")
+    return {
+        "options": file_off(sym, "sBackupOptions"),
+        "checkValue1": file_off(sym, "sBackupCheckValue1"),
+        "checkValue2": file_off(sym, "sBackupCheckValue2"),
+        "checksum": file_off(sym, "sBackupChecksum"),
+        "segments": segs,
+    }
 
 
 def table(sym, label):
@@ -144,6 +173,16 @@ def table(sym, label):
         if not s:
             sys.exit(f"{label}: {name} is missing from the symbol file")
         rows.append((name, s[0] * 0x2000 + (s[1] - 0xA000)))
+    syms = {}
+    for n, (bank, addr) in sym.items():
+        if not WRAM_NAME.match(n) or not (0xC000 <= addr < 0xE000):
+            continue
+        if lo <= addr - anchor + sym["sPlayerData"][1] < hi:
+            syms[n] = base + (addr - anchor)
+    for name in SRAM_EXTRA:
+        s = sym.get(name)
+        if s:
+            syms[name] = s[0] * 0x2000 + (s[1] - 0xA000)
     boxes = []
     for i in range(1, BOX_COUNT + 1):
         b = sym.get("sBox%d" % i)
@@ -152,7 +191,7 @@ def table(sym, label):
         # General SRAM form, which the bank-1 arithmetic above is a case of:
         # file offset = bank * 0x2000 + (addr - $A000).
         boxes.append(b[0] * 0x2000 + (b[1] - 0xA000))
-    return rows, skipped, boxes
+    return rows, skipped, boxes, syms
 
 
 SCENE_RE = re.compile(r"^\s*scene_var\s+(\w+),\s*(\w+)")
@@ -226,35 +265,38 @@ def main():
                          "w<Map>SceneID offsets when given")
     ap.add_argument("--crystal-scenes", required=False,
                     help="path to pokecrystal data/maps/scenes.asm")
+    ap.add_argument("--syms-out", required=False,
+                    help="write src/save_convert/Gen2Syms.lua here: every label "
+                         "inside the saved block plus SRAM_EXTRA, as file offsets")
     a = ap.parse_args()
     print("-- GENERATED by tools/gen2_sram_offsets.py. Do not edit by hand.")
     print("-- Regenerate from a pret/pokegold + pret/pokecrystal build; see that")
     print("-- script's header for the derivation and the assertion behind it.")
     print("local Gen2Layout = {}\n")
+    all_syms = {}
     for key, path, scenesPath in (("goldSilver", a.gold, a.gold_scenes),
                                   ("crystal", a.crystal, a.crystal_scenes)):
         sym = load(path)
-        rows, skipped, boxes = table(sym, key)
-        backup = backup_table(sym, rows, key)
+        rows, skipped, boxes, syms = table(sym, key)
+        backup = backup_save(sym, key)
         scenes = scene_rows(sym, scenesPath, key) if scenesPath else None
         print(f"Gen2Layout.{key} = {{")
         for n, off in rows:
             print(f"  {n} = 0x{off:04X},")
         print("  -- The 14 archived boxes, listed rather than strided (see BOX_COUNT).")
         print("  boxes = { " + ", ".join("0x%04X" % b for b in boxes) + " },")
+        all_syms[key] = syms
         if scenes:
             print_scenes(scenes, "  ")
-        if backup:
-            print("  -- The backup copy the game falls back to when the primary")
-            print("  -- checksum fails. Same shape, shifted.")
-            print("  backup = {")
-            for n, off in backup:
-                print(f"    {n} = 0x{off:04X},")
-            print("    boxes = { " + ", ".join("0x%04X" % b for b in boxes) + " },")
-            if scenes:
-                delta = backup_delta(sym)
-                print_scenes([(m, off + delta) for m, off in scenes], "    ")
-            print("  },")
+        print("  -- engine/menus/save.asm:538 TryLoadSaveFile")
+        print("  backupSave = {")
+        for n in ("options", "checkValue1", "checkValue2", "checksum"):
+            print(f"    {n} = 0x{backup[n]:04X},")
+        print("    segments = {")
+        for prim, back, size in backup["segments"]:
+            print(f"      {{ 0x{prim:04X}, 0x{back:04X}, 0x{size:03X} }},")
+        print("    },")
+        print("  },")
         print("}")
         for s2 in skipped:
             print(f"-- not addressable via the block: {s2}")
@@ -262,6 +304,16 @@ def main():
     if a.charmap:
         emit_charmap(a.charmap)
     print("return Gen2Layout")
+    if a.syms_out:
+        with open(a.syms_out, "w") as out:
+            out.write("-- GENERATED by tools/gen2_sram_offsets.py. Do not edit by hand.\n")
+            out.write("local Gen2Syms = {}\n\n")
+            for key in ("goldSilver", "crystal"):
+                out.write(f"Gen2Syms.{key} = {{\n")
+                for n, off in sorted(all_syms[key].items(), key=lambda kv: (kv[1], kv[0])):
+                    out.write(f"  {n} = 0x{off:04X},\n")
+                out.write("}\n\n")
+            out.write("return Gen2Syms\n")
 
 
 main()

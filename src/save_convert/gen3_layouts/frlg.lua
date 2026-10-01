@@ -132,7 +132,7 @@ L.MAIL = { off = 0x2CD0, count = 16, size = 36, words = 0x00, wordCount = 9, pla
 L.EASY_CHAT_BATTLE = { start = 0x2CAC, won = 0x2CB8, lost = 0x2CC4, count = 6 }
 
 -- include/global.h:814
-L.FAME_CHECKER = { off = 0x3A54, count = 16, pickBits = 2, flavorShift = 2, flavorBits = 12, unkShift = 14 }
+L.FAME_CHECKER = { off = 0x3A54, count = 16, stride = 4, pickBits = 2, flavorShift = 2, flavorBits = 12, unkShift = 14 }
 -- include/constants/fame_checker.h:4
 L.FAMECHECKER_OAK = 0
 -- include/constants/fame_checker.h:24
@@ -147,7 +147,17 @@ L.TRAINER_TOWER = { off = 0x3D38, count = 4, size = 12, bestTime = 4 }
 L.TRAINER_TOWER_MAX_TIME = 215999
 
 -- include/global.h:240
-L.LINK_BATTLE_RECORDS = { off = 0xA98, count = 5, size = 16 }
+L.LINK_BATTLE_RECORDS = { block = "sb2", off = 0xA98, count = 5, size = 16 }
+-- include/global.h:817
+L.TRAINER_NAME_RECORDS = { off = 0x3BA8, count = 20 }
+-- include/global.h:352
+L.MAP_VIEW = { block = "sb2", off = 0x898, size = 0x200 }
+-- include/global.h:793
+L.QUEST_LOG = { off = 0x1300, size = 0x19A0 }
+
+L.KEEP_RAW_NAMES = true
+L.PORT = "src.save_convert.gen3_port.frlg"
+L.GAME_CODES = { [4] = "firered", [5] = "leafgreen" }
 
 -- src/event_data.c:71
 L.RSE_NATIONAL_VAR, L.RSE_NATIONAL_VALUE, L.RSE_NATIONAL_FLAG = 0x403C, 0x0302, 0x838

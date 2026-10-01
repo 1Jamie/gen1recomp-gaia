@@ -18,8 +18,8 @@ local SaveFileIO = require("src.import.SaveFileIO")
 
 local realFS = love.filesystem
 
-local function fixture()
-  return {
+local function fixture(version)
+  return require("tests.fixtures.save.gen2_sprite_metadata")({
     pokemon = {}, moves = {}, items = {},
     maps = { PLAYERS_HOUSE_2F = {
       group = 24, map = 7, objectEventsAddr = 0x5CF0,
@@ -34,7 +34,7 @@ local function fixture()
           script = 0x5C54, eventFlag = 1858 },
       },
     } },
-  }
+  }, version or "gold")
 end
 
 local function save(gender)
@@ -73,7 +73,7 @@ end
 for _, version in ipairs({ "gold", "crystal" }) do
   local L = Gen2Save.layoutFor(version)
   local O = Gen2MapContext.offsetsFor(version)
-  local bytes, why = Gen2Save.encode(save("male"), version, nil, fixture())
+  local bytes, why = Gen2Save.encode(save("male"), version, nil, fixture(version))
   check(bytes ~= nil, version .. ": a slot with no cartridge exports -- " .. tostring(why))
   if not bytes then break end
 
@@ -139,7 +139,7 @@ for _, version in ipairs({ "gold", "crystal" }) do
   end
 
   local first = O.mapObjects + O.firstObjectSlot * Gen2MapContext.MAPOBJECT_LENGTH
-  eq(u8(bytes, first), 0xFF, version .. ": NPC 1 has no struct yet")
+  eq(u8(bytes, first), 0xFF, version .. ": empty console has no active struct")
   eq(u8(bytes, first + 1), 240, version .. ": NPC 1 sprite")
   eq(u8(bytes, first + 2), 2 + 4, version .. ": NPC 1 y")
   eq(u8(bytes, first + 3), 4 + 4, version .. ": NPC 1 x")
@@ -150,9 +150,9 @@ for _, version in ipairs({ "gold", "crystal" }) do
 
   local screen = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x04, 0x01, 0x03, 0x02, 0x00,
+    0x00, 0x04, 0x01, 0x03, 0x1F, 0x00,
     0x00, 0x05, 0x06, 0x05, 0x05, 0x00,
-    0x00, 0x05, 0x05, 0x07, 0x05, 0x00,
+    0x00, 0x1B, 0x05, 0x07, 0x05, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   }
   for i, want in ipairs(screen) do
@@ -174,7 +174,7 @@ end
 
 do
   local O = Gen2MapContext.offsetsFor("crystal")
-  local female = Gen2Save.encode(save("female"), "crystal", nil, fixture())
+  local female = Gen2Save.encode(save("female"), "crystal", nil, fixture("crystal"))
   check(female ~= nil, "crystal: a female save exports")
   if female then
     eq(u8(female, O.mapObjects + 8), 0x90, "crystal: PAL_NPC_BLUE for Kris")
@@ -187,7 +187,7 @@ do
     local L = Gen2Save.layoutFor(version)
     local named = save("male")
     named.boxNames = { [2] = "MISC", [3] = "" }
-    local bytes = Gen2Save.encode(named, version, nil, fixture())
+    local bytes = Gen2Save.encode(named, version, nil, fixture(version))
     check(bytes ~= nil, version .. ": a save with one renamed box exports")
     if bytes then
       eq(nameAt(bytes, L.wBoxNames, 9), "BOX1",
@@ -329,10 +329,14 @@ do
   local image = Gen2Save.encode(save("male"), "gold", nil, fixture())
   check(image ~= nil, "a 32 KB Gold image to import")
 
+  local data = fixture()
+  data.pokemon = { CHIKORITA = { index = 152, dex = 152 } }
+  require("src.save_convert.SaveConvert").setGen2DataStub(data)
   local ok, slotId = SaveFileIO.importToSlot(image, "gold", true)
   check(ok, "the image imports into a slot -- " .. tostring(slotId))
   local cartPath = "saves/gold/" .. tostring(slotId) .. ".cart"
-  check(files[cartPath] ~= nil, "and its cartridge image is kept beside it")
+  eq(files[cartPath], nil, "and no sidecar cartridge image is written")
+  files[cartPath] = image
 
   eq(SaveData.deleteSlot("gold", slotId), true, "the slot is deleted")
   eq(files["saves/gold/" .. tostring(slotId) .. ".lua"], nil, "its save is gone")

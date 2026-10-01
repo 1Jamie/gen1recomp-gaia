@@ -438,10 +438,20 @@ check("frames rolled over", timed.playTime.frames, 0)
 for _ = 1, 60 * 59 do Save.tickPlayTime(timed) end
 check("one minute", timed.playTime.minutes, 1)
 check("seconds reset", timed.playTime.seconds, 0)
--- The cart caps at 999 hours rather than overflowing the trainer card's field.
 timed.playTime = { hours = 999, minutes = 59, seconds = 59, frames = 59 }
 Save.tickPlayTime(timed)
-check("hours capped", timed.playTime.hours, 999)
+check("hours stay 999", timed.playTime.hours, 999)
+check("capped flag set", timed.playTime.capped, true)
+check("capped minutes", timed.playTime.minutes, 59)
+check("capped seconds", timed.playTime.seconds, 59)
+check("capped frames", timed.playTime.frames, 0)
+for _ = 1, 600 do Save.tickPlayTime(timed) end
+check("capped clock stops", timed.playTime.hours * 10000 + timed.playTime.minutes * 100 + timed.playTime.seconds * 1 + timed.playTime.frames, 999 * 10000 + 5959)
+check("not capped one tick earlier", (function()
+  local u = { playTime = { hours = 999, minutes = 59, seconds = 59, frames = 58 } }
+  Save.tickPlayTime(u)
+  return u.playTime.capped == nil and u.playTime.frames == 59
+end)(), true)
 
 -- -------------------------------------------------------- write and read
 

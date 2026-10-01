@@ -16,6 +16,7 @@ local Specials = require("src.script.gen2.Specials")
 local TrainerHouse = require("src.world.gen2.TrainerHouse")
 local Trainers = require("src.world.gen2.Trainers")
 local Vm = require("src.script.gen2.Vm")
+local TextBox = require("src.render.TextBox")
 
 -- ---------------------------------------------------------------------------
 -- sMysteryGiftTrainerHouseFlag, and the three routines that read it
@@ -247,8 +248,12 @@ do -- the first visit of the day, accepted
     "turnobject PLAYER, UP squares the player up to the desk")
   check(saw(run.log, "TRAINING HALL"), "the welcome")
   check(saw(run.log, "is your"), "the {STRBUF} opponent line")
-  eq(run.log[2], "CAL is your\nopponent today.",
-    "and gettrainername filled it with CAL")
+  -- pokegold/maps/TrainerHouseB1F.asm:121
+  eq(run.log[2], "CAL is your\nopponent today.{DONE}",
+    "gettrainername fills CAL while retaining the text terminator")
+  eq(TextBox.ending(run.log[2]), "done", "the opponent line uses done")
+  eq(TextBox.substitute({}, run.log[2]), "CAL is your\nopponent today.",
+    "the displayed opponent line is unchanged")
   check(saw(run.log, "Would you like to"), "the question")
   check(saw(run.log, "Please go right"), "the go-ahead")
   check(saw(run.log, "I traveled out"), "CAL's own line inside the room")
