@@ -1294,6 +1294,19 @@ function Pyramid.standardWildEncounter(sess, cur, prev)
   return Pyramid.generateWildMon(sess, enc)
 end
 
+-- pokeemerald/src/wild_encounter.c:716
+function Pyramid.sweetScentWildEncounter(sess)
+  local Encounters = require("src.core.game3.encounters")
+  local header = wildHeader(sess)
+  local land = header and header.land
+  if not land then return false end
+  local enc = Encounters.rules().tryGenerate(land, "land", false, false)
+  if not enc then return false end
+  enc = Pyramid.generateWildMon(sess, enc)
+  if not enc then return false end
+  return Pyramid.startWildBattle(sess, enc) ~= false
+end
+
 -- pokeemerald/src/battle_setup.c:402
 function Pyramid.startWildBattle(sess, enc)
   local Runtime = package.loaded["src.core.game3.runtime"]

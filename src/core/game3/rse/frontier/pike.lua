@@ -500,6 +500,19 @@ function Pike.standardWildEncounter(sess, cur, prev)
   return Pike.tryGenerateWildMon(sess, enc, true)
 end
 
+-- pokeemerald/src/wild_encounter.c:706
+function Pike.sweetScentWildEncounter(sess)
+  local R = encounterRules()
+  local header = Pike.manifest().wildHeaders[Pike.wildMonHeaderId(sess) + 1]
+  local land = header and header.land
+  if not land then return false end
+  local enc = R.tryGenerate(land, "land", false, false)
+  if not enc then return false end
+  enc = Pike.tryGenerateWildMon(sess, enc, false)
+  if not enc then return false end
+  return Pike.startWildBattle(sess, enc) ~= false
+end
+
 -- pokeemerald/src/battle_setup.c:445
 function Pike.startWildBattle(sess, enc)
   local Runtime = package.loaded["src.core.game3.runtime"]

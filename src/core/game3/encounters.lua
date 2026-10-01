@@ -397,7 +397,7 @@ Encounters.rules = rules
 
 for _, name in ipairs({
   "mapBaseCooldown", "cooldownMinSteps", "handleCooldown", "resetRateModifiers",
-  "encounterRate", "rollLand", "rollWater", "rollRocks", "hasFishingMons", "rollFishing",
+  "encounterRate", "rollLand", "rollWater", "rollRocks", "rollSweetScent", "sweetScentFacility", "hasFishingMons", "rollFishing",
 }) do
   Encounters[name] = function(...)
     local f = rules()[name]

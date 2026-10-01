@@ -456,6 +456,48 @@ function M.bind(E, H)
     return try_generate(area, "water", true, true)
   end
 
+  -- pokeemerald/src/wild_encounter.c:704
+  function R.sweetScentFacility(mapId)
+    for _, f in ipairs({
+      { "src.core.game3.rse.frontier.pike", "WILD_ROOM" },
+      { "src.core.game3.rse.frontier.pyramid", "FLOOR_MAP" },
+    }) do
+      local F = package.loaded[f[1]]
+      if F and mapId == F[f[2]] then
+        local sess = require("src.core.game3.rse.init").session()
+        return sess ~= nil and F.sweetScentWildEncounter(sess) == true
+      end
+    end
+    return nil
+  end
+
+  -- pokeemerald/src/wild_encounter.c:697
+  function R.rollSweetScent(mapId, terrain)
+    E.ensureLoaded()
+    local t = H.table_for(mapId)
+    local water = terrain == "water"
+    local area
+    if water then
+      if sootopolis_blocks(mapId) then return nil end
+      area = H.normalize_area(t and t.water, 15)
+    else
+      area = land_area(t)
+    end
+    if not area or #area.slots == 0 then return nil end
+    local s = session()
+    if s and type(s.roamer) == "table" and s.roamer.active then
+      local okR, Roamer = pcall(require, "src.core.game3.roamer")
+      local enc = okR and Roamer and Roamer.tryEncounter and Roamer.tryEncounter(s, mapId, water and "water" or "land")
+      if enc then return enc end
+    end
+    if not water then
+      local o = outbreak_test(mapId)
+      local enc = o and outbreak_mon(o, false)
+      if enc then return enc end
+    end
+    return try_generate(area, water and "water" or "land", false, false)
+  end
+
   -- pokeemerald/src/wild_encounter.c:668
   function R.rollRocks(mapId)
     E.ensureLoaded()

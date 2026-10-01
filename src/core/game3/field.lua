@@ -1428,13 +1428,44 @@ function Field.executeFieldMove(payload)
       if payload.se then Audio.playSe(payload.se) end
       FieldEffects.startSweetScent(function()
         Field.locked = false
-        local okE, Encounters = pcall(lazyReq, "src.core.game3.encounters")
-        if okE and Encounters and Encounters.tryBattle then
-          Encounters.tryBattle(Field._game, true)
-        end
+        Field.finishSweetScent(payload)
       end)
     end)
   end
+end
+
+-- pokefirered/src/fldeff_sweetscent.c:62
+function Field.finishSweetScent(payload)
+  local Encounters = lazyReq("src.core.game3.encounters")
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  local session = Field._session
+  local mapId = session and session.map
+  if not mapId then
+    local Map = package.loaded["src.core.game3.map"]
+    mapId = Map and Map.current
+  end
+  local rules = Encounters.rules()
+  if rules.sweetScentFacility then
+    local handled = rules.sweetScentFacility(mapId)
+    if handled == true then return end
+    if handled == false then
+      if not payload.failText then return end
+      local Message = lazyReq("src.ui.game3.message")
+      Message.show(RomText.box(payload.failText), { session = session, done = function() Message.close() end })
+      return
+    end
+  end
+  local terrain = Encounters.terrainAt(Player.cellX, Player.cellY)
+  local enc = (terrain == "land" or terrain == "water") and Encounters.rollSweetScent(mapId, terrain) or nil
+  if enc then
+    local BattleBridge = lazyReq("src.core.game3.battle_bridge")
+    local ok, err = BattleBridge.startWild(Runtime and Runtime._mod, Field._game, enc, {})
+    if ok then return end
+    print("[game3/field] sweet scent startWild failed: " .. tostring(err))
+  end
+  if not payload.failText then return end
+  local Message = lazyReq("src.ui.game3.message")
+  Message.show(RomText.box(payload.failText), { session = session, done = function() Message.close() end })
 end
 
 -- pokefirered/src/wild_encounter.c:446

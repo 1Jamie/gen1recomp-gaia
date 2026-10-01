@@ -263,6 +263,26 @@ function Encounters.rollWater(mapId, enterFromOther)
   return roll_area(mapId, "water", WATER_WEIGHTS, enterFromOther, 15)
 end
 
+-- pokefirered/src/wild_encounter.c:464
+function Encounters.rollSweetScent(mapId, terrain)
+  Encounters.ensureLoaded()
+  local water = terrain == "water"
+  local t = table_for(mapId)
+  local area = water and normalize_area(t and t.water, 15)
+    or normalize_area(t and (t.land or t.grass), nil)
+  local okR, Roamer = pcall(require, "src.core.game3.roamer")
+  if okR and Roamer and Roamer.tryEncounter then
+    local okRt, Runtime = pcall(require, "src.core.game3.runtime")
+    local session = okRt and Runtime and Runtime.getSession and Runtime.getSession()
+    local roamerEnc = Roamer.tryEncounter(session, mapId, water and "water" or "land")
+    if roamerEnc then return roamerEnc end
+  end
+  if not area or #area.slots == 0 then return nil end
+  local entry = pick_slot(area.slots, water and WATER_WEIGHTS or LAND_WEIGHTS)
+  if type(entry) ~= "table" then return nil end
+  return { species = entry.species or entry[1], level = level_of(entry), item = entry.item }
+end
+
 --- pokefirered/src/wild_encounter.c:446
 function Encounters.rollRocks(mapId)
   Encounters.ensureLoaded()
