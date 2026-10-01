@@ -97,10 +97,12 @@ return function(game)
         table.concat(out, " "):find("popped out", 1, true) ~= nil)
   check("the drink is in the bag",
         (game.save.inventory.FRESH_WATER or 0) == heldBefore + 1)
-  check("and it cost 200", game.save.money == moneyBefore - 200)
-  check("the drink list is gone by then",
-        game.stack.states[#game.stack.states - 1] == ow)
+  check("the drink list stays up under it",
+        game.stack.states[#game.stack.states - 1] == menu)
   waitForArrow(result)
+  U.wait(1)
+  check("and it cost 200 once the text has typed",
+        game.save.money == moneyBefore - 200)
   U.shot(game, SHOT_DIR .. "/bug1876_3_popped.png")
 
   U.tap(game, "a")
@@ -118,6 +120,7 @@ return function(game)
   U.log("is SFX_PUSH_BOULDER restarted 60 times over two seconds, and the")
   U.log("popped-out line lands while the last one is still decaying.")
 
+  love.event.quit(ok and 0 or 1)
   while true do
     coroutine.yield()
   end

@@ -3413,20 +3413,17 @@ end
 -- == issue #4: tile anim tick accumulates wall-clock into 60Hz steps ==
 do
   local TileRenderer = require("src.render.TileRenderer")
-  TileRenderer.setSpinning(true)
-  local before = TileRenderer.spinBlurActive()
-  -- the blur alternates once per simulated-joypad step, 16 frames (#1831)
+  local before = TileRenderer.animClock()
   for _ = 1, 16 do TileRenderer.tick(1 / 60) end
-  check(before ~= TileRenderer.spinBlurActive(),
-        "tick(1/60) advances water/spinner clock at fixed 60Hz")
-  local mid = TileRenderer.spinBlurActive()
+  eq(TileRenderer.animClock() - before, 16,
+     "tick(1/60) advances water/spinner clock at fixed 60Hz")
+  local mid = TileRenderer.animClock()
   TileRenderer.tick(1 / 120)
-  eq(TileRenderer.spinBlurActive(), mid,
+  eq(TileRenderer.animClock(), mid,
      "sub-frame dt does not advance the tile anim clock")
   TileRenderer.tick(1 / 120)
-  -- second half-frame completes one step; phase may or may not flip
-  -- (8-tick blur period), but the clock must have accepted the step
-  TileRenderer.setSpinning(false)
+  eq(TileRenderer.animClock(), mid + 1,
+     "the second half-frame completes one step")
 end
 end
 

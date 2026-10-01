@@ -25,6 +25,7 @@ package.loaded["src.render.TextBox"] = {
     return box
   end,
   substitute = function(_, text) return text end,
+  soundOpts = function(_, _, opts) return opts or {} end,
 }
 local battles = {}
 package.loaded["src.battle.BattleState"] = {
@@ -47,6 +48,7 @@ local game = {
 local ow = {
   trainerDefeated = function() return false end,
   pushBattle = function() end,
+  playTrainerMusic = function() end,
   afterBattle = function() end,
 }
 

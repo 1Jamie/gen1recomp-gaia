@@ -94,8 +94,8 @@ check((first[1] or ""):find("Eeek!", 1, true) ~= nil,
       "the first box the player reads is the scared line")
 local joined = table.concat(first, " | ")
 check(joined:find("TM36", 1, true) ~= nil, "the run reaches the TM36 boxes")
-check(joined:find("SELFDESTRUCT!", 1, true) ~= nil,
-      "and the SELFDESTRUCT explanation")
+check(joined:find("SELFDESTRUCT!", 1, true) == nil,
+      "and stops on the receipt without the explanation")
 check(bagHasTm(), "TM36 is in the bag afterwards")
 check(game.save.flags.EVENT_GOT_TM36, "EVENT_GOT_TM36 is set afterwards")
 

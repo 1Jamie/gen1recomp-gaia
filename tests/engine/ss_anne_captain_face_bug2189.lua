@@ -85,10 +85,13 @@ eq(rows[clearAt][2], false, "that row clears rather than sets")
 eq(clearAt, rubbedAt + 1, "the rub tail clears the bit before the gift (SSAnneCaptainsRoom.asm:64-66)")
 check(finalClearAt and gotAt and finalClearAt == gotAt + 1,
       "the success path clears it again after EVENT_GOT_HM01 (:31-33)")
+eq(rearmAt, nil, "no row re-arms the bit ahead of GiveItem on the success path")
+eq(rows[giveAt][5], "_SSAnneCaptainsRoomCaptainHM01NoRoomText",
+   "a full bag prints the captain's own no-room text")
 if require("src.core.GameVersion").isYellow() then
-  eq(rearmAt, nil, "Yellow never re-arms the bit: a full bag still turns the captain")
+  eq(rows[giveAt][7], nil, "Yellow never re-arms the bit on a full bag")
 else
-  eq(rearmAt, giveAt - 1, "Red re-arms the bit right before GiveItem so a full bag halts with him back-turned (pokered :34-37)")
+  eq(rows[giveAt][7], true, "Red re-arms the bit only once GiveItem refuses (pokered :34-37)")
 end
 
 local auto = rows[optsAt][2].auto
@@ -149,13 +152,62 @@ check(setUpvalue(OW.showMapText, "mapScripts", {
 local room2 = setmetatable({ player = player, map = { id = 1, def = { label = "X" } } },
                            { __index = OW })
 
+local boxes = {}
+check(setUpvalue(Commands.show_text, "TextBox", {
+  new = function(_, text) return { text = text } end,
+}), "show_text builds its box through an upvalue")
+local function textCtx(state)
+  return {
+    overworld = state,
+    game = { data = { text = {}, resolveText = function() return nil end },
+             stack = { push = function(_, b) table.insert(boxes, b) end } },
+    runner = { yield = function() end, resume = function() end },
+  }
+end
+
 room2.noNpcFacePlayer = true
 local captain = newNpc()
 local done = talkTo(room2, captain)
 eq(captain.facing, "up", "the captain keeps his back turned at talk time")
+local tctx = textCtx(room2)
+Commands.show_text(tctx, "rub")
+eq(captain.facing, "up", "the rub box opens with the bit still set: back stays turned")
+Commands.no_npc_face_player(tctx, false)
+eq(captain.facing, "up", "clearing the bit alone does not turn him")
+Commands.show_text(tctx, "better")
+eq(captain.facing, "down", "the next text box turns him (PrintText -> UpdateSprites)")
+captain.facing = "up"
+Commands.show_text(tctx, "received")
+eq(captain.facing, "up", "the latched turn fires once, not on every later box")
+done()
+eq(captain.facing, "up", "and the end of the talk does not turn him again")
+
+room2.noNpcFacePlayer = true
+captain = newNpc()
+done = talkTo(room2, captain)
+Commands.show_text(textCtx(room2), "rub")
+done()
+eq(captain.facing, "up", "a talk that ends with the bit still set never turns him")
+
+room2.noNpcFacePlayer = true
+captain = newNpc()
+done = talkTo(room2, captain)
 room2.noNpcFacePlayer = nil
 done()
-eq(captain.facing, "down", "and turns once the conversation ends with the bit cleared")
+eq(captain.facing, "down", "a function script that clears the bit still turns him at the end")
+
+local realBag = package.loaded["src.inventory.Bag"]
+package.loaded["src.inventory.Bag"] = { add = function() return false end }
+room2.noNpcFacePlayer = nil
+local fctx = textCtx(room2)
+fctx.save = {}
+eq(Commands.give_item(fctx, "HM_CUT", 1, false, "noroom", "Get_Key_Item", true),
+   math.huge, "a refused gift halts the script")
+eq(room2.noNpcFacePlayer, true, "and fullNoFace re-arms the bit after the no-room text")
+room2.noNpcFacePlayer = nil
+Commands.give_item(fctx, "HM_CUT", 1, false, "noroom", "Get_Key_Item")
+eq(room2.noNpcFacePlayer, nil, "without fullNoFace a full bag leaves the bit clear")
+package.loaded["src.inventory.Bag"] = realBag
 
 room2.noNpcFacePlayer = nil
 local other = newNpc()

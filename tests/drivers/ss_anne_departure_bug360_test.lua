@@ -19,7 +19,9 @@ return function(game)
   local DOCK, DOCK_CELL = "VERMILION_DOCK", { x = 14, y = 2 }
   local ANNE2F, TRIGGER = "SS_ANNE_2F", { x = 37, y = 8 }
 
+  local allOk = true
   local function check(label, ok)
+    if not ok then allOk = false end
     U.log(ok and "PASS" or "FAIL", label)
     return ok
   end
@@ -194,6 +196,9 @@ return function(game)
   U.log("the other branch, console: game.save.flags.EVENT_BEAT_SS_ANNE_RIVAL")
   U.log("= nil, then step onto (36,8) -- there he goes RIGHT around you first.")
 
+  U.log(allOk and "ss_anne_departure_bug360: ALL PASS"
+        or "ss_anne_departure_bug360: FAILED")
+  love.event.quit(allOk and 0 or 1)
   while true do
     coroutine.yield()
   end

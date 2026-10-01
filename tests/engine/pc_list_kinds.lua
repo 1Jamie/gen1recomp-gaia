@@ -115,4 +115,80 @@ T.eq(withdraw.pcCompletion, nil,
 T.eq(withdraw.footer, originalPrompt,
   "advancing completion restores the PC list prompt")
 
+local function press(list)
+  pressed.a = true
+  list:update(0)
+  pressed.a = nil
+end
+
+local function rowOf(list, id)
+  for i, item in ipairs(list.items) do
+    if item.value == id then return i, item end
+  end
+end
+
+Data.items.ZINC = { name = "ZINC", keyItem = false }
+game.save.inventory = {}
+game.save.pcItems = { POKE_FLUTE = 1, HM_CUT = 1, ZINC = 3 }
+pushed = nil
+items.items[1].onSelect()
+withdraw = pushed
+local n = #withdraw.items
+local potionRow = rowOf(withdraw, "ZINC")
+withdraw.index = potionRow
+withdraw.onChoose(withdraw.items[potionRow], withdraw)
+pushed.onDone(1)
+T.check(withdraw.pcCompletion, "partial withdraw shows its completion prompt")
+T.eq(select(2, rowOf(withdraw, "ZINC")).count, 3,
+  "players_pc.asm:191 partial withdraw count unchanged while message is up")
+press(withdraw)
+T.eq(select(2, rowOf(withdraw, "ZINC")).count, 2,
+  "players_pc.asm:192 partial withdraw count repaints after the message")
+T.eq(withdraw.index, potionRow, "partial withdraw keeps the cursor")
+
+withdraw.scroll = 1
+withdraw.onChoose(withdraw.items[potionRow], withdraw)
+pushed.onDone(2)
+T.eq(#withdraw.items, n, "players_pc.asm:191 emptied row stays while message is up")
+T.eq(rowOf(withdraw, "ZINC"), potionRow, "emptied row still listed during message")
+T.eq(withdraw.index, potionRow, "cursor stays on the emptied row during message")
+press(withdraw)
+T.eq(rowOf(withdraw, "ZINC"), nil, "emptied row removed after the message")
+T.eq(#withdraw.items, n - 1, "list shrinks by one after the message")
+T.eq(withdraw.index, 1, "inventory.asm:131 emptied stack resets cursor to top")
+T.eq(withdraw.scroll, 0, "inventory.asm:131 emptied stack resets scroll to top")
+
+pushed = nil
+items.items[2].onSelect()
+local dep = pushed
+n = #dep.items
+local depRow = rowOf(dep, "ZINC")
+dep.index = depRow
+dep.onChoose(dep.items[depRow], dep)
+pushed.onDone(game.save.inventory.ZINC)
+T.check(dep.pcCompletion, "deposit shows its completion prompt")
+T.eq(#dep.items, n, "players_pc.asm:137 deposited row stays while message is up")
+press(dep)
+T.eq(rowOf(dep, "ZINC"), nil, "deposited row removed after the message")
+T.eq(dep.index, 1, "deposit emptied stack resets cursor to top")
+
+local realChoice = require("src.ui.ChoiceBox").new
+require("src.ui.ChoiceBox").new = function(_, cb) return { choose = cb } end
+game.save.pcItems.ZINC = 2
+pushed = nil
+items.items[3].onSelect()
+local tossList = pushed
+n = #tossList.items
+potionRow = rowOf(tossList, "ZINC")
+tossList.index = potionRow
+tossList.onChoose(tossList.items[potionRow], tossList)
+pushed.onDone(2)
+pushed.choose(true)
+require("src.ui.ChoiceBox").new = realChoice
+T.check(tossList.pcCompletion, "toss shows its completion prompt")
+T.eq(#tossList.items, n, "players_pc.asm:240 tossed row stays while message is up")
+press(tossList)
+T.eq(rowOf(tossList, "ZINC"), nil, "tossed row removed after the message")
+T.eq(tossList.index, 1, "toss emptied stack resets cursor to top")
+
 T.finish("pc_list_kinds")

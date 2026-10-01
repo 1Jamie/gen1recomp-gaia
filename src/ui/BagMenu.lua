@@ -359,16 +359,24 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
   end
 
   if result == "consumed" then
-    consume(game, id, list)
-    -- refresh counts in the list
-    for i, it in ipairs(list.items) do
-      if it.value == id then
-        local left = game.save.inventory[id]
-        if left then it.count = left else table.remove(list.items, i) end
-        break
+    local function removeUsed()
+      consume(game, id, list)
+      -- refresh counts in the list
+      for i, it in ipairs(list.items) do
+        if it.value == id then
+          local left = game.save.inventory[id]
+          if left then it.count = left else table.remove(list.items, i) end
+          break
+        end
       end
+      list.index = math.min(list.index, math.max(1, #list.items))
     end
-    list.index = math.min(list.index, math.max(1, #list.items))
+    if not battle and not target and not picker then
+      -- engine/items/item_effects.asm:2267
+      showUseMessages(game, payload, removeUsed, extra)
+      return
+    end
+    removeUsed()
     if extra and extra.evolveTo then
       -- engine/menus/start_sub_menus.asm:408 .useItem_partyMenu
       local Evolution = require("src.pokemon.Evolution")
@@ -662,6 +670,11 @@ function BagMenu.new(game, opts)
             -- engine/menus/start_sub_menus.asm:298-300, 438-439
             local function itemMenuLoop(pops)
               for _ = 1, pops do game.stack:pop() end
+              if not game.save.inventory[id] then
+                -- engine/items/inventory.asm:131
+                game.bagSavedMenuItem, game.bagListScrollOffset = 0, 0
+                list.index, list.scroll = 1, 0
+              end
               list.items = buildItems(game)
               list.index = math.min(list.index, math.max(1, #list.items))
             end

@@ -31,6 +31,7 @@ return function(game)
   U.shot(game, DIR .. "/2063_2_back.png")       
 
   U.log("2063: shots in " .. DIR)
+  love.event.quit(0)
   while true do
     coroutine.yield()
   end

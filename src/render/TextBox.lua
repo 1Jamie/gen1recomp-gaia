@@ -138,6 +138,8 @@ function TextBox.new(game, text, onDone, opts)
   self.money = opts and opts.money
   -- scripts/MtMoonPokecenter.asm:30
   self.moneyWithChoice = opts and opts.moneyWithChoice
+  -- engine/events/vending_machine.asm:4
+  self.moneyOnShown = opts and opts.moneyOnShown
   self.auto = opts and opts.auto
   self.stay = opts and opts.stay
   -- engine/events/hidden_events/cinnabar_gym_quiz.asm:119
@@ -434,6 +436,7 @@ end
 -- scripts/MtMoonPokecenter.asm:30
 function TextBox:moneyVisible()
   if not self.money then return false end
+  if self.moneyOnShown and not self.stayShown then return false end
   return not self.moneyWithChoice or not not self.choicePushed
 end
 

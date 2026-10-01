@@ -145,8 +145,14 @@ local SPINNER_STRIP_OFFSET = {
 }
 
 local spinning = false
-function TileRenderer.setSpinning(active)
+local spinIndex = 1
+function TileRenderer.setSpinning(active, index)
   spinning = active
+  spinIndex = tonumber(index) or 1
+end
+
+function TileRenderer.animClock()
+  return animFrame
 end
 
 -- true while the spinner arrow tiles should show the 'blur' graphic; false
@@ -154,7 +160,7 @@ end
 -- matching the asm's restore-to-original behavior).
 -- spinners.asm:17-22, home/overworld.asm:1844-1846, :49-52
 function TileRenderer.spinBlurActive()
-  return spinning and (math.floor(animFrame / 16) % 2 == 0)
+  return spinning and (spinIndex % 2 == 1)
 end
 
 -- ------------------------------------------------------------------
@@ -865,6 +871,23 @@ function TileRenderer:drawAnimated(camX, camY)
         love.graphics.draw(batch, x, y)
       end
     end
+  end
+end
+
+function TileRenderer:drawTile(tile, x, y)
+  local quad = self.quads and self.quads[tile]
+  if quad then love.graphics.draw(self.image, quad, x, y) end
+  local anim = self.claimedBy and self.claimedBy[tile]
+  if not anim then return end
+  if anim.gate then
+    if anim.quadFor and gateOpen(anim.gate) then
+      local q = anim.quadFor(tile)
+      if q then love.graphics.draw(anim.textures[1], q, x, y) end
+    end
+  elseif anim.sequence and anim.textures then
+    local step = math.floor(animFrame / anim.period) % #anim.sequence + 1
+    local tex = anim.textures[anim.sequence[step]]
+    if tex then love.graphics.draw(tex, x, y) end
   end
 end
 

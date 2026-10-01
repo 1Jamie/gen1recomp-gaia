@@ -231,6 +231,14 @@ function PaletteFX.ogObj()
   return PaletteFX.fadeObp(PaletteFX.darkObp(PaletteFX.OG_RED_SOFT_OBJ, "gbcobj_soft"))
 end
 
+-- engine/battle/init_battle_variables.asm:18
+function PaletteFX.ogObjLit()
+  if GameVersion.isBlue() then
+    return PaletteFX.fadeObp(PaletteFX.GBC_OBJ_BLUE, "gbcobj_blue")
+  end
+  return PaletteFX.fadeObp(PaletteFX.OG_RED_SOFT_OBJ, "gbcobj_soft")
+end
+
 local function obp3100(c) return { c[1], c[1], c[2], c[4] } end
 local OG_OBJ_NORMAL = obp3100(PaletteFX.OG_RED_SOFT_OBJ)
 local OG_OBJ_NORMAL_BLUE = obp3100(PaletteFX.GBC_OBJ_BLUE)
@@ -260,6 +268,11 @@ PaletteFX.OBP0_SHADES = {
 
 function PaletteFX.dmgObj()
   return PaletteFX.darkObp(PaletteFX.OBP0_SHADES, "obp0")
+end
+
+-- home/palettes.asm:24
+function PaletteFX.dmgObjLit()
+  return PaletteFX.OBP0_SHADES, "obp0"
 end
 
 local INV_MAP = { [0] = 3, [1] = 2, [2] = 1, [3] = 0 }

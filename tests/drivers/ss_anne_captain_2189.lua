@@ -69,23 +69,52 @@ return function(game)
   check("and he is still facing up", captain.facing == "up")
   U.shot(game, SHOT_DIR .. "/2189_02_rub_box_holds_jingle.png")
 
-  for _ = 1, 1200 do
-    if not Music.oneShotPlaying() then break end
-    U.wait(1)
+  local function boxHas(node, needle, depth)
+    depth = depth or 0
+    if type(node) == "string" then return node:find(needle, 1, true) ~= nil end
+    if type(node) ~= "table" or depth > 4 then return false end
+    for _, v in pairs(node) do
+      if boxHas(v, needle, depth + 1) then return true end
+    end
+    return false
+  end
+  local function betterBoxUp()
+    local top = game.stack:top()
+    return top ~= ow and top and boxHas(top.pages, "much better")
   end
 
+  local rubBox = game.stack:top()
+  local turnedEarly = false
+  for _ = 1, 1200 do
+    if betterBoxUp() then break end
+    if game.stack:top() == rubBox and captain.facing ~= "up" then
+      turnedEarly = true
+    end
+    U.wait(1)
+  end
+  check("he stays back-turned until the rub box is gone", not turnedEarly)
+  check("the I-feel-much-better box opens", betterBoxUp())
+  check("and he turns to face the player as it opens", captain.facing == "down")
+  U.wait(30)
+  U.still(game, SHOT_DIR .. "/2189_03_captain_faces_player_feel_much_better.png")
+
   captain.timer = 128
+  local stayed = true
   for _ = 1, 400 do
     if game.stack:top() == ow then break end
+    if captain.facing ~= "down" then stayed = false end
     U.tap(game, "a")
-    U.wait(6)
+    for _ = 1, 6 do
+      if game.stack:top() == ow then break end
+      if captain.facing ~= "down" then stayed = false end
+      U.wait(1)
+    end
   end
+  check("he keeps facing the player through the rest of the talk", stayed)
   check("the conversation closes", game.stack:top() == ow)
   check("HM01 handed over", game.save.flags.EVENT_GOT_HM01 == true)
   check("EVENT_RUBBED_CAPTAINS_BACK set",
         game.save.flags.EVENT_RUBBED_CAPTAINS_BACK == true)
-  check("and only now does he turn around", captain.facing == "down")
-  U.shot(game, SHOT_DIR .. "/2189_03_captain_turned_after_rub.png")
 
   -- engine/overworld/movement.asm:193,262
   local back

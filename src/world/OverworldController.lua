@@ -187,7 +187,7 @@ local SS_ANNE_SAIL_PX, SS_ANNE_PX_FRAMES = 128, 8
 local SS_ANNE_WATER = { 1, 13 }
 -- scripts/VermilionDock.asm:142 VermilionDock_EmitSmokePuff: a puff per
 -- column off the front smokestack, drifting east 2px per drift step
-local SS_ANNE_SMOKE = { dx = 64, dy = 20, drift = 2, every = 16, count = 5 }
+local SS_ANNE_SMOKE = { dx = 64, dy = 20, drift = 2, every = 16 }
 -- scripts/VermilionDock.asm:65 `ldh [rOBP1], a` with a = 0: the puff is white
 local SS_ANNE_SMOKE_MAP = { [0] = 0, [1] = 0, [2] = 0, [3] = 0 }
 
@@ -438,6 +438,8 @@ function OverworldState:setMap(mapId, x, y, facing, opts)
   self.marchers = {}
   self.shipAnim = nil
   self.spinnerSliding = nil
+  self.spinnerLeft = nil
+  self.spinnerFirstTile = nil
   local queue = self.pendingScripts
   if queue then
     for i = #queue, 1, -1 do
@@ -697,6 +699,7 @@ function OverworldState:setMap(mapId, x, y, facing, opts)
   if not (opts and opts.checkpoint) then
     -- home/overworld.asm:33
     self.noNpcFacePlayer = nil
+    self.pendingFaceNpc = nil
     local hooks = mapScripts.get(mapId)
     if hooks and hooks.onEnter then
       hooks.onEnter(Game, self, fromMapId)
@@ -1143,6 +1146,11 @@ function OverworldState:pushBattle(battle, trainerNpc)
     if mon.hp > 0 then lead = mon break end
   end
   local enemyLevel = battle.enemy and battle.enemy.mon and battle.enemy.mon.level or 0
+  local party = battle.kind == "trainer" and battle.enemyParty
+  if party and #party > 0 then
+    -- engine/battle/read_trainer_party.asm:72
+    enemyLevel = party[#party].level or enemyLevel
+  end
   -- the battle theme starts with the wipe, not after it
   -- (audio/play_battle_music.asm runs before the transition)
   if battle.playBattleTheme then
@@ -1313,27 +1321,7 @@ function OverworldState:update(dt)
     end
   end
   self:tickPoisonFlash()
-  -- scripts/VermilionDock.asm:80 .shift_columns_up
-  if self.shipAnim and not self.shipAnim.gone then
-    local sa = self.shipAnim
-    sa.frames = sa.frames + 1
-    if sa.frames >= SS_ANNE_PX_FRAMES then
-      sa.frames = 0
-      sa.off = sa.off + 1
-      if sa.off % SS_ANNE_SMOKE.every == 1
-         and #sa.puffs < SS_ANNE_SMOKE.count then
-        sa.puffs[#sa.puffs + 1] = { x = sa.px - sa.off + SS_ANNE_SMOKE.dx,
-                                    y = sa.py + SS_ANNE_SMOKE.dy }
-      end
-      for _, p in ipairs(sa.puffs) do p.x = p.x + SS_ANNE_SMOKE.drift end
-      if sa.off >= SS_ANNE_SAIL_PX then
-        sa.gone, sa.puffs = true, {}
-        local done = sa.onDone
-        sa.onDone = nil
-        if done then done() end
-      end
-    end
-  end
+  self:tickShipAnim()
   if self.cutAnim then
     local ca = self.cutAnim
     ca.frames = ca.frames - 1
@@ -1734,7 +1722,14 @@ function OverworldState:handleInput()
 
   for _, dir in ipairs(INPUT_DIRS) do
     if input:isDown(dir) then
-      if not self.player.moving and self.player.facing == dir then
+      local p = self.player
+      -- home/overworld.asm:236
+      if not p.moving and (p.facing == dir
+                           or (not p.turnArmed and p.turnTimer <= 0)) then
+        if p.facing ~= dir then
+          p.facing = dir
+          p.bumpFrames = nil
+        end
         if self:checkEdgeExit(dir) then return end
         if self:checkLedgeHop(dir) then return end
         if self:checkBoulderPush(dir) then return end
@@ -1917,7 +1912,30 @@ function OverworldState:startSsAnneDeparture(onDone)
   end
   map.renderer:rebuild()
   self.shipAnim = { px = tx0 * 8, py = ty0 * 8, tiles = tiles,
-                    off = 0, frames = 0, puffs = {}, onDone = onDone }
+                    off = 0, frames = 0, emitted = 0, onDone = onDone }
+end
+
+-- scripts/VermilionDock.asm:80 .shift_columns_up
+function OverworldState:tickShipAnim()
+  local sa = self.shipAnim
+  if not sa or sa.gone then return end
+  sa.frames = sa.frames + 1
+  if sa.frames < SS_ANNE_PX_FRAMES then return end
+  sa.frames = 0
+  sa.off = sa.off + 1
+  -- scripts/VermilionDock.asm:142, home/oam.asm:6
+  if sa.off % SS_ANNE_SMOKE.every == 1 then
+    sa.puff = { x = sa.px - sa.off + SS_ANNE_SMOKE.dx,
+                y = sa.py + SS_ANNE_SMOKE.dy }
+    sa.emitted = (sa.emitted or 0) + 1
+  end
+  if sa.puff then sa.puff.x = sa.puff.x + SS_ANNE_SMOKE.drift end
+  if sa.off >= SS_ANNE_SAIL_PX then
+    sa.gone, sa.puff = true, nil
+    local done = sa.onDone
+    sa.onDone = nil
+    if done then done() end
+  end
 end
 
 -- scripts/VermilionDock.asm:164: the rSCX split keeps her top 16px (the
@@ -1926,7 +1944,6 @@ function OverworldState:drawShipAnim(camX, camY)
   local sa = self.shipAnim
   if not sa then return end
   local renderer = self.map.renderer
-  local img, quads = renderer.image, renderer.quads
   local ox, oy = -math.floor(camX), -math.floor(camY)
   local keep = SS_ANNE_KEEP_PX / 8
   love.graphics.setColor(1, 1, 1, 1)
@@ -1935,14 +1952,12 @@ function OverworldState:drawShipAnim(camX, camY)
       local slide = row > keep and sa.off or 0
       local wy = sa.py + (row - 1) * 8 + oy
       for col = 1, #sa.tiles[row] do
-        local quad = quads[sa.tiles[row][col]]
-        if quad then
-          love.graphics.draw(img, quad, sa.px + (col - 1) * 8 - slide + ox, wy)
-        end
+        renderer:drawTile(sa.tiles[row][col], sa.px + (col - 1) * 8 - slide + ox, wy)
       end
     end
   end
-  if #sa.puffs == 0 then return end
+  local p = sa.puff
+  if not p then return end
   local fxDef = Game.data.field.overworldFx
   local smoke = fxDef and fxDef.smoke
   if not smoke then return end
@@ -1957,11 +1972,9 @@ function OverworldState:drawShipAnim(camX, camY)
       PaletteFX.permute(PaletteFX.GRAYS, SS_ANNE_SMOKE_MAP))
     love.graphics.setShader(shader)
   end
-  for _, p in ipairs(sa.puffs) do
-    for i = 0, 1 do
-      for j = 0, 1 do
-        love.graphics.draw(self.smokeImg, p.x + i * 8 + ox, p.y + j * 8 + oy)
-      end
+  for i = 0, 1 do
+    for j = 0, 1 do
+      love.graphics.draw(self.smokeImg, p.x + i * 8 + ox, p.y + j * 8 + oy)
     end
   end
   if shader then love.graphics.setShader() end
@@ -4009,6 +4022,13 @@ local function meetTrainerTheme(cls)
          or "Music_MeetMaleTrainer"
 end
 
+-- home/trainers.asm:399
+function OverworldState:playTrainerMusic(cls)
+  local theme = meetTrainerTheme(cls)
+  if theme then require("src.core.Music").play(Game.data, theme) end
+  return theme
+end
+
 -- Public pre-trainer gate. A mod may retain continueBattle while a registered
 -- preparation screen is on top, then resume once with an optional ordered
 -- save-party index scope. The hook is cold on a no-mod boot.
@@ -4070,8 +4090,7 @@ function OverworldState:engageTrainer(npc, onDone, endBattleText, skipBattleText
   local function playMeetSting()
     if stingPlayed or self.engaging then return end
     stingPlayed = true
-    local theme = meetTrainerTheme(d.trainerClass)
-    if theme then require("src.core.Music").play(Game.data, theme) end
+    self:playTrainerMusic(d.trainerClass)
   end
   local function startBattle(options)
     self.cancelledTrainerSight = nil
@@ -4447,7 +4466,18 @@ end
 -- engine/overworld/movement.asm:406-414
 function OverworldState:makeNpcFacePlayer(npc)
   if not npc or self.noNpcFacePlayer then return end
+  -- engine/menus/display_text_id_init.asm:42-51
+  npc.origFacing = npc.facing
   npc:facePlayer(self.player)
+end
+
+-- engine/overworld/movement.asm:406-414
+function OverworldState:applyPendingFace()
+  local npc = self.pendingFaceNpc
+  if npc and not self.noNpcFacePlayer then
+    self.pendingFaceNpc = nil
+    npc:facePlayer(self.player)
+  end
 end
 
 -- Dispatch a TEXT_* constant: hand-ported script first, then extracted text.
@@ -4455,12 +4485,13 @@ function OverworldState:showMapText(textConst, npc, onDone)
   local mapLabel = self.map.def.label
   local script = mapScripts.talkScript(self.map.id, textConst)
   if script then
-    local suppressed = npc and self.noNpcFacePlayer
+    -- home/overworld.asm:1212
+    if npc and self.noNpcFacePlayer then self.pendingFaceNpc = npc end
     self:makeNpcFacePlayer(npc)
     -- home/text_script.asm:139
     local finish = onDone
     onDone = function()
-      if suppressed then self:makeNpcFacePlayer(npc) end
+      self:applyPendingFace()
       if finish then finish() end
     end
     if type(script) == "function" then
@@ -4807,6 +4838,8 @@ function OverworldState:runSpinnerMoves(moves, i, noSpin)
   if not mv then
     self.player.spinning = false
     self.spinnerSliding = nil
+    self.spinnerLeft = nil
+    self.spinnerFirstTile = nil
     -- Scripted steps skip onStepComplete while they run; once the RLE
     -- finishes, re-enter the normal landing pipeline so chained spinners,
     -- Seafoam currents, and CheckWarpsNoCollision (incl. BIT_FORCED_WARP)
@@ -4815,6 +4848,16 @@ function OverworldState:runSpinnerMoves(moves, i, noSpin)
     return
   end
   if not noSpin then
+    if i == 1 then
+      local total = 0
+      for _, m in ipairs(moves) do total = total + (m.count or 1) end
+      -- home/overworld.asm:1844-1846
+      self.spinnerLeft = total - 1
+      self.spinnerFirstTile = true
+      -- engine/overworld/spinners.asm:1-10
+      local at = ({ down = 0, left = 1, up = 2, right = 3 })[self.player.facing] or 0
+      self.player.spinTimer = ((at + 1) % 4) * Player.SPIN_ITER_FRAMES
+    end
     self.player.spinning = true
     -- home/overworld.asm:268-273
     self.spinnerSliding = true
@@ -5662,6 +5705,13 @@ function OverworldState:updateScriptMoves()
         -- a simulated d-pad press runs at the CURRENT walk/bike speed, not
         -- whatever the last real step left behind -- home/overworld.asm:276
         if e.stepLength then e.stepFramesCur = e:stepLength() end
+        if e == self.player and self.spinnerSliding and self.spinnerLeft then
+          if self.spinnerFirstTile then
+            self.spinnerFirstTile = nil
+          else
+            self.spinnerLeft = self.spinnerLeft - 1
+          end
+        end
         e.moving = true
         e.progress = 0
         mv.remaining = mv.remaining - 1
@@ -6248,7 +6298,7 @@ function OverworldState:drawWorld()
   -- let the renderer know whether a spinner puzzle is currently sliding
   -- the player, so it can flicker the arrow tiles between the blur and
   -- static graphic (engine/overworld/spinners.asm LoadSpinnerArrowTiles)
-  TileRenderer.setSpinning(self.spinnerSliding or false)
+  TileRenderer.setSpinning(self.spinnerSliding or false, self.spinnerLeft)
   local cam = self.camera
   -- ShakeElevator's oscillation (engine/overworld/elevator.asm) writes
   -- hSCY, which scrolls the BG layer only -- tiles bounce while OAM

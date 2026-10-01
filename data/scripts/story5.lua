@@ -18,8 +18,8 @@ end
 
 -- One-time item gift, following the original text_asm flow:
 -- pre text (optional) -> GiveItem (bag-full refusal keeps the flag
--- unset, talk again after making room) -> received text -> optional
--- explanation; repeat visits get the already text.
+-- unset, talk again after making room) -> received text; repeat visits
+-- get the already (or explain) text.
 local function gift(opts)
   return function(game, ow, npc, done)
     local t = text(game)
@@ -41,14 +41,9 @@ local function gift(opts)
       local idef = game.data.items[opts.item]
       -- the received texts carry sound_get_item_1 / sound_get_key_item, so
       -- the jingle only fires once that box has typed out
-      say(opts.received, "{PLAYER} received\n{RAM:}!", function()
-        if opts.explain then
-          say(opts.explain, "", done)
-        else
-          done()
-        end
-      end, require("src.render.TextBox").soundOpts(game,
-        (idef and idef.keyItem) and "Get_Key_Item" or "Get_Item1"))
+      say(opts.received, "{PLAYER} received\n{RAM:}!", done,
+        require("src.render.TextBox").soundOpts(game, opts.sound
+          or ((idef and idef.keyItem) and "Get_Key_Item" or "Get_Item1")))
     end
     if opts.pre then say(opts.pre, opts.preFallback or "", give) else give() end
   end
@@ -134,6 +129,7 @@ M.VIRIDIAN_CITY = {
         .. "\vWhat's this?\vWhere did this TM\vcome from?"
         .. "\fThis is spooky!\nHere, you can\vhave this TM.",
       received = "_ViridianCityFisherReceivedTM42Text",
+      sound = "Get_Item2", -- scripts/ViridianCity.asm:263
       explain = "_ViridianCityFisherTM42ExplanationText",
       noRoom = "_ViridianCityFisherTM42NoRoomText",
     }),

@@ -11,7 +11,7 @@ return function(game)
   local PaletteFX = require("src.render.PaletteFX")
   local BattleState = require("src.battle.BattleState")
   local Pokemon = require("src.pokemon.Pokemon")
-  local DIR = os.getenv("SHOT_DIR") or "/tmp/shots"
+  local DIR = os.getenv("POKEPORT_SHOT_DIR") or os.getenv("SHOT_DIR") or "/tmp/shots"
 
   local fails = 0
   local function check(ok, msg)
@@ -50,7 +50,8 @@ return function(game)
     game.overworld:pushBattle(battle)
   end)
   if not ok then
-    U.log("WARN could not force a wild battle; nothing to judge")
+    U.log("FAIL could not force a wild battle; nothing to judge")
+    love.event.quit(1)
     while true do coroutine.yield() end
   end
 
@@ -80,5 +81,57 @@ return function(game)
   U.log("and pic colours -- with the dimmed tunnel only in the surround.")
   U.log("The separate uniform dim of the world backdrop is #777, not this.")
 
+  local SpriteRenderer = require("src.render.SpriteRenderer")
+  local ballGroups = {}
+  local realObp = SpriteRenderer.obpImage
+  SpriteRenderer.obpImage = function(path, colors, group)
+    if path == "assets/generated/battle/balls.png" then ballGroups[#ballGroups + 1] = group end
+    return realObp(path, colors, group)
+  end
+
+  while #game.save.party < 3 do
+    table.insert(game.save.party, Pokemon.new(game.data, "PIDGEY", 10))
+  end
+  game.save.party[2].status = "PSN"
+  game.save.options.colors = "ogred"
+  game.save.options.battleBg = nil
+  PaletteFX.setMode("ogred")
+  U.teleport(game, "ROCK_TUNNEL_1F", 15, 5, "down")
+  U.wait(20)
+  check(PaletteFX.darkWorld() == true, "ogred: dark-cave OBJ shift armed in ROCK_TUNNEL_1F")
+  local _, owGroup = PaletteFX.ogObj()
+  check(tostring(owGroup):match("dark$") ~= nil, "ogred: overworld sprites still bake dark (" .. tostring(owGroup) .. ")")
+
+  local battle2
+  ok = pcall(function()
+    battle2 = BattleState.newWild(game, "ZUBAT", 15)
+    battle2.onFinish = function() end
+    game.overworld:pushBattle(battle2)
+  end)
+  check(ok, "ogred: wild battle pushed in the dark tunnel")
+  local sawBalls = false
+  for _ = 1, 1200 do
+    if battle2 and battle2.introBalls then sawBalls = true break end
+    U.wait(1)
+  end
+  for _ = 1, 3000 do
+    if #ballGroups > 0 then break end
+    U.wait(1)
+  end
+  check(sawBalls and #ballGroups > 0, "ogred: intro party ball row is on screen")
+  U.wait(4)
+  U.still(game, DIR .. "/2562_01_rock_tunnel_balls_lit.png")
+  local anyDark = false
+  for _, g in ipairs(ballGroups) do
+    if tostring(g):match("dark$") then anyDark = true end
+  end
+  U.log("ball bakes:", #ballGroups, tostring(ballGroups[1]), "mode", PaletteFX.mode,
+        "usesSpriteObp", tostring(PaletteFX.usesSpriteObp()))
+  check(#ballGroups > 0 and not anyDark,
+        "ogred: battle ball row bakes without the dark-cave shift (#2562)")
+  SpriteRenderer.obpImage = realObp
+
+  U.log(fails == 0 and "#773/#2562 checks passed" or (fails .. " check(s) FAILED"))
+  love.event.quit(fails == 0 and 0 or 1)
   while true do coroutine.yield() end
 end

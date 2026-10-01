@@ -175,6 +175,23 @@ step()
 step("a")
 T.eq(stack:top(), nil, "A closes the box after the jingle")
 
+-- scripts/VermilionOldRodHouse.asm:44
+plays = {}
+Commands.give_item(ctx, "FIX_PARCEL", 1, false, false, "Get_Item1")
+Commands.show_text(ctx, "{PLAYER} GOT\nSOMETHING!")
+local box3 = stack:top()
+for _ = 1, 2000 do
+  if box3.done then break end
+  step(box3.waiting and "a" or nil)
+end
+step()
+T.eq(plays[#plays], "item.wav",
+  "an explicit sound beats the key-item default")
+sources["item.wav"].playing = false
+step()
+step("a")
+T.eq(stack:top(), nil, "the explicit-sound box closes")
+
 -- ------------------------------------------------------------ script data
 -- both Viridian Mart paths must hand give_item the quest text, since that
 -- is what routes the jingle through the box

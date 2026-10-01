@@ -142,7 +142,12 @@ function TrainerAI.useItem(battle, item)
     enemy.mon.hp = math.min(enemy.mon.stats.hp, enemy.mon.hp + HEAL_AMOUNT[item])
   elseif X_STAT[item] then
     local stat = X_STAT[item]
-    enemy.stages[stat] = math.min(6, (enemy.stages[stat] or 0) + 1)
+    if (enemy.stages[stat] or 0) >= 6 then
+      -- engine/battle/effects.asm:372-373
+      table.insert(msgs, romText(battle.data, "_NothingHappenedText", "Nothing happened!"))
+      return msgs
+    end
+    enemy.stages[stat] = (enemy.stages[stat] or 0) + 1
     -- trainer_ai.asm:719 -> effects.asm:414-415
     Status.afterStatChange(battle, enemy, stat, battle.player)
     enemy.hazeStatReset = nil
@@ -150,8 +155,8 @@ function TrainerAI.useItem(battle, item)
     table.insert(msgs, { anim = "XSTATITEM_DUPLICATE_ANIM" })
     table.insert(msgs, Strings("%s's\n%s rose!", displayName(enemy), Strings(STAT_LABEL[stat])))
   elseif item == "GUARD_SPEC" then
+    -- engine/battle/trainer_ai.asm:645
     enemy.mist = true
-    table.insert(msgs, Strings("%s's\nprotected against\nstat changes!", displayName(enemy)))
   end
   return msgs
 end

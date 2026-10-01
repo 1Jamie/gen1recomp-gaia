@@ -23,7 +23,8 @@ local function rodGiver(askText, receivedText, afterText, rodItem, flag,
     { "jump_if_false", "refused" },
     -- give-then-print like the three rod-house scripts (GiveItem fills
     -- wStringBuffer; the received texts read OLD/GOOD/SUPER ROD from it)
-    { "give_item", rodItem, 1, false },
+    -- scripts/VermilionOldRodHouse.asm:44
+    { "give_item", rodItem, 1, false, false, "Get_Item1" },
     { "set_flag", flag },
     { "show_text", receivedText },
   }
@@ -475,6 +476,8 @@ M.ROCKET_HIDEOUT_B4F = {
       local hope = t._RocketHideoutB4FGiovanniHopeWeMeetAgainText
                    or "I hope we meet\nagain..."
       game.stack:push(TextBox.new(game, impressed, function()
+        -- home/text_script.asm:112-120
+        if npc.origFacing then npc.facing = npc.origFacing end
         local battle = BattleState.newTrainer(game, "OPP_GIOVANNI", 1)
         -- SaveEndBattleTextPointers (scripts/RocketHideoutB4F.asm:99-120):
         -- PrintEndBattleText prints it on the battle screen (#1817)
@@ -503,8 +506,12 @@ M.ROCKET_HIDEOUT_B4F = {
             end))
           end))
         end
-        ow:pushBattle(battle)
-      end))
+        -- engine/battle/battle_transitions.asm:11-46
+        ow:pushBattle(battle, npc)
+      end, TextBox.soundOpts(game, function()
+        -- scripts/RocketHideoutB4F.asm:113; home/trainers.asm:339
+        ow:playTrainerMusic("OPP_GIOVANNI")
+      end)))
     end,
   },
 }

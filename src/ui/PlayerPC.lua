@@ -85,6 +85,7 @@ local function refreshRow(list, store, id)
         it.count = store[id]
       else
         table.remove(list.items, i)
+        list.index, list.scroll = 1, 0 -- engine/items/inventory.asm:131
       end
       break
     end
@@ -112,16 +113,20 @@ local function pcList(game, items, opts)
       if input:wasPressed("a") or input:wasPressed("b") then
         Sound.playPress(game.data)
         self.pcCompletion = nil
+        local after = self.pcAfter
+        self.pcAfter = nil
+        if after then after() end
         self.footer = self.pcPrompt
       end
       return
     end
     update(self, dt)
   end
-  function list:showCompletion(text)
+  function list:showCompletion(text, after)
     self.footer = text
     self.pcCompletion = true
     self.pcCompletionBlink = 0
+    self.pcAfter = after
   end
   return list
 end
@@ -152,10 +157,10 @@ local function withdraw(game)
         end
         pc[item.value] = pc[item.value] - qty
         if pc[item.value] <= 0 then pc[item.value] = nil end
-        refreshRow(list, pc, item.value)
         Sound.play(game.data, "Withdraw_Deposit")
         list:showCompletion(romText(game.data, "_WithdrewItemText",
-          "Withdrew\n%s.{PROMPT}", itemName(game, item.value)))
+          "Withdrew\n%s.{PROMPT}", itemName(game, item.value)),
+          function() refreshRow(list, pc, item.value) end) -- engine/menus/players_pc.asm:191
       end)
     end,
   }))
@@ -199,10 +204,10 @@ local function deposit(game)
         end
         require("src.inventory.Bag").remove(game.save, item.value, qty)
         pc[item.value] = (pc[item.value] or 0) + qty
-        refreshRow(list, inv, item.value)
         Sound.play(game.data, "Withdraw_Deposit")
         list:showCompletion(romText(game.data, "_ItemWasStoredText",
-          "%s was\nstored via PC.{PROMPT}", itemName(game, item.value)))
+          "%s was\nstored via PC.{PROMPT}", itemName(game, item.value)),
+          function() refreshRow(list, inv, item.value) end) -- engine/menus/players_pc.asm:137
       end)
     end,
   }))
@@ -241,9 +246,9 @@ local function toss(game)
             if yes then
               pc[item.value] = pc[item.value] - qty
               if pc[item.value] <= 0 then pc[item.value] = nil end
-              refreshRow(list, pc, item.value)
               list:showCompletion(romText(game.data, "_ThrewAwayItemText",
-                "Threw away\n%s.{PROMPT}", itemName(game, item.value)))
+                "Threw away\n%s.{PROMPT}", itemName(game, item.value)),
+                function() refreshRow(list, pc, item.value) end) -- engine/menus/players_pc.asm:240
             else
               list.footer = nil
             end

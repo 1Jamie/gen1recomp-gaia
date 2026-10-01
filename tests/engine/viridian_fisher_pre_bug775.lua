@@ -69,9 +69,8 @@ T.eq(boxes[2].text, "RED received\nTM42!",
 T.eq(game.save.inventory.TM_DREAM_EATER, 1, "TM42 reached the bag")
 T.check(game.save.flags.EVENT_GOT_TM42 == true, "the event flag is set")
 boxes[2].onDone()
-T.eq(#boxes, 3, "the explanation box follows the receipt")
-boxes[3].onDone()
-T.check(finished, "the talk chain hands control back")
+T.eq(#boxes, 2, "no explanation box follows the receipt")
+T.check(finished, "the talk chain hands control back after the receipt")
 
 -- Yellow-like: the extracted string exists, so it wins over the fallback
 game = newGame({ ViridianCityFisherYouCanHaveThisText = "ROM STRING" })

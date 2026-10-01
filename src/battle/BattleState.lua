@@ -355,7 +355,7 @@ end
 local function objPicPalette()
   local PaletteFX = require("src.render.PaletteFX")
   if not PaletteFX.usesSpriteObp() then return nil end
-  local colors, group = PaletteFX.ogObj()
+  local colors, group = PaletteFX.ogObjLit()
   if not colors then return nil end
   return { name = "obp1:" .. tostring(group), colors = colors }
 end
@@ -5947,7 +5947,7 @@ end
 local function ballObpSheet()
   local PaletteFX = require("src.render.PaletteFX")
   if not PaletteFX.usesSpriteObp() then return nil end
-  local colors, group = PaletteFX.ogObj()
+  local colors, group = PaletteFX.ogObjLit()
   if not colors then return nil end
   local SpriteRenderer = require("src.render.SpriteRenderer")
   local ok, img = pcall(SpriteRenderer.obpImage,

@@ -30,6 +30,11 @@ local TURN_FRAMES = 4
 -- run well past it even before the OS batches the touch events, so the
 -- overlay gets a longer window than a physical pad (#415).
 local TOUCH_TURN_FRAMES = 8
+-- home/overworld.asm:41-44
+local LOOP_FRAMES = 2
+-- engine/overworld/spinners.asm:23-49, home/copy2.asm:62-91
+local SPIN_ITER_FRAMES = LOOP_FRAMES + 4
+Player.SPIN_ITER_FRAMES = SPIN_ITER_FRAMES
 
 function Player.new(data, cx, cy, facing)
   local self = setmetatable({}, Player)
@@ -122,6 +127,10 @@ function Player:stepLength(dir)
   dir = dir or self.facing
   local slope = onBike and self.slopeMap and dir ~= "down" or false
   if slope then frames = self.stepFrames or STEP_FRAMES end
+  -- home/overworld.asm:268-273
+  if self.spinning and not self.spinFrames then
+    frames = math.floor(tonumber(frames) or STEP_FRAMES) / LOOP_FRAMES * SPIN_ITER_FRAMES
+  end
   if Runtime.wantsHook("movement.speed") then
     frames = Runtime.call("movement.speed", function(f) return f end, frames, {
       onBike = onBike,
@@ -352,7 +361,7 @@ function Player:pose()
     end
   elseif self.spinning then
     -- spinners.asm:1-11, home/overworld.asm:41-44, :268-272
-    facing = SPIN_ORDER[math.floor((self.spinTimer or 0) / 2) % 4 + 1]
+    facing = SPIN_ORDER[math.floor((self.spinTimer or 0) / SPIN_ITER_FRAMES) % 4 + 1]
     phase, flip = 0, false
     -- teleport arrivals spin the sprite down into place
     -- (EnterMapAnim PlayerSpinWhileMovingDown)

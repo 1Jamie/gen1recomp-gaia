@@ -469,7 +469,9 @@ M.SS_ANNE_CAPTAINS_ROOM = {
       { "show_text", "_SSAnneCaptainsRoomCaptainIFeelMuchBetterText" },
       -- give-then-print like scripts/SSAnneCaptainsRoom.asm (GiveItem
       -- fills wStringBuffer; the received text reads it)
-      { "give_item", "HM_CUT", 1, false },
+      -- scripts/SSAnneCaptainsRoom.asm:77
+      { "give_item", "HM_CUT", 1, false,
+        "_SSAnneCaptainsRoomCaptainHM01NoRoomText", "Get_Key_Item" },
       { "show_text", "_SSAnneCaptainsRoomCaptainReceivedHM01Text" },
       { "set_flag", "EVENT_GOT_HM01" },
       -- pokeyellow scripts/SSAnneCaptainsRoom.asm:32-33
@@ -483,10 +485,10 @@ M.SS_ANNE_CAPTAINS_ROOM = {
 do
   local rows = M.SS_ANNE_CAPTAINS_ROOM.talk.TEXT_SSANNECAPTAINSROOM_CAPTAIN
   if not require("src.core.GameVersion").isYellow() then
-    for i, row in ipairs(rows) do
+    for _, row in ipairs(rows) do
       if row[1] == "give_item" then
         -- pokered scripts/SSAnneCaptainsRoom.asm:34-37
-        table.insert(rows, i, { "no_npc_face_player", true })
+        row[7] = true
         break
       end
     end
@@ -927,7 +929,7 @@ M.SILPH_CO_11F = {
       { "jump_if_true", 9 },                                                 -- 3
       { "show_text", "_SilphCo11FSilphPresidentText" },                      -- 4
       -- give-then-print like scripts/SilphCo11F.asm
-      { "give_item", "MASTER_BALL", 1, false },                              -- 5
+      { "give_item", "MASTER_BALL", 1, false, false, "Get_Key_Item" },       -- 5 scripts/SilphCo11F.asm:322
       { "show_text", "_SilphCo11FSilphPresidentReceivedMasterBallText" },    -- 6
       { "set_flag", "EVENT_GOT_MASTER_BALL" },                               -- 7
       { "jump", "end" },                                                     -- 8

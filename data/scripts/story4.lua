@@ -463,29 +463,46 @@ local function vendingMachine(game, ow, npc, done)
   local t = text(game)
   local Menu = require("src.ui.Menu")
   local Font = require("src.render.Font")
+  local TextBox = require("src.render.TextBox")
   local money = function() return game.save.money end
-  local function closeSession(msg, menuPopped)
-    if not menuPopped then game.stack:pop() end
-    game.stack:pop()
-    push(game, msg, done, { money = money })
+  local greeting, menu
+  -- home/text_script.asm:92-109
+  local function closeAll()
+    local st = game.stack
+    while st:top() == menu or st:top() == greeting do st:pop() end
+    done()
+  end
+  local function result(msg, price)
+    local box = TextBox.new(game, msg, closeAll)
+    if price then
+      local update, paid = box.update, false
+      box.update = function(self, dt)
+        update(self, dt)
+        -- engine/events/vending_machine.asm:67-75
+        if self.done and not paid then
+          paid = true
+          game.save.money = game.save.money - price
+        end
+      end
+    end
+    game.stack:push(box)
   end
   local function notThirsty()
-    closeSession(t._VendingMachineText7 or "Not thirsty!", true)
+    result(t._VendingMachineText7 or "Not thirsty!")
   end
   local function buy(d)
     if game.save.money < d.price then
-      closeSession(t._VendingMachineText4 or "Oops, not enough\nmoney!")
+      result(t._VendingMachineText4 or "Oops, not enough\nmoney!")
       return
     end
     if not require("src.inventory.Bag").add(game.save, d.id, 1, game.data) then
-      closeSession(t._VendingMachineText6 or "There's no more\nroom for stuff!")
+      result(t._VendingMachineText6 or "There's no more\nroom for stuff!")
       return
     end
     game.stack:push(deliveryRumble(game, function()
-      game.save.money = game.save.money - d.price
-      closeSession(fill(t._VendingMachineText5
-                        or "{RAM:wStringBuffer}\npopped out!",
-                        { ram = game.data.items[d.id].name }))
+      result(fill(t._VendingMachineText5
+                  or "{RAM:wStringBuffer}\npopped out!",
+                  { ram = game.data.items[d.id].name }), d.price)
     end))
   end
   local items = {}
@@ -496,14 +513,17 @@ local function vendingMachine(game, ow, npc, done)
       onSelect = function() buy(d) end,
     }
   end
-  items[#items + 1] = { label = "CANCEL", onSelect = notThirsty }
-  push(game, t._VendingMachineText1 or "A vending machine!\nHere's the menu!",
+  items[#items + 1] = { label = "CANCEL", keepOpen = true, onSelect = notThirsty }
+  greeting = TextBox.new(game,
+    t._VendingMachineText1 or "A vending machine!\nHere's the menu!",
     nil, {
       money = money,
+      moneyOnShown = true,
       stay = { prompt = true, onShown = function()
-        local menu = Menu.new(game, items, {
+        menu = Menu.new(game, items, {
           tx = 0, ty = 3, tw = 14, th = 10, itemY = 2,
           noWrap = true,
+          keepOnCancel = true,
           onCancel = notThirsty,
         })
         menu.draw = function(self)
@@ -517,6 +537,7 @@ local function vendingMachine(game, ow, npc, done)
         game.stack:push(menu)
       end },
     })
+  game.stack:push(greeting)
 end
 
 -- drink -> TM (CeladonMartRoof.asm .gaveFreshWater/.gaveSodaPop/

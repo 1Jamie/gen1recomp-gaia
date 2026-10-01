@@ -159,9 +159,9 @@ local function markerSheet(def, seed)
   end
   if not colors then
     if PaletteFX.usesSpriteObp() then
-      colors, group = PaletteFX.ogObj()
+      colors, group = PaletteFX.ogObjLit() -- engine/items/town_map.asm:325
     else
-      colors, group = PaletteFX.dmgObj()
+      colors, group = PaletteFX.dmgObjLit()
     end
   end
   local ok, img = pcall(SpriteRenderer.obpImage, def and def.image, colors, group)

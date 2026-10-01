@@ -23,7 +23,8 @@ package.loaded["src.render.Font"] = {
 }
 package.loaded["src.render.TextBox"] = {
   new = function(_, text, onDone, opts)
-    return { text = text, onDone = onDone, opts = opts, isTextBox = true }
+    return { text = text, onDone = onDone, opts = opts, isTextBox = true,
+             update = function() end }
   end,
 }
 local sounds = {}
@@ -97,6 +98,8 @@ do
   check(tostring(intro.text):find("vending machine", 1, true) ~= nil,
         "with the machine's own greeting")
   check(intro.opts.money ~= nil, "DisplayTextBoxID MONEY_BOX rides along")
+  check(intro.opts.moneyOnShown == true,
+        "but only after the greeting's prompt press (vending_machine.asm:4-6)")
   check(intro.opts.stay ~= nil and intro.opts.stay.prompt,
         "the greeting prompts, then stays up under the list")
 
@@ -144,17 +147,28 @@ do
   eq(#sounds, 60, "SFX_PUSH_BOULDER restarts 60 times")
   eq(sounds[1], "Push_Boulder", "and it is the boulder push, not Cut")
   check(bagged[1] == "FRESH_WATER", "the drink lands in the bag")
-  eq(game.save.money, 2800, "SubBCDPredef takes the drink's price")
   local result = game.stack:top()
   check(result.isTextBox and tostring(result.text):find("popped out") ~= nil,
         "then VendingMachineText5 names the drink")
   check(tostring(result.text):find("FRESH WATER", 1, true) ~= nil,
         "out of wStringBuffer")
-  check(result.opts ~= nil and result.opts.money ~= nil,
-        "the money box is redrawn with the new balance")
-  eq(#game.stack.states, 1,
-     "the drink list and the greeting are gone by then")
+  eq(game.save.money, 3000, "nothing is subtracted while the text types")
+  eq(#game.stack.states, 3,
+     "the greeting and the drink list stay up under the result text")
+  check(game.stack.states[1] == intro and game.stack.states[2] == menu,
+        "greeting, then menu, then the result box")
+  result:update(1 / 60)
+  eq(game.save.money, 3000, "still untouched before typing ends")
+  result.done = true
+  result:update(1 / 60)
+  eq(game.save.money, 2800,
+     "SubBCDPredef runs once PrintText returns (vending_machine.asm:67-72)")
+  result:update(1 / 60)
+  eq(game.save.money, 2800, "and only once")
+  check(not done, "the script still waits for the last press")
+  game.stack:pop()
   result.onDone()
+  eq(#game.stack.states, 0, "the last press closes all three together")
   check(done, "dismissing it hands control back to the script")
 end
 
@@ -169,8 +183,12 @@ do
   local result = game.stack:top()
   check(result.isTextBox and tostring(result.text):find("thirsty") ~= nil,
         "CANCEL prints VendingMachineText7")
-  eq(#game.stack.states, 1, "with the list and the greeting closed")
+  eq(#game.stack.states, 3, "over the list and the greeting, both still up")
+  check(game.stack.states[2] == menu, "the list did not close itself")
   eq(#bagged, 0, "and nothing bought")
+  game.stack:pop()
+  result.onDone()
+  eq(#game.stack.states, 0, "everything closes on the last press")
 
   game, intro = open(3000)
   intro.opts.stay.onShown()
@@ -180,6 +198,23 @@ do
   pressed = nil
   check(tostring(game.stack:top().text):find("thirsty") ~= nil,
         "B does the same (.notThirsty)")
+  eq(#game.stack.states, 3, "B leaves the list up under Not thirsty!")
+  check(game.stack.states[2] == menu, "the same list")
+
+  game, intro = open(3000)
+  intro.opts.stay.onShown()
+  menu = game.stack:top()
+  menu.items[4].onSelect()
+  result = game.stack:top()
+  game.stack:pop()
+  game.stack:pop()
+  game.stack:pop()
+  local stranger = { isTextBox = true, text = "someone else's box" }
+  game.stack:push(stranger)
+  result.onDone()
+  eq(#game.stack.states, 1, "the last press never pops a state it did not push")
+  check(game.stack:top() == stranger, "a box pushed by someone else stays up")
+  check(done, "and the script still hands control back")
 end
 
 do
@@ -191,6 +226,10 @@ do
         "no money prints VendingMachineText4")
   eq(game.save.money, 100, "and spends nothing")
   eq(#bagged, 0, "and hands over no drink")
+  eq(#game.stack.states, 3, "with the list still drawn under it")
+  result.done = true
+  result:update(1 / 60)
+  eq(game.save.money, 100, "even once it finishes typing")
 
   bagFull = true
   game, intro = open(3000)
@@ -200,11 +239,41 @@ do
   check(tostring(result.text):find("room for stuff", 1, true) ~= nil,
         "a full bag prints VendingMachineText6")
   eq(game.save.money, 3000, "with the money untouched (.BagFull)")
+  eq(#game.stack.states, 3, "and the list still drawn under it")
   bagFull = false
 end
 
 package.loaded["src.render.Font"] = realFont
 package.loaded["src.render.TextBox"] = realTextBox
+
+do
+  local TextBox = require("src.render.TextBox")
+  local game = mkGame(3000)
+  game.save.options = {}
+  local box = TextBox.new(game, "A vending machine!\nHere's the menu!", nil, {
+    money = function() return game.save.money end,
+    moneyOnShown = true,
+    stay = { prompt = true },
+  })
+  check(not box:moneyVisible(), "no money box on the greeting's first frame")
+  local early = false
+  for _ = 1, 600 do
+    if box.done then break end
+    box:update(1 / 60)
+    early = early or box:moneyVisible()
+  end
+  check(not early, "no money box while the greeting types")
+  check(box.done, "the greeting finished typing")
+  box:update(1 / 60)
+  check(not box:moneyVisible(), "no money box under the prompt arrow")
+  pressed = "a"
+  box:update(1 / 60)
+  pressed = nil
+  check(box.stayShown, "the prompt press is taken")
+  check(box:moneyVisible(), "the money box goes up with the press")
+  local plain = TextBox.new(game, "hi", nil, { money = function() return 1 end })
+  check(plain:moneyVisible(), "money without moneyOnShown still draws at once")
+end
 package.loaded["src.core.Sound"] = nil
 package.loaded["src.inventory.Bag"] = nil
 package.loaded["src.ui.Menu"] = nil
