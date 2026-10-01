@@ -162,6 +162,21 @@ do
   PaletteFX.clearSpriteRedraws()
 end
 
+local EvolutionState = require("src.ui.EvolutionState")
+for _, version in ipairs({ "red", "blue" }) do
+  for _, phase in ipairs({ "loading", "flashing", "done" }) do
+    for frame = 1, 2 do
+      local redraws = drawIn("NIDOKING", "ogred", version)
+      eq(#redraws, 2, version .. " " .. phase .. " underlying party queues icons frame " .. frame)
+      local state = setmetatable({ loading = phase == "loading" and 84 or nil,
+        t = 81, done = phase == "done", canceled = false }, EvolutionState)
+      state:draw()
+      eq(#PaletteFX.uiSpriteRedraws(), 0,
+        version .. " " .. phase .. " evolution clears party icons frame " .. frame)
+    end
+  end
+end
+
 SpriteRenderer.obpImage = realObp
 GameVersion.set(prevVersion)
 PaletteFX.setMode(prevMode)

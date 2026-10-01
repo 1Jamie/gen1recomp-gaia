@@ -6,6 +6,11 @@ local d = S.new("em_lilycove_contest", "/tmp/em_lilycove_contest")
 
 local LOBBY = "EM_LILYCOVE_CITY_CONTEST_LOBBY"
 local MUSEUM_2F = "EM_LILYCOVE_CITY_LILYCOVE_MUSEUM_2F"
+local lifetimeOnly = os.getenv("POKEPORT_CONTEST_LIFETIME_ONLY") == "1"
+local deadline
+local function withinBudget()
+  return deadline == nil or love.timer.getTime() < deadline
+end
 
 local function mod(name) return require(name) end
 local function Stack() return mod("src.ui.game3.stack") end
@@ -14,7 +19,47 @@ local shots = {}
 local function shotOnce(game, name)
   if shots[name] then return end
   shots[name] = true
+  if lifetimeOnly and name:sub(1, 5) ~= "2604_" then return end
   d.shot(game, name)
+end
+
+local function noAudience(tag)
+  local drawn = 0
+  for _, eo in ipairs(mod("src.core.game3.objects").forDraw()) do
+    if eo.virtualId ~= nil then drawn = drawn + 1 end
+  end
+  d.check(mod("src.core.game3.virtual_objects").count() == 0, tag .. " virtual registry cleared")
+  d.check(drawn == 0, tag .. " no audience in draw list")
+  d.check(#mod("src.core.game3.objects").listActive() > 0, tag .. " native residents retained")
+end
+
+local function observeAudience(game, tag, audience)
+  local mapId = S.mapNow()
+  if type(mapId) ~= "string" or not mapId:match("^EM_CONTEST_HALL") then return end
+  local count = mod("src.core.game3.virtual_objects").count()
+  if count == 0 then return end
+  audience.seen = true
+  audience.max = math.max(audience.max, count)
+  if audience.captured or Stack().fullscreen() or mod("src.ui.game3.message").isTyping()
+      or mod("src.ui.game3.fade").isActive() or mod("src.core.game3.warp").isBusy() then return end
+  local drawn = 0
+  for _, eo in ipairs(mod("src.core.game3.objects").forDraw()) do
+    if eo.virtualId ~= nil then drawn = drawn + 1 end
+  end
+  if drawn == 0 then return end
+  audience.captured = d.shot(game, "2604_" .. tag .. "_hall_audience") == true
+  if audience.captured then d.note("hall audience " .. mapId .. " registry=" .. count .. " drawn=" .. drawn) end
+end
+
+local function visitHouse(game)
+  local ok = S.travel(game, { "EM_LILYCOVE_CITY", "EM_LILYCOVE_CITY_HOUSE1" },
+    { tries = 2, goToTries = 4, settle = { limit = 1200 } })
+  d.check(ok and S.mapNow() == "EM_LILYCOVE_CITY_HOUSE1", "2604 actual lobby city house warps")
+  if not ok then return false end
+  noAudience("2604 house")
+  U.wait(2)
+  d.shot(game, "2604_house_no_audience")
+  return true
 end
 
 local function stageTask(screen, name)
@@ -22,12 +67,13 @@ local function stageTask(screen, name)
 end
 
 -- pokeemerald/src/contest.c:1556
-local function playStage(game, schedule, tag)
+local function playStage(game, schedule, tag, audience)
   local Stage = mod("src.ui.game3.rse.contest")
   local screen = Stage.active()
   local Anim = mod("src.core.game3.battle.anim")
   local selects, frames, sawMoveAnim = 0, 0, false
-  while screen and not screen.done and frames < 60000 do
+  while screen and not screen.done and frames < 60000 and withinBudget() do
+    observeAudience(game, tag, audience)
     frames = frames + 1
     if Anim._vm and Anim._vm.active then
       sawMoveAnim = true
@@ -70,11 +116,12 @@ local function playStage(game, schedule, tag)
 end
 
 -- pokeemerald/src/contest_util.c:978
-local function playResults(game, tag)
+local function playResults(game, tag, audience)
   local Results = mod("src.ui.game3.rse.contest_results")
   local screen = Results.active()
   local frames = 0
-  while screen and not screen.done and frames < 40000 do
+  while screen and not screen.done and frames < 40000 and withinBudget() do
+    observeAudience(game, tag, audience)
     frames = frames + 1
     if stageTask(screen, "taskShowPreliminaryResults") then shotOnce(game, tag .. "_06_results_prelim") end
     if stageTask(screen, "taskShowWinnerMonBanner") and screen:task(screen.d.showResultsTaskId).data[0] == 3 then
@@ -104,16 +151,19 @@ local function driveContest(game, rankChoice, schedule, tag)
   U.wait(4)
   local answers = { 0, rankChoice, 0 }
   local ai, sawStage, sawResults, idle = 1, false, false, 0
+  local audience = { seen = false, max = 0, captured = false }
   for _ = 1, 40000 do
+    if not withinBudget() then return false, "contest exceeded driver budget" end
+    observeAudience(game, tag, audience)
     if Stage.active() then
       sawStage = true
       U.wait(40)
       shotOnce(game, tag .. "_01_curtain")
-      local _, sawMoveAnim = playStage(game, schedule, tag)
+      local _, sawMoveAnim = playStage(game, schedule, tag, audience)
       d.check(sawMoveAnim, tag .. " appeal starts an Emerald move animation")
     elseif Results.active() then
       sawResults = true
-      playResults(game, tag)
+      playResults(game, tag, audience)
     elseif mod("src.ui.game3.rse.contest_entry_pic").active and not shots[tag .. "_00b_entry_pic"] then
       local EntryPic = mod("src.ui.game3.rse.contest_entry_pic")
       local animation = EntryPic._animation
@@ -153,6 +203,9 @@ local function driveContest(game, rankChoice, schedule, tag)
     elseif Hud._waitButton then
       U.tap(game, "a")
       U.wait(2)
+    elseif lifetimeOnly and mod("src.ui.game3.rse.contest_painting").isOpen() then
+      U.tap(game, "a")
+      U.wait(2)
     else
       U.wait(1)
     end
@@ -163,11 +216,21 @@ local function driveContest(game, rankChoice, schedule, tag)
       idle = 0
     end
   end
-  return sawStage and sawResults, "stage=" .. tostring(sawStage) .. " results=" .. tostring(sawResults)
+  d.check(audience.seen, "2604 " .. tag .. " hall created virtual audience")
+  d.check(audience.captured, "2604 " .. tag .. " hall audience captured")
+  d.note("2604 " .. tag .. " maximum actual hall virtual sprites=" .. audience.max)
+  local returned = idle > 30
+  if returned then
+    noAudience("2604 " .. tag .. " lobby")
+    shotOnce(game, "2604_" .. tag .. "_lobby_no_audience")
+  end
+  return sawStage and sawResults and returned, "stage=" .. tostring(sawStage) .. " results=" .. tostring(sawResults)
+    .. " lobby=" .. tostring(returned)
 end
 
 return function(game)
   local ok, err = xpcall(function()
+    if lifetimeOnly then deadline = love.timer.getTime() + 24 end
     local session = M.boot(game, d)
     if not session then return end
     local Ribbons = mod("src.core.game3.rse.ribbons")
@@ -179,6 +242,16 @@ return function(game)
     local cond = Pokeblock.contest(mon)
     cond.cool, cond.tough, cond.beauty, cond.cute, cond.smart, cond.sheen = 220, 160, 160, 40, 40, 200
     local Rng = mod("src.core.game3.rng")
+
+    if lifetimeOnly then
+      Ribbons.set(mon, "cool", 3)
+      cond.cool, cond.tough, cond.beauty, cond.cute, cond.smart, cond.sheen = 0, 0, 0, 0, 0, 0
+      Rng.SeedRng(0x0C1B1)
+      local completed, why = driveContest(game, 3, { 0, 1, 2, 0, 1 }, "master")
+      d.check(completed, "2604 Master contest completed through results and lobby warp (" .. tostring(why) .. ")")
+      if completed then visitHouse(game) end
+      return
+    end
 
     local won = false
     for attempt = 1, 6 do
@@ -311,6 +384,7 @@ return function(game)
     d.check(hall1 and hall1.species == mon.species and hall1.contestRank == 3, "HALL_1 holds the Master Cool winner")
     local hall3 = session.contestWinners[Util.WINNER.HALL_3]
     d.check(hall3 and (hall3.species or 0) ~= 0, "HALL_3 still shows a default winner (new_game.c:176)")
+    visitHouse(game)
   end, debug.traceback)
   if not ok then d.check(false, "driver error: " .. tostring(err)) end
   d.finish()

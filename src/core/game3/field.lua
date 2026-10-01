@@ -1380,6 +1380,15 @@ function Field.executeFieldMove(payload)
     -- pokefirered/src/fldeff_dig.c:32
     showMon(function()
       local Session = Field._session
+      -- pokeemerald/src/fldeff_dig.c:54
+      if lazyReq("src.core.game3.constants").versionOf(Session) == "emerald" then
+        local BrailleField = lazyReq("src.core.game3.braille_field")
+        if BrailleField.shouldDoDig(Session) then
+          BrailleField.doDig(Session)
+          Field.locked = false
+          return
+        end
+      end
       local warp = type(payload.warp) == "table" and payload.warp or {}
       local dest = warp.map or (Session and Session.healMap)
       -- pokefirered/src/fldeff_dig.c:39 StartDigFieldEffect

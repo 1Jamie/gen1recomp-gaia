@@ -69,7 +69,10 @@ Commands.show_text = function(ctx, textId, subs)
   return origShow(ctx, textId, subs)
 end
 Commands.start_battle = function(ctx, kind, a, b)
-  table.insert(battles, { kind = kind, species = a, level = b })
+  local toggles = ctx.save.objectToggles
+  local mapToggles = toggles and ctx.overworld and toggles[ctx.overworld.map.id]
+  local hidden = mapToggles and ctx.npc and mapToggles[ctx.npc.def.name] == false
+  table.insert(battles, { kind = kind, species = a, level = b, hiddenAtStart = hidden })
   ctx.lastBattleResult = battleResult
   ctx.lastCheck = battleResult == "win"
 end
@@ -200,40 +203,33 @@ eq(shown[1], "_Route12SnorlaxText",
    "talking with the flute in the bag does NOT wake Snorlax (must USE it)")
 eq(#battles, 0, "Snorlax with the flute in the bag starts no battle from talking")
 
--- === 7) using the flute (data/scripts/story.lua's snorlaxWake, run by
---        ItemEffects.lua/BagMenu.lua's flute_wake path): woke-up text,
---        battle, then the calmed-down line when NOT caught
---        (Route12SnorlaxPostBattleScript's wBattleResult ~= $2) ===
-Game.save = SaveData.newGame()
-battleResult = "win"
-check(runWakeScript("ROUTE_12", "Route12", "ROUTE12_SNORLAX"),
-      "Snorlax wake script completes")
-eq(#shown, 2, "beaten Snorlax shows two texts")
-eq(shown[1], "_Route12SnorlaxWokeUpText", "Snorlax woke-up text first")
-eq(shown[2], "_Route12SnorlaxCalmedDownText", "calmed-down text when not caught")
-eq(battles[1] and battles[1].species, "SNORLAX", "Snorlax battle species")
-eq(battles[1] and battles[1].level, 30, "Snorlax battle level")
-check(Flags.get(Game.save, "EVENT_BEAT_ROUTE12_SNORLAX"), "EVENT_BEAT_ROUTE12_SNORLAX set")
-eq(toggleOf("ROUTE_12", "ROUTE12_SNORLAX"), false, "Snorlax object hidden")
-
--- caught: no calmed-down line (cp $2 / jr z, .caught_snorlax)
-Game.save = SaveData.newGame()
-battleResult = "caught"
-runWakeScript("ROUTE_16", "Route16", "ROUTE16_SNORLAX")
-eq(#shown, 1, "caught Snorlax shows only the woke-up text")
-eq(shown[1], "_Route16SnorlaxWokeUpText", "Route 16 woke-up text")
-check(Flags.get(Game.save, "EVENT_BEAT_ROUTE16_SNORLAX"), "EVENT_BEAT_ROUTE16_SNORLAX set")
-
--- blackout: HideObject ran BEFORE the battle, so Snorlax is gone anyway,
--- but the beat flag stays unset (Route16ResetScripts path)
-Game.save = SaveData.newGame()
-battleResult = "lose"
-runWakeScript("ROUTE_16", "Route16", "ROUTE16_SNORLAX")
-eq(#shown, 1, "blackout Snorlax shows only the woke-up text")
-check(not Flags.get(Game.save, "EVENT_BEAT_ROUTE16_SNORLAX"),
-      "blackout leaves EVENT_BEAT_ROUTE16_SNORLAX unset")
-eq(toggleOf("ROUTE_16", "ROUTE16_SNORLAX"), false,
-   "Snorlax hidden even after a blackout (pre-battle HideObject)")
+-- pokered/scripts/Route12.asm:45
+-- pokered/scripts/Route16.asm:46
+for _, route in ipairs({
+  { map = "ROUTE_12", label = "Route12", npc = "ROUTE12_SNORLAX",
+    flag = "EVENT_BEAT_ROUTE12_SNORLAX", woke = "_Route12SnorlaxWokeUpText",
+    farewell = "_Route12SnorlaxCalmedDownText" },
+  { map = "ROUTE_16", label = "Route16", npc = "ROUTE16_SNORLAX",
+    flag = "EVENT_BEAT_ROUTE16_SNORLAX", woke = "_Route16SnorlaxWokeUpText",
+    farewell = "_Route16SnorlaxReturnedToMountainsText" },
+}) do
+  for _, result in ipairs({ "win", "run", "caught", "lose" }) do
+    Game.save = SaveData.newGame()
+    battleResult = result
+    local label = route.map .. " " .. result
+    check(runWakeScript(route.map, route.label, route.npc), label .. " wake script completes")
+    eq(#shown, result == "win" and 2 or 1, label .. " farewell only after defeat")
+    eq(shown[1], route.woke, label .. " woke-up text first")
+    eq(shown[2], result == "win" and route.farewell or nil,
+       label .. " correct farewell branch")
+    eq(#battles, 1, label .. " starts exactly one battle")
+    eq(battles[1] and battles[1].species, "SNORLAX", label .. " battle species")
+    eq(battles[1] and battles[1].level, 30, label .. " battle level")
+    eq(battles[1] and battles[1].hiddenAtStart, true, label .. " hidden before battle starts")
+    eq(Flags.get(Game.save, route.flag), result ~= "lose", label .. " beat flag on non-loss")
+    eq(toggleOf(route.map, route.npc), false, label .. " hidden before every battle result")
+  end
+end
 
 -- === 8) ItemEffects.lua's POKE_FLUTE field-use branch: only wakes
 --        Snorlax (flute_wake) when the player is on its route, hasn't

@@ -47,4 +47,66 @@ if type(captured) == "string" then
     "the raw path is not left unquoted")
 end
 
+local realItems = love.filesystem.getDirectoryItems
+local realInfo = love.filesystem.getInfo
+local listing = { "images", "videos", "Red.gb", "Crystal.GBC", "FireRed.gba",
+  "Emerald.GBA", "roms.zip", "save.sav", "save.lua", "demo.g1rcart", "notes.txt" }
+local function listingText()
+  local out = {}
+  for _, name in ipairs(listing) do
+    out[#out + 1] = name .. ((name == "images" or name == "videos") and "/" or "")
+  end
+  return table.concat(out, "\n")
+end
+for _, backend in ipairs({ "shell", "love" }) do
+  io.popen = function()
+    return { read = function() return backend == "shell" and listingText() or "" end,
+      close = function() end }
+  end
+  love.filesystem.getDirectoryItems = function() return listing end
+  love.filesystem.getInfo = function(path)
+    local name = path:match("[^/]+$")
+    return { type = (name == "images" or name == "videos") and "directory" or "file" }
+  end
+  for _, button in ipairs({ "a", "start" }) do
+    local picked, calls = nil, 0
+    FileBrowser.open({ mode = "rom", initialPath = "/fixture/gba",
+      onSelect = function(path) picked, calls = path, calls + 1 end })
+    eq(#FileBrowser.entries, 7, backend .. " ROM list contains all supported suffixes")
+    eq(FileBrowser.entries[1].name, "images", backend .. " directories sort first")
+    eq(FileBrowser.entries[2].name, "videos", backend .. " second directory remains visible")
+    local found = {}
+    for i, entry in ipairs(FileBrowser.entries) do
+      found[entry.name] = i
+    end
+    for _, name in ipairs({ "Red.gb", "Crystal.GBC", "FireRed.gba", "Emerald.GBA", "roms.zip" }) do
+      check(found[name] ~= nil, backend .. " shows " .. name)
+    end
+    check(found["notes.txt"] == nil and found["save.sav"] == nil,
+      backend .. " excludes unrelated files from ROM mode")
+    if found["FireRed.gba"] then
+      FileBrowser.selectedIdx = found["FireRed.gba"]
+      check(FileBrowser.gamepadpressed(button), backend .. " consumes " .. button)
+      eq(picked, "/fixture/gba/FireRed.gba", backend .. " returns exact GBA path on " .. button)
+      eq(calls, 1, backend .. " callback occurs once")
+      check(not FileBrowser.active, backend .. " GBA selection closes modal")
+      FileBrowser.gamepadpressed(button)
+      eq(calls, 1, backend .. " inactive modal does not repeat callback")
+    end
+    FileBrowser.close()
+  end
+  for _, case in ipairs({ { "save", 4 }, { "mod", 3 }, { "cart", 3 } }) do
+    FileBrowser.open({ mode = case[1], initialPath = "/fixture/gba" })
+    eq(#FileBrowser.entries, case[2], backend .. " preserves " .. case[1] .. " filter")
+    for _, entry in ipairs(FileBrowser.entries) do
+      check(entry.name ~= "FireRed.gba" and entry.name ~= "Emerald.GBA",
+        backend .. " " .. case[1] .. " excludes GBA ROMs")
+    end
+    FileBrowser.close()
+  end
+end
+io.popen = realPopen
+love.filesystem.getDirectoryItems = realItems
+love.filesystem.getInfo = realInfo
+
 T.finish("game3_file_browser_quote_test")

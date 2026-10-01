@@ -5881,7 +5881,11 @@ function OverworldState:drawWipeSprites()
   end
   local ok, err = pcall(function()
     local keep = self.battleOamKeep
-    if keep and keep.draw then replay(keep) end
+    if keep and keep.draw then
+      for _, entity in ipairs(self.entities) do
+        if entity == keep then replay(keep) break end
+      end
+    end
     if not (self.flyAnim or self.flyArrive or self.playerHidden) then
       replay(self.player)
     end

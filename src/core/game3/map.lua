@@ -568,6 +568,8 @@ function Map.load(mod, game, mapId, opts)
   local Field = require("src.core.game3.field")
   if not opts.seamless then
     Field.lock()
+    -- pokeemerald/src/overworld.c:2134
+    require("src.core.game3.virtual_objects").clear()
   end
 
   local Objects = require("src.core.game3.objects")

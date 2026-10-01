@@ -271,9 +271,7 @@ local function shootManyBallsSteps(attackerIsPlayer)
   return steps
 end
 
--- AnimationWaterDropletsEverywhere (:1114): 64 one-frame passes of
--- droplet rows; the 8-bit x cursor persists across passes, which is
--- what makes the field scroll.
+-- pokered/engine/battle/animations.asm:1118
 local function waterDropletSteps()
   local steps = {}
   local baseX = 0xF0 -- ld a, -16
@@ -292,6 +290,8 @@ local function waterDropletSteps()
         end
       end
       steps[#steps + 1] = { dur = 1, sprites = sprites }
+      -- pokered/engine/battle/animations.asm:1164
+      steps[#steps + 1] = { dur = 1, sprites = {} }
     end
   end
   return steps
@@ -339,7 +339,9 @@ local EMITTERS = {
   SE_SPIRAL_BALLS_INWARD = function(isPlayer) return spiralBallSteps(isPlayer), "flash" end,
   SE_SHOOT_BALLS_UPWARD = function(isPlayer) return shootBallsSteps(isPlayer) end,
   SE_SHOOT_MANY_BALLS_UPWARD = function(isPlayer) return shootManyBallsSteps(isPlayer) end,
-  SE_WATER_DROPLETS_EVERYWHERE = function() return waterDropletSteps() end,
+  SE_WATER_DROPLETS_EVERYWHERE = function()
+    return waterDropletSteps(), nil, 0, true
+  end,
   -- AnimationLeavesFalling runs under wAnimPalette ($f0 on SGB);
   -- petals keep the ambient $e4
   SE_LEAVES_FALLING = function(_, data)
@@ -464,9 +466,9 @@ function AnimPlayer:start(moveId, attackerIsPlayer, opts)
     wantsFlicker = opts
       and (opts.ball == "MASTER_BALL" or opts.ball == "ULTRA_BALL")
   end
-  local ballFlicker = wantsFlicker
-    and (moveId == "TOSS_ANIM" or moveId == "GREATTOSS_ANIM"
-         or moveId == "ULTRATOSS_ANIM")
+  local ballToss = moveId == "TOSS_ANIM" or moveId == "GREATTOSS_ANIM"
+    or moveId == "ULTRATOSS_ANIM"
+  local ballFlicker = wantsFlicker and ballToss
   local obp0Flip = false
 
   for _, row in ipairs(anim.seq) do
@@ -486,12 +488,16 @@ function AnimPlayer:start(moveId, attackerIsPlayer, opts)
       if emitter then
         -- the emitter routines write OAM from slot 0 and clean up after
         oam, oamMax = {}, 0
-        local emSteps, tailFx = emitter(attackerIsPlayer, self.data)
+        local emSteps, tailFx, loadTileset, cleaned = emitter(attackerIsPlayer, self.data)
         events[#events + 1] = { effect = row.effect, frame = frame }
+        if loadTileset then
+          -- pokered/engine/battle/animations.asm:1118
+          emit(tilesetLoadFrames(self.data, loadTileset), {})
+        end
         for _, st in ipairs(emSteps) do
           emit(st.dur, st.sprites)
         end
-        emit(1, {}) -- AnimationCleanOAM / ClearSprites
+        if not cleaned then emit(1, {}) end
         if tailFx == "flash" then flashScreen() end
       else
         local dur = SE_FRAMES[row.effect]
@@ -571,6 +577,11 @@ function AnimPlayer:start(moveId, attackerIsPlayer, opts)
               -- DoSpecialEffectByAnimationId runs after every frame
               -- block with wSubAnimCounter = blocks remaining
               played = played + 1
+              local counter = nblocks - played + 1
+              -- pokered/engine/battle/animations.asm:694
+              if ballToss and counter == 11 then
+                events[#events + 1] = { effect = "SFX_BALL_TOSS", frame = frame }
+              end
               if pendingTink then
                 pendingTink = false
                 events[#events + 1] = { effect = "SFX_TINK", frame = frame }
@@ -578,7 +589,6 @@ function AnimPlayer:start(moveId, attackerIsPlayer, opts)
               end
               if ballFlicker then obp0Flip = not obp0Flip end
               if idFx then
-                local counter = nblocks - played + 1
                 if idFx == "flash"
                    or (idFx == "every4" and counter % 4 == 0)
                    or (idFx == "every8" and counter % 8 == 0)

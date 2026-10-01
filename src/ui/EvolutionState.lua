@@ -204,6 +204,8 @@ function EvolutionState:update(dt)
 end
 
 function EvolutionState:draw()
+  -- pokered/engine/pokemon/evos_moves.asm:133
+  require("src.render.PaletteFX").clearSpriteRedraws()
   love.graphics.setColor(1, 1, 1, 1)
   -- rows 0-11 only (hlcoord 0,0 / lb bc, 12, 20, evos_moves.asm:126-128)
   love.graphics.rectangle("fill", 0, 0, 160, 96)

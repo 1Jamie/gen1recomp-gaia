@@ -95,7 +95,7 @@ local function isMatchingFilter(name, isDir, mode)
   if not ext then return (mode == "all") end
   ext = ext:lower()
   if mode == "rom" then
-    return (ext == "gb" or ext == "gbc" or ext == "zip")
+    return (ext == "gb" or ext == "gbc" or ext == "gba" or ext == "zip")
   elseif mode == "save" then
     return (ext == "sav" or ext == "lua")
   elseif mode == "mod" then
