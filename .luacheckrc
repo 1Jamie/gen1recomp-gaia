@@ -33,7 +33,6 @@ read_globals = {
 exclude_files = {
   "mobile/",
   "tests/",
-  "tools/save-editor/",
   "tools/save_convert/vendor/",
 }
 

@@ -84,10 +84,12 @@ local mainSrc = read("main.lua")
 check(mainSrc:find("if editorMode then", 1, true) ~= nil
       and mainSrc:find("EditorApp.gamepadpressed", 1, true) ~= nil,
       "main.lua forwards gamepadpressed to EditorApp in editorMode")
-check(mainSrc:find("EditorApp.mousepressed(x, y, 1)", 1, true) ~= nil,
-      "main.lua touchpressed clicks the save editor (non-iOS)")
-check(mainSrc:find('istouch and love.system.getOS() == "Android"', 1, true) ~= nil,
-      "main.lua guards Android double-fire for editor mousepressed")
+check(mainSrc:find("EditorApp.touchpressed(id,x,y)",1,true) ~= nil
+      and mainSrc:find("EditorApp.touchmoved(id,x,y)",1,true) ~= nil
+      and mainSrc:find("EditorApp.touchreleased(id,x,y)",1,true) ~= nil,
+      "main.lua forwards editor touch lifecycle for tap and drag on both mobile platforms")
+check(mainSrc:find("if istouch then return end",1,true) ~= nil,
+      "main.lua suppresses synthetic touch mouse events to avoid double-fire")
 
 local appSrc = read("tools/save-editor/App.lua")
 check(appSrc:find('require("PadInput")', 1, true) ~= nil,

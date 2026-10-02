@@ -10,11 +10,9 @@ local SafeArea = require("src.core.SafeArea")
 
 local PickerChrome = {}
 
--- Minimum tap target (design rule 6).  Scale can sit on the 0.9 floor on a
--- short handheld, so a bare `26 * s` would dip under 26px -- clamp in px.
+-- Match the editor's minimum 44px tap target on short handhelds too.
 function PickerChrome.tapMin(Kit)
-  local s = (Kit and Kit.scale) or 1
-  return math.max(26, math.floor(30 * s))
+  return Kit.tapMin()
 end
 
 -- Usable card rect inside the platform safe area.

@@ -1357,13 +1357,7 @@ end
 function love.touchpressed(id, x, y, dx, dy, pressure)
   if splashBlocksInput() then return end
   if editorMode then
-    -- iOS synthesizes mousepressed for the primary touch; forwarding here
-    -- would double-fire.  Android / NX need the explicit touch → click path
-    -- (love-nx does not synthesize mouse for the editor the way desktop does).
-    if love.system.getOS() == "iOS" then return end
-    if EditorApp and EditorApp.mousepressed then
-      return EditorApp.mousepressed(x, y, 1)
-    end
+    if EditorApp and EditorApp.touchpressed then return EditorApp.touchpressed(id,x,y) end
     return
   end
   if TouchEditor then
@@ -1386,7 +1380,7 @@ end
 
 function love.touchmoved(id, x, y, dx, dy, pressure)
   if splashBlocksInput() then return end
-  if editorMode then return end
+  if editorMode then return EditorApp.touchmoved(id,x,y) end
   if TouchEditor then
     if love.system.getOS() == "iOS" then return end
     return TouchEditor.touchmoved(id, x, y)
@@ -1401,7 +1395,7 @@ end
 
 function love.touchreleased(id, x, y, dx, dy, pressure)
   if splashBlocksInput() then return end
-  if editorMode then return end
+  if editorMode then return EditorApp.touchreleased(id,x,y) end
   if TouchEditor then
     if love.system.getOS() == "iOS" then return end
     return TouchEditor.touchreleased(id, x, y)
@@ -1483,9 +1477,9 @@ function love.mousepressed(x, y, button, istouch)
     return Importer:mousepressed(x, y, button)
   end
   if editorMode and EditorApp.mousepressed then
-    -- Same Android double-fire guard: touchpressed already clicked for the
-    -- save editor; a synthesized mouse press must not fire again.
-    if istouch and love.system.getOS() == "Android" then return end
+    -- The editor owns the real touch lifecycle on Android and iOS.
+    -- Discard its synthetic mouse twin to avoid a second activation.
+    if istouch then return end
     return EditorApp.mousepressed(x, y, button)
   end
   if mouseTouch then

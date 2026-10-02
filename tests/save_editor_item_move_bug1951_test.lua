@@ -342,7 +342,7 @@ do
     local rects = {}
     local real = Kit.button
     Kit.button = function(x, y, w, h, label, opts)
-      if label == "PC" or label == "BAG" then
+      if label == "PC" or label == "Bag" then
         rects[#rects + 1] = { label = label, x = x, y = y, w = w, h = h,
           enabled = not (opts and opts.enabled == false) }
       end
@@ -354,18 +354,17 @@ do
       App.draw()
       pcBtn, bagBtn = nil, nil
       for _, r in ipairs(rects) do
-        if r.label == "PC" then pcBtn = r elseif r.label == "BAG" then bagBtn = r end
+        if r.label == "PC" then pcBtn = r elseif r.label == "Bag" then bagBtn = r end
       end
     end
     capture()
     if pcBtn and pcBtn.y > size[2] - 60 then
-      S.itemsScroll = pcBtn.y - 120
+      S.pageScroll = {items=pcBtn.y-320}
       capture()
       capture()
     end
     local tag = ("%dx%d"):format(size[1], size[2])
     check(pcBtn ~= nil and pcBtn.enabled, tag .. " panel: bag row has an enabled PC button")
-    check(bagBtn ~= nil and bagBtn.enabled, tag .. " panel: PC row has an enabled BAG button")
     if pcBtn then
       App.mousepressed(pcBtn.x + pcBtn.w / 2, pcBtn.y + pcBtn.h / 2, 1)
       App.draw()
@@ -373,6 +372,24 @@ do
       eq(S.save.inventory.POTION, nil, tag .. " panel: bag row emptied")
       check(tostring(S.status):find("Moved 30", 1, true) ~= nil,
         tag .. " panel: move status is not clobbered by row select: " .. tostring(S.status))
+    end
+    S.itemView="pc"
+    S.pageScroll={}
+    capture()
+    if bagBtn and bagBtn.y>size[2]-60 then
+      S.pageScroll={items=bagBtn.y-320};capture();capture()
+    end
+    check(bagBtn~=nil and bagBtn.enabled,tag.." panel: PC view has an enabled Bag button")
+    if bagBtn then
+      local count=0
+      for _,r in ipairs(rects) do if r.label=="Bag" then count=count+1 end end
+      local id=Ops.pcOrder(S)[(S.pcOffset or 0)+count]
+      local qty=S.save.pcItems[id]
+      local inBag=S.save.inventory[id] or 0
+      App.mousepressed(bagBtn.x+bagBtn.w/2,bagBtn.y+bagBtn.h/2,1)
+      App.draw()
+      eq(S.save.inventory[id],inBag+qty,tag.." panel: Bag click withdrew selected stack")
+      eq(S.save.pcItems[id],nil,tag.." panel: withdrawn PC row emptied")
     end
     Kit.button = real
     App.unload()

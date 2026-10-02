@@ -177,6 +177,13 @@ run_tier "T1/T2 engine invariants + parity gates" "$LUA" tests/run_engine.lua
 # so it runs here rather than behind the Red content gate below.
 run_tier "T2 Gen 2 / Crystal suites" "$LUA" tests/run_gen2.lua
 run_tier "T2 save compat (R1/R2 round trips, reader validator)" "$LUA" tests/run_save_compat.lua
+# The mobile UI and input suites use committed fixtures, so they must run
+# even on CI's ROM-free checkout. Keep the native-cache property suite below.
+run_tier "T2 save editor: mobile properties (fixtures)" \
+  env POKEPORT_DATA_DIR=tests/fixture_data "$LUA" tests/save_editor_mobile_properties_tests.lua
+run_tier "T2 save editor: Gen 3 IV / EV / PP (fixtures)" "$LUA" tests/save_editor_gen3_ev_iv_tests.lua
+run_tier "T2 save editor: wheel scrolling" "$LUA" tests/save_editor_wheel_bug595_test.lua
+run_tier "T2 save editor: pad / NX input" "$LUA" tests/save_editor_pad_input_test.lua
 run_tier "T4 mod-SDK" "$LUA" tests/run_modkit.lua
 run_tier "T4 modkit dev tooling (fixture)" "$LUA" tests/modkit_tests.lua
 
@@ -293,6 +300,18 @@ run_game3_tier() {
 }
 run_tier "T6 game3 top-level scenario suites" run_game3_tier
 
+# This suite loads the imported FireRed tables itself and self-skips when
+# absent. It must not depend on also having a Red dataset installed.
+if [ -n "$GAME3_IDENTITY" ]; then
+  run_tier "T6 save editor: native property legality" \
+    env POKEPORT_IDENTITY="$GAME3_IDENTITY" "$LUA" tests/save_editor_property_legality_test.lua
+elif [ -n "$GAME3_GBA_CACHE" ]; then
+  run_tier "T6 save editor: native property legality" \
+    env POKEPORT_GBA_CACHE="$GAME3_GBA_CACHE" "$LUA" tests/save_editor_property_legality_test.lua
+else
+  run_tier "T6 save editor: native property legality" "$LUA" tests/save_editor_property_legality_test.lua
+fi
+
 run_emerald_tier() {
   local t rc=0
   for t in tests/emerald_*.lua; do
@@ -393,9 +412,8 @@ if [ "$HAVE_RED_DATA" = "1" ]; then
     run_tier "T3 save editor: map browser" "$LUA" tests/save_editor_task8_tests.lua
     run_tier "T3 save editor: mod awareness" "$LUA" tests/save_editor_mod_tests.lua
     run_tier "T3 save editor: gold / gen2" "$LUA" tests/save_editor_gen2_tests.lua
-    run_tier "T3 save editor: wheel scrolling" "$LUA" tests/save_editor_wheel_bug595_test.lua
-    run_tier "T3 save editor: pad / NX input" "$LUA" tests/save_editor_pad_input_test.lua
     run_tier "T3 save editor: bag / PC move" "$LUA" tests/save_editor_item_move_bug1951_test.lua
+    run_tier "T3 save editor: mobile properties" "$LUA" tests/save_editor_mobile_properties_tests.lua
     run_tier "T5 link (loopback lockstep)" "$LUA" tests/run_link_tests.lua
     # The oversize-save vendor oracle (tests/save_oversize_vendor_test.lua)
     # cross-checks the launcher's footer-truncation import against the

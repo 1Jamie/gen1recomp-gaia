@@ -9,17 +9,9 @@
 --   * Edit on a launcher save row (main.lua, embedded = true), Close returns
 --     to the launcher with the slot list refreshed
 --
--- Vertical rhythm inside the platform safe area (scaled by Kit's height/768
--- factor, everything else flexes).  Background still fills the full window so
--- the notch / home-indicator bands match the field colour; interactive chrome
--- starts at SafeArea.rect() so Save stays reachable on a punch-hole phone
--- (#917).  Offsets below are relative to that safe origin:
---   0    6px   tri-colour version rail, identical to the launcher's
---   6    64px  title bar   identity, file chip, Save / Reload / Open / Close
---                          (104px when the bar reflows to two rows, #715)
---   70   66px  tab rail    6 tab tiles + right-aligned validation pill
---   136  flex  content     one panel per tab, 20px gutters
---   -38  38px  status bar  the last Ops message + the keyboard map
+-- Chrome reflows inside the platform safe area. Phones use a compact action
+-- menu and popup page choosers; wide windows keep actions on one row. Each page
+-- owns its scrolling viewport and slides with the launcher's navigation.
 
 local Data = require("src.core.Data")
 local SafeArea = require("src.core.SafeArea")
@@ -32,6 +24,8 @@ local Theme = require("Theme")
 local Ops = require("Ops")
 local Gen = require("Gen")
 local PadInput = require("PadInput")
+local Motion = require("Motion")
+local Chooser = require("Chooser")
 local PAL = Theme.PAL
 
 local Party = require("Party")
@@ -59,6 +53,7 @@ local clickX, clickY
 -- there like mouseClicked is: LOVE delivers events before love.draw, so a
 -- notch is always spent by the frame that follows it (#595).
 local wheelY = 0
+local touch
 
 -- Which game's cache Data was loaded from.  main.lua checks this before
 -- opening the editor on a save from the other version, because the two
@@ -66,28 +61,41 @@ local wheelY = 0
 App.dataVersion = nil
 
 local TABS = {
-  { id = "party",  glyph = "PT", label = "PARTY" },
-  { id = "boxes",  glyph = "BX", label = "BOXES" },
-  { id = "items",  glyph = "IT", label = "ITEMS" },
-  { id = "events", glyph = "EV", label = "EVENTS" },
-  { id = "map",    glyph = "MP", label = "MAP" },
-  { id = "dex",    glyph = "DX", label = "DEX" },
+  { id = "party", glyph = "PT", label = "Party" },
+  { id = "boxes", glyph = "BX", label = "Boxes" },
+  { id = "items", glyph = "IT", label = "Items" },
+  { id = "events", glyph = "EV", label = "Events" },
+  { id = "map", glyph = "MP", label = "Map" },
+  { id = "dex", glyph = "DX", label = "Pokédex" },
+  { id = "trainer", glyph = "TR", label = "Trainer" },
+  { id = "legality", glyph = "CK", label = "Checks" },
 }
 
 local PANELS = {
-  party = Party, boxes = Boxes, items = Items,
-  events = Events, map = MapBrowser, dex = Dex,
+  party = Party,
+  boxes = Boxes,
+  items = Items,
+  events = Events,
+  map = MapBrowser,
+  dex = Dex,
+  trainer = require("Trainer"),
+  legality = require("Checks"),
 }
 
 local function fileExists(path)
   local f = io.open(path, "rb")
-  if f then f:close(); return true end
+  if f then
+    f:close()
+    return true
+  end
   return false
 end
 
 -- Apply a load attempt for `path` into the current State (S must exist).
 local function applyLoaded(path, statusVerb)
   statusVerb = statusVerb or "Loaded"
+  Motion.reset()
+  Kit.blur()
   S.path = path
   local existed = fileExists(path)
   local save, err = SaveIO.load(path)
@@ -98,14 +106,16 @@ local function applyLoaded(path, statusVerb)
     S.allowSave = true
   elseif existed then
     S.save = Gen.newGame(S.version)
-    S.status = "Corrupt save at " .. path .. " (" .. tostring(err) ..
-      "),  Save disabled, use Reload after fixing the file"
+    S.status = "Corrupt save at "
+      .. path
+      .. " ("
+      .. tostring(err)
+      .. "),  Save disabled, use Reload after fixing the file"
     S.loadError = true
     S.allowSave = false
   else
     S.save = Gen.newGame(S.version)
-    S.status = "No save at " .. path .. " (" .. tostring(err) ..
-      "),  editing new game stub"
+    S.status = "No save at " .. path .. " (" .. tostring(err) .. "),  editing new game stub"
     S.loadError = false
     S.allowSave = true
   end
@@ -118,6 +128,15 @@ local function applyLoaded(path, statusVerb)
   local mapId = Gen.playerMap(S.save)
   S.mapId = mapId
   S.dirty = false
+  S.undoStack, S.redoStack = {}, {}
+  S.historyToken, S.historySavedToken = 0, 0
+  S.revision = (S.revision or 0) + 1
+  S.speciesPicker, S.movePicker, S.itemPicker = nil, nil, nil
+  S.formMon, S.nicknameMon = nil, nil
+  S.monDrafts, S.trainerDrafts, S.walletDrafts = {}, {}, {}
+  S.propertyChoice, S.itemMenu = nil, nil
+  S.navPopup = nil
+  S.mobileInspector = nil
   S._quitArmed = false
   S._openArmed = false
   S.editingMon = nil
@@ -135,14 +154,21 @@ local function applyLoaded(path, statusVerb)
   S.validation = Gen.validate(probe, Data)
   if not Gen.emptyReport(S.save, S.validation) then
     if Gen.of(S.save, S.version) == 2 then
-      S.status = S.status .. string.format(
-        ",  game would quarantine: %d script bytes, %d mail, %d events",
-        #(S.validation.lostScriptMem or {}),
-        #(S.validation.lostMail or {}),
-        #(S.validation.lostEvents or {}))
+      S.status = S.status
+        .. string.format(
+          ",  game would quarantine: %d script bytes, %d mail, %d events",
+          #(S.validation.lostScriptMem or {}),
+          #(S.validation.lostMail or {}),
+          #(S.validation.lostEvents or {})
+        )
     elseif Gen.of(S.save, S.version) ~= 3 then
-      S.status = S.status .. string.format(",  game would quarantine: %d mons, %d items, %d maps",
-        #S.validation.lostMons, #S.validation.lostItems, #S.validation.remappedMaps)
+      S.status = S.status
+        .. string.format(
+          ",  game would quarantine: %d mons, %d items, %d maps",
+          #S.validation.lostMons,
+          #S.validation.lostItems,
+          #S.validation.remappedMaps
+        )
     end
   end
 end
@@ -153,6 +179,15 @@ end
 -- its slot id, and where Close should go back to.
 function App.load(pathOverride, opts)
   opts = opts or {}
+  Motion.reset()
+  local transition = require("src.ui.kit.Transition")
+  local okMotion, motionOptions = pcall(function()
+    return require("src.core.SaveData").loadOptions()
+  end)
+  transition.reduceMotion = opts.reduceMotion == true
+    or os.getenv("POKEPORT_REDUCE_MOTION") == "1"
+    or (okMotion and type(motionOptions) == "table" and motionOptions.reduceMotion == true)
+    or transition.reduceMotion
   S = State.new()
   S.data = Data
   S.version = opts.version
@@ -162,8 +197,10 @@ function App.load(pathOverride, opts)
   if opts.version then
     require("src.core.GameVersion").set(opts.version)
   end
-  if (Gen.of(nil, opts.version) == 3 or require("src.core.GameVersion").generation() == 3)
-      and not Gen.game3CacheReady() then
+  if
+    (Gen.of(nil, opts.version) == 3 or require("src.core.GameVersion").generation() == 3)
+    and not Gen.game3CacheReady()
+  then
     S.path = pathOverride or SaveIO.defaultPath()
     S.missingCache = Gen.missingCacheMessage(opts.version)
     S.status = S.missingCache
@@ -179,13 +216,13 @@ function App.load(pathOverride, opts)
     -- and a second builtin registration over them collides -- "statuses
     -- already registered: FRZ".  _pristineKeys only exists once Data has been
     -- loaded at least once, so it doubles as the "needs evicting" marker.
-    if Data._pristineKeys then Data:unloadGenerated() end
+    if Data._pristineKeys then
+      Data:unloadGenerated()
+    end
     Data:load()
-    if Gen.of(nil, opts.version) == 3
-        or require("src.core.GameVersion").generation() == 3 then
+    if Gen.of(nil, opts.version) == 3 or require("src.core.GameVersion").generation() == 3 then
       Gen.bindGame3Data(Data)
-    elseif Gen.of(nil, opts.version) == 2
-        or require("src.core.GameVersion").generation() == 2 then
+    elseif Gen.of(nil, opts.version) == 2 or require("src.core.GameVersion").generation() == 2 then
       Gen.bindGoldData(Data)
     end
     local ModLoader = require("src.mods.Loader")
@@ -205,8 +242,8 @@ function App.load(pathOverride, opts)
   elseif Gen.of(nil, opts.version) == 2 or require("src.core.GameVersion").generation() == 2 then
     S.events = Catalog.gen2EventList(Gen.engineOf(nil, opts.version), modRoots)
   else
-    S.events = Catalog.scrapeEvents("data/scripts", "data/generated/trainer_headers.lua",
-                                    nil, modRoots)
+    S.events =
+      Catalog.scrapeEvents("data/scripts", "data/generated/trainer_headers.lua", nil, modRoots)
   end
   applyLoaded(pathOverride or SaveIO.defaultPath(), "Loaded")
 end
@@ -215,8 +252,12 @@ end
 -- If there are unsaved edits, the first call arms a confirm; call again
 -- (or pass force=true) to discard and open.
 function App.openPath(path, force)
-  if not path or path == "" then return false end
-  if not S or S.missingCache then return false end
+  if not path or path == "" then
+    return false
+  end
+  if not S or S.missingCache then
+    return false
+  end
   if S.dirty and not force and not S._openArmed then
     S._openArmed = true
     S.status = "Unsaved changes,  open again to discard and load " .. path
@@ -231,8 +272,7 @@ function App.chooseAndOpen()
   if path then
     App.openPath(path)
   else
-    local osName = love and love.system and love.system.getOS
-      and love.system.getOS()
+    local osName = love and love.system and love.system.getOS and love.system.getOS()
     if osName ~= "OS X" and osName ~= "Windows" and osName ~= "Linux" then
       S.status = "File picker unavailable,  drop a save.lua onto the window"
     end
@@ -240,7 +280,9 @@ function App.chooseAndOpen()
 end
 
 function App.filedropped(file)
-  if not (file and S) then return end
+  if not (file and S) then
+    return
+  end
   local path = file.getFilename and file:getFilename() or nil
   if not path or path == "" then
     S.status = "Could not read dropped file path"
@@ -261,6 +303,9 @@ end
 -- the other game's save -- re-runs Data:load against whatever cache is
 -- mounted by then, instead of reusing this session's merged registries.
 function App.unload()
+  Motion.reset()
+  touch = nil
+  Kit.touchDown = nil
   S = nil
   mods = nil
   App.dataVersion = nil
@@ -276,46 +321,71 @@ function App.unload()
 end
 
 local function cycleTab(delta)
-  if not S then return end
+  if not S then
+    return
+  end
   local idx = 1
   for i, t in ipairs(TABS) do
-    if t.id == S.tab then idx = i; break end
+    if t.id == S.tab then
+      idx = i
+      break
+    end
   end
   idx = ((idx - 1 + delta) % #TABS) + 1
-  S.tab = TABS[idx].id
+  Motion.change(S, "tab", TABS[idx].id, delta)
   Ops.say(S, "Tab: " .. TABS[idx].label)
 end
 
 -- Pad / Joy-Con actions from PadInput.gamepadpressed (A/B via GamepadMap so
 -- NX physical A confirms and B closes).
 local function handlePadAction(action)
-  if not action or not S then return end
+  if not action or not S then
+    return
+  end
   if action == "a" then
     local mx, my = PadInput.pointer()
     App.mousepressed(mx, my, 1)
   elseif action == "b" then
-    App.close()
+    if S.navPopup then
+      Chooser.close(S)
+    else
+      App.close()
+    end
   elseif action == "tab_prev" then
-    cycleTab(-1)
+    if S.navPopup then
+      Chooser.keypressed(S, "up")
+    else
+      cycleTab(-1)
+    end
   elseif action == "tab_next" then
-    cycleTab(1)
+    if S.navPopup then
+      Chooser.keypressed(S, "down")
+    else
+      cycleTab(1)
+    end
   end
 end
 
 function App.save()
-  if S.missingCache then return Ops.say(S, S.missingCache) end
+  if S.missingCache then
+    return Ops.say(S, S.missingCache)
+  end
   if not S.allowSave then
     return Ops.say(S, "Save disabled,  corrupt save loaded; fix the file and Reload first")
   end
   local output = S.save
   if Gen.ofState(S) == 3 then
     local prepared, result = pcall(require("Game3Adapter").export, S.save)
-    if not prepared then S.status = "Save failed: " .. tostring(result); return false end
+    if not prepared then
+      S.status = "Save failed: " .. tostring(result)
+      return false
+    end
     output = result
   end
   local ok, err = SaveIO.save(S.path, output)
   if ok then
     S.dirty = false
+    S.historySavedToken = S.historyToken or 0
     S._quitArmed = false
     Ops.disarm(S)
     S.status = "Saved " .. S.path
@@ -326,23 +396,13 @@ function App.save()
 end
 
 function App.reload()
-  if S.missingCache then return Ops.say(S, S.missingCache) end
+  if S.missingCache then
+    return Ops.say(S, S.missingCache)
+  end
   local save, err = SaveIO.load(S.path)
   if save then
-    if Gen.of(save, S.version) == 3 then
-      applyLoaded(S.path, "Reloaded")
-      return not S.loadError
-    end
-    S.save = save
-    S.dirty = false
-    S.loadError = false
-    S.allowSave = true
-    S._quitArmed = false
-    S._openArmed = false
-    S.editingMon = nil
-    S.status = "Reloaded " .. S.path
-    require("src.pokemon.Boxes").ensure(S.save)
-    return true
+    applyLoaded(S.path, "Reloaded")
+    return not S.loadError
   end
   S.status = "Reload failed: " .. tostring(err)
   return false
@@ -356,7 +416,9 @@ end
 -- host's onClose runs App.unload, which drops S -- doing that inline left the
 -- rest of the frame drawing against a nil state.
 function App.close()
-  if not S then return false end
+  if not S then
+    return false
+  end
   if S.dirty and not S._quitArmed then
     S._quitArmed = true
     S.status = "Unsaved changes,  Save first or click Close again to discard"
@@ -401,7 +463,9 @@ function App.update(dt)
         pcall(love.window.setMode, tonumber(w), tonumber(h), { resizable = true })
       end
       local tab = os.getenv("POKEPORT_EDITOR_TAB")
-      if tab and tab ~= "" and S then S.tab = tab end
+      if tab and tab ~= "" and S then
+        S.tab = tab
+      end
       local monSlot = tonumber(os.getenv("POKEPORT_EDITOR_MON") or "")
       if monSlot and S and S.save and S.save.party then
         S.editingMon = S.save.party[monSlot]
@@ -416,7 +480,10 @@ function App.update(dt)
       love.graphics.captureScreenshot(function(imagedata)
         local fd = imagedata:encode("png")
         local f = io.open(shot, "wb")
-        if f then f:write(fd:getString()) f:close() end
+        if f then
+          f:write(fd:getString())
+          f:close()
+        end
         love.event.quit()
       end)
     end
@@ -431,6 +498,37 @@ function App.mousepressed(x, y, button)
     -- the event said, not under the Joy-Con pointer (NX touch soft-miss).
     PadInput.yieldToPointer()
   end
+end
+
+function App.touchpressed(id, x, y)
+  if touch then
+    return
+  end
+  touch = { id = id, x = x, y = y, startX = x, startY = y, moved = false }
+  Kit.touchDown = true
+  PadInput.yieldToPointer()
+end
+
+function App.touchmoved(id, x, y)
+  if not touch or touch.id ~= id then
+    return
+  end
+  touch.x, touch.y = x, y
+  if math.abs(x - touch.startX) + math.abs(y - touch.startY) > 10 then
+    touch.moved = true
+  end
+end
+
+function App.touchreleased(id, x, y)
+  if not touch or touch.id ~= id then
+    return
+  end
+  App.touchmoved(id, x, y)
+  if not touch.moved then
+    App.mousepressed(x, y, 1)
+  end
+  touch = nil
+  Kit.touchDown = false
 end
 
 function App.textinput(text)
@@ -466,318 +564,162 @@ function App.joystickhat(joystick, hat, direction)
 end
 
 -- ------------------------------------------------------------------ chrome
--- The file chip: the single source of truth for "which file am I editing".
--- The path truncates from the LEFT so the filename is always readable, and
--- an amber dot plus the word UNSAVED calls out dirty state from any tab.
-local function drawFileChip(x, y, w, h)
-  local s = Kit.scale
-  Theme.row(x, y, w, h, 10 * s, 0.6)
-  local pad = 14 * s
-  local dot = 8 * s
-  local cx = x + pad
-  if S.dirty then
-    Theme.col(PAL.yellow, 1)
-    if love.graphics.circle then
-      love.graphics.circle("fill", cx + dot / 2, y + h / 2, dot / 2)
-    else
-      love.graphics.rectangle("fill", cx, y + h / 2 - dot / 2, dot, dot)
-    end
-    cx = cx + dot + 8 * s
+-- Compact action row, with file identity above it when height allows.
+local function drawTitleBar(x, y, w, h)
+  local pad, gap, row = 12 * Kit.scale, 8 * Kit.scale, Kit.controlH()
+  local inner = w - 2 * pad
+  if not S.compactChrome then
+    Kit.text(
+      "tab",
+      "SAVE EDITOR" .. (S.version and (" / " .. S.version:upper()) or ""),
+      x + pad,
+      y + 8 * Kit.scale,
+      PAL.heading
+    )
+    Kit.text(
+      "tiny",
+      Kit.ellipsize("tiny", (S.dirty and "UNSAVED  " or "SAVED  ") .. (S.path or "New save"), inner),
+      x + pad,
+      y + Kit.textHeight("tab") + 12 * Kit.scale,
+      S.dirty and PAL.yellow or PAL.caption
+    )
   end
-  local label = S.dirty and "UNSAVED" or "SAVED"
-  local labelW = Kit.textWidth("tiny", label)
-  Kit.textRight("tiny", label, x + w - pad, y + (h - Kit.textHeight("tiny")) / 2,
-    S.dirty and PAL.yellow or PAL.caption)
-  local avail = (x + w - pad - labelW - 10 * s) - cx
-  local shown = Theme.ellipsizeLeft(Kit.fonts.mono, S.path or "(no file)", avail)
-  Kit.text("mono", shown, cx, y + (h - Kit.textHeight("mono")) / 2, PAL.detail)
-end
-
--- Measure the title bar's right-aligned action cluster.  Shared by App.draw
--- (which must size the bar before drawing it) and drawTitleBar, so the
--- two-row decision and the layout can never disagree (#715).
-local function titleButtons()
-  local s = Kit.scale
-  local gap = 8 * s
-  local b = {
-    gap = gap,
-    closeW = 22 * s + Kit.textWidth("button", S._quitArmed and "Discard?" or "Close"),
-    openW = 22 * s + Kit.textWidth("button", "Open..."),
-    reloadW = 22 * s + Kit.textWidth("button", "Reload"),
-  }
-  b.saveLabel, b.saveKind, b.saveEnabled = "SAVED", "disabled", false
-  if not S.allowSave then
-    b.saveLabel = "SAVE LOCKED"
-  elseif S.dirty then
-    b.saveLabel, b.saveKind, b.saveEnabled = "SAVE", "primary", true
-  end
-  b.saveW = 30 * s + Kit.textWidth("button", b.saveLabel)
-  b.total = b.saveW + b.reloadW + b.openW + b.closeW + 3 * gap
-  return b
-end
-
--- Whether the identity block plus the action cluster fit on one 64px row.
--- When they do not, the bar reflows to two rows (identity + file chip above,
--- buttons below) instead of shrinking or overlapping (#715).
-local function titleNeedsTwoRows(w)
-  local s = Kit.scale
-  return titleButtons().total > w - 2 * (22 * s) - (34 * s) - 10 * s
-end
-
-local function drawTitleBar(x, y, w, h, twoRow)
-  local s = Kit.scale
-  local pad = 22 * s
-  Theme.col(PAL.cardBorder, 0.22)
-  love.graphics.rectangle("fill", x, y + h - 1, w, 1)
-
-  -- the identity row is the whole bar in one-row mode, the top slice in two
-  local rowH = twoRow and (h * 0.55) or h
-  local cx = x + pad
-  -- SE badge, the same rounded-square chip shape the launcher's tabs use
-  local badge = 34 * s
-  local by = y + (rowH - badge) / 2
-  Theme.gradRounded(cx, by, badge, badge, 9 * s, PAL.chipTop, PAL.chipBot, 1, 1)
-  Kit.textCenter("tab", "SE", cx, by + (badge - Kit.textHeight("tab")) / 2, badge,
-    { 159, 180, 221 })
-  cx = cx + badge + 10 * s
-
-  -- The right-aligned action cluster is laid out from the right edge inward
-  -- BEFORE anything on the left is drawn: the buttons are the one thing in
-  -- this bar that must always be reachable, so on a phone the identity block,
-  -- the version chip and the file chip are what yield.  Measuring them last
-  -- is why they used to paint straight through the buttons (#497).
-  local b = titleButtons()
-  local btnH = 38 * s
-  local btnY = twoRow and (y + rowH + (h - rowH - btnH) / 2) or (y + (h - btnH) / 2)
-  local rightEdge = x + w - pad
-  local gap = b.gap
-  local saveLabel, saveKind, saveEnabled = b.saveLabel, b.saveKind, b.saveEnabled
-
-  -- clamped at the left pad so a window narrower than the cluster overflows
-  -- to the right (clipped) instead of stacking buttons on each other
-  local saveX = math.max(x + pad, rightEdge - b.total)
-  local reloadX = saveX + b.saveW + gap
-  local openX = reloadX + b.reloadW + gap
-  local closeX = openX + b.openW + gap
-  -- the identity row yields to the buttons in one-row mode; in two-row mode
-  -- the buttons are on their own row and the identity keeps the full width
-  local identityLimit = twoRow and (rightEdge + 14 * s) or saveX
-
-  local wordH = Kit.textHeight("wordmark")
-  local brandH = Kit.textHeight("brand")
-  local blockY = y + (rowH - (wordH + 2 * s + brandH)) / 2
-  local wordW = math.max(
-    Theme.spacedWidth(Kit.fonts.wordmark, "SAVE EDITOR", 2 * s),
-    Theme.spacedWidth(Kit.fonts.brand, "GEN1RECOMP", 1 * s))
-  if cx + wordW + 12 * s < identityLimit then
-    love.graphics.setFont(Kit.fonts.wordmark)
-    Theme.col(PAL.heading, 1)
-    Theme.spaced(Kit.fonts.wordmark, "SAVE EDITOR", cx, blockY, 2 * s)
-    love.graphics.setFont(Kit.fonts.brand)
-    Theme.col(PAL.caption, 1)
-    Theme.spaced(Kit.fonts.brand, "GEN1RECOMP", cx,
-      blockY + wordH + 2 * s, 1 * s)
-    cx = cx + wordW + 12 * s
-  end
-
-  -- version chip: which game this save belongs to (from the launcher slot,
-  -- or the save's own header in a standalone run)
-  if S.version then
-    local name = S.version:upper()
-    local c = (S.version == "blue") and PAL.blue or PAL.red
-    local cw = Kit.textWidth("chip", name) + 16 * s
-    local ch = 22 * s
-    local cy = y + (rowH - ch) / 2
-    if cx + cw + 12 * s < identityLimit then
-      Theme.col(c, 0.1)
-      love.graphics.rectangle("fill", cx, cy, cw, ch, 6 * s, 6 * s)
-      Theme.stroke(cx, cy, cw, ch, 6 * s, c, 0.5, 1)
-      Kit.textCenter("chip", name, cx, cy + (ch - Kit.textHeight("chip")) / 2,
-        cw, c)
-      cx = cx + cw + 12 * s
-    end
-  end
-
-  -- Save is the only green-filled control in the chrome; a corrupt load
-  -- renders it steel with the reason parked in the status bar rather than
-  -- hiding it (rule 3 of the design spec).
-  if Kit.button(saveX, btnY, b.saveW, btnH, saveLabel,
-      { kind = saveKind, enabled = saveEnabled or not S.allowSave,
-        glow = S.dirty and S.allowSave and 0.6 or nil }) then
-    App.save()
-  end
-  if Kit.button(reloadX, btnY, b.reloadW, btnH, "Reload") then App.reload() end
-  if Kit.button(openX, btnY, b.openW, btnH, "Open...") then App.chooseAndOpen() end
-  if Kit.button(closeX, btnY, b.closeW, btnH,
+  local narrow = w < 600 * Kit.scale and not S.compactChrome
+  local cols = narrow and 4 or 6
+  local bw = (inner - (cols - 1) * gap) / cols
+  local by = S.compactChrome and (y + 8 * Kit.scale)
+    or (y + Kit.textHeight("tab") + Kit.textHeight("tiny") + 20 * Kit.scale)
+  local saveInk = S.allowSave and S.dirty and PAL.green or PAL.muted
+  local actions = {
+    {
+      S.allowSave and (S.dirty and "Save" or "Saved") or "Save locked",
+      "ghost",
+      function()
+        App.save()
+      end,
+      S.dirty or not S.allowSave,
+      {
+        face = "invert",
+        ink = saveInk,
+        stroke = saveInk,
+        icon = S.allowSave and "save" or "lock",
+      },
+    },
+    {
+      "Undo",
+      "ghost",
+      function()
+        require("History").undo(S)
+      end,
+      S.undoStack and #S.undoStack > 0,
+    },
+    {
+      "Redo",
+      "ghost",
+      function()
+        require("History").redo(S)
+      end,
+      S.redoStack and #S.redoStack > 0,
+    },
+    {
+      "Reload",
+      "ghost",
+      function()
+        App.reload()
+      end,
+      true,
+    },
+    {
+      "Open",
+      "accent",
+      function()
+        App.chooseAndOpen()
+      end,
+      true,
+    },
+    {
       S._quitArmed and "Discard?" or "Close",
-      { kind = S._quitArmed and "danger" or "ghost" }) then
-    App.close()
+      S._quitArmed and "danger" or "ghost",
+      function()
+        App.close()
+      end,
+      true,
+    },
+  }
+  local function actionOptions(action)
+    local opts = action[5] or {}
+    opts.kind, opts.enabled, opts.font = action[2], action[4], "small"
+    return opts
   end
-
-  local chipW = (identityLimit - 14 * s) - cx
-  if chipW > 80 * s then
-    drawFileChip(cx, y + (rowH - 38 * s) / 2, chipW, 38 * s)
+  if narrow then
+    local more = {
+      S.chromeMenu and "Less" or "More",
+      "ghost",
+      function()
+        S.chromeMenu = not S.chromeMenu
+        Kit.blur()
+      end,
+      true,
+    }
+    local primary = { actions[1], actions[2], actions[3], more }
+    for i, a in ipairs(primary) do
+      if Kit.button(x + pad + (i - 1) * (bw + gap), by, bw, row, a[1], actionOptions(a)) then
+        a[3]()
+      end
+    end
+    if S.chromeMenu then
+      local menuW = (inner - 2 * gap) / 3
+      for i = 4, 6 do
+        local a = actions[i]
+        if
+          Kit.button(
+            x + pad + (i - 4) * (menuW + gap),
+            by + row + gap,
+            menuW,
+            row,
+            a[1],
+            actionOptions(a)
+          )
+        then
+          a[3]()
+        end
+      end
+    end
+    return
   end
-end
-
--- Per-tab counters shown under each tile, so the rail doubles as a summary.
-local function tabCount(id)
-  if id == "party" then
-    return ("%d/%d"):format(#S.save.party, require("src.pokemon.Party").MAX)
-  elseif id == "boxes" then
-    local n = 0
-    for _, box in ipairs(Ops.boxes(S)) do n = n + Ops.boxSize(S, box) end
-    return tostring(n)
-  elseif id == "items" then
-    local Bag = require("src.inventory.Bag")
-    return ("%d/%d"):format(Bag.slots(S.save, S.data), Bag.capacity(S.data))
-  elseif id == "events" then
-    return tostring(Gen.flagCount(S.save))
-  elseif id == "map" then
-    -- map ids run long (REDS_HOUSE_2F); the rail is a summary, not a label
-    return Kit.ellipsize("tiny", S.mapId or "", 110 * Kit.scale)
-  elseif id == "dex" then
-    local _, owned, total = Ops.dexCounts(S)
-    return ("%d/%d"):format(owned, total)
+  for i, a in ipairs(actions) do
+    if
+      Kit.button(
+        x + pad + (i - 1) % cols * (bw + gap),
+        by + math.floor((i - 1) / cols) * (row + gap),
+        bw,
+        row,
+        a[1],
+        actionOptions(a)
+      )
+    then
+      a[3]()
+    end
   end
-  return ""
-end
-
--- The validation pill mirrors SaveData.validate: green when the report is
--- empty, yellow with counts when the running game would quarantine
--- something.  Returns what to draw plus the tab that owns the first problem,
--- so the rail can reserve the pill's width before laying out the tiles.
-local function validationPill()
-  local report = S.validation
-  if not report or Gen.emptyReport(S.save, report) then
-    return "Save validates clean", PAL.green, nil, true
-  end
-  local parts = {}
-  local target
-  local function add(n, singular, plural, tab)
-    n = n or 0
-    if n <= 0 then return end
-    parts[#parts + 1] = ("%d %s"):format(n, n == 1 and singular or plural)
-    target = target or tab
-  end
-  if Gen.of(S.save, S.version) == 2 then
-    add(#(report.lostScriptMem or {}), "script byte", "script bytes", "events")
-    add(#(report.lostMail or {}), "mail", "mail", "party")
-    add(#(report.lostEvents or {}), "event", "events", "events")
-    add(#(report.lostMapScenes or {}), "map scene", "map scenes", "map")
-  else
-    add(#(report.lostMons or {}), "mon", "mons", "party")
-    add(#(report.lostItems or {}), "item", "items", "items")
-    add(#(report.remappedMaps or {}), "map", "maps", "map")
-  end
-  return "Would quarantine " .. table.concat(parts, ", "), PAL.yellow, target, false
-end
-
--- Tab tiles degrade rather than collide: at full width each tile carries its
--- glyph, label and counter; when the validation pill would overlap, the
--- counters drop first and then the labels, leaving the 2-letter glyphs.  A
--- tile is always at least its own square, so every tab stays clickable.
-local function railDetail(x, pillX)
-  local s = Kit.scale
-  local tile = 40 * s
-  local widths = { full = 0, nocount = 0, glyph = 0 }
-  for _, t in ipairs(TABS) do
-    local labelW = Theme.spacedWidth(Kit.fonts.tab, t.label, 1.5 * s)
-    local countW = Kit.textWidth("tiny", tabCount(t.id))
-    widths.full = widths.full + tile + 9 * s + labelW + 8 * s + countW + 20 * s
-    widths.nocount = widths.nocount + tile + 9 * s + labelW + 20 * s
-    widths.glyph = widths.glyph + tile + 12 * s
-  end
-  local avail = pillX - 14 * s - (x + 22 * s)
-  -- the widths come back too: the caller needs the glyph-mode figure to decide
-  -- whether the pill still has room, and measuring the rail twice is waste
-  if widths.full <= avail then return "full", widths end
-  if widths.nocount <= avail then return "nocount", widths end
-  return "glyph", widths
 end
 
 local function drawTabRail(x, y, w, h)
-  local s = Kit.scale
-  local pad = 22 * s
-  Theme.col(PAL.cardBorder, 0.22)
-  love.graphics.rectangle("fill", x, y + h - 1, w, 1)
-
-  local label, pillColor, target, clean = validationPill()
-  local ph = 26 * s
-  local pw = Kit.textWidth("small", label) + 28 * s
-  local px = x + w - pad - pw
-  local detail, widths = railDetail(x, px)
-  -- Last stop before the tiles and the pill collide: at phone widths even the
-  -- 2-letter glyph tiles need the room the pill is sitting in, and the pill
-  -- only repeats a line the status bar already prints on load, so the pill is
-  -- what goes (#497).  With it gone the tiles get the full bar back.
-  local showPill = widths.glyph <= px - 14 * s - (x + 22 * s)
-  if not showPill then
-    detail = railDetail(x, x + w - pad)
-  end
-
-  local tile = 40 * s
-  local cx = x + pad
-  local tileY = y + h - 12 * s - tile
-  for _, t in ipairs(TABS) do
-    local active = (S.tab == t.id)
-    local count = (detail == "full") and tabCount(t.id) or ""
-    local labelW = (detail == "glyph") and 0
-      or Theme.spacedWidth(Kit.fonts.tab, t.label, 1.5 * s)
-    local countW = Kit.textWidth("tiny", count)
-    local cellW = (detail == "glyph") and (tile + 12 * s)
-      or (tile + 9 * s + labelW + (count ~= "" and 8 * s + countW or 0) + 20 * s)
-
-    Theme.gradRounded(cx, tileY, tile, tile, 11 * s, PAL.chipTop, PAL.chipBot, 1, 1)
-    Kit.textCenter("tile", t.glyph, cx, tileY + (tile - Kit.textHeight("tile")) / 2,
-      tile, PAL.chipInk)
-    if not active then
-      -- one tile style plus a scrim, the same trick the launcher uses
-      Theme.col(PAL.bgBot, 0.55)
-      love.graphics.rectangle("fill", cx, tileY, tile, tile, 11 * s, 11 * s)
-    else
-      Theme.stroke(cx, tileY, tile, tile, 11 * s, PAL.blue, 0.75, 1.5 * s)
+  local pad, row = 12 * Kit.scale, Kit.controlH()
+  Chooser.navigation(
+    S,
+    Kit,
+    "tab",
+    "Save editor page",
+    TABS,
+    x + pad,
+    y,
+    math.min(w - 2 * pad, 360 * Kit.scale),
+    row,
+    function()
+      S.mobileInspector = false
+      S.chromeMenu, S.itemMenu = false, nil
     end
-
-    if detail ~= "glyph" then
-      local lx = cx + tile + 9 * s
-      love.graphics.setFont(Kit.fonts.tab)
-      Theme.col(active and PAL.heading or PAL.muted, 1)
-      Theme.spaced(Kit.fonts.tab, t.label, lx,
-        tileY + (tile - Kit.textHeight("tab")) / 2, 1.5 * s)
-      if count ~= "" then
-        Kit.text("tiny", count, lx + labelW + 8 * s,
-          tileY + (tile - Kit.textHeight("tiny")) / 2, PAL.faint)
-      end
-    end
-
-    if active then
-      Theme.col(PAL.blue, 1)
-      love.graphics.rectangle("fill", cx, y + h - 3 * s,
-        math.max(tile, cellW - 20 * s), 3 * s)
-    end
-    if Kit.press(cx - 8 * s, y, cellW, h) then
-      S.tab = t.id
-      Kit.blur()
-      Ops.disarm(S)
-    end
-    cx = cx + cellW
-  end
-
-  if showPill then
-    local py = y + h - 14 * s - ph
-    Theme.col(pillColor, clean and 0.08 or 0.1)
-    love.graphics.rectangle("fill", px, py, pw, ph, ph / 2, ph / 2)
-    Theme.stroke(px, py, pw, ph, ph / 2, pillColor, clean and 0.45 or 0.5, 1)
-    Kit.textCenter("small", label, px, py + (ph - Kit.textHeight("small")) / 2,
-      pw, pillColor)
-    -- paint and hit target are suppressed together, so a hidden pill cannot
-    -- still eat a tap meant for the DEX tile
-    if target and Kit.press(px, py, pw, ph) then
-      S.tab = target
-      Ops.say(S, "Jumped to the tab holding the first quarantine warning")
-    end
-  end
+  )
 end
 
 local function drawStatusBar(x, y, w, h)
@@ -788,13 +730,16 @@ local function drawStatusBar(x, y, w, h)
   Theme.col(PAL.cardBorder, 0.22)
   love.graphics.rectangle("fill", x, y, w, 1)
 
-  local ctrl = (love.system and love.system.getOS
-    and love.system.getOS() == "OS X") and "Cmd" or "Ctrl"
+  local ctrl = (love.system and love.system.getOS and love.system.getOS() == "OS X") and "Cmd"
+    or "Ctrl"
   local hint = S.embedded
-    and (ctrl .. "+S save . " .. ctrl ..
-         "+R reload . Esc clear selection . Close returns to the launcher")
-    or (ctrl .. "+S save . " .. ctrl ..
-        "+R reload . Esc clear selection . arrows pan map . wheel scrolls lists")
+      and (ctrl .. "+S save . " .. ctrl .. "+R reload . Esc clear selection . Close returns to the launcher")
+    or (
+      ctrl
+      .. "+S save . "
+      .. ctrl
+      .. "+R reload . Esc clear selection . arrows pan map . wheel scrolls lists"
+    )
   -- The status message is the load-bearing half of this bar (every Ops verb
   -- narrates through it); the keyboard map is decoration.  On a phone the
   -- two used to overlap because the hint was drawn unconditionally and the
@@ -807,15 +752,22 @@ local function drawStatusBar(x, y, w, h)
   else
     avail = w - 2 * pad
   end
-  Kit.text("mono", Kit.ellipsize("mono", S.status or "", avail), x + pad,
-    y + (h - Kit.textHeight("mono")) / 2, PAL.detail)
+  Kit.text(
+    "mono",
+    Kit.ellipsize("mono", S.status or "", avail),
+    x + pad,
+    y + (h - Kit.textHeight("mono")) / 2,
+    PAL.detail
+  )
 end
 
 function App.draw()
   -- Closing the editor unloads it, and the host may still deliver one more
   -- frame or a queued event before it re-routes; every entry point below
   -- tolerates that rather than indexing a torn-down state.
-  if not S then return end
+  if not S then
+    return
+  end
   local width, height = love.graphics.getDimensions()
   width = math.max(1, tonumber(width) or 1)
   height = math.max(1, tonumber(height) or 1)
@@ -834,9 +786,12 @@ function App.draw()
   local padX, padY, padOn = PadInput.pointer()
   if mouseClicked and clickX ~= nil then
     mx, my = clickX, clickY
+  elseif touch then
+    mx, my = touch.x, touch.y
   elseif padOn then
     mx, my = padX, padY
   end
+  Motion.update()
   Kit.beginFrame(mx, my, mouseClicked, wheelY)
   mouseClicked = false
   clickX, clickY = nil, nil
@@ -845,8 +800,11 @@ function App.draw()
   -- last: the chrome and the panel underneath would take the same tap.  The
   -- shield goes up before anything dispatches and comes down only for the
   -- picker's own layer at the bottom of this function (#541).
-  Kit.blockClicks = (S.speciesPicker ~= nil) or (S.itemPicker ~= nil)
+  Kit.blockClicks = (S.speciesPicker ~= nil)
+    or (S.itemPicker ~= nil)
     or (S.movePicker ~= nil)
+    or (S.navPopup ~= nil)
+    or Motion.active()
 
   Theme.field(width, height)
 
@@ -865,7 +823,9 @@ function App.draw()
     end
     Kit.endFrame()
     PadInput.draw()
-    if S._closeRequested then finishClose() end
+    if S._closeRequested then
+      finishClose()
+    end
     return
   end
 
@@ -874,51 +834,98 @@ function App.draw()
   -- the window is too narrow for both on one, instead of the buttons and the
   -- identity painting through each other (#715).  The taller bar simply
   -- costs the content column height, which scrolls.
-  local titleTwoRow = titleNeedsTwoRows(sw)
-  local titleH = (titleTwoRow and 104 or 64) * s
-  local tabH = 66 * s
+  S.compactChrome = sh < 500 * s and sw > sh
+  local titleTwoRow = sw < 600 * s and not S.compactChrome and S.chromeMenu
+  local titleH = Kit.textHeight("tab")
+    + Kit.textHeight("tiny")
+    + 28 * s
+    + (titleTwoRow and 2 or 1) * (Kit.controlH() + 8 * s)
+  if S.compactChrome then
+    titleH = Kit.controlH() + 16 * s
+  end
+  local tabH = Kit.controlH() + 6 * s
   local statusH = 38 * s
+  -- A short landscape map needs room for actual cells. Its focus control
+  -- hides the editor chrome while keeping the map navigation and status.
+  local focusMap = S.tab == "map" and S.mapSection == "view" and S.mapFocused and sw > sh
+  if focusMap then
+    titleH, tabH = 0, 0
+  end
 
   Theme.versionRail(ox, oy, sw, railH)
-  drawTitleBar(ox, oy + railH, sw, titleH, titleTwoRow)
-  drawTabRail(ox, oy + railH + titleH, sw, tabH)
+  if not focusMap then
+    drawTitleBar(ox, oy + railH, sw, titleH)
+    drawTabRail(ox, oy + railH + titleH, sw, tabH)
+  end
 
   local contentY = oy + railH + titleH + tabH
   local contentH = sh - railH - titleH - tabH - statusH
-  local panel = PANELS[S.tab]
-  if panel then
-    local ok, err = xpcall(function()
-      panel.draw(S, Kit, ox + 22 * s, contentY + 20 * s,
-        sw - 44 * s, contentH - 38 * s)
-    end, debug.traceback)
-    if not ok then
-      Kit.resetClip()
-      print(string.format("[SAVE-EDITOR ERROR in %s panel]\n%s", tostring(S.tab), tostring(err)))
-      Kit.text("mono", "Error rendering " .. tostring(S.tab) .. " panel", ox + 22 * s, contentY + 20 * s, PAL.red)
-    end
+  local px, py = ox + 10 * s, contentY + 8 * s
+  local pw, ph = sw - 20 * s, math.max(1, contentH - 16 * s)
+  local ok, err = xpcall(function()
+    Motion.pages(S, Kit, "tab", px, py, pw, ph, function(state, kit, dx, dy, dw, dh)
+      local panel = PANELS[state.tab]
+      if not panel then
+        return
+      end
+      local minH = (state.tab == "events" and 360 or state.tab == "dex" and 580 or 0) * s
+      state._scrollingPage = minH > dh
+      kit.pushClip(dx, dy, dw, dh)
+      if minH > dh then
+        state.pageScroll = state.pageScroll or {}
+        local off = state.pageScroll[state.tab] or 0
+        panel.draw(state, kit, dx, dy - off, dw, minH)
+        state.pageScroll[state.tab] = kit.scrollPixels(dx, dy, dw, dh, off, minH)
+      else
+        panel.draw(state, kit, dx, dy, dw, dh)
+      end
+      kit.popClip()
+    end)
+  end, debug.traceback)
+  if not ok then
+    Kit.resetClip()
+    print(string.format("[SAVE-EDITOR ERROR in %s panel]\n%s", tostring(S.tab), tostring(err)))
+    Kit.text(
+      "mono",
+      "Error rendering " .. tostring(S.tab) .. " panel",
+      px + 12 * s,
+      py + 12 * s,
+      PAL.red
+    )
   end
 
   drawStatusBar(ox, oy + sh - statusH, sw, statusH)
   Kit.blockClicks = false
   -- Scrim still covers the full window (including unsafe bands); the card
   -- itself is centred in the safe rect so search fields clear the notch.
-  SpeciesPicker.draw(S, Kit, width, height)
-  MovePicker.draw(S, Kit, width, height)
-  ItemPicker.draw(S, Kit, width, height)
+  if S.navPopup then
+    Chooser.draw(S, Kit, width, height)
+  else
+    SpeciesPicker.draw(S, Kit, width, height)
+    MovePicker.draw(S, Kit, width, height)
+    ItemPicker.draw(S, Kit, width, height)
+  end
   Kit.endFrame()
   PadInput.draw()
 
   -- Only now, with the whole frame painted, is it safe to drop the editor.
-  if S._closeRequested then finishClose() end
+  if S._closeRequested then
+    finishClose()
+  end
 end
 
 function App.keypressed(key)
-  if not S or S.missingCache then return end
+  if not S or S.missingCache then
+    return
+  end
+  if Chooser.keypressed(S, key) then
+    return
+  end
   -- The picker takes Enter and Escape before the focused field does: Kit maps
-  -- both to the same "\r" edit (a blur), which cannot tell "commit the top
-  -- match" apart from "give up" (#541).
+  -- fields handle their own commit/cancel instead of submitting a form.
   if S.itemPicker then
     if key == "return" or key == "kpenter" then
+      S.itemPicker.query = Kit.flushText("item-picker", S.itemPicker.query)
       ItemPicker.commitFirst(S, Kit)
       return
     elseif key == "escape" then
@@ -928,6 +935,7 @@ function App.keypressed(key)
   end
   if S.movePicker then
     if key == "return" or key == "kpenter" then
+      S.movePicker.query = Kit.flushText("move-picker", S.movePicker.query)
       MovePicker.commitFirst(S, Kit)
       return
     elseif key == "escape" then
@@ -937,6 +945,7 @@ function App.keypressed(key)
   end
   if S.speciesPicker then
     if key == "return" or key == "kpenter" then
+      S.speciesPicker.query = Kit.flushText("species-picker", S.speciesPicker.query)
       SpeciesPicker.commitFirst(S, Kit)
       return
     elseif key == "escape" then
@@ -947,38 +956,64 @@ function App.keypressed(key)
   -- The inspector's nickname field is a commit-on-Enter field, unlike the
   -- search fields, which are live view state.  Enter commits the draft through
   -- Ops and blurs; Escape discards it and blurs.  Both must run before
-  -- Kit.keypressed, which maps return/escape to the same "\r" edit and cannot
-  -- tell "commit" from "cancel".
+  -- Kit.keypressed. Drain queued typing before committing the draft.
   if Kit.focus == "mon-nickname" then
     if key == "return" or key == "kpenter" then
-      if S.editingMon and Ops.setNickname(S, S.editingMon, S.nicknameDraft) then
+      if
+        S.editingMon
+        and Ops.setNickname(
+          S,
+          S.editingMon,
+          Kit.flushText("mon-nickname", S.nicknameDraft, function(v)
+            return Ops.nicknameSanitize(S, v)
+          end)
+        )
+      then
         S.nicknameDraft = S.editingMon.nickname or ""
       end
       Kit.blur()
       return
     elseif key == "escape" then
       Kit.blur()
-      if S.editingMon then S.nicknameDraft = S.editingMon.nickname or "" end
+      if S.editingMon then
+        S.nicknameDraft = S.editingMon.nickname or ""
+      end
       return
     end
   end
   -- A focused text field eats the keys it cares about (typing "s" into the
   -- map filter must not trigger Save).
-  if Kit.keypressed(key) then return end
+  if Kit.keypressed(key) then
+    return
+  end
   if Kit.focus then
-    if key == "escape" then Kit.blur() end
+    if key == "escape" then
+      Kit.blur()
+    end
     return
   end
   -- Save and Reload both touch the file on disk (Reload discards unsaved
-  -- edits), so they need a modifier.  A bare letter is one stray keystroke
-  -- away from a write, and the editor has no undo.
-  local mod = love.keyboard and love.keyboard.isDown
-    and (love.keyboard.isDown("lgui", "rgui")
-      or love.keyboard.isDown("lctrl", "rctrl"))
+  -- edits), so they need a modifier. A bare letter must remain safe to type.
+  local mod = love.keyboard
+    and love.keyboard.isDown
+    and (love.keyboard.isDown("lgui", "rgui") or love.keyboard.isDown("lctrl", "rctrl"))
+  if key == "escape" and (S.itemMenu or S.chromeMenu) then
+    S.itemMenu, S.chromeMenu = nil, false
+    Ops.say(S, "Menu closed")
+    return
+  end
   if key == "escape" then
     S.editingMon = nil
     Ops.disarm(S)
     Ops.say(S, "Selection cleared")
+  elseif key == "z" and mod then
+    if love.keyboard.isDown("lshift", "rshift") then
+      require("History").redo(S)
+    else
+      require("History").undo(S)
+    end
+  elseif key == "y" and mod then
+    require("History").redo(S)
   elseif key == "s" and mod then
     App.save()
   elseif key == "r" and mod then
@@ -990,10 +1025,21 @@ function App.keypressed(key)
 end
 
 function App.wheelmoved(x, y)
-  if not S or S.missingCache then return end
+  if not S or S.missingCache then
+    return
+  end
+  if S.navPopup then
+    wheelY = wheelY + (y or 0)
+    return
+  end
   -- The map tab spends the wheel on zoom; every other tab routes it through
   -- Kit so whichever list the pointer is over takes it next draw (#595).
-  if S.tab == "map" and MapBrowser.wheelmoved then
+  if
+    S.tab == "map"
+    and MapBrowser.wheelmoved
+    and not S._scrollingPage
+    and (not S.mapSection or S.mapSection == "view")
+  then
     MapBrowser.wheelmoved(S, y)
     return
   end
@@ -1001,7 +1047,9 @@ function App.wheelmoved(x, y)
 end
 
 function App.quit()
-  if not S then return false end
+  if not S then
+    return false
+  end
   if S.dirty then
     -- simple: block quit once and set status; user saves or force-quits again
     if not S._quitArmed then

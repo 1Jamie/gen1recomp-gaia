@@ -22,14 +22,26 @@ local FIELD_ID = "item-picker"
 
 function Picker.results(S)
   local p = S.itemPicker
-  return Ops.itemSearch(S, p and p.query or "")
+  local hits = Ops.itemSearch(S, p and p.query or "")
+  if p and p.dest == "held" then
+    local filtered = {}
+    for _, id in ipairs(hits) do
+      if Ops.itemHoldable(S, id) then
+        filtered[#filtered + 1] = id
+      end
+    end
+    return filtered
+  end
+  return hits
 end
 
 -- Enter commits the top match into whichever destination the picker was
 -- opened for, which is the whole point of a search field.
 function Picker.commitFirst(S, Kit)
   local hits = Picker.results(S)
-  if not hits[1] then return Ops.say(S, "No item matches that") end
+  if not hits[1] then
+    return Ops.say(S, "No item matches that")
+  end
   return Picker.commit(S, Kit, hits[1])
 end
 
@@ -40,13 +52,24 @@ end
 function Picker.commit(S, Kit, id)
   local p = S.itemPicker
   local dest = (p and p.dest) or "bag"
-  if dest == "pc" then return Ops.addToPc(S, id) end
+  if dest == "held" then
+    local changed = Ops.setHeldItem(S, S.editingMon, id)
+    if changed then
+      Ops.closeItemPicker(S, Kit)
+    end
+    return changed
+  end
+  if dest == "pc" then
+    return Ops.addToPc(S, id)
+  end
   return Ops.addToBag(S, id)
 end
 
 function Picker.draw(S, Kit, width, height)
   local p = S.itemPicker
-  if not p then return end
+  if not p then
+    return
+  end
   local s = Kit.scale
 
   -- The click that opened the picker is still the frame's click: the panel
@@ -79,8 +102,16 @@ function Picker.draw(S, Kit, width, height)
   local captionH = Kit.textHeight("caption")
   local headH = math.max(captionH, closeW)
   Kit.caption(cx, cy + (headH - captionH) / 2, "ADD AN ITEM")
-  if Kit.button(x + w - pad - closeW, cy + (headH - closeW) / 2, closeW, closeW, "x",
-      { font = "small" }) then
+  if
+    Kit.iconButton(
+      x + w - pad - closeW,
+      cy + (headH - closeW) / 2,
+      closeW,
+      closeW,
+      "x",
+      "Close picker"
+    )
+  then
     Ops.closeItemPicker(S, Kit)
     return
   end
@@ -91,18 +122,20 @@ function Picker.draw(S, Kit, width, height)
   -- bottom that each mean "commit, and also pick a destination".
   local half = (inner - 8 * s) / 2
   local destH = math.max(PickerChrome.tapMin(Kit), math.floor(30 * s))
-  if Kit.chip(cx, cy, half, destH, "-> BAG", p.dest ~= "pc", PAL.green, PAL.steel) then
-    p.dest = "bag"
-  end
-  if Kit.chip(cx + half + 8 * s, cy, half, destH, "-> PC", p.dest == "pc",
-      PAL.green, PAL.steel) then
-    p.dest = "pc"
+  if p.dest == "held" then
+    Kit.text("small", "Choose a held item", cx, cy, PAL.caption)
+  else
+    if Kit.chip(cx, cy, half, destH, "Bag", p.dest ~= "pc", PAL.green, PAL.steel) then
+      p.dest = "bag"
+    end
+    if Kit.chip(cx + half + 8 * s, cy, half, destH, "PC", p.dest == "pc", PAL.green, PAL.steel) then
+      p.dest = "pc"
+    end
   end
   cy = cy + destH + 10 * s
 
   local fieldH = PickerChrome.fieldH(Kit)
-  p.query = Kit.textfield(FIELD_ID, cx, cy, inner, fieldH, p.query,
-    "type an item id")
+  p.query = Kit.textfield(FIELD_ID, cx, cy, inner, fieldH, p.query, "type an item name or id")
   cy = cy + fieldH + 10 * s
 
   local hits = Picker.results(S)
@@ -119,22 +152,36 @@ function Picker.draw(S, Kit, width, height)
     Kit.pushClip(cx, cy, inner, listH)
     for i = 1, perPage do
       local id = hits[p.offset + i]
-      if not id then break end
+      if not id then
+        break
+      end
       local ry = cy + (i - 1) * (rowH + rowGap)
       if Kit.row(cx, ry, inner, rowH, false, PAL.green, 9 * s) then
         Picker.commit(S, Kit, id)
       end
       -- how many the save already holds, so a second add is an informed one
-      local have = (S.save.inventory and S.save.inventory[id])
-        or (Ops.pcItems(S) or {})[id]
+      local have = (S.save.inventory and S.save.inventory[id]) or (Ops.pcItems(S) or {})[id]
       local tail = have and ("x%d"):format(have) or ""
       local tailW = Kit.textWidth("tiny", tail)
-      Kit.text("monoRow",
-        Kit.ellipsize("monoRow", id, inner - tailW - 30 * s), cx + 10 * s,
-        ry + (rowH - Kit.textHeight("monoRow")) / 2, PAL.text)
+      Kit.text(
+        "monoRow",
+        Kit.ellipsize(
+          "monoRow",
+          (S.data.items[id] and S.data.items[id].name) or id,
+          inner - tailW - 30 * s
+        ),
+        cx + 10 * s,
+        ry + (rowH - Kit.textHeight("monoRow")) / 2,
+        PAL.text
+      )
       if tail ~= "" then
-        Kit.textRight("tiny", tail, cx + inner - 10 * s,
-          ry + (rowH - Kit.textHeight("tiny")) / 2, PAL.caption)
+        Kit.textRight(
+          "tiny",
+          tail,
+          cx + inner - 10 * s,
+          ry + (rowH - Kit.textHeight("tiny")) / 2,
+          PAL.caption
+        )
       end
     end
     Kit.popClip()

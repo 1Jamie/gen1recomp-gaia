@@ -50,6 +50,12 @@ local function stampNewMon(S, mon)
   if Gen.ofState(S) == 3 then
     mon.ot = (S.save.player and S.save.player.name) or S.save.name or "RED"
     mon.otId = (S.save.player and S.save.player.id) or S.save.trainerId or 0
+    mon.otName = mon.ot
+    mon.otSecretId = S.save.secretId or 0
+    mon.otGender = S.save.gender or 0
+    mon.language = 2
+    mon.metGame = require("src.core.GameVersion").gameCode(Gen.versionOf(S.save, S.version))
+    mon.metLevel = mon.level
   elseif Gen.ofState(S) == 2 then
     require("src.battle.gen2.Mon").stampOT(S.save, mon)
   else
@@ -116,6 +122,8 @@ end
 -- Mark the save dirty and say what changed.  Also disarms any pending
 -- destructive confirmation: doing something else is an implicit "no".
 function Ops.mark(S, msg)
+  S.revision = (S.revision or 0) + 1
+  S.historyToken = S.revision
   S.dirty = true
   S.status = msg or S.status
   S.armed = nil
@@ -398,15 +406,37 @@ end
 -- The item catalog minus the badges, which are toggles on their own row and
 -- would otherwise be "addable" into the bag as ordinary items.
 function Ops.itemSearch(S, query)
-  query = tostring(query or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
-  local out = {}
-  for _, id in ipairs(S.cat.items) do
-    if not Ops.isBadgeId(id)
-        and (query == "" or id:lower():find(query, 1, true)) then
-      out[#out + 1] = id
+  query=tostring(query or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
+  local out={}
+  for _,id in ipairs(S.cat.items) do
+    local def=S.data.items[id]
+    local name=def and tostring(def.name or ""):lower() or ""
+    local number=def and tonumber(def.itemId)
+    if not Ops.isBadgeId(id) and (query=="" or id:lower():find(query,1,true)
+      or name:find(query,1,true) or (number and query==tostring(number))) then out[#out+1]=id end
+  end
+  if query~="" then
+    local function rank(id)
+      local def=S.data.items[id]
+      local name=tostring(def and def.name or ""):lower()
+      local key=id:lower()
+      if key==query or name==query or (def and tostring(def.itemId)==query) then return 0 end
+      if key:sub(1,#query)==query or name:sub(1,#query)==query then return 1 end
+      return 2
     end
+    table.sort(out,function(a,b)
+      local ra,rb=rank(a),rank(b)
+      return ra~=rb and ra<rb or (ra==rb and a<b)
+    end)
   end
   return out
+end
+
+function Ops.monName(S, mon)
+  if not mon then return "Empty slot" end
+  if type(mon.nickname)=="string" and mon.nickname~="" then return mon.nickname end
+  local def=S.data.pokemon[mon.species or mon.speciesId]
+  return tostring((def and def.name) or mon.name or mon.species or "Pokemon")
 end
 
 -- `dest` is "bag" or "pc"; the picker can flip it while open.  `opened`
@@ -512,8 +542,12 @@ end
 
 function Ops.setPpUps(S, mon, slot, value)
   if not mon or not slot or not (mon.moves and mon.moves[slot]) then return false end
+  if not moveId(mon, slot) or moveId(mon, slot) == 0 then return Ops.say(S, "Choose a move first") end
   local cur = MonOps.getPpUps(mon, slot)
   local want = math.max(0, math.min(3, math.floor(tonumber(value) or 0)))
+  if want > 0 and (mon.egg or mon.isEgg or MonOps.getBasePp(S.data, mon, slot) == 1) then
+    return Ops.say(S, "Eggs and this move cannot use PP Ups")
+  end
   if want == cur then
     return Ops.say(S, ("Slot %d PP Up is already %d"):format(slot, want))
   end
@@ -523,6 +557,7 @@ end
 
 function Ops.setPp(S, mon, slot, value)
   if not mon or not slot or not (mon.moves and mon.moves[slot]) then return false end
+  if not moveId(mon, slot) or moveId(mon, slot) == 0 then return Ops.say(S, "Choose a move first") end
   local applied, maxPp = MonOps.setPp(S.data, mon, slot, value, Gen.ofState(S))
   return Ops.mark(S, ("Slot %d PP set to %d/%d"):format(slot, applied or 0, maxPp or 0))
 end
@@ -530,7 +565,7 @@ end
 function Ops.maxAllPpUps(S, mon)
   if not mon then return false end
   MonOps.maxAllPpUps(S.data, mon, Gen.ofState(S))
-  return Ops.mark(S, ("Maxed PP Ups (3) and restored PP for %s"):format(mon.species or "Pokémon"))
+  return Ops.mark(S, ("Restored PP and maximized supported PP Ups for %s"):format(mon.species or "Pokémon"))
 end
 
 -- Kept for tests and any keyboard path; the inspector opens the searchable
@@ -681,6 +716,121 @@ function Ops.clearMove(S, mon, slot)
   local id = moveId(mon, slot)
   if Gen.ofState(S) == 3 then MonOps.clearMove(mon, slot) else mon.moves[slot] = nil end
   return Ops.mark(S, ("Cleared move slot %d (%s)"):format(slot, id))
+end
+
+function Ops.setExperience(S, mon, value)
+  local exp = tonumber(value)
+  if not mon or not require("Legality").integer(exp, 0, 16777215) then
+    return Ops.say(S, "Experience must be a nonnegative whole number")
+  end
+  local g = Gen.ofState(S)
+  local def = S.data.pokemon[mon.species or mon.speciesId]
+  local function threshold(level)
+    if g == 3 then
+      local Pokemon = require("src.core.game3.pokemon")
+      return require("src.core.game3.summary_data").expForLevel(Pokemon.growthRate(mon.species or mon.speciesId), level)
+    elseif g == 2 then
+      local Mon = require("src.battle.gen2.Mon")
+      return Mon.experienceForLevel(Mon.growthFor(S.data, def and def.growthRate), level)
+    end
+    return require("src.pokemon.Growth").expForLevel(def and def.growthRate or 0, level, S.data.growth_rates)
+  end
+  if exp > threshold(100) then return Ops.say(S, "Experience exceeds this species' level 100 maximum") end
+  if exp == Gen.exp(mon) then return Ops.say(S, "Experience is unchanged") end
+  local level = 1
+  while level < 100 and exp >= threshold(level + 1) do level = level + 1 end
+  MonOps.setLevel(S.data, mon, level, g)
+  if g == 2 then mon.experience = exp
+  else mon.exp = exp end
+  if mon.experience ~= nil then mon.experience = exp end
+  if mon.exp ~= nil then mon.exp = exp end
+  return Ops.mark(S, "Experience updated; level " .. level)
+end
+
+function Ops.setCurrentHp(S, mon, value)
+  local hp = tonumber(value)
+  local max = mon and (mon.maxHp or (mon.stats and mon.stats.hp)) or 0
+  if not mon or not require("Legality").integer(hp, 0, max) then
+    return Ops.say(S, "HP must be a whole number from 0 to " .. max)
+  end
+  if hp == mon.hp then return Ops.say(S, "HP is unchanged") end
+  mon.hp = hp
+  return Ops.mark(S, "Current HP updated")
+end
+
+function Ops.setMonStatus(S, mon, status)
+  if not mon then return false end
+  local allowed = {SLP=true, PSN=true, BRN=true, FRZ=true, PAR=true, TOX=true}
+  if status ~= nil and (not allowed[status] or (Gen.ofState(S) == 1 and status == "TOX")) then
+    return Ops.say(S, "Choose a status supported by this generation")
+  end
+  if mon.status == status then return Ops.say(S, "Status is unchanged") end
+  mon.status = status
+  mon.sleep = status == "SLP" and 1 or nil
+  mon.toxicCounter = nil
+  return Ops.mark(S, "Status: " .. (status or "healthy"))
+end
+
+function Ops.setTrainerProperty(S, key, value)
+  if key == "name" then
+    value = tostring(value or "")
+    if value == "" or Ops.nicknameLength(value) > 7 or not Ops.nicknameUsable(S,value) then
+      return Ops.say(S,"Trainer name must contain 1-7 game characters")
+    end
+    S.save.player = S.save.player or {}
+    S.save.player.name = value
+    if Gen.ofState(S)==3 then S.save.name, S.save.playerName = value,value end
+  else
+    local max = ({id=65535,secretId=65535,money=999999,coins=9999})[key]
+    local n=tonumber(value)
+    if not max or not n or n ~= math.floor(n) or n<0 or n>max then return Ops.say(S,"Invalid trainer value") end
+    if key=="secretId" then
+      if Gen.ofState(S)~=3 then return Ops.say(S,"This generation has no secret ID") end
+      S.save.secretId=n
+    elseif key=="id" then
+      S.save.player=S.save.player or {};S.save.player.id=n
+      if Gen.ofState(S)==3 then S.save.trainerId,S.save.id,S.save.playerId=n,n,n end
+    elseif key=="money" then Gen.setMoney(S.save,n)
+    elseif key=="coins" then Gen.setCoins(S.save,n) end
+  end
+  return Ops.mark(S,"Trainer "..key.." updated")
+end
+
+function Ops.setMonProperty(S, mon, key, value)
+  if not mon then return Ops.say(S, "Select a Pokemon first") end
+  local P = require("Properties")
+  local d = P.find(S, key)
+  if not d then return Ops.say(S, "That property is unavailable in this generation") end
+  local parsed, err = P.parse(d, value)
+  if parsed == nil then return Ops.say(S, err) end
+  if d.text and (Ops.nicknameLength(parsed) > d.max or not Ops.nicknameUsable(S, parsed)) then
+    return Ops.say(S, "Trainer name must use game characters and fit in " .. d.max .. " characters")
+  end
+  if P.get(mon, d) == parsed then return Ops.say(S, d.label .. " is unchanged") end
+  P.write(mon, d, parsed)
+  if key == "personality" then
+    mon.isShiny = nil
+    local PokemonG3 = require("src.core.game3.pokemon")
+    local pair = PokemonG3.abilities(mon.speciesId or mon.species)
+    mon.abilityNum = pair[2] and pair[2] ~= 0 and parsed % 2 or 0
+    MonOps.recalc(S.data, mon, 3)
+  elseif key == "otId" or key == "otSecretId" then
+    mon.isShiny = nil
+  end
+  return Ops.mark(S, d.label .. " updated")
+end
+
+function Ops.setStatExp(S, mon, key, value)
+  local n = tonumber(value)
+  if Gen.ofState(S) == 3 or not mon or not n or n ~= math.floor(n) or n < 0 or n > 65535 then
+    return Ops.say(S, "Stat experience must be a whole number from 0 to 65535")
+  end
+  local allowed = { hp=true, attack=true, defense=true, speed=true, special=true }
+  if not allowed[key] then return Ops.say(S, "Unknown stat") end
+  mon.statExp = mon.statExp or {}
+  mon.statExp[key] = n
+  MonOps.recalc(S.data, mon, Gen.ofState(S))
+  return Ops.mark(S, key .. " stat experience updated")
 end
 
 function Ops.resetMoves(S, mon)
@@ -1929,6 +2079,16 @@ function Ops.setLastHeal(S)
   return Ops.mark(S, ("lastHeal set to %s (%d,%d)"):format(S.mapId, cell.cx, cell.cy))
 end
 
+function Ops.itemHoldable(S, id)
+  if Gen.ofState(S) == 1 or not (S.data.items and S.data.items[id]) then return false end
+  if Gen.ofState(S) == 3 then
+    local Items = require("src.core.game3.items_data")
+    local n = require("Game3Adapter").itemId(S.data, id)
+    return Items.pocketOf(n) ~= "KEY_ITEMS" and not Items.isHm(n)
+  end
+  return Bag.pocketOf(id, S.data) ~= "KEY_ITEM" and tostring(id):sub(1, 3) ~= "HM_"
+end
+
 function Ops.setHeldItem(S, mon, id)
   if not mon then return false end
   if id == "" or id == nil then
@@ -1943,6 +2103,7 @@ function Ops.setHeldItem(S, mon, id)
   if not def then
     return Ops.say(S, ("%s is not an item"):format(tostring(id)))
   end
+  if not Ops.itemHoldable(S, id) then return Ops.say(S, "This item cannot be held") end
   local was = mon.item or mon.heldItem
   MonOps.setHeldItem(S.data, mon, def.itemId or def.id or id, Gen.ofState(S))
   syncPartyMailHeldItem(S, mon, was, id)
@@ -1971,12 +2132,22 @@ end
 function Ops.setAbility(S, mon, abilitySlot)
   if not mon then return false end
   abilitySlot = (tonumber(abilitySlot) or 0) % 2
+  if Gen.ofState(S) == 3 then
+    local pair=require("src.core.game3.pokemon").abilities(mon.speciesId or mon.species)
+    if abilitySlot==1 and (not pair[2] or pair[2]==0) then return Ops.say(S,"This species has only one ability") end
+  end
   MonOps.setAbility(S.data, mon, abilitySlot, Gen.ofState(S))
   return Ops.mark(S, ("%s ability set to slot %d"):format(mon.species, abilitySlot + 1))
 end
 
 function Ops.setMonGender(S, mon, gender)
   if not mon then return false end
+  if Gen.ofState(S)==3 then
+    local PokemonG3=require("src.core.game3.pokemon")
+    local meta=PokemonG3.speciesMeta(mon.speciesId or mon.species)
+    local ratio=meta and meta.genderRatio
+    if ratio==255 or (ratio==0 and gender~="M") or (ratio==254 and gender~="F") then return Ops.say(S,"This species has a fixed gender") end
+  end
   MonOps.setGender(S.data, mon, gender, Gen.ofState(S))
   return Ops.mark(S, ("%s gender set to %s"):format(mon.species, tostring(gender)))
 end
@@ -2067,4 +2238,42 @@ function Ops.setPlayerGender(S, gender)
   return Ops.mark(S, ("Player gender %s"):format(Gen.setPlayerGender(S.save, gender)))
 end
 
+function Ops.cloneMonToBox(S, mon)
+  if not mon then return Ops.say(S,"Select a Pokemon first") end
+  local boxes=Ops.boxes(S)
+  for offset=0,Ops.boxCount(S)-1 do
+    local b=((S.selectedBox or 1)-1+offset)%Ops.boxCount(S)+1
+    if Ops.boxSize(S,boxes[b])<Ops.boxCapacity(S) then
+      local clone=require("src.mods.Merge").deepCopy(mon)
+      local slot=boxInsert(S,boxes[b],clone)
+      S.selectedBox,S.selectedBoxSlot,S.editingMon=b,slot,clone
+      return Ops.mark(S,"Cloned Pokemon to box "..b.." slot "..slot)
+    end
+  end
+  return Ops.say(S,"All boxes are full")
+end
+
+-- Wrap only mutations. Nested helpers share one snapshot and one undo entry.
+for name, fn in pairs(Ops) do
+  local mutation=type(fn)=="function" and (name:match("^set") or name:match("^clear")
+    or name:match("^toggle") or name:match("^max") or name:match("^addTo")
+    or name:match("^bag[A-Z]") or name:match("^pc[A-Z]") or name:match("^dex[A-Z]"))
+  local extras={partyAdd=true,partyRemove=true,partyMove=true,boxAdd=true,boxAddSpecies=true,
+    deposit=true,withdraw=true,release=true,healMon=true,resetMoves=true,cloneMonToBox=true,addMoney=true,addCoins=true}
+  local excluded={pcItems=true,pcOrder=true,pcCanMax=true,pcCanMaxAll=true,bagCanMax=true,
+    bagCanMaxAll=true,dexCounts=true,dexList=true,dexSort=true,clearSelection=true}
+  if (mutation or extras[name]) and not excluded[name] then
+    Ops[name]=function(S,...)
+      if S._historyDepth then return fn(S,...) end
+      local before=require("History").capture(S)
+      local revision=S.revision or 0
+      S._historyDepth=true
+      local ok,result=pcall(fn,S,...)
+      S._historyDepth=nil
+      if not ok then error(result,0) end
+      if (S.revision or 0)~=revision then require("History").record(S,before) end
+      return result
+    end
+  end
+end
 return Ops

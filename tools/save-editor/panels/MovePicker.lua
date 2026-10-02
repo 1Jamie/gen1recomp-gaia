@@ -24,22 +24,30 @@ end
 
 local function commit(S, id)
   local p = S.movePicker
-  if not p then return false end
+  if not p then
+    return false
+  end
   return Ops.setMove(S, S.editingMon, p.slot, id)
 end
 
 -- Enter commits the top match, which is the whole point of a search field.
 function Picker.commitFirst(S, Kit)
   local hits = Picker.results(S)
-  if not hits[1] then return Ops.say(S, "No move matches that") end
+  if not hits[1] then
+    return Ops.say(S, "No move matches that")
+  end
   local ok = commit(S, hits[1])
-  if ok then Ops.closeMovePicker(S, Kit) end
+  if ok then
+    Ops.closeMovePicker(S, Kit)
+  end
   return ok
 end
 
 function Picker.draw(S, Kit, width, height)
   local p = S.movePicker
-  if not p then return end
+  if not p then
+    return
+  end
   local s = Kit.scale
 
   -- The click that opened the picker is still the frame's click: the
@@ -73,16 +81,23 @@ function Picker.draw(S, Kit, width, height)
   local captionH = Kit.textHeight("caption")
   local headH = math.max(captionH, closeW)
   Kit.caption(cx, cy + (headH - captionH) / 2, ("CHOOSE MOVE %d"):format(p.slot or 1))
-  if Kit.button(x + w - pad - closeW, cy + (headH - closeW) / 2, closeW, closeW, "x",
-      { font = "small", radius = 7 * s }) then
+  if
+    Kit.iconButton(
+      x + w - pad - closeW,
+      cy + (headH - closeW) / 2,
+      closeW,
+      closeW,
+      "x",
+      "Close picker"
+    )
+  then
     Ops.closeMovePicker(S, Kit)
     return
   end
   cy = cy + headH + 10 * s
 
   local fieldH = PickerChrome.fieldH(Kit)
-  p.query = Kit.textfield(FIELD_ID, cx, cy, inner, fieldH, p.query,
-    "type a name, an id, or a type")
+  p.query = Kit.textfield(FIELD_ID, cx, cy, inner, fieldH, p.query, "type a name, an id, or a type")
   cy = cy + fieldH + 10 * s
 
   local hits = Picker.results(S)
@@ -103,13 +118,23 @@ function Picker.draw(S, Kit, width, height)
     Kit.pushClip(cx, cy, inner, listH)
     for i = 1, perPage do
       local id = hits[p.offset + i]
-      if not id then break end
+      if not id then
+        break
+      end
       local ry = cy + (i - 1) * (rowH + rowGap)
       local def = S.data.moves[id]
       local usable = Ops.moveUsable(S, id)
-      local current = (currentId ~= nil) and (currentId == id
-        or (def and (def.moveId == currentId or def.id == currentId))
-        or (S.data and S.data.moves and S.data.moves[currentId] and S.data.moves[currentId].id == id))
+      local current = (currentId ~= nil)
+        and (
+          currentId == id
+          or (def and (def.moveId == currentId or def.id == currentId))
+          or (
+            S.data
+            and S.data.moves
+            and S.data.moves[currentId]
+            and S.data.moves[currentId].id == id
+          )
+        )
       if Kit.row(cx, ry, inner, rowH, current, PAL.green, 9 * s) then
         if commit(S, id) then
           Ops.closeMovePicker(S, Kit)
@@ -121,12 +146,20 @@ function Picker.draw(S, Kit, width, height)
       local pp = usable and ("PP %d"):format(tonumber(def and def.pp) or 0) or ""
       local tail = pp ~= "" and (typ .. "  " .. pp) or typ
       local tailW = Kit.textWidth("tiny", tail)
-      Kit.text("monoRow",
-        Kit.ellipsize("monoRow", id, inner - tailW - 28 * s),
-        cx + 12 * s, ry + (rowH - Kit.textHeight("monoRow")) / 2,
-        usable and PAL.text or PAL.faint)
-      Kit.textRight("tiny", tail, cx + inner - 10 * s,
-        ry + (rowH - Kit.textHeight("tiny")) / 2, PAL.caption)
+      Kit.text(
+        "monoRow",
+        Kit.ellipsize("monoRow", (def and def.name) or id, inner - tailW - 28 * s),
+        cx + 12 * s,
+        ry + (rowH - Kit.textHeight("monoRow")) / 2,
+        usable and PAL.text or PAL.faint
+      )
+      Kit.textRight(
+        "tiny",
+        tail,
+        cx + inner - 10 * s,
+        ry + (rowH - Kit.textHeight("tiny")) / 2,
+        PAL.caption
+      )
     end
     Kit.popClip()
     Kit.scrollbar(cx, cy, inner, listH, p.offset, #hits, perPage)

@@ -1190,20 +1190,20 @@ do
           msg .. string.format(" (got %.4f, want %.4f)", got, want))
   end
 
-  about(Kit.layout(720, 1560), 720 / 640,
+  about(Kit.layout(720, 1560), 1.3 * 720 / 640,
     "portrait phone scales off its width, gently")
   check(Kit.layout(720, 1560) >= 0.9,
         "a portrait phone never drops below the readability floor")
-  about(Kit.layout(1560, 720), 720 / 768, "landscape phone still scales off height")
-  about(Kit.layout(360, 640), 0.9,
+  about(Kit.layout(1560, 720), 1.3 * 720 / 768, "landscape phone still scales off height")
+  about(Kit.layout(360, 640), 1.17,
     "a tiny window stops at the readable floor and reflows instead of shrinking")
-  about(Kit.layout(500, 800), 0.9, "500px wide sits on the floor too")
+  about(Kit.layout(500, 800), 1.17, "500px wide sits on the floor too")
 
   -- desktop and laptop sizes keep the height-only scale they always had
   for _, size in ipairs({ { 1280, 800 }, { 1024, 768 }, { 1920, 1080 },
                           { 1440, 900 }, { 2560, 1440 }, { 900, 700 } }) do
     about(Kit.layout(size[1], size[2]),
-      Theme.clamp(math.min(size[1] / 640, size[2] / 768), 0.9, 1.6),
+      1.3 * Theme.clamp(math.min(size[1] / 640, size[2] / 768), 0.9, 1.6),
       ("%dx%d keeps its height-based scale"):format(size[1], size[2]))
   end
 end
@@ -1524,8 +1524,8 @@ do
 
   local saveBtn
   for _, r in ipairs(Kit.audit) do
-    if r.class == "control" and (r.label == "SAVE" or r.label == "SAVED"
-        or r.label == "SAVE LOCKED") then
+    if r.class == "control" and (r.label == "Save" or r.label == "Saved"
+        or r.label == "Save locked") then
       saveBtn = r
       break
     end

@@ -20,6 +20,12 @@
 local Shared = require("src.ui.kit.Theme")
 
 local Theme = {}
+-- A 44px touch control needs a visible curve, including solid blue/green
+-- actions. Explicit segments avoid the coarse automatic corner polygons.
+Theme.CONTROL = { radius = 14, segments = 48 }
+function Theme.radius()
+  return Theme.CONTROL.radius
+end
 
 -- The palette itself, plus the aliases the editor's panels already use.
 local PAL = {}
@@ -42,7 +48,7 @@ Theme.snap = Shared.snap
 -- shared one takes the colour there).  Route it to the rounded variant so
 -- the radius the panels already pass is honoured rather than dropped.
 function Theme.stroke(x, y, w, h, r, c, a, lw)
-  Shared.strokeRounded(x, y, w, h, c, a, lw, math.min(r or 0, 8))
+  Shared.strokeRounded(x, y, w, h, c, a, lw, math.min(r or 0, Theme.radius()), Theme.CONTROL.segments)
 end
 Theme.spaced = Shared.spaced
 Theme.spacedWidth = Shared.spacedWidth
@@ -51,9 +57,12 @@ Theme.ellipsizeLeft = Shared.ellipsizeLeft
 Theme.meter = Shared.meter
 Theme.versionRail = Shared.versionRail
 Theme.fonts = Shared.fonts
-Theme.radius = Shared.radius
-Theme.fillRounded = Shared.fillRounded
-Theme.strokeRounded = Shared.strokeRounded
+function Theme.fillRounded(x, y, w, h, c, a, r)
+  Shared.fillRounded(x, y, w, h, c, a, r or Theme.radius(), Theme.CONTROL.segments)
+end
+function Theme.strokeRounded(x, y, w, h, c, a, lw, r)
+  Shared.strokeRounded(x, y, w, h, c, a, lw, r or Theme.radius(), Theme.CONTROL.segments)
+end
 Theme.emboss = Shared.emboss
 Theme.BOLD_OFFSET = Shared.BOLD_OFFSET
 

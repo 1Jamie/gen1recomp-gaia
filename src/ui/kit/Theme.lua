@@ -185,21 +185,41 @@ function Theme.shadow(x, y, w, h, r)
   end
 end
 
-function Theme.fillRounded(x, y, w, h, c, a, r)
+function Theme.fillRounded(x, y, w, h, c, a, r, segments)
   if not G or w <= 0 or h <= 0 then return end
   r = r or Theme.radius()
   col(c or PAL.bg, a or 1)
-  G.rectangle("fill", snap(x), snap(y), snap(w), snap(h), r, r)
+  x, y, w, h = snap(x), snap(y), snap(w), snap(h)
+  if segments and r > 1 and w > 2 and h > 2 and (a or 1) == 1 and probe("setLineWidth") then
+    -- Filled polygons have no edge antialiasing on a non-MSAA canvas.
+    -- Inset the opaque body, then finish its boundary with a smooth 1px
+    -- line in the same colour. Translucent overlays keep a single fill so
+    -- their opacity does not accumulate at the edge.
+    local innerRadius = math.min(r, w / 2, h / 2) - 0.5
+    local oldWidth = probe("getLineWidth") and G.getLineWidth() or 1
+    local oldStyle = probe("getLineStyle") and G.getLineStyle() or nil
+    G.rectangle("fill", x + 0.5, y + 0.5, w - 1, h - 1, innerRadius, innerRadius, segments)
+    G.setLineWidth(1)
+    if oldStyle and probe("setLineStyle") then G.setLineStyle("smooth") end
+    G.rectangle("line", x + 0.5, y + 0.5, w - 1, h - 1, innerRadius, innerRadius, segments)
+    G.setLineWidth(oldWidth)
+    if oldStyle and probe("setLineStyle") then G.setLineStyle(oldStyle) end
+  else
+    G.rectangle("fill", x, y, w, h, r, r, segments)
+  end
 end
 
-function Theme.strokeRounded(x, y, w, h, c, a, lw, r)
+function Theme.strokeRounded(x, y, w, h, c, a, lw, r, segments)
   if not G or w <= 0 or h <= 0 then return end
   lw = lw or 1
   r = r or Theme.radius()
   if probe("setLineWidth") then G.setLineWidth(lw) end
   col(c or PAL.line, a or Theme.A.hairline)
+  -- Explicitly tessellated controls keep the outline's outer arc aligned
+  -- with the fill, including thicker selection rings.
+  local insetRadius = segments and math.max(0, r - lw / 2) or r
   G.rectangle("line", snap(x) + lw / 2, snap(y) + lw / 2,
-    snap(w) - lw, snap(h) - lw, r, r)
+    snap(w) - lw, snap(h) - lw, insetRadius, insetRadius, segments)
   if probe("setLineWidth") then G.setLineWidth(1) end
 end
 

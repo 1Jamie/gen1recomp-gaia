@@ -189,7 +189,7 @@ function Gen.bindGame3Data(data)
           name = name,
           species = id,
           speciesId = id,
-          dex = id,
+          dex = Pokemon.national(id) or id,
           growthRate = (Pokemon.speciesMeta and Pokemon.speciesMeta(id) and Pokemon.speciesMeta(id).growthRate) or 0,
         }
         data.pokemon[name] = def

@@ -8,31 +8,30 @@
 -- last frame arrive the same way and are retired the same way: an unclaimed
 -- notch dies with the frame rather than scrolling something later (#595).
 --
--- Hit testing is a plain rect with no z-order, so panels must draw
--- overlapping controls in dispatch order and every target is >= 26px tall
--- (rule 6 of the design spec) -- that sizing is the whole accessibility story
--- here.  Kit.tapMin() is the px floor after scale (a short handheld sits on
--- the 0.9 scale floor, so bare `26 * s` would slip under 26).
+-- Clip-aware hit testing fences scrolled content. Every action uses a
+-- 44px minimum target, with layouts reflowing at narrow widths.
 
 local Theme = require("Theme")
 local PAL = Theme.PAL
+local Button = require("src.ui.kit.Button")
+local Icons = require("src.ui.kit.Icons")
 
 local Kit = {}
 Kit.mouseX, Kit.mouseY = 0, 0
-Kit.mouseClicked = false  -- left button pressed this frame
-Kit.wheelY = 0            -- wheel notches queued since the last frame (#595)
-Kit.focus = nil           -- id of the text field receiving keystrokes
+Kit.mouseClicked = false -- left button pressed this frame
+Kit.wheelY = 0 -- wheel notches queued since the last frame (#595)
+Kit.focus = nil -- id of the text field receiving keystrokes
 Kit.time = 0
 Kit.fonts = {}
 Kit.scale = 1
 
 function Kit.tapMin()
-  return math.max(26, math.floor(30 * (Kit.scale or 1)))
+  return math.max(44, math.floor(38 * (Kit.scale or 1)))
 end
 
 local G = love and love.graphics or nil
-local edits = {}          -- queued textinput / backspace since the last frame
-local kbField = nil       -- id of the field the OS soft keyboard is raised for
+local edits = {} -- queued textinput / backspace since the last frame
+local kbField = nil -- id of the field the OS soft keyboard is raised for
 
 -- Mobile LOVE only delivers love.textinput while setTextInput(true) is
 -- active, and that call is what raises the Android/iOS soft keyboard; the
@@ -43,22 +42,24 @@ local kbField = nil       -- id of the field the OS soft keyboard is raised for
 -- neither side ever turns desktop text input off, since setTextInput is
 -- global SDL state, not per-widget (#529).
 local function mobile()
-  local osName = love and love.system and love.system.getOS
-    and love.system.getOS()
+  local osName = love and love.system and love.system.getOS and love.system.getOS()
   return osName == "Android" or osName == "iOS"
 end
 
 local function syncSoftKeyboard(id, x, y, w, h)
-  if not (love and love.keyboard and love.keyboard.setTextInput) then return end
+  if not (love and love.keyboard and love.keyboard.setTextInput) then
+    return
+  end
   if id then
     if kbField ~= id then
       kbField = id
-      love.keyboard.setTextInput(true, math.floor(x), math.floor(y),
-        math.ceil(w), math.ceil(h))
+      love.keyboard.setTextInput(true, math.floor(x), math.floor(y), math.ceil(w), math.ceil(h))
     end
   elseif kbField then
     kbField = nil
-    if mobile() then love.keyboard.setTextInput(false) end
+    if mobile() then
+      love.keyboard.setTextInput(false)
+    end
   end
 end
 
@@ -69,6 +70,8 @@ end
 function Kit.beginFrame(mx, my, clicked, wheel)
   Kit.mouseX, Kit.mouseY = mx, my
   Kit.mouseClicked = clicked
+  Kit._fieldHit = false
+  Kit._focusDrawn = false
   Kit.wheelY = wheel or 0
   -- Held-button state is polled, not evented: the editor is hosted both
   -- standalone and inside the launcher, and neither routes mousereleased
@@ -80,7 +83,12 @@ function Kit.beginFrame(mx, my, clicked, wheel)
     down = love.mouse.isDown(1) and true or false
   end
   Kit.mouseDown = down
-  if not down then Kit._drag = nil end
+  if Kit.touchDown == true then
+    Kit.mouseDown = true
+  end
+  if not Kit.mouseDown then
+    Kit._drag = nil
+  end
   Kit.resetClip()
   if love and love.timer and love.timer.getTime then
     Kit.time = love.timer.getTime()
@@ -91,32 +99,18 @@ end
 -- dropped here rather than replayed into the next field that gets clicked.
 -- A wheel notch no list claimed retires with them, for the same reason.
 function Kit.endFrame()
-  for i = #edits, 1, -1 do edits[i] = nil end
+  if (Kit.mouseClicked and not Kit._fieldHit) or (Kit.focus and not Kit._focusDrawn) then
+    Kit.blur()
+  end
+  for i = #edits, 1, -1 do
+    edits[i] = nil
+  end
   Kit.wheelY = 0
 end
 
--- Rebuild the font set when the window size changes.  `s` matched the
--- launcher's height/768 scale alone until #497: a phone in portrait
--- (720x1560) is TALLER than the desktop reference and barely half as wide, so
--- a height-only scale drew a 1.6x desktop layout into a 720px window and every
--- right-aligned cluster in the chrome landed on top of the block to its left.
---
--- The #497 answer was to shrink the whole layout down to fit the width
--- (floor 0.62), which #715 showed is its own failure: a small window got a
--- complete but unreadably tiny desktop layout, and the panels still assumed
--- their columns fit.  Shrink-to-fit is gone.  The scale now never dips below
--- 0.9, so text and the 26px tap targets stay readable everywhere, and a
--- narrow window is answered by REFLOW instead: every panel compares its real
--- pixel width against what its columns need (Party/Boxes/Items stack their
--- cards, Dex/Events drop grid columns, the chrome wraps its button row) and
--- whatever no longer fits vertically scrolls through Kit.scroll /
--- Kit.scrollPixels.  The width term survives only to keep a portrait phone
--- from inflating to the 1.6 cap its height alone would buy: 640 real px is
--- the narrowest the single-row chrome fits at scale 1.  Desktop sizes
--- (width >= 640 * height / 768) still land on the height term, so they stay
--- pixel-identical to before.
+-- Use the launcher's font scale, with reflow and scrolling on small screens.
 function Kit.layout(width, height)
-  local s = Theme.clamp(math.min(width / 640, height / 768), 0.9, 1.6)
+  local s = Theme.clamp(math.min(width / 640, height / 768), 0.9, 1.6) * 1.3
   local key = ("%dx%d"):format(width, height)
   if Kit._fontKey ~= key then
     Kit._fontKey = key
@@ -131,29 +125,59 @@ end
 -- real editable field.  Events arrive before draw, so they queue and the
 -- focused field drains them while it renders.
 function Kit.textinput(text)
-  if not Kit.focus then return false end
-  edits[#edits + 1] = text
+  if not Kit.focus then
+    return false
+  end
+  edits[#edits + 1] = { id = Kit.focus, text = text }
   return true
 end
 
 -- Returns true when the key was consumed by the focused field, so App can
 -- leave its own shortcuts alone while the user is typing.
 function Kit.keypressed(key)
-  if not Kit.focus then return false end
+  if not Kit.focus then
+    return false
+  end
   if key == "backspace" then
-    edits[#edits + 1] = "\b"
+    edits[#edits + 1] = { id = Kit.focus, text = "\b" }
     return true
   elseif key == "return" or key == "kpenter" or key == "escape" then
-    edits[#edits + 1] = "\r"
+    edits[#edits + 1] = { id = Kit.focus, text = key == "escape" and "\27" or "\r" }
     return true
   end
   -- other keys (arrows, shortcuts) fall through to App while a field is hot
   return false
 end
 
+-- Used by immediate Enter commits so typing delivered before the next draw
+-- is included exactly once.
+function Kit.flushText(id, value, sanitize)
+  value = tostring(value or "")
+  for _, edit in ipairs(edits) do
+    if edit.id == id then
+      local e = edit.text
+      if e == "\b" then
+        local at = #value
+        while at > 1 and value:byte(at) >= 128 and value:byte(at) < 192 do
+          at = at - 1
+        end
+        value = value:sub(1, at - 1)
+      elseif e ~= "\r" and e ~= "\27" then
+        value = value .. e
+      end
+    end
+  end
+  for i = #edits, 1, -1 do
+    if edits[i].id == id then
+      table.remove(edits, i)
+    end
+  end
+  return sanitize and sanitize(value) or value
+end
+
 function Kit.blur()
   Kit.focus = nil
-  syncSoftKeyboard(nil)  -- the soft keyboard follows focus down too (#529)
+  syncSoftKeyboard(nil) -- the soft keyboard follows focus down too (#529)
 end
 
 -- ------------------------------------------------------------- hit testing
@@ -162,12 +186,18 @@ end
 -- bounds the hit: what the user cannot see cannot take the tap.
 function Kit.hit(x, y, w, h)
   local c = Kit._clipRect
-  if c and not (Kit.mouseX >= c.x and Kit.mouseX <= c.x + c.w
-      and Kit.mouseY >= c.y and Kit.mouseY <= c.y + c.h) then
+  if
+    c
+    and not (
+      Kit.mouseX >= c.x
+      and Kit.mouseX <= c.x + c.w
+      and Kit.mouseY >= c.y
+      and Kit.mouseY <= c.y + c.h
+    )
+  then
     return false
   end
-  return Kit.mouseX >= x and Kit.mouseX <= x + w
-     and Kit.mouseY >= y and Kit.mouseY <= y + h
+  return Kit.mouseX >= x and Kit.mouseX <= x + w and Kit.mouseY >= y and Kit.mouseY <= y + h
 end
 
 -- ------------------------------------------------------------ layout audit
@@ -180,11 +210,19 @@ Kit.audit = nil
 
 local function audit(class, x, y, w, h, label)
   local a = Kit.audit
-  if not a or Kit.blockClicks then return end
+  if not a or Kit.blockClicks then
+    return
+  end
   local c = Kit._clipRect
-  a[#a + 1] = { class = class, x = x, y = y, w = w, h = h,
+  a[#a + 1] = {
+    class = class,
+    x = x,
+    y = y,
+    w = w,
+    h = h,
     label = tostring(label or ""),
-    clip = c and { x = c.x, y = c.y, w = c.w, h = c.h } or nil }
+    clip = c and { x = c.x, y = c.y, w = c.w, h = c.h } or nil,
+  }
 end
 
 function Kit.hover(x, y, w, h)
@@ -199,7 +237,9 @@ end
 Kit.blockClicks = false
 
 function Kit.press(x, y, w, h)
-  if Kit.blockClicks then return false end
+  if Kit.blockClicks then
+    return false
+  end
   return Kit.mouseClicked and Kit.hit(x, y, w, h)
 end
 
@@ -209,9 +249,13 @@ local function font(name)
 end
 
 function Kit.text(name, str, x, y, c, a)
-  if not G then return 0 end
+  if not G then
+    return 0
+  end
   local f = font(name)
-  if not f then return 0 end
+  if not f then
+    return 0
+  end
   G.setFont(f)
   Theme.col(c or PAL.text, a or 1)
   G.print(tostring(str), x, y)
@@ -220,14 +264,20 @@ end
 
 function Kit.textRight(name, str, x2, y, c, a)
   local f = font(name)
-  if not f then return end
+  if not f then
+    return
+  end
   Kit.text(name, str, x2 - f:getWidth(tostring(str)), y, c, a)
 end
 
 function Kit.textCenter(name, str, x, y, w, c, a)
-  if not G then return end
+  if not G then
+    return
+  end
   local f = font(name)
-  if not f then return end
+  if not f then
+    return
+  end
   G.setFont(f)
   Theme.col(c or PAL.text, a or 1)
   if canPrintf() then
@@ -235,6 +285,16 @@ function Kit.textCenter(name, str, x, y, w, c, a)
   else
     G.print(tostring(str), x + (w - f:getWidth(tostring(str))) / 2, y)
   end
+end
+
+function Kit.textBold(name, str, x, y, c, a)
+  Kit.text(name, str, x, y, c, a)
+  return Kit.text(name, str, x + (Theme.BOLD_OFFSET or 1), y, c, a)
+end
+
+function Kit.textCenterBold(name, str, x, y, w, c, a)
+  Kit.textCenter(name, str, x, y, w, c, a)
+  Kit.textCenter(name, str, x + (Theme.BOLD_OFFSET or 1), y, w, c, a)
 end
 
 function Kit.textHeight(name)
@@ -254,9 +314,13 @@ end
 -- 12px / 2px-tracked uppercase section caption -- the design's one and only
 -- section header.  Returns the caption's height so callers can stack below.
 function Kit.caption(x, y, str, c)
-  if not G then return Kit.textHeight("caption") end
+  if not G then
+    return Kit.textHeight("caption")
+  end
   local f = font("caption")
-  if not f then return 12 end
+  if not f then
+    return 12
+  end
   G.setFont(f)
   Theme.col(c or PAL.caption, 1)
   Theme.spaced(f, str, x, y, 2 * Kit.scale)
@@ -279,9 +343,13 @@ end
 function Kit.row(x, y, w, h, selected, accent, r)
   r = r or 12 * Kit.scale
   audit("row", x, y, w, h, "row")
-  if not G then return Kit.press(x, y, w, h) end
+  if not G then
+    return Kit.press(x, y, w, h)
+  end
   accent = accent or PAL.green
-  if selected then Theme.glow(x, y, w, h, r, accent, 0.45) end
+  if selected then
+    Theme.glow(x, y, w, h, r, accent, 0.45)
+  end
   Theme.row(x, y, w, h, r, 0.6)
   if selected then
     Theme.stroke(x, y, w, h, r, accent, 0.85, 1.5 * Kit.scale)
@@ -295,113 +363,210 @@ end
 
 -- Dashed empty-state box with a centred hint.
 function Kit.emptyBox(x, y, w, h, message)
-  if not G then return end
+  if not G then
+    return
+  end
   Theme.col(PAL.cardBorder, 0.4)
-  if G.setLineWidth then G.setLineWidth(math.max(1, 1 * Kit.scale)) end
+  if G.setLineWidth then
+    G.setLineWidth(math.max(1, 1 * Kit.scale))
+  end
   Theme.dashed(x, y, w, h, 12 * Kit.scale, 7 * Kit.scale, 5 * Kit.scale)
-  if G.setLineWidth then G.setLineWidth(1) end
+  if G.setLineWidth then
+    G.setLineWidth(1)
+  end
   local f = font("button")
-  if not f then return end
-  Kit.textCenter("button", message, x + 12 * Kit.scale,
-    y + h / 2 - f:getHeight() / 2, w - 24 * Kit.scale, PAL.muted)
+  if not f then
+    return
+  end
+  Kit.textCenter(
+    "button",
+    message,
+    x + 12 * Kit.scale,
+    y + h / 2 - f:getHeight() / 2,
+    w - 24 * Kit.scale,
+    PAL.muted
+  )
 end
 
 -- --------------------------------------------------------------- buttons
--- Button kinds, straight out of the spec's colour semantics:
---   primary  green gradient  -- the single "commit this" control (Save)
---   ghost    glassy white    -- neutral verbs (Reload, Open, Add)
---   accent   blue tint       -- steppers, pagers, in-panel navigation
---   good     green tint      -- safe helpers (Full heal, max a DV)
---   danger   red tint        -- destructive verbs, always two-click
---   disabled steel           -- never hidden, always explained in the status bar
--- Colour-coded solid keys, matching the launcher exactly (src/ui/kit/Kit.lua):
--- the button IS its colour, with black ink and a two-rect emboss, and hover
--- rings it in white.  The editor opens straight off a launcher save row, so a
--- control that behaves the same has to look the same.
-local KINDS = {
-  primary  = { fill = PAL.green,  ink = PAL.inverse },
-  good     = { fill = PAL.green,  ink = PAL.inverse },
-  accent   = { fill = PAL.blue,   ink = PAL.inverse },
-  warn     = { fill = PAL.yellow, ink = PAL.inverse },
-  danger   = { fill = PAL.red,    ink = PAL.inverse },
-  ghost    = { fill = PAL.ink,    ink = PAL.inverse },
-  disabled = { fill = PAL.steel,  ink = PAL.inverse },
+-- The launcher and editor share one painter; input ownership stays local.
+Kit.KINDS = Button.KINDS
+local ACTION_ICONS = {
+  Save = "save",
+  Saved = "save",
+  Undo = "undo-2",
+  Redo = "redo-2",
+  More = "ellipsis",
+  Less = "x",
+  Reload = "rotate-ccw",
+  Open = "folder",
+  ["Open..."] = "folder",
+  Close = "x",
+  ["Discard?"] = "trash",
+  Set = "check",
+  Add = "plus",
+  ["Add item"] = "plus",
+  ["Add mon"] = "plus",
+  Remove = "trash",
+  Release = "trash",
+  ["Confirm?"] = "check",
+  Drop = "trash",
+  Inspect = "pencil",
+  Edit = "pencil",
+  Withdraw = "download",
+  Take = "download",
+  Free = "trash",
+  ["Sure?"] = "check",
+  ["Deposit selected"] = "upload",
+  Deposit = "upload",
+  Tools = "sliders-horizontal",
+  ["Change species"] = "pencil",
+  ["Clear nickname"] = "x",
+  ["Full heal"] = "heart",
+  ["Clone to a box"] = "copy",
+  ["Reset to learnset"] = "rotate-ccw",
+  ["Max all PP"] = "chevrons-up",
+  ["Max all (31)"] = "chevrons-up",
+  ["Clear EVs"] = "x",
+  Clear = "x",
+  ["Max all"] = "chevrons-up",
+  ["Sort A-Z"] = "arrow-up-down",
+  ["Sort count"] = "arrow-up-down",
+  ["Sort #"] = "list-filter",
+  ["Clear all"] = "trash",
+  ["Wipe dex"] = "trash",
+  ["See all"] = "eye",
+  ["Own all"] = "check",
+  ["Own party + boxes"] = "check",
+  Player = "map-pin",
+  ["Set here"] = "map-pin",
+  Prev = "chevron-left",
+  Next = "chevron-right",
+}
+function Kit.buttonWidth(label, opts, h)
+  opts = opts or {}
+  h = h or Kit.controlH()
+  if opts.iconOnly then
+    return h
+  end
+  local name = opts.font or "button"
+  local width = Kit.textWidth(name, label) + 20 * Kit.scale + (Theme.BOLD_OFFSET or 1)
+  if (opts.icon or ACTION_ICONS[label]) and not opts.iconStack then
+    width = width + math.floor(h * 0.42) + math.floor(7 * Kit.scale)
+  end
+  if opts.trailingIcon then
+    width = width + h * 0.65
+  end
+  return math.max(Kit.tapMin(), math.ceil(width))
+end
+
+function Kit.buttonHeight(label, w, opts)
+  local h = Kit.controlH()
+  local height = Button.labelLayout(Kit, w, h, label, opts or {}).height + 4 * Kit.scale
+  return math.max(h, math.ceil(height))
+end
+
+function Kit.button(x, y, w, h, label, opts)
+  -- Retired panels still pass scaled radii and raised-key options. Keep the
+  -- editor's controls flat, with a visibly rounded touch-control shape, even
+  -- when a selected state or an old call site supplies those options.
+  local faceOpts = {}
+  for key, value in pairs(opts or {}) do
+    faceOpts[key] = value
+  end
+  opts = faceOpts
+  opts.radius = Theme.radius()
+  opts.segments = Theme.CONTROL.segments
+  opts.emboss = false
+  opts.fullLabel = true
+  if opts.face == "tab" then
+    opts.face = "selection"
+  end
+  opts.icon = opts.icon or ACTION_ICONS[label]
+  audit("control", x, y, w, h, label)
+  local hot = opts.enabled ~= false and Kit.hover(x, y, w, h)
+  local shown = label
+  if opts.iconOnly then
+    shown = ""
+  elseif label and label ~= "" then
+    opts.labelLayout = Button.labelLayout(Kit, w, h, label, opts)
+  end
+  Button.draw(Kit, x, y, w, h, shown, opts, hot, false)
+  return opts.enabled ~= false and Kit.press(x, y, w, h) or false
+end
+
+function Kit.iconButton(x, y, w, h, icon, label, opts)
+  local faceOpts = {}
+  for key, value in pairs(opts or {}) do
+    faceOpts[key] = value
+  end
+  faceOpts.icon, faceOpts.iconOnly = icon, true
+  return Kit.button(x, y, w, h, label, faceOpts)
+end
+
+function Kit.icon(name, x, y, size, color, alpha)
+  Icons.draw(name, x, y, size, color or PAL.text, alpha)
+end
+
+local STEPPER_ICONS = {
+  minus = "minus",
+  plus = "plus",
+  previous = "chevron-left",
+  next = "chevron-right",
+  up = "arrow-up",
+  down = "arrow-down",
 }
 
--- opts: { kind, font, enabled, align, radius, glow }
--- Returns true when clicked (never when disabled).
-function Kit.button(x, y, w, h, label, opts)
+function Kit.stepper(x, y, w, h, action, opts)
   opts = opts or {}
-  local enabled = opts.enabled ~= false
-  -- disabled buttons audit too: rule 3 keeps them visible, so they still
-  -- must not paint over a neighbour (#715)
-  audit("control", x, y, w, h, label)
-  local kind = KINDS[enabled and (opts.kind or "ghost") or "disabled"]
-  local r = opts.radius or 10 * Kit.scale
-  local hot = enabled and Kit.hover(x, y, w, h)
-
-  if G then
-    Theme.fillRounded(x, y, w, h, kind.fill, enabled and 1 or 0.45)
-    Theme.emboss(x, y, w, h, enabled and (hot and 1.3 or 1) or 0.4)
-    if hot then
-      Theme.strokeRounded(x - 2, y - 2, w + 4, h + 4, PAL.lineStrong, 1, 2,
-        Theme.radius() + 2)
-    end
-    local f = font(opts.font or "button")
-    if f then
-      G.setFont(f)
-      Theme.col(kind.ink, 1)
-      local ty = y + (h - f:getHeight()) / 2
-      -- Faux bold, the same trick the launcher uses: one weight of face, so
-      -- an emphasised run is the same text drawn a pixel across.
-      local function put(dx)
-        if opts.align == "left" then
-          G.print(label, x + 10 * Kit.scale + dx, ty)
-        elseif canPrintf() then
-          G.printf(label, x + dx, ty, w, "center")
-        else
-          G.print(label, x + (w - f:getWidth(label)) / 2 + dx, ty)
-        end
-      end
-      put(0)
-      put(Theme.BOLD_OFFSET or 1)
-    end
-  end
-  return enabled and Kit.press(x, y, w, h) or false
-end
-
--- A small square control: the +/- steppers, the arrow cyclers, the row ✕.
-function Kit.stepper(x, y, w, h, glyph, opts)
-  opts = opts or {}
-  opts.kind = opts.kind or "accent"
+  opts.kind = opts.kind or "ghost"
   opts.font = opts.font or "small"
-  opts.radius = opts.radius or 6 * Kit.scale
-  return Kit.button(x, y, w, h, glyph, opts)
+  return Kit.iconButton(x, y, w, h, STEPPER_ICONS[action] or action, action, opts)
 end
 
--- A pill toggle (badges, dex SEEN/OWN, event sub-tabs).  `on` colours it;
--- returns true when clicked.
-function Kit.chip(x, y, w, h, label, on, onColor, offColor)
-  audit("control", x, y, w, h, label)
-  local c = on and (onColor or PAL.green) or (offColor or PAL.steel)
-  if G then
-    -- Same rule as the launcher's chips: an ON chip is FILLED with its colour
-    -- and prints black; an OFF chip is an outline.  The old alpha-tinted fill
-    -- read as "slightly different dark rectangle" on a black field.
-    local hot = Kit.hover(x, y, w, h)
-    if on then
-      Theme.fillRounded(x, y, w, h, c, 1)
-      Theme.emboss(x, y, w, h, 1)
-      Kit.textCenter("micro", label, x,
-        y + (h - Kit.textHeight("micro")) / 2, w, PAL.inverse)
-    else
-      Theme.fillRounded(x, y, w, h, PAL.bg, 1)
-      Theme.strokeRounded(x, y, w, h, c, hot and 1 or 0.5, 1)
-      Kit.textCenter("micro", label, x,
-        y + (h - Kit.textHeight("micro")) / 2, w, c)
-    end
-  end
-  return Kit.press(x, y, w, h)
+local TAB_ICONS = {
+  Party = "users",
+  Boxes = "grid-2x2",
+  Items = "backpack",
+  Events = "flag",
+  Map = "map-pin",
+  Dex = "book-open",
+  ["Pokédex"] = "book-open",
+  Trainer = "user-round",
+  Checks = "shield-check",
+  Main = "pencil",
+  Stats = "sliders-horizontal",
+  Moves = "list-filter",
+  Origin = "map-pin",
+  Extras = "award",
+  Bag = "backpack",
+  PC = "package",
+  Wallet = "wallet",
+  Badges = "award",
+  Flags = "flag",
+  ["Story flags"] = "flag",
+  Trainers = "users",
+  ["Items taken"] = "package",
+  ["Object toggles"] = "eye",
+  ["System & Badges"] = "award",
+  Variables = "sliders-horizontal",
+  Deposit = "upload",
+  Maps = "map-pin",
+  View = "eye",
+  Spawn = "map-pin",
+}
+function Kit.navigationIcon(label)
+  return TAB_ICONS[label]
+end
+
+function Kit.chip(x, y, w, h, label, on, _onColor, _offColor)
+  return Kit.button(x, y, w, h, label, {
+    face = "tab",
+    font = "small",
+    active = on,
+    icon = TAB_ICONS[label],
+    iconStack = TAB_ICONS[label] ~= nil,
+  })
 end
 
 -- Checkbox row: a 20px box plus a mono label, the Events grid's unit.
@@ -411,18 +576,34 @@ function Kit.checkbox(x, y, w, h, checked, label, labelColor)
   local box = 20 * Kit.scale
   local bx, by = x + 12 * Kit.scale, y + (h - box) / 2
   if G then
-    Theme.col(checked and PAL.green or PAL.rowBg, checked and 1 or 0.9)
-    G.rectangle("fill", bx, by, box, box, 5 * Kit.scale, 5 * Kit.scale)
-    Theme.stroke(bx, by, box, box, 5 * Kit.scale, PAL.cardBorder, 0.4, 1)
+    local radius = math.min(Theme.radius(), box / 3)
+    Theme.fillRounded(bx, by, box, box, PAL.surface, 1, radius)
+    Theme.strokeRounded(
+      bx,
+      by,
+      box,
+      box,
+      checked and PAL.blue or PAL.line,
+      checked and 1 or 0.65,
+      checked and 2 or 1,
+      radius
+    )
     if checked then
-      Kit.textCenter("small", "X", bx, by + (box - Kit.textHeight("small")) / 2,
-        box, PAL.greenInk)
+      local size = box * 0.75
+      Icons.draw("check", bx + (box - size) / 2, by + (box - size) / 2, size, PAL.blue)
     end
     local lx = bx + box + 12 * Kit.scale
-    Kit.text("mono", Kit.ellipsize("mono", label, x + w - lx - 10 * Kit.scale), lx,
-      y + (h - Kit.textHeight("mono")) / 2, labelColor or (checked and PAL.text or PAL.muted))
+    Kit.text(
+      "mono",
+      Kit.ellipsize("mono", label, x + w - lx - 10 * Kit.scale),
+      lx,
+      y + (h - Kit.textHeight("mono")) / 2,
+      labelColor or (checked and PAL.text or PAL.muted)
+    )
   end
-  if clicked then return not checked, true end
+  if clicked then
+    return not checked, true
+  end
   return checked, false
 end
 
@@ -439,19 +620,45 @@ end
 function Kit.textfield(id, x, y, w, h, value, placeholder, opts)
   audit("control", x, y, w, h, id)
   value = tostring(value or "")
-  if Kit.press(x, y, w, h) then Kit.focus = id end
+  if Kit.press(x, y, w, h) then
+    Kit.focus = id
+    Kit._fieldHit = true
+  end
   local focused = (Kit.focus == id)
+  local clip = Kit._clipRect
+  if
+    focused
+    and clip
+    and (y + h <= clip.y or y >= clip.y + clip.h or x + w <= clip.x or x >= clip.x + clip.w)
+  then
+    Kit.blur()
+    focused = false
+  end
   if focused then
+    Kit._focusDrawn = true
     -- raise (or hand off) the soft keyboard while this field owns focus (#529)
     syncSoftKeyboard(id, x, y, w, h)
-    for _, e in ipairs(edits) do
-      if e == "\b" then
-        value = value:sub(1, -2)
-      elseif e == "\r" then
-        Kit.blur()  -- commit/cancel also lowers the soft keyboard (#529)
-        focused = false
-      else
-        value = value .. e
+    for _, edit in ipairs(edits) do
+      if edit.id == id then
+        local e = edit.text
+        if e == "\b" then
+          local i = #value
+          while i > 1 and value:byte(i) >= 128 and value:byte(i) < 192 do
+            i = i - 1
+          end
+          value = value:sub(1, i - 1)
+        elseif e == "\r" then
+          if opts and opts.onSubmit then
+            opts.onSubmit(value)
+          end
+          Kit.blur() -- commit/cancel also lowers the soft keyboard (#529)
+          focused = false
+        elseif e == "\27" then
+          Kit.blur()
+          focused = false
+        else
+          value = value .. e
+        end
       end
     end
     if opts and opts.sanitize then
@@ -459,11 +666,18 @@ function Kit.textfield(id, x, y, w, h, value, placeholder, opts)
     end
   end
   if G then
-    local r = 8 * Kit.scale
-    Theme.col(PAL.rowBg, 0.7)
-    G.rectangle("fill", x, y, w, h, r, r)
-    Theme.stroke(x, y, w, h, r, focused and PAL.blue or PAL.cardBorder,
-      focused and 0.8 or 0.3, focused and 1.5 * Kit.scale or 1)
+    local r = Theme.radius()
+    Theme.fillRounded(x, y, w, h, PAL.rowBg, 0.7, r)
+    Theme.stroke(
+      x,
+      y,
+      w,
+      h,
+      r,
+      focused and PAL.blue or PAL.cardBorder,
+      focused and 0.8 or 0.3,
+      focused and 1.5 * Kit.scale or 1
+    )
     local pad = 10 * Kit.scale
     local ty = y + (h - Kit.textHeight("mono")) / 2
     if value == "" and not focused then
@@ -474,12 +688,47 @@ function Kit.textfield(id, x, y, w, h, value, placeholder, opts)
       -- caret: blinks only while focused, parked at the end of the text
       if focused and (Kit.time % 1) < 0.55 then
         Theme.col(PAL.blue, 1)
-        G.rectangle("fill", x + pad + tw + 2, ty, math.max(1, Kit.scale),
-          Kit.textHeight("mono"))
+        G.rectangle("fill", x + pad + tw + 2, ty, math.max(1, Kit.scale), Kit.textHeight("mono"))
       end
     end
   end
   return value
+end
+
+-- Forms reserve height before drawing; all editor panels use the same floor.
+function Kit.controlH(base)
+  return math.max(Kit.tapMin(), (base or 38) * Kit.scale)
+end
+
+function Kit.textWrapped(name, str, x, y, w, c)
+  local f = font(name)
+  if not f or w <= 0 then
+    return 0
+  end
+  local lines
+  if f.getWrap then
+    local _
+    _, lines = f:getWrap(tostring(str), w)
+  else
+    lines = {}
+    local line = ""
+    for word in tostring(str):gmatch("%S+") do
+      local nextLine = line == "" and word or (line .. " " .. word)
+      if line ~= "" and f:getWidth(nextLine) > w then
+        lines[#lines + 1] = line
+        line = word
+      else
+        line = nextLine
+      end
+    end
+    if line ~= "" then
+      lines[#lines + 1] = line
+    end
+  end
+  for i, line in ipairs(lines) do
+    Kit.text(name, line, x, y + (i - 1) * f:getHeight(), c)
+  end
+  return #lines * f:getHeight()
 end
 
 -- ------------------------------------------------------------------ pager
@@ -487,27 +736,47 @@ end
 -- list is never silently truncated (rule 5 of the design spec).  Returns the
 -- new offset.
 function Kit.pager(x, y, w, offset, total, perPage)
-  local h = 30 * Kit.scale
-  local bw = 74 * Kit.scale
+  local h = Kit.controlH()
+  local bw = math.max(Kit.tapMin(), math.min(74 * Kit.scale, (w - 10 * Kit.scale) / 2))
   local maxOffset = math.max(0, total - perPage)
   offset = Theme.clamp(offset or 0, 0, maxOffset)
-  if Kit.button(x, y, bw, h, "Prev", { kind = "accent", font = "small",
-      enabled = offset > 0, radius = 8 * Kit.scale }) then
+  if
+    Kit.button(
+      x,
+      y,
+      bw,
+      h,
+      "Prev",
+      { kind = "accent", font = "small", enabled = offset > 0, radius = 8 * Kit.scale }
+    )
+  then
     offset = math.max(0, offset - perPage)
   end
-  if Kit.button(x + bw + 10 * Kit.scale, y, bw, h, "Next", { kind = "accent",
-      font = "small", enabled = offset < maxOffset, radius = 8 * Kit.scale }) then
+  if
+    Kit.button(
+      x + bw + 10 * Kit.scale,
+      y,
+      bw,
+      h,
+      "Next",
+      { kind = "accent", font = "small", enabled = offset < maxOffset, radius = 8 * Kit.scale }
+    )
+  then
     offset = math.min(maxOffset, offset + perPage)
   end
   local shown = math.min(perPage, math.max(0, total - offset))
-  local label = ("%d-%d of %d"):format(total > 0 and offset + 1 or 0,
-    offset + shown, total)
+  local label = ("%d-%d of %d"):format(total > 0 and offset + 1 or 0, offset + shown, total)
   -- the counter clips to the width the caller granted: a panel parking a
   -- button on the pager line passes a reduced w and the text yields instead
   -- of running underneath it (#715)
   local labelX = x + 2 * bw + 20 * Kit.scale
-  Kit.text("mono", Kit.ellipsize("mono", label, math.max(0, x + w - labelX)),
-    labelX, y + (h - Kit.textHeight("mono")) / 2, PAL.caption)
+  Kit.text(
+    "mono",
+    Kit.ellipsize("mono", label, math.max(0, x + w - labelX)),
+    labelX,
+    y + (h - Kit.textHeight("mono")) / 2,
+    PAL.caption
+  )
   return offset, h
 end
 
@@ -527,7 +796,9 @@ local SCROLL_ROWS = 3
 function Kit.scroll(x, y, w, h, offset, total, perPage, step)
   local maxOffset = math.max(0, (total or 0) - (perPage or 0))
   offset = Theme.clamp(offset or 0, 0, maxOffset)
-  if Kit.blockClicks then return offset end
+  if Kit.blockClicks then
+    return offset
+  end
 
   -- Touch drag (#715): a phone has no wheel and the pagers are small
   -- targets, so a held pointer dragging vertically over the list body
@@ -549,8 +820,12 @@ function Kit.scroll(x, y, w, h, offset, total, perPage, step)
     end
   end
 
-  if (Kit.wheelY or 0) == 0 then return offset end
-  if not Kit.hit(x, y, w, h) then return offset end
+  if (Kit.wheelY or 0) == 0 then
+    return offset
+  end
+  if not Kit.hit(x, y, w, h) then
+    return offset
+  end
   -- LOVE reports wheel-up as positive y; up moves the window toward the top
   -- of the list, which is a smaller offset.
   local rows = step or math.max(1, math.min(SCROLL_ROWS, perPage or SCROLL_ROWS))
@@ -569,7 +844,9 @@ end
 function Kit.scrollPixels(x, y, w, h, offset, contentH)
   local maxOffset = math.max(0, (contentH or 0) - math.max(0, h))
   offset = Theme.clamp(offset or 0, 0, maxOffset)
-  if Kit.blockClicks then return offset end
+  if Kit.blockClicks then
+    return offset
+  end
 
   if Kit.mouseDown and maxOffset > 0 and h > 0 then
     local key = "px:" .. math.floor(x) .. ":" .. math.floor(y)
@@ -581,24 +858,33 @@ function Kit.scrollPixels(x, y, w, h, offset, contentH)
     end
   end
 
-  if (Kit.wheelY or 0) == 0 then return offset end
-  if not Kit.hit(x, y, w, h) then return offset end
+  if (Kit.wheelY or 0) == 0 then
+    return offset
+  end
+  if not Kit.hit(x, y, w, h) then
+    return offset
+  end
   local notch = 48 * Kit.scale
   local delta = (Kit.wheelY > 0) and -notch or notch
   Kit.wheelY = 0
   return Theme.clamp(offset + delta, 0, maxOffset)
 end
 
--- Thin overlay scrollbar along the right edge of a list body, drawn after
--- the rows so it stays visible.  Pure indicator (the drag above and the
+-- Thin scrollbar in the card's right padding, clear of control faces and
+-- their corner arcs. Pure indicator (the drag above and the
 -- pager are the controls): on a phone the old layout looked "stuck" because
 -- nothing said the list continued past the fold (#715).
 function Kit.scrollbar(x, y, w, h, offset, total, perPage)
-  if not G then return end
+  if not G then
+    return
+  end
   total, perPage = total or 0, perPage or 0
-  if total <= perPage or h <= 0 or perPage <= 0 then return end
+  if total <= perPage or h <= 0 or perPage <= 0 then
+    return
+  end
   local bw = 3 * Kit.scale
-  local bx = x + w - bw
+  local bx = x + w + 4 * Kit.scale
+  audit("scrollbar", bx, y, bw, h, "scrollbar")
   Theme.col(PAL.cardBorder, 0.22)
   G.rectangle("fill", bx, y, bw, h, bw / 2, bw / 2)
   local maxOffset = total - perPage
@@ -620,7 +906,9 @@ local clipStack = {}
 
 local function applyClip(rect)
   Kit._clipRect = rect
-  if not (G and G.setScissor) then return end
+  if not (G and G.setScissor) then
+    return
+  end
   if not rect then
     G.setScissor()
   elseif rect.w <= 0 or rect.h <= 0 then
@@ -629,8 +917,7 @@ local function applyClip(rect)
     -- region as empty instead of passing invalid geometry through to it.
     G.setScissor(0, 0, 0, 0)
   else
-    G.setScissor(math.floor(rect.x), math.floor(rect.y),
-      math.ceil(rect.w), math.ceil(rect.h))
+    G.setScissor(math.floor(rect.x), math.floor(rect.y), math.ceil(rect.w), math.ceil(rect.h))
   end
 end
 
@@ -656,7 +943,9 @@ end
 -- frames (every hit test would stay fenced to the dead rect), so the frame
 -- boundary clears it.
 function Kit.resetClip()
-  for i = #clipStack, 1, -1 do clipStack[i] = nil end
+  for i = #clipStack, 1, -1 do
+    clipStack[i] = nil
+  end
   applyClip(nil)
 end
 

@@ -741,12 +741,19 @@ do
   Kit.layout(1280, 720)
   Kit.beginFrame(-100, -100, false, 0)
   Kit.audit = {}
+  S.monSection="origin"
   MonEditor.draw(S, Kit, 0, 0, 1280, 720)
   local labels = {}
   for _, r in ipairs(Kit.audit) do labels[r.label] = true end
   Kit.audit = nil
-  check(labels.MORN and labels.NITE, "the Crystal inspector offers the caught times")
-  check(labels.BOY and labels.GIRL, "and the OT gender chips")
+  check(labels["property-caughtTime"] ~= nil, "the Crystal origin form offers the caught time")
+  S.inspectorScroll=300
+  Kit.audit={}
+  MonEditor.draw(S,Kit,0,0,1280,720)
+  local caughtGender=false
+  for _,r in ipairs(Kit.audit) do if r.label:match("^Caught by:") then caughtGender=true end end
+  Kit.audit=nil
+  check(caughtGender,"and the caught-by gender control")
 
   local G = newState("gold")
   Ops.partyAdd(G)
@@ -768,7 +775,12 @@ do
     Kit.audit = nil
     return seen
   end
-  check(itemsLabels(S).GIRL, "the Crystal Items tab carries the TRAINER card")
+  Kit.audit={}
+  require("Trainer").draw(S,Kit,0,0,1280,720)
+  local trainerGender=false
+  for _,r in ipairs(Kit.audit) do if r.label=="FEMALE" then trainerGender=true end end
+  Kit.audit=nil
+  check(trainerGender,"the Crystal Trainer tab carries the gender control")
   check(not itemsLabels(G).GIRL, "the Gold Items tab does not")
 
   local function bottomOverflow(state)

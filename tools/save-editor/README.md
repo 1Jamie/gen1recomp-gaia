@@ -31,58 +31,109 @@ If the file isn't there (or you want another copy), use **Open...**, drop a
 `save.lua` onto the window, or pass `--save`. Each write makes
 `save.lua.bak-YYYYMMDD-HHMMSS` first.
 
-## Layout
+## Editing and mobile layout
 
-| file | role |
+Party, Boxes, Items, Events, Map, Pokédex, Trainer and Checks are separate pages.
+The Pokemon inspector has Main, Stats, Moves, Origin, Extras and Checks sections.
+Phones open the roster and inspector as separate sliding pages; wide windows
+show them side by side. Buttons share the launcher's painter and font scale,
+with a minimum 44px target. Pages and screen sections use dropdown popup
+choosers on both phones and desktop. The current page stays in place behind
+the scrim; choosing a destination closes the popup and slides to that section.
+Popups support finger/wheel scrolling, keyboard selection, Escape, a close icon
+and outside-tap dismissal. They shield the page underneath from clicks and scrolling.
+Short screens use compact storage
+actions and an item Tools menu. Map browsing splits into Maps, View and Spawn
+sections on phones; storage and inventory actions stay in their viewport.
+Safe-area margins protect controls around notches.
+Short landscape map views have an expand icon that gives the map the editor's
+full content area; the back icon restores the editor chrome.
+Sections use the launcher's directional slides and saved reduced-motion option.
+Selected controls keep the same dark face, corner shape and icon/text layout;
+an inset accent outline indicates selection. Every editor button is flat with
+a visible 14px corner radius, explicit curve segments and smooth opaque fill edges,
+including green and blue actions, hover, selection and disabled states.
+Scrollbars sit in the card padding rather than covering button edges.
+Lucide icons replace character arrows, dropdown carets and action glyphs.
+Buttons retain their complete labels, wrapping between words when needed;
+layouts measure the font and reflow controls rather than adding ellipses or
+hiding their text. Only explicitly icon-only controls, such as steppers and
+close icons, omit labels. Inventory and storage actions reserve space for
+the full confirmation label before they are armed.
+Pokédex cards put fully spelled out Seen and Owned controls below the species
+name. Bulk tools, sorting and the National Pokédex toggle use a labeled popup
+so they leave room for the species list on phones.
+
+On phones, **More** opens Reload, Open and Close. Lists and forms scroll by wheel,
+right stick or finger drag. A drag does not activate the control under its release.
+Tapping outside a text field lowers the mobile keyboard. **Set** or Enter applies
+a form value; Escape cancels typing. Navigation also clears text focus.
+
+Main edits species, nickname, level, exact experience, current HP, status,
+held item, friendship, nature, ability, gender and shininess where the generation
+supports them. Stats edits DVs/stat experience or IVs/EVs and shows calculated
+stats. Moves edits each move, PP and PP Ups. Origin exposes OT identity,
+PID/SID, language, met data, ball, markings, egg and fateful flags; Crystal
+also exposes caught data. Extras exposes Gen 3 contest conditions and ribbons.
+Trainer edits name, IDs, gender and wallet. Items separates Bag, PC, Wallet and
+Badges. Boxes supports storage, deposit, withdraw, clone, inspect and release.
+
+**Undo/Redo** and Ctrl/Cmd+Z (Shift+Z to redo) retain up to eight session snapshots.
+Snapshots preserve unknown metadata. Saving establishes the clean history point;
+reload/open resets history. Each file write still makes a backup first.
+
+## Property checks
+
+Checks audits party and storage; selecting a result opens that Pokemon's details.
+It checks numeric ranges, game catalogs and name glyphs, IV/DV/stat experience,
+total EVs, calculated stats/HP, level/experience, moves/PP/PP Ups, held items,
+PID-derived traits, OT/met fields, egg rules, Pokerus, markings and ribbon ranks.
+Input forms refuse malformed numbers and values outside their stated ranges.
+
+This is **not full PKHeX legality parity**. Encounter matching, evolution and
+breeding move combinations, event distributions, transfer provenance and PID/IV
+RNG correlation are not fully verified. A record without property errors remains
+**unchecked**, never certified legal. Ribbon/event and unusual move origins are
+shown as warnings. Checks is read-only and does not rewrite provenance.
+
+## Modules
+
+| File | Role |
 | --- | --- |
-| `Theme.lua` | the launcher's palette + drawing primitives (cards, glow, dashed outlines, letterspaced captions) |
-| `Kit.lua` | immediate-mode widgets built on Theme: buttons, rows, meters, chips, checkboxes, a real text field, pagers |
-| `PadInput.lua` | virtual cursor for Switch / gamepads (stick move, A click, B close, shoulders cycle tabs) |
-| `Ops.lua` | **every mutation**, behind one funnel that sets dirty + status together |
-| `App.lua` | chrome (version rail, title bar, tab rail, status bar) and the panel router |
-| `panels/` | one file per tab; pure layout that dispatches into Ops |
+| `Theme.lua`, `Kit.lua` | Shared launcher faces with editor input and clipped scrolling |
+| `Chooser.lua`, `Motion.lua` | Popup navigation and launcher transitions |
+| `Properties.lua`, `Legality.lua` | Property schema and read-only reports |
+| `History.lua`, `Ops.lua` | Session undo and save mutations |
+| `InspectorBody.lua` | Generation-aware inspector forms |
+| `App.lua`, `panels/` | Adaptive chrome, pages and modal pickers |
+| `PadInput.lua` | Switch/gamepad pointer, actions and scrolling |
 
-`panels/SpeciesPicker.lua` is the one exception to "one file per tab": it is
-the modal species search the inspector opens, drawn by `App.draw` after the
-panel rather than routed through the tab table. Kit has no z-order, so while
-it is up `Kit.blockClicks` shields every widget underneath it.
+Switch/gamepad controls: left stick/D-pad moves, A clicks, B closes with the
+unsaved confirmation, L/R cycles tabs, right stick scrolls. Mouse/touch takes
+control from the pad pointer. All modal pickers and moving pages shield controls
+underneath them. Destructive UI actions require a second tap within the arming
+window; `Ops.armLabel` shows **Confirm?** in between.
 
-### Switch / gamepad
+## Verification
 
-On Nintendo Switch (and any gamepad without a mouse), the editor uses the same
-virtual-cursor idea as the launcher: left stick / D-pad moves a pointer, **A**
-clicks, **B** closes (with the usual unsaved confirm), L/R cycle tabs, and the
-right stick scrolls lists. Touch taps forward as clicks. Without that path the
-editor soft-locked until HOME — `main.lua` used to drop all pad/touch events
-while `editorMode` was set.
+The save-editor suites run as tiers in `scripts/test.sh`, including
+`save_editor_mobile_properties_tests.lua` (phone/landscape/desktop control bounds,
+keyboard, touch and transitions), `save_editor_property_legality_test.lua`
+(Gen 3 properties and native persistence), Gen 2, Gen 3 IV/EV/PP and the existing
+party/storage/item/map/event/dex tests. Tests using imported data skip explicitly
+when the required ROM cache is unavailable.
+CI always runs mobile layout, keyboard/touch, Gen 3 IV/EV/PP, wheel and pad
+checks with committed fixtures; these do not depend on an imported Red ROM.
+Native property checks use an available FireRed cache independently of Red.
+The required luacheck gate includes all shipped editor modules.
 
-The design reference is the `SaveEditor.dc.html` mockup that this port
-transcribes; its measurements are in the same pixel space `App.lua` draws in.
-
-Two rules the code enforces and the tests assert:
-
-1. `Ops.mark(S, msg)` is the only thing that sets `S.dirty`, and it always
-   writes the status line at the same time. Refusals go through `Ops.say`,
-   which speaks without dirtying. No branch may silently no-op.
-2. Destructive verbs go through `Ops.arm(S, id, msg)`: the first call arms
-   and returns false, a second within `Ops.ARM_SECONDS` commits.
-   `Ops.armLabel` relabels the button to `Confirm?` in between.
-
-## Headless tests
-
-Run from repo root (`luajit`, or the same interpreter as
-`tests/run_tests.lua`). All four run in CI as their own tiers in
-`scripts/test.sh`:
-
-```bash
-luajit tests/run_save_editor_tests.lua      # SaveIO, App load/save/close, party + inspector, all-tab draw smoke
-luajit tests/save_editor_task6_tests.lua    # Boxes + Items rules
-luajit tests/save_editor_task7_tests.lua    # Events + Dex rules
-luajit tests/save_editor_task8_tests.lua    # map browser + spawn points
-luajit tests/save_editor_mod_tests.lua      # modded species/items stay editable
-luajit tests/save_editor_pad_input_test.lua # pad cursor / NX input routing
-```
-
-They drive `Ops.lua` rather than clicking pixel coordinates. The panels are
-layout over Ops, so a redesign moves every coordinate but none of the
-rules; asserting against Ops is what keeps the suites meaningful across one.
+For real LÖVE captures on a scratch save, use
+`tests/drivers/save_editor_mobile_redesign.lua` with `tools/run_driver.sh`.
+The driver captures all pages, inspector sections, desktop/landscape layouts and
+navigation popups and intermediate slide frames. It also checks pixels on an
+MSAA-disabled canvas for all four corners and smooth edges across 80 button
+variants (blue/green, selected, disabled, hovered and compact icon actions).
+Every painted label is checked against real font metrics for complete text
+and adequate width/height, including 320px screens and armed confirmations.
+Headless and desktop captures do not prove physical
+iOS/Android keyboard or device behavior.
