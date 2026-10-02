@@ -65,6 +65,16 @@ end
 
 local function loveCache()
   return {
+    assetWorkerSpec = function(_, root, kind, key)
+      local rel = root .. "/" .. tostring(key) .. (kind == "pair" and "/mids.idx" or ".meta")
+      local CacheFs = require("src.import.CacheFs")
+      local prefix = require("src.core.GameVersion").cachePrefix()
+      -- Only a version-qualified cache can be read independently of mounted
+      -- overlays. Overrides/custom readers retain the synchronous fallback.
+      if Dataset.cacheRootOverride or os.getenv("POKEPORT_GBA_CACHE") then return nil end
+      if not CacheFs.existsAt(prefix .. rel) then return nil end
+      return { prefix = prefix, directory = CacheFs.root() }
+    end,
     read = function(_, rel)
       local ok, CacheFs = pcall(require, "src.import.CacheFs")
       if ok and CacheFs and CacheFs.readActive then

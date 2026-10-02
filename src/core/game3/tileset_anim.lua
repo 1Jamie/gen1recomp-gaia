@@ -295,11 +295,11 @@ local function load_bank(cache, pair, kind, info)
 end
 
 -- pokefirered/src/tileset_anims.c:223
-function TilesetAnim.bindPair(pair, atlas)
+function TilesetAnim.bindPair(pair, atlas, prepared)
   if not Versions.NATIVE_RENDER or Versions.TILESET_ANIM == false then
     return false
   end
-  local cache = TilesetAnim._cache
+  local cache = prepared and { read = function(_, rel) return prepared[rel] end } or TilesetAnim._cache
   if not cache or not pair or not atlas then return false end
   local entry = TilesetAnim._pairs[pair]
   if entry == false then return false end
@@ -326,9 +326,13 @@ function TilesetAnim.bindPair(pair, atlas)
   end
   TilesetAnim._visible[pair] = true
   if entry.rse then return true end
-  TilesetAnim._applyKind(entry, "water", TilesetAnim._waterFrame)
-  TilesetAnim._applyKind(entry, "sand", TilesetAnim._sandFrame)
-  TilesetAnim._applyKind(entry, "flower", TilesetAnim._flowerFrame)
+  local dirty = false
+  if TilesetAnim._applyKind(entry, "water", TilesetAnim._waterFrame, true) then dirty = true end
+  if TilesetAnim._applyKind(entry, "sand", TilesetAnim._sandFrame, true) then dirty = true end
+  if TilesetAnim._applyKind(entry, "flower", TilesetAnim._flowerFrame, true) then dirty = true end
+  -- Initial/catch-up preparation uploads once after all CPU patches. This
+  -- also keeps a warming pair's final step within one texture submission.
+  if dirty then NativeTileset().flush(atlas, true, false) end
   return true
 end
 
@@ -370,7 +374,7 @@ local function get_frame_piece(bank, frame, mi, srcOff)
   return nil
 end
 
-function TilesetAnim._applyKind(entry, kind, frame)
+function TilesetAnim._applyKind(entry, kind, frame, deferUpload)
   local bank = entry.banks[kind]
   if not bank or bank.frames < 1 then return end
   frame = frame % bank.frames
@@ -411,6 +415,7 @@ function TilesetAnim._applyKind(entry, kind, frame)
       end
     end
   end
+  if deferUpload then return true end
   if partial then
     NativeTileset().flush(ts, true, false)
   elseif ts.image and love and love.graphics then

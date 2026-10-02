@@ -147,6 +147,8 @@ function Field.start(mod, game, session)
 end
 
 function Field.stop()
+  local Stream = package.loaded["src.core.game3.asset_stream"]
+  if Stream then Stream.cancelPending() end
   lazyReq("src.world.game3.Follower").reset()
   Field.running = false
   Field._session = nil
@@ -213,9 +215,9 @@ function Field.update(_dt)
   local Ghosts = lazyReq("src.core.game3.ghosts")
   Ghosts.sync()
   Ghosts.update(game)
-  -- pre-load tileset pairs queued by a seamless world refresh, one per frame
+  -- Prepare nearby assets on a worker; share a main-thread texture budget.
   local MapMod = package.loaded["src.core.game3.map"]
-  if MapMod and MapMod._warmQueue and MapMod.stepWarm then MapMod.stepWarm() end
+  if MapMod and MapMod.stepWarm then MapMod.stepWarm(game) end
 
   Field.pollMapChange(game)
   -- pokefirered/src/safari_zone.c:60 CB2_EndSafariBattle

@@ -496,6 +496,15 @@ function Renderer:endWorldPass()
   love.graphics.setCanvas(self.canvas)
 end
 
+-- A field compositor may consume the current world into another compatible
+-- target. Its caller continues drawing into the replacement until endWorldPass.
+function Renderer:exchangeWorldCanvas(current, replacement)
+  if self.worldCanvas ~= current or not self.worldActive then return false end
+  if current:getWidth() ~= replacement:getWidth() or current:getHeight() ~= replacement:getHeight() then return false end
+  self.worldCanvas = replacement
+  return true
+end
+
 -- Tilt mode's upright pass: standing things (sprites, tall-grass feet
 -- overdraw, screen-anchored FX) draw here instead of into the ground
 -- world canvas, each already projected to its ground anchor and colorized

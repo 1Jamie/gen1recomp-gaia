@@ -3,7 +3,7 @@
 
 local Extract = require("src.import.gba.extract_island1")
 local NativePack = require("src.import.gba.native_pack")
-local Palette = require("src.core.game3.palette")
+local Stream = require("src.core.game3.asset_stream")
 local Versions = require("src.import.gba.versions")
 
 local NativeTileset = {}
@@ -13,7 +13,12 @@ NativeTileset._cache = nil
 NativeTileset._logged = {}
 NativeTileset._ready = {}
 
-local NATIVE = Extract.NATIVE_ROOT or (Extract.CACHE_ROOT .. "/native")
+local makeStream
+local function nativeRoot() return Extract.NATIVE_ROOT or (Extract.CACHE_ROOT .. "/native") end
+local function resetStream()
+  if NativeTileset._stream then NativeTileset._stream:cancel() end
+  NativeTileset._stream = NativeTileset._cache and makeStream() or nil
+end
 
 local function log(msg)
   print("[game3/native] " .. tostring(msg))
@@ -24,6 +29,7 @@ function NativeTileset.install(cache, _bundle)
   NativeTileset._pairs = {}
   NativeTileset._logged = {}
   NativeTileset._ready = {}
+  resetStream()
   local okA, TilesetAnim = pcall(require, "src.core.game3.tileset_anim")
   if okA and TilesetAnim and TilesetAnim.install then
     TilesetAnim.install(cache)
@@ -34,124 +40,11 @@ function NativeTileset.invalidate()
   NativeTileset._pairs = {}
   NativeTileset._logged = {}
   NativeTileset._ready = {}
+  resetStream()
   local okA, TilesetAnim = pcall(require, "src.core.game3.tileset_anim")
   if okA and TilesetAnim and TilesetAnim.invalidate then
     TilesetAnim.invalidate()
   end
-end
-
-local function rgba_to_image(rgba, w, h)
-  if not (love and love.image and love.image.newImageData) then
-    return nil, nil, "love.image unavailable"
-  end
-  local ok, imageData = pcall(love.image.newImageData, w, h, "rgba8", rgba)
-  if not ok or not imageData then
-    ok, imageData = pcall(function()
-      local id = love.image.newImageData(w, h)
-      if id.setString then
-        id:setString(rgba)
-      end
-      return id
-    end)
-  end
-  if not ok or not imageData then
-    imageData = love.image.newImageData(w, h)
-    local i = 1
-    for y = 0, h - 1 do
-      for x = 0, w - 1 do
-        local r = rgba:byte(i) or 0
-        local g = rgba:byte(i + 1) or 0
-        local b = rgba:byte(i + 2) or 0
-        local a = rgba:byte(i + 3) or 255
-        imageData:setPixel(x, y, r / 255, g / 255, b / 255, a / 255)
-        i = i + 4
-      end
-    end
-  end
-  local image = love.graphics.newImage(imageData)
-  if image.setFilter then image:setFilter("nearest", "nearest") end
-  return image, imageData
-end
-
-local function bake_or_load(cache, pair, idxTbl, rgb, hash, tag, transparentZero)
-  local w = (idxTbl.atlasCols or 16) * 16
-  local h = (idxTbl.atlasRows or 1) * 16
-  local rgbaRel = NATIVE .. "/" .. pair .. "/atlas_" .. tag .. "_" .. hash .. ".rgba"
-  local rgba = cache:read(rgbaRel)
-  if not rgba or #rgba ~= w * h * 4 then
-    rgba, w, h = NativePack.bakeRgba(idxTbl, rgb, { transparentZero = transparentZero })
-    pcall(function() cache:write(rgbaRel, rgba) end)
-  end
-  return rgba_to_image(rgba, w, h)
-end
-
-local function load_pair(cache, pair)
-  local idxBlob = cache:read(NATIVE .. "/" .. pair .. "/mids.idx")
-  local palBlob = cache:read(NATIVE .. "/" .. pair .. "/palettes.bin")
-  if not idxBlob or not palBlob then
-    return nil, "missing native blobs for " .. tostring(pair)
-  end
-  local idxTbl, ierr = NativePack.decodeIdx(idxBlob)
-  if not idxTbl then return nil, ierr end
-  local rgb, bgr = Palette.load(palBlob)
-  if not rgb then return nil, bgr end
-
-  local hash = Palette.hash(bgr, idxBlob)
-  local layered = cache:exists(NATIVE .. "/" .. pair .. "/mids_over.idx")
-  local tag = layered and "u" or "flat"
-  local image, imageData, err = bake_or_load(cache, pair, idxTbl, rgb, hash, tag, false)
-  if not image then return nil, err or "bake under failed" end
-
-  local midToSlot = {}
-  for i, mid in ipairs(idxTbl.midIds or {}) do
-    midToSlot[mid] = i - 1
-  end
-
-  local cols = idxTbl.atlasCols or 16
-  if (idxTbl.atlasRows or 0) * 16 > 2048 then
-    log("WARNING atlas rows large for " .. pair)
-  end
-
-  local ts = {
-    pair = pair,
-    image = image,
-    imageData = imageData,
-    midToSlot = midToSlot,
-    cols = cols,
-    rows = idxTbl.atlasRows or 1,
-    midCount = idxTbl.midCount or 0,
-    quads = {},
-    layered = false,
-    overImage = nil,
-    overImageData = nil,
-    overQuads = {},
-    idxBlob = idxBlob,
-    overBlob = nil,
-    bgr = bgr,
-    slotPix = {},
-  }
-
-  if layered then
-    local overBlob = cache:read(NATIVE .. "/" .. pair .. "/mids_over.idx")
-    local overTbl = overBlob and NativePack.decodeIdx(overBlob)
-    if overTbl then
-      local overHash = Palette.hash(bgr, overBlob)
-      local oImg, oData = bake_or_load(cache, pair, overTbl, rgb, overHash, "o", true)
-      if oImg then
-        ts.layered = true
-        ts.overImage = oImg
-        ts.overImageData = oData
-        ts.overBlob = overBlob
-      end
-    end
-    local midBlob = cache:read(NATIVE .. "/" .. pair .. "/mids_mid.idx")
-    local midTbl = midBlob and NativePack.decodeIdx(midBlob)
-    if midTbl then
-      ts.midImage = bake_or_load(cache, pair, midTbl, rgb, Palette.hash(bgr, midBlob), "m", true)
-    end
-  end
-
-  return ts
 end
 
 function NativeTileset.ready(pair)
@@ -160,8 +53,8 @@ function NativeTileset.ready(pair)
   if NativeTileset._pairs[pair] or NativeTileset._ready[pair] then return true end
   local cache = NativeTileset._cache
   if not cache then return false end
-  local ok = cache:exists(NATIVE .. "/" .. pair .. "/mids.idx")
-    and cache:exists(NATIVE .. "/" .. pair .. "/palettes.bin")
+  local ok = cache:exists(nativeRoot() .. "/" .. pair .. "/mids.idx")
+    and cache:exists(nativeRoot() .. "/" .. pair .. "/palettes.bin")
   if ok then NativeTileset._ready[pair] = true end
   return ok
 end
@@ -175,40 +68,55 @@ local function tilesetAnim()
   return animMod or nil
 end
 
-local function bind_anim(pair, atlas)
+local function bind_anim(pair, atlas, prepared)
   local TilesetAnim = tilesetAnim()
   if TilesetAnim and TilesetAnim.bindPair then
-    TilesetAnim.bindPair(pair, atlas)
+    TilesetAnim.bindPair(pair, atlas, prepared)
+  end
+end
+
+local function uploadPair(data)
+  local ts = { pair = data.pair, midToSlot = data.midToSlot, cols = data.cols, rows = data.rows,
+    midCount = data.midCount, layered = data.layered or false, idxBlob = data.idxBlob,
+    overBlob = data.overBlob, bgr = data.bgr, quads = {}, overQuads = {}, slotPix = {}, preparedAnim = data.animFiles }
+  for _, layer in ipairs(data.layers) do
+    local image = love.graphics.newImage(layer.data)
+    image:setFilter("nearest", "nearest")
+    ts[layer.imageKey], ts[layer.dataKey] = image, layer.data
+    coroutine.yield("texture")
+  end
+  return ts
+end
+makeStream = function()
+  return Stream.new("pair", NativeTileset._cache, nativeRoot(), uploadPair, function(pair, ts)
+    NativeTileset._pairs[pair] = ts
+    bind_anim(pair, ts, ts.preparedAnim)
+    ts.preparedAnim = nil
+    if not NativeTileset._logged[pair] then
+      log(string.format("atlas ready pair=%s mids=%d %dx%d layered=%s", pair,
+        ts.midCount, ts.cols * 16, ts.rows * 16, tostring(ts.layered)))
+      NativeTileset._logged[pair] = true
+    end
+  end)
+end
+
+function NativeTileset.prefetch(pair, priority)
+  if type(pair) == "string" and not NativeTileset._pairs[pair] and NativeTileset._stream then
+    NativeTileset._stream:prefetch(pair, priority)
   end
 end
 
 function NativeTileset.get(pair)
   if not pair then return nil end
   local cached = NativeTileset._pairs[pair]
-  if cached then
-    -- Cheap for a bound pair (no manifest read): marks it visible and
-    -- catches its atlas up to the current anim frames before a draw.
-    -- FieldView reads cached atlases directly and does not come here per frame.
-    bind_anim(pair, cached)
-    return cached
-  end
-  local cache = NativeTileset._cache
-  if not cache then return nil end
-  local ts, err = load_pair(cache, pair)
-  if not ts then
-    if not NativeTileset._logged[pair] then
-      log("load failed " .. tostring(pair) .. ": " .. tostring(err))
-      NativeTileset._logged[pair] = true
-    end
-    return nil
-  end
-  NativeTileset._pairs[pair] = ts
-  if not NativeTileset._logged[pair] then
-    log(string.format("atlas ready pair=%s mids=%d %dx%d layered=%s",
-      pair, ts.midCount, ts.cols * 16, ts.rows * 16, tostring(ts.layered)))
+  if cached then bind_anim(pair, cached); return cached end
+  local stream = NativeTileset._stream
+  if not stream then return nil end
+  local ts, err = stream:get(pair)
+  if not ts and not NativeTileset._logged[pair] then
+    log("load failed " .. tostring(pair) .. ": " .. tostring(err))
     NativeTileset._logged[pair] = true
   end
-  bind_anim(pair, ts)
   return ts
 end
 

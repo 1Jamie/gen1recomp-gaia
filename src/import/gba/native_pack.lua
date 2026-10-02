@@ -235,6 +235,7 @@ function NativePack.bakeRgba(idxTbl, rgbPals, opts)
   local pixels = idxTbl.pixels or {}
   local rowChunks = {}
   for ay = 0, h - 1 do
+    if ay % 16 == 0 and opts.cancelled and opts.cancelled() then return nil, w, h end
     local midRow = math.floor(ay / 16)
     local py = ay % 16
     local line = {}

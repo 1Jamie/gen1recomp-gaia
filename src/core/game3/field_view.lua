@@ -1780,7 +1780,7 @@ function FieldView.draw(game, canvasW, canvasH, opts)
     end
     local FieldWeather = modFieldWeather()
     if FieldWeather and FieldWeather.draw then
-      FieldWeather.draw(camX, camY, canvasW, canvasH)
+      FieldWeather.draw(camX, camY, canvasW, canvasH, opts.exchangeCanvas)
     end
   end
 
@@ -1833,10 +1833,21 @@ function FieldView.invalidate()
   if OwSprites and OwSprites.invalidate then
     OwSprites.invalidate()
   end
+  local WeatherRse = package.loaded["src.core.game3.field_weather_rse"]
+  if WeatherRse and WeatherRse.invalidate then WeatherRse.invalidate() end
   local FieldEffects = modFieldEffects()
   if FieldEffects and FieldEffects.invalidate then
     FieldEffects.invalidate()
   end
+end
+
+local Assets = require("src.render.Assets")
+if Assets.register and not Assets._game3FieldInvalidatorRegistered then
+  Assets._game3FieldInvalidatorRegistered = true
+  Assets.register(function()
+    local current = package.loaded["src.core.game3.field_view"]
+    if current then current.invalidate() end
+  end)
 end
 
 return FieldView

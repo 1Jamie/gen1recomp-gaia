@@ -231,13 +231,16 @@ local function drawFieldPlane(game, vw, vh, Renderer)
   local transitioning = Transition and Transition.isActive and Transition.isActive()
   Oam.resetFrame()
   local prev = Oam.setLayer("world")
+  local function exchange(current, replacement)
+    return Renderer and Renderer:exchangeWorldCanvas(current, replacement)
+  end
   if Tilt.active() and not transitioning and Renderer and Renderer.beginUprightPass then
-    FieldView.draw(game, vw, vh, { skipActors = true })
+    FieldView.draw(game, vw, vh, { skipActors = true, exchangeCanvas = exchange })
     Renderer:beginUprightPass()
     FieldView.draw(game, vw, vh, { actorsOnly = true, billboard = true })
     Renderer:endUprightPass()
   else
-    FieldView.draw(game, vw, vh)
+    FieldView.draw(game, vw, vh, { exchangeCanvas = exchange })
   end
   Oam.setLayer(prev)
   Oam.animateSprites("world")
@@ -439,6 +442,8 @@ end
 Display.presentFlat = presentFlat
 
 function Display.present(game, winW, winH)
+  local Stream = package.loaded["src.core.game3.asset_stream"]
+  if Stream then Stream.frameComplete() end
   if not Display.planesBroken then
     local ok, err = pcall(presentPlanes, game)
     if ok then return true end

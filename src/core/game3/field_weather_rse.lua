@@ -1931,6 +1931,39 @@ local function drawTiled(sheet, frame, baseX, baseY, ox, oy, cw, ch)
   local sy = oy + (baseY % 64) - 64
   while sx > -64 do sx = sx - 64 end
   while sy > -64 do sy = sy - 64 end
+  if love.graphics.newSpriteBatch then
+    local r, g, b, a = love.graphics.getColor()
+    local bucket = r == 1 and g == 1 and b == 1 and a == 1 and "tiledBase" or "tiledTint"
+    local store = sheet[bucket] or {}; sheet[bucket] = store
+    local key = table.concat({ frame, sx, sy, cw, ch, r, g, b, a }, ":")
+    if store.key ~= key then
+      local q = sheetQuad(sheet, frame, 8, 8)
+      local count = (math.floor((cw - sx) / 64) + 1) * (math.floor((ch - sy) / 64) + 1)
+      count = count * (type(q) == "table" and #q or 1)
+      if not store.batch or store.capacity < count then
+        store.batch = love.graphics.newSpriteBatch(sheet.image, count, "dynamic")
+        store.capacity = count
+      end
+      local batch = store.batch
+      batch:clear()
+      -- Image draws store their colour as bytes in the vertex buffer. Use
+      -- the same byte conversion here, including fractional EVA/16, instead
+      -- of applying a float constant colour to the finished SpriteBatch.
+      batch:setColor(r, g, b, a)
+      for y = sy, ch, 64 do
+        for x = sx, cw, 64 do
+          if type(q) == "table" then
+            for _, part in ipairs(q) do batch:add(part[1], x + part[2], y + part[3]) end
+          else batch:add(q, x, y) end
+        end
+      end
+      store.key = key
+    end
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(store.batch)
+    love.graphics.setColor(r, g, b, a)
+    return
+  end
   for y = sy, ch, 64 do
     for x = sx, cw, 64 do
       drawSheetFrame(sheet, frame, 8, 8, x, y)
@@ -1988,16 +2021,39 @@ local function drawPriority1(A, ox, oy, cw, ch)
 end
 
 -- pokeemerald/src/field_weather.c:459 ApplyColorMap
-local function colorMapPass(A, cw, ch)
+local function colorMapPass(A, cw, ch, exchangeCanvas)
   if S.colorMapIndex == 0 or not A.shader then return end
   local cur = love.graphics.getCanvas()
   if not cur then return end
   cw, ch = cur:getWidth(), cur:getHeight()
   local tmp = R._tmpCanvas
   if not tmp or tmp:getWidth() ~= cw or tmp:getHeight() ~= ch then
-    tmp = love.graphics.newCanvas(cw, ch)
+    if tmp and tmp.release then tmp:release() end
+    tmp = love.graphics.newCanvas(cw, ch, { dpiscale = cur.getDPIScale and cur:getDPIScale() or 1,
+      format = cur.getFormat and cur:getFormat() or "normal" })
     tmp:setFilter("nearest", "nearest")
     R._tmpCanvas = tmp
+  end
+  if exchangeCanvas and not love.graphics.getScissor() and exchangeCanvas(cur, tmp) then
+    local shader = love.graphics.getShader()
+    local blend, alpha = love.graphics.getBlendMode()
+    local r, g, b, a = love.graphics.getColor()
+    -- A transform-only push leaves ownership of the new target with the
+    -- caller. push("all") would restore the old canvas and switch twice more.
+    love.graphics.push()
+    love.graphics.origin()
+    love.graphics.setCanvas(tmp)
+    love.graphics.setBlendMode("replace", "premultiplied")
+    love.graphics.setColor(1, 1, 1, 1)
+    colorMapUniforms(A.shader, COLOR_MAP_DARK_CONTRAST)
+    love.graphics.setShader(A.shader)
+    love.graphics.draw(cur, 0, 0)
+    love.graphics.pop()
+    love.graphics.setShader(shader)
+    love.graphics.setBlendMode(blend, alpha)
+    love.graphics.setColor(r, g, b, a)
+    R._tmpCanvas = cur
+    return tmp
   end
   love.graphics.push("all")
   love.graphics.origin()
@@ -2028,7 +2084,7 @@ function R.drawBelow(camX, camY, canvasW, canvasH)
   love.graphics.pop()
 end
 
-function R.draw(camX, camY, canvasW, canvasH)
+function R.draw(camX, camY, canvasW, canvasH, exchangeCanvas)
   R.setCamera(camX, camY)
   if not S.started or not S.initialized then return end
   local A = loadAssets()
@@ -2041,7 +2097,9 @@ function R.draw(camX, camY, canvasW, canvasH)
   if R._belowFrame ~= S.frames then
     drawPriority2(A, camX, camY, ox, oy, canvasW, canvasH)
   end
-  colorMapPass(A, canvasW, canvasH)
+  love.graphics.pop()
+  colorMapPass(A, canvasW, canvasH, exchangeCanvas)
+  love.graphics.push("all")
   drawPriority1(A, ox, oy, canvasW, canvasH)
   love.graphics.pop()
   love.graphics.setColor(1, 1, 1, 1)

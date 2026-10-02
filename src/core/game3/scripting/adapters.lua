@@ -27,6 +27,17 @@ local function stdString(id)
 end
 Adapters.stdString = stdString
 
+-- pokeemerald/src/scrcmd.c:1599 StringCopy(..., gDecorations[decorId].name)
+local function decorationName(src)
+  local ok, DecorInv = pcall(require, "src.core.game3.rse.decoration_inventory")
+  if not ok or type(DecorInv) ~= "table" or not DecorInv.info then return nil end
+  local okInfo, info = pcall(DecorInv.info, src)
+  if okInfo and type(info) == "table" and type(info.name) == "string" and info.name ~= "" then
+    return info.name
+  end
+  return nil
+end
+
 -- pokefirered/src/event_object_movement.c:5208 GetOppositeDirection
 local OPPOSITE_DIR = { down = "up", up = "down", left = "right", right = "left" }
 
@@ -160,6 +171,9 @@ function Adapters.stub(opts)
     end
     if op == "bufferstdstring" then
       return stdString(src)
+    end
+    if op == "bufferdecorationname" then
+      return decorationName(src)
     end
     return nil
   end
@@ -1526,6 +1540,9 @@ function Adapters.host(mod, game, world)
       end
       if op == "bufferstdstring" then
         return stdString(src) or tostring(src)
+      end
+      if op == "bufferdecorationname" then
+        return decorationName(src)
       end
       if op == "bufferpartymonnick" then
         local Runtime = package.loaded["src.core.game3.runtime"]

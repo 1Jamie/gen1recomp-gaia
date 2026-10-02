@@ -130,11 +130,11 @@ function FieldWeather.drawBelow(camX, camY, canvasW, canvasH)
   if E then E.drawBelow(camX or 0, camY or 0, canvasW or W, canvasH or H) end
 end
 
-function FieldWeather.draw(camX, camY, canvasW, canvasH)
+function FieldWeather.draw(camX, camY, canvasW, canvasH, exchangeCanvas)
   if Weather.isSuspended() then return end
   local E = Weather.rseEngine()
   if E then
-    E.draw(camX or 0, camY or 0, canvasW or W, canvasH or H)
+    E.draw(camX or 0, camY or 0, canvasW or W, canvasH or H, exchangeCanvas)
     return
   end
   local w = FieldWeather._current

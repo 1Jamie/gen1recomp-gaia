@@ -335,6 +335,9 @@ return function(game)
   patch(Field, "tryWalkIntoSign", function() return false end)
   patch(TrainerSight, "check", function() return false end)
   patch(ForcedMovement, "onStepFinished", function() return false end)
+  -- Keep Cycling Road's automatic downhill steps from restarting movement
+  -- during stepOnce's settling window, like the other forced paths above.
+  patch(Player, "cyclingRoadPull", function() return false end)
   patch(StepEvents, "onStepTaken", function() return false end)
   patch(Encounters, "onStep", function() return nil end)
   patch(Encounters, "noteGrass", function() return nil end)

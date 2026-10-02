@@ -156,7 +156,7 @@ function Map.refreshWorld(game, reachW, reachH, rootId)
     local queue, seen, entries = {}, {}, {}
     for _, entry in ipairs(Map.world) do
       local pair = entry.def and (entry.def.pair or (entry.def.midLayout and entry.def.midLayout.pair))
-      if sync and pair and Map.warmNear(entry, x0, y0, x1, y1) then
+      if sync and pair and not NativeTileset.prefetch and Map.warmNear(entry, x0, y0, x1, y1) then
         if NativeTileset.ready(pair) then pcall(NativeTileset.get, pair) end
       elseif type(pair) == "string" and not (NativeTileset._pairs and NativeTileset._pairs[pair]) then
         if not seen[pair] then
@@ -170,6 +170,12 @@ function Map.refreshWorld(game, reachW, reachH, rootId)
     end
     Map._warmQueue = queue[1] and queue or nil
     Map._warmEntries = queue[1] and entries or nil
+    if NativeTileset._stream then
+      local root = maps[rootId]
+      local pair = root and (root.pair or (root.midLayout and root.midLayout.pair))
+      if pair then seen[pair] = true end
+      NativeTileset._stream:retain(seen)
+    end
   end
   Map._worldRoot = rootId
   Map._worldReachW = reachW
@@ -190,10 +196,27 @@ function Map.warmNow(game, rootId)
   local vw = (FieldView and FieldView._viewW) or (Display and Display.W) or 240
   local vh = (FieldView and FieldView._viewH) or (Display and Display.H) or 160
   Map._warmPairs = nil
-  return Map.refreshWorld(game, math.ceil(vw / 16), math.ceil(vh / 16), rootId)
+  local world = Map.refreshWorld(game, math.ceil(vw / 16), math.ceil(vh / 16), rootId)
+  local Native = package.loaded["src.core.game3.tileset_native"]
+  local def = host_map_def(game, rootId)
+  local pair = def and (def.pair or (def.midLayout and def.midLayout.pair))
+  if Native and pair and Native.ready(pair) then pcall(Native.get, pair) end
+  local Ow = package.loaded["src.core.game3.ow_sprites"]
+  if Ow and Ow.get and Ow.playerGraphicsId then
+    local gid = Ow.playerGraphicsId(game)
+    if gid then pcall(Ow.get, gid) end
+    local Objects = package.loaded["src.core.game3.objects"]
+    local x0, y0, x1, y1 = Map.warmRect()
+    for _, eo in ipairs(Objects and Objects.forDraw and Objects.forDraw() or {}) do
+      local x, y = eo.cellX or 0, eo.cellY or 0
+      if eo.graphicsId and (not x0 or (x >= x0 and x <= x1 and y >= y0 and y <= y1)) then pcall(Ow.get, eo.graphicsId) end
+    end
+  end
+  Map.stepWarm(game)
+  return world
 end
 
-function Map.warmRect()
+function Map.warmRect(margin)
   local P = package.loaded["src.core.game3.player"]
   local px, py = P and tonumber(P.cellX), P and tonumber(P.cellY)
   if not (px and py) then return nil end
@@ -202,8 +225,9 @@ function Map.warmRect()
   local vw = (FieldView and FieldView._viewW) or (Display and Display.W) or 240
   local vh = (FieldView and FieldView._viewH) or (Display and Display.H) or 160
   local cols, rows = math.ceil(vw / 16), math.ceil(vh / 16)
-  local mx = math.ceil(cols / 2) + 1 + cols * Map.WARM_MARGIN_SCREENS
-  local my = math.ceil(rows / 2) + 1 + rows * Map.WARM_MARGIN_SCREENS
+  margin = margin or Map.WARM_MARGIN_SCREENS
+  local mx = math.ceil(cols / 2) + 1 + cols * margin
+  local my = math.ceil(rows / 2) + 1 + rows * margin
   return px - mx, py - my, px + mx, py + my
 end
 
@@ -216,7 +240,70 @@ function Map.warmNear(entry, x0, y0, x1, y1)
   return ox + w > x0 and ox <= x1 and oy + h > y0 and oy <= y1
 end
 
-function Map.stepWarm()
+function Map.stepWarm(game)
+  local Stream = package.loaded["src.core.game3.asset_stream"]
+  local Native = package.loaded["src.core.game3.tileset_native"]
+  if Native and Native.prefetch then
+    local x0, y0, x1, y1 = Map.warmRect()
+    Map._warmScanTick = ((Map._warmScanTick or 0) + 1) % 4
+    if Map._warmScanTick ~= 0 and Map._warmScanWorld == Map.world
+        and Map._warmScanX == x0 and Map._warmScanY == y0
+        and Map._warmScanX1 == x1 and Map._warmScanY1 == y1 then
+      if Stream then Stream.update() end
+      return true
+    end
+    Map._warmScanWorld = Map.world
+    Map._warmScanX, Map._warmScanY, Map._warmScanX1, Map._warmScanY1 = x0, y0, x1, y1
+    local vx0, vy0, vx1, vy1 = Map.warmRect(0)
+    local wantedPairs = {}
+    local priorities = {}
+    local def = Map.currentDef()
+    local currentPair = def and (def.pair or (def.midLayout and def.midLayout.pair))
+    if currentPair then wantedPairs[currentPair], priorities[currentPair] = true, 0 end
+    local queue = Map._warmQueue or {}
+    for i = #queue, 1, -1 do
+      local pair = queue[i]
+      local near = not (Map._warmEntries and Map._warmEntries[pair])
+      for _, entry in ipairs(Map._warmEntries and Map._warmEntries[pair] or {}) do
+        if Map.warmNear(entry, x0, y0, x1, y1) then near = true end
+        if Map.warmNear(entry, vx0, vy0, vx1, vy1) then priorities[pair] = 0 end
+      end
+      if Native._pairs[pair] then table.remove(queue, i)
+      elseif near then wantedPairs[pair] = true end
+    end
+    if not queue[1] then Map._warmQueue = nil end
+    if Native._stream then Native._stream:retain(wantedPairs) end
+    for pair in pairs(wantedPairs) do Native.prefetch(pair, priorities[pair] or 1) end
+    local Ow = package.loaded["src.core.game3.ow_sprites"]
+    if game and Ow and Ow.prefetch then
+      local wanted = {}
+      local function actor(eo, ox, oy)
+        if not (eo.visible and not eo.hidden and not eo.invisible) then return end
+        local x, y = (eo.cellX or 0) + (ox or 0), (eo.cellY or 0) + (oy or 0)
+        if not x0 or (x >= x0 and x <= x1 and y >= y0 and y <= y1) then
+          local gid = tonumber(eo.graphicsId)
+          if gid then
+            local visible = not vx0 or (x >= vx0 and x <= vx1 and y >= vy0 and y <= vy1)
+            wanted[gid] = math.min(wanted[gid] or 1, visible and 0 or 1)
+          end
+        end
+      end
+      local Obj = package.loaded["src.core.game3.objects"]
+      for _, eo in ipairs(Obj and Obj.forDraw and Obj.forDraw() or {}) do actor(eo) end
+      local Ghosts = package.loaded["src.core.game3.ghosts"]
+      for _, entry in ipairs(Map.world or {}) do
+        if Map.warmNear(entry, x0, y0, x1, y1) then
+          for _, eo in ipairs(Ghosts and Ghosts.forDraw(entry.id) or {}) do actor(eo, entry.ox, entry.oy) end
+        end
+      end
+      local gid = Ow.playerGraphicsId(game)
+      if gid then wanted[gid] = 0 end
+      if Ow._stream then Ow._stream:retain(wanted) end
+      for id, priority in pairs(wanted) do Ow.prefetch(id, priority) end
+    end
+    if Stream then Stream.update() end
+    return true
+  end
   local queue = Map._warmQueue
   if not queue then return false end
   local NativeTileset = package.loaded["src.core.game3.tileset_native"]
