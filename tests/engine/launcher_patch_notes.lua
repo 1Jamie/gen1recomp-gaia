@@ -93,6 +93,27 @@ do
   package.loaded["src.core.Version"] = oldVersion
 end
 
+do
+  local oldVersion = package.loaded["src.core.Version"]
+  package.loaded["src.core.Version"] = { engine = "0.3.32" }
+  local body, ver = PatchNotes.body({
+    state = function()
+      return { notes = "pending update notes", latest = "0.3.46" }
+    end,
+  })
+  eq(body, "pending update notes",
+    "updater notes are shown when they belong to a newer release than the running engine")
+  eq(ver, "0.3.46", "the modal version is the release the notes describe")
+  love.filesystem.write("updates/notes_cache.json",
+    '{"0.3.31":"older","0.3.46":"cached latest notes"}')
+  body, ver = PatchNotes.body(nil)
+  eq(body, "cached latest notes",
+    "with no check result, a release build falls back to the newest cached notes")
+  eq(ver, "0.3.46", "the cache fallback names that release")
+  love.filesystem.remove("updates/notes_cache.json")
+  package.loaded["src.core.Version"] = oldVersion
+end
+
 imp._appPatchNotes = true
 local modal = drawAndCapture(imp)
 check(modal:find("Patch notes", 1, true) ~= nil, "the modal titles itself")

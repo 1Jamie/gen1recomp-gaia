@@ -90,6 +90,89 @@ local function purgeBundledModules()
   end
 end
 
+function Boot.saveArchivePath(rel)
+  local fs = love and love.filesystem
+  local save = fs and fs.getSaveDirectory and fs.getSaveDirectory()
+  if type(save) ~= "string" or save == "" or type(rel) ~= "string" then
+    return nil
+  end
+  rel = rel:gsub("\\", "/"):gsub("^/+", "")
+  local windows = love.system and love.system.getOS
+    and love.system.getOS() == "Windows"
+  local sep = windows and "\\" or "/"
+  if windows then
+    save = save:gsub("/", "\\")
+    rel = rel:gsub("/", "\\")
+  end
+  if save:sub(-1) ~= sep then save = save .. sep end
+  return save .. rel
+end
+
+local physfsMountFn, physfsUnmountFn
+
+local function resolvePhysfs()
+  if physfsMountFn ~= nil then return physfsMountFn and true or false end
+  physfsMountFn, physfsUnmountFn = false, false
+  local ok, ffi = pcall(require, "ffi")
+  if not ok then return false end
+  pcall(ffi.cdef, [[
+    int PHYSFS_mount(const char *newDir, const char *mountPoint, int appendToPath);
+    int PHYSFS_unmount(const char *oldDir);
+  ]])
+  local libs = {
+    function() return ffi.C end,
+    function() return ffi.load("love") end,
+  }
+  for _, getlib in ipairs(libs) do
+    local okl, lib = pcall(getlib)
+    if okl and lib then
+      local okm, mount = pcall(function() return lib.PHYSFS_mount end)
+      local oku, unmount = pcall(function() return lib.PHYSFS_unmount end)
+      if okm and mount and oku and unmount then
+        physfsMountFn = mount
+        physfsUnmountFn = unmount
+        return true
+      end
+    end
+  end
+  return false
+end
+
+local function mountArchive(rel, mountpoint, appendToPath)
+  local fs = love.filesystem
+  if fs.mount(rel, mountpoint, appendToPath) then
+    return { kind = "love", path = rel }
+  end
+  local abs = Boot.saveArchivePath(rel)
+  if not abs then return nil end
+  if type(Boot._directMount) == "function" then
+    if Boot._directMount(abs, mountpoint, appendToPath) then
+      return { kind = "physfs", path = abs }
+    end
+    return nil
+  end
+  if not resolvePhysfs() then return nil end
+  local okr, ret = pcall(physfsMountFn, abs, mountpoint or "/", appendToPath and 1 or 0)
+  if okr and ret ~= 0 then
+    return { kind = "physfs", path = abs }
+  end
+  return nil
+end
+
+local function unmountArchive(mounted)
+  if type(mounted) ~= "table" then return false end
+  if mounted.kind == "love" then
+    return love.filesystem.unmount(mounted.path) and true or false
+  end
+  if mounted.kind ~= "physfs" then return false end
+  if type(Boot._directUnmount) == "function" then
+    return Boot._directUnmount(mounted.path) and true or false
+  end
+  if not physfsUnmountFn then return false end
+  local okr, ret = pcall(physfsUnmountFn, mounted.path)
+  return okr and ret ~= 0
+end
+
 -- Boot.probePayload(rel)
 --   -> { engine = string, minShell = number, payloadHost = string } | nil, err
 --
@@ -98,7 +181,8 @@ end
 -- loadstring (NEVER require -- we must not cache or run it as a module), then
 -- unmount.  Version.lua is zero-require, so running its chunk is safe.
 function Boot.probePayload(rel)
-  if not love.filesystem.mount(rel, PROBE_MOUNT) then
+  local mounted = mountArchive(rel, PROBE_MOUNT, false)
+  if not mounted then
     return nil, "could not mount " .. tostring(rel)
   end
   local chunkPath = PROBE_MOUNT .. "/src/core/Version.lua"
@@ -109,7 +193,7 @@ function Boot.probePayload(rel)
     if not chunk then error("Version.lua would not compile", 0) end
     return chunk()
   end)
-  love.filesystem.unmount(rel)
+  unmountArchive(mounted)
   if not ok then return nil, tostring(result) end
   local v = result
   if type(v) ~= "table" or type(v.engine) ~= "string" then
@@ -211,7 +295,8 @@ local function chainload(name, args)
 
   -- Prepend-mount the payload at "/" (appendToPath = false) so its files win
   -- over the fused source for every subsequent require / love.filesystem read.
-  if not love.filesystem.mount(rel, "/", false) then
+  local mounted = mountArchive(rel, "/", false)
+  if not mounted then
     love.filesystem.remove(PENDING)
     return false
   end
@@ -240,7 +325,7 @@ local function chainload(name, args)
     pcall(love.filesystem.append, PAYLOAD_DIR .. "/handoff.log",
       name .. ": " .. tostring(err) .. "\n")
     _G.POKEPORT_PAYLOAD_MOUNTED = nil
-    pcall(love.filesystem.unmount, rel)
+    pcall(unmountArchive, mounted)
     purgeBundledModules()
     restoreCallbacks(snapshot)
     if not love.filesystem.remove(rel) then markBad(name, err) end

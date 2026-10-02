@@ -8,6 +8,7 @@
 --      on disk even when the updater has not run
 
 local Json = require("src.link.Json")
+local Semver = require("src.update.Semver")
 
 local PatchNotes = {}
 
@@ -62,6 +63,13 @@ function PatchNotes.fromCache(engine)
           if doc[engine] and nonempty(doc[engine]) then
             return doc[engine], engine
           end
+          local bestVer, bestNotes
+          for ver, notes in pairs(doc) do
+            if nonempty(notes) and (not bestVer or Semver.compare(ver, bestVer) > 0) then
+              bestVer, bestNotes = ver, notes
+            end
+          end
+          if bestNotes then return bestNotes, bestVer end
         else
           for ver, notes in pairs(doc) do
             if nonempty(notes) then
@@ -128,7 +136,7 @@ function PatchNotes.body(Check)
   local engine = (Version and Version.engine) or "?"
 
   local notes, ver = PatchNotes.fromCheck(Check)
-  if notes and (engine:match("^0%.0%.0%-dev") or ver == engine or ver == nil) then
+  if notes then
     return notes, ver or engine
   end
 

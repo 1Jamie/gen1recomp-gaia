@@ -218,6 +218,30 @@ function HostShell.pumpHostEvents()
   pcall(love.event.pump)
 end
 
+local function windowsModulePath()
+  local ok, ffi = pcall(require, "ffi")
+  if not ok then return nil end
+  pcall(ffi.cdef, [[
+    unsigned long GetModuleFileNameW(void *hModule, wchar_t *lpFilename, unsigned long nSize);
+    int WideCharToMultiByte(unsigned int CodePage, unsigned long dwFlags,
+      const wchar_t *lpWideCharStr, int cchWideChar,
+      char *lpMultiByteStr, int cbMultiByte,
+      const char *lpDefaultChar, int *lpUsedDefaultChar);
+  ]])
+  local okk, k32 = pcall(ffi.load, "kernel32")
+  if not okk or not k32 then return nil end
+  local buf = ffi.new("wchar_t[32768]")
+  local n = k32.GetModuleFileNameW(nil, buf, 32768)
+  if n == 0 then return nil end
+  local bytes = k32.WideCharToMultiByte(65001, 0, buf, n, nil, 0, nil, nil)
+  if not bytes or bytes <= 0 then return nil end
+  local out = ffi.new("char[?]", bytes)
+  if k32.WideCharToMultiByte(65001, 0, buf, n, out, bytes, nil, nil) <= 0 then
+    return nil
+  end
+  return ffi.string(out, bytes)
+end
+
 -- Restart the whole app. The obvious love.event.quit("restart") re-runs LÖVE's
 -- boot in-process, which calls love.filesystem.init a second time -- and inside
 -- an AppImage physfs is already initialized, so that second init throws
@@ -295,9 +319,11 @@ function HostShell.restart()
     return
   end
 
-  if osName == "Windows" then
-    local exe = love.filesystem.isFused and love.filesystem.isFused()
-      and love.filesystem.getSource()
+  if osName == "Windows" and love.filesystem.isFused and love.filesystem.isFused() then
+    local exe = love.filesystem.getSource()
+    if type(exe) ~= "string" or exe == "" then
+      exe = windowsModulePath()
+    end
     if exe and exe ~= "" then
       local cmd = 'start "" "' .. exe:gsub("/", "\\") .. '"'
       if os.execute(cmd) then
