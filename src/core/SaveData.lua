@@ -2469,11 +2469,19 @@ function SaveData.runMigrations(save, modChains, activeMods)
   return save
 end
 
+local function rollTrainerId()
+  if love and love.math and love.math.random then
+    return love.math.random(0, 65535)
+  end
+  return math.random(0, 65535)
+end
+SaveData.rollTrainerId = rollTrainerId
+
 -- saves from before the trainer ID existed: backfill once on load
 -- (like the OT backfill for old saves)
 SaveData.addCoreMigration(1, function(save)
   if save.player and not save.player.id then
-    save.player.id = math.random(0, 65535)
+    save.player.id = rollTrainerId()
   end
 end)
 
@@ -3022,9 +3030,10 @@ function SaveData.newGame(boot)
       facing = facing,
       name = boot.playerName or "RED",
       rival = boot.rivalName or "BLUE",
-      -- 16-bit trainer ID rolled at new game (wPlayerID, filled from
-      -- hRandomAdd in OakSpeech)
-      id = math.random(0, 65535),
+      -- 16-bit trainer ID rolled at new game (wPlayerID). The cart copies
+      -- hRandomAdd/hRandomSub, which have been advancing since power-on;
+      -- love.math is the stream that has actually been advancing here.
+      id = rollTrainerId(),
     },
     flags = {},
     inventory = {},

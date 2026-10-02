@@ -697,7 +697,7 @@ end
 
 -- newly obtained mons carry the player's OT name/ID (status screen)
 local function stampOT(save, mon)
-  save.player.id = save.player.id or math.random(0, 65535)
+  save.player.id = save.player.id or require("src.core.SaveData").rollTrainerId()
   mon.ot = mon.ot or save.player.name
   -- engine/battle/experience.asm:69
   if not mon.traded then mon.otId = mon.otId or save.player.id end
