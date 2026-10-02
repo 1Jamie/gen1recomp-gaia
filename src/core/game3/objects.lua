@@ -2198,10 +2198,6 @@ function Objects.hideObjectAt(localId, mapGroup, mapNum)
     or (on_named_map(mapGroup, mapNum) and Objects._byId[localId] or nil)
   if not eo then return false end
   eo.invisible = true
-  eo.hidden = true
-  eo.visible = false
-  if eo.def then eo.def.hidden = true end
-  Objects._tracks[eo.localId] = nil
   return true
 end
 

@@ -85,8 +85,8 @@ do
   local hiddenOk = Objects.hideObjectAt(2, 0, 0)
   assert(hiddenOk == true, "hideObjectAt should return true")
   assert(carriedBoat.invisible == true, "carriedBoat should be invisible")
-  assert(carriedBoat.hidden == true, "carriedBoat should be hidden")
-  assert(carriedBoat.visible == false, "carriedBoat should not be visible")
+  assert(carriedBoat.hidden ~= true, "hideobjectat leaves the boat active")
+  assert(carriedBoat.visible == true, "hideobjectat does not clear visible")
 
   -- Check forDraw: carried boat should NOT be in draw list
   local drawList = Objects.forDraw()

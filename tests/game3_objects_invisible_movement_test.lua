@@ -91,6 +91,18 @@ Objects.loadMap(nil, MAP, pcDef())
 Objects.addObject(6)
 check(not has(Objects.forDraw(), 6), "journal 6 still not drawn")
 
+print("[test] 9. hideobjectat stays talkable")
+local nurse = Objects.find(1)
+Objects.hideObjectAt(1)
+check(nurse.invisible == true, "hideobjectat sets invisible")
+check(nurse.visible and not nurse.hidden, "hideobjectat leaves the object active")
+check(Objects.at(7, 2) == nurse, "Objects.at still finds a hideobjectat object")
+check(Objects.blocks(7, 2), "hideobjectat object still occupies its tile")
+check(not has(Objects.forDraw(), 1), "hideobjectat object is not drawn")
+Objects.showObjectAt(1)
+check(nurse.invisible ~= true, "showobjectat clears invisible")
+check(has(Objects.forDraw(), 1), "showobjectat draws it again")
+
 if failed > 0 then
   print("[test] FAILED " .. failed)
   os.exit(1)
