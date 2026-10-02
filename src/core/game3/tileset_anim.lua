@@ -121,7 +121,8 @@ function TilesetAnim.rseFrame(row, timer)
 end
 
 local function rse_piece(entry, bank, blob, lut, frame, k, nMids, over)
-  local keys = over and bank.overKeys or bank.underKeys
+  local keys
+  if over then keys = bank.overKeys else keys = bank.underKeys end
   if not keys then
     keys = {}
     if over then bank.overKeys = keys else bank.underKeys = keys end
