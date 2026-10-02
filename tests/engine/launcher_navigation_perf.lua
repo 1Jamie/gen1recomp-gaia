@@ -65,6 +65,27 @@ do
     "update schedules a bounded thumbnail and stats batch for visible rows")
 end
 
+-- Rows already resolved to "failed" (or with no thumbnail) must not spend the
+-- per-frame download allowance, or two of them above a card starve it forever.
+do
+  local started = {}
+  local imp = setmetatable({ tab = "find", findLoaded = true,
+    _findThumbs = { dead1 = false, dead2 = false },
+    _findVisibleEntries = {
+      { id = "dead1", thumbnail = "https://example.invalid/1.png" },
+      { id = "dead2", thumbnail = "https://example.invalid/2.png" },
+      { id = "dead3" },
+      { id = "alive", thumbnail = "https://example.invalid/alive.png" },
+    } }, RomImporter)
+  imp._findThumbPending = function() return false end
+  imp._findStatsCached = function() return {} end
+  imp._startFindThumb = function(_, entry) started[#started + 1] = entry.id end
+  imp:_queueFindEnrichment()
+  eq(#started, 1, "only the row that can load starts a download")
+  eq(started[1], "alive",
+    "dead rows above a card do not starve it of its download")
+end
+
 do
   local requests = 0
   local imp = setmetatable({}, RomImporter)

@@ -8501,8 +8501,12 @@ function RomImporter:_queueFindEnrichment()
   if not visible then return end
   local thumbnails, stats = 0, 0
   for _, entry in ipairs(visible) do
+    -- A row already resolved to "failed" (or with no thumbnail at all) must not
+    -- spend this frame's allowance: _startFindThumb ignores it, so counting it
+    -- let two dead rows above a card starve it of a download forever.
     if thumbnails < FIND_ENRICH_PER_FRAME
         and self:_findThumb(entry) == nil
+        and not (self._findThumbs and self._findThumbs[entry.id] ~= nil)
         and not self:_findThumbPending(entry.id) then
       self:_startFindThumb(entry)
       thumbnails = thumbnails + 1
