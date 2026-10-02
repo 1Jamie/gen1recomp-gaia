@@ -116,6 +116,24 @@ function Stream.new(kind, cache, root, upload, publish)
   return s
 end
 
+-- CPU results are published on receipt, without consuming a graphics slice.
+function Stream.newTask(kind, publish)
+  local payloads = {}
+  local cache = { assetWorkerSpec = function(_, _, _, key)
+    return { task = true, payload = payloads[key] }
+  end }
+  local s = Stream.new(kind, cache, "", nil, function(key, data, err)
+    payloads[key] = nil
+    publish(key, data, err)
+  end)
+  function s:submit(key, payload, priority)
+    payloads[key] = payload
+    self:prefetch(key, priority)
+    payloads[key] = nil
+  end
+  return s
+end
+
 function Stream.poll()
   if output then
     local result = output:pop()
@@ -130,6 +148,10 @@ function Stream.poll()
       if job and not job.cancelled then
         job.data, job.error, job.done = result.data, result.error, true
         record(job, "decode", result.seconds, "worker")
+        if job.spec.task then
+          job.owner.publish(job.key, job.data, job.error)
+          job.owner.pending[job.key], jobs[job.id], job.cancelled = nil, nil, true
+        end
       end
     end
   end
@@ -141,11 +163,11 @@ function Stream.poll()
   if active then return end
   local decoded = 0
   for _, job in ipairs(queue) do if not job.cancelled and job.data then decoded = decoded + 1 end end
-  if decoded >= Stream.MAX_DECODED then return end
   local nextJob
   for _, job in ipairs(queue) do
     if not job.cancelled and not job.done and job ~= active and not job.sent then
-      if job.spec and (not nextJob or job.priority < nextJob.priority) then nextJob = job end
+      if job.spec and (job.spec.task or decoded < Stream.MAX_DECODED)
+          and (not nextJob or job.priority < nextJob.priority) then nextJob = job end
     end
   end
   if nextJob and not Stream.workerFailed and startWorker() then

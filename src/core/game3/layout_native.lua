@@ -12,7 +12,7 @@ local function wrap_border(cx, cy, w, h, bw, bh)
   return bx, by
 end
 
-function LayoutNative.fromDecoded(decoded, mapId, pair)
+function LayoutNative.fromDecoded(decoded, mapId, pair, sourceBlob)
   local self = setmetatable({
     mapId = mapId,
     pair = pair or "sevii_outdoor",
@@ -25,8 +25,29 @@ function LayoutNative.fromDecoded(decoded, mapId, pair)
     borderMids = decoded.borderMids or { 0 },
     cells = decoded.cells or {},
     overrides = {}, -- [cy*1024+cx] = { mid, coll, elev }
+    _revision = 0,
+    _workerSource = sourceBlob and { blob = sourceBlob, cells = decoded.cells,
+      width = decoded.width, height = decoded.height, trueWidth = decoded.trueWidth or decoded.width,
+      trueHeight = decoded.trueHeight or decoded.height },
   }, LayoutNative)
   return self
+end
+
+-- Imported base grids are immutable in the built-in runtime; edits live in
+-- overrides. Custom/mod layouts use sampled snapshots instead of this path.
+function LayoutNative:workerPacked()
+  local s = self._workerSource
+  if not s or self.cells ~= s.cells or self.width ~= s.width or self.height ~= s.height
+      or self.trueWidth ~= s.trueWidth or self.trueHeight ~= s.trueHeight
+      or self.cellAt ~= LayoutNative.cellAt or self.midAt ~= LayoutNative.midAt then return nil end
+  local Assets = package.loaded["src.render.Assets"]
+  if Assets and Assets.loader and #Assets.loader:overrideOrder() > 0 then return nil end
+  local overrides, borders = {}, {}
+  for k, row in pairs(self.overrides) do overrides[k] = { mid = row.mid } end
+  for i = 1, self.borderWidth * self.borderHeight do borders[i] = self.borderMids[i] end
+  return { blob = s.blob, off = 17 + (s.blob:byte(15) * s.blob:byte(16)) * 2,
+    width = self.width, trueWidth = self.trueWidth, trueHeight = self.trueHeight,
+    borderWidth = self.borderWidth, borderHeight = self.borderHeight, borderMids = borders, overrides = overrides }
 end
 
 function LayoutNative:cellAt(cx, cy)
@@ -101,6 +122,7 @@ function LayoutNative:collArray()
 end
 
 function LayoutNative:applyOverride(x, y, mid, coll, elev)
+  self._revision = (self._revision or 0) + 1
   x, y = tonumber(x) or 0, tonumber(y) or 0
   self.overrides[y * 1024 + x] = {
     mid = tonumber(mid) or 0,
@@ -159,6 +181,7 @@ function LayoutNative:stamp(src, ox, oy)
     end
   end
   markDirty()
+  if n > 0 then self._revision = (self._revision or 0) + 1 end
   return n
 end
 
@@ -177,12 +200,15 @@ function LayoutNative:setMetatiles(rows)
     n = n + 1
     cells[n * 2 - 1], cells[n * 2] = x, y
   end
-  if n > 0 then markCellsDirty(self, cells, n) end
+  if n > 0 then self._revision = (self._revision or 0) + 1; markCellsDirty(self, cells, n) end
   return n
 end
 
 function LayoutNative:clearOverrides()
-  self.overrides = {}
+  if next(self.overrides) then
+    self._revision = (self._revision or 0) + 1
+    self.overrides = {}
+  end
   local FieldView = package.loaded["src.core.game3.field_view"]
   if FieldView then
     FieldView._nativeDirty = true

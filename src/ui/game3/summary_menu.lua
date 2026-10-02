@@ -322,10 +322,13 @@ local function step_pic_bounce()
 end
 
 -- pokefirered/src/pokemon_summary_screen.c:3956
+-- Emerald's summary has no sEggPicShake table
 local function step_egg_shake()
   local b = SummaryMenu._bounce
   if b.count >= 2 then return end
-  local deltas = SummaryChrome.manifest().eggPicShake[b.vigor + 1]
+  local m = SummaryChrome.manifest()
+  local deltas = m and m.eggPicShake and m.eggPicShake[b.vigor + 1]
+  if not deltas or #deltas == 0 then return end
   local ready = b.delay >= EGG_SHAKE_DELAY[b.vigor]
   b.delay = b.delay + 1
   if not ready then return end

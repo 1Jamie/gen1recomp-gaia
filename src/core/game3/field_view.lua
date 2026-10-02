@@ -1127,16 +1127,24 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
   local visibleCells = FieldView._nativeVisibleCells
   local visiblePairs = FieldView._nativeVisiblePairs
   local baseBx, baseBy = FieldView._nativeBaseBx, FieldView._nativeBaseBy
+  local CellPlan = require("src.core.game3.field_plan")
+  -- A same-layout bulk invalidation can come from a mod editing its cells
+  -- directly. Resnapshot it rather than reuse an older planned window.
+  if FieldView._nativeDirty and FieldView._nativeLayout == layout then CellPlan.invalidate() end
+  local preparedCells = CellPlan.get(mapDef, cx0, cy0, cols, rows, voidMode)
+  FieldView._cellPreparationRoute = preparedCells and "worker" or "sync"
   local function addCell(wx, wy)
     local mid, srcPair, isVoid
-    if Map.worldMidAt then
+    local skip = false
+    if preparedCells then
+      mid, srcPair, isVoid, skip = CellPlan.cell(preparedCells, wx, wy)
+    elseif Map.worldMidAt then
       mid, srcPair, isVoid = Map.worldMidAt(wx, wy, mapDef)
       srcPair = srcPair or pair
     else
       mid, srcPair, isVoid = layout:midAt(wx, wy), pair, false
     end
-    local skip = false
-    if isVoid and voidMode ~= "map" then
+    if not preparedCells and isVoid and voidMode ~= "map" then
       local fill = VoidFill.fillAt(voidMode, wx, wy,
         function(m) return NativeTileset.hasMid(pair, m) end, VoidFill.primaryFor(pair))
       if fill == false then
@@ -1791,6 +1799,8 @@ end
 
 --- Drop cached atlases/sprites (tileset hot-reload).
 function FieldView.invalidate()
+  local Plan = package.loaded["src.core.game3.field_plan"]
+  if Plan then Plan.invalidate() end
   FieldView._atlas = nil
   FieldView._atlasPath = nil
   FieldView._quads = {}

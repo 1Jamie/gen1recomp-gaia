@@ -390,6 +390,16 @@ draw()
 eq(drawn, 60 - 32 + 2 + 64, "the egg pic draws h-flipped at its shaken x")
 SummaryMenu.close()
 Pokemon.frontPic = realFront
+
+print("[test] 13. emerald chrome has no egg shake table")
+for _, manifest in ipairs({ nil, {}, { eggPicShake = {} } }) do
+  MANIFEST = manifest
+  SummaryMenu.openMenu({ { species = 1, isEgg = true, friendship = 5 } }, 1, {})
+  frames(200)
+  eq(SummaryMenu._bounce.dx, 0, "missing eggPicShake leaves the egg still")
+  eq(SummaryMenu._bounce.egg, true, "the summary still treats the mon as an egg")
+  SummaryMenu.close()
+end
 MANIFEST = nil
 
 T.finish("game3_summary_layout_s3_test")

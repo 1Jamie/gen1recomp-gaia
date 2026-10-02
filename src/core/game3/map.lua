@@ -275,6 +275,17 @@ function Map.stepWarm(game)
     if Native._stream then Native._stream:retain(wantedPairs) end
     for pair in pairs(wantedPairs) do Native.prefetch(pair, priorities[pair] or 1) end
     local Ow = package.loaded["src.core.game3.ow_sprites"]
+    local Obj = package.loaded["src.core.game3.objects"]
+    if Obj and Obj.prefetchMap then
+      local wanted = {}
+      for _, entry in ipairs(Map.world or {}) do
+        if Map.warmNear(entry, x0, y0, x1, y1) then
+          wanted[entry.id] = true
+          Obj.prefetchMap(entry.id, entry.def, entry.id == Map.current and 0 or 1)
+        end
+      end
+      Obj.retainPrepared(wanted)
+    end
     if game and Ow and Ow.prefetch then
       local wanted = {}
       local function actor(eo, ox, oy)
@@ -301,6 +312,7 @@ function Map.stepWarm(game)
       if Ow._stream then Ow._stream:retain(wanted) end
       for id, priority in pairs(wanted) do Ow.prefetch(id, priority) end
     end
+    if game then require("src.core.game3.field_plan").prefetch(game) end
     if Stream then Stream.update() end
     return true
   end

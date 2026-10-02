@@ -13,6 +13,7 @@ local Opcodes = require("src.core.game3.scripting.opcodes")
 local GfxIds = require("src.core.game3.scripting.gfx_ids")
 local ModRuntime = require("src.mods.Runtime")
 local VirtualObjects = require("src.core.game3.virtual_objects")
+local Prepare = require("src.core.game3.object_prepare")
 
 local Objects = {}
 
@@ -209,104 +210,135 @@ end
 
 Objects.cloneTemplate = cloneTemplate
 
-local function newEventObject(def, neighbor)
-  -- Shallow-copy template so setobjectxy / removeobject cannot poison the
-  -- shared events.lua / mapDef.objects tables for the rest of the session.
-  local src = def or {}
+local function templateCopy(src)
+  src = src or {}
   local tpl = cloneTemplate(src)
-  def = {}
-  for k, v in pairs(tpl or src) do
-    def[k] = v
-  end
+  local def = {}
+  for k, v in pairs(tpl or src) do def[k] = v end
   if tpl then
     def.localId, def.index, def.x, def.y = src.localId, src.index, src.x, src.y
     def.kind, def.cloneTarget = src.kind, src.cloneTarget
   end
-  local lid = tonumber(def.localId or def.index) or 0
-  local x = tonumber(def.x) or 0
-  local y = tonumber(def.y) or 0
-  local rawMt = canonMt(def.movementType)
-  local mt = rawMt or 0
-  local spec
-  if rawMt then
-    spec = hostSpec(rawMt, def.rangeX, def.rangeY)
-  else
-    local r = def.radius or { x = 1, y = 1 }
-    spec = {
-      movement = def.movement or "STAY", range = def.range or "DOWN",
-      rangeX = r.x, rangeY = r.y, radius = r,
-    }
-  end
-  local facing = (def.facing and facingFromDef(def))
-    or (rawMt and spec.face) or facingFromDef(def)
-  local sprite = def.sprite
+  return def
+end
+local function sameTemplate(src, snapshot)
+  if cloneTemplate(src) then return Prepare.matches(templateCopy(src), snapshot) end
+  return Prepare.matches(src, snapshot)
+end
+
+local function newEventObject(src, neighbor, prepared)
+  local def = templateCopy(src)
+  local x, y = tonumber(def.x) or 0, tonumber(def.y) or 0
   local resolvedGfx = def.graphicsId or def.graphics
-  do
-    local okS, Space = pcall(lazyReq, "src.core.game3.scripting.space")
-    if okS and Space and Space.resolveObjectGraphicsId then
-      local gid = Space.resolveObjectGraphicsId(def, neighbor)
-      if gid then resolvedGfx = gid end
-    end
-  end
-  if not sprite and resolvedGfx then
-    sprite = GfxIds.spriteFor(resolvedGfx)
+  local okS, Sp = pcall(lazyReq, "src.core.game3.scripting.space")
+  if okS and Sp and Sp.resolveObjectGraphicsId then
+    local gid = Sp.resolveObjectGraphicsId(def, neighbor)
+    if gid then resolvedGfx = gid end
   end
   local Coll = Collision()
   local elev = (def.elevation and def.elevation ~= 0 and def.elevation)
     or (Coll and Coll.elevationAt and Coll.elevationAt(x, y)) or 0
   local MapCatalog = package.loaded["src.import.gba.map_catalog"]
     or (pcall(lazyReq, "src.import.gba.map_catalog") and package.loaded["src.import.gba.map_catalog"])
-  local mg, mn = nil, nil
+  local mg, mn
   if MapCatalog and MapCatalog.groupNumFor and (def.mapId or Objects._mapId) then
     mg, mn = MapCatalog.groupNumFor(def.mapId or Objects._mapId)
   end
-  local eo = {
-    localId = lid,
-    originLocalId = tonumber(def.originLocalId or def.localId or def.index) or lid,
-    originMapId = def.originMapId or def.mapId or Objects._mapId,
-    originMapGroup = tonumber(def.originMapGroup or def.mapGroup) or mg,
-    originMapNum = tonumber(def.originMapNum or def.mapNum) or mn,
-    def = def,
-    cellX = x,
-    cellY = y,
-    px = x * CELL,
-    py = y * CELL,
-    homeX = x,
-    homeY = y,
-    facing = facing,
-    sprite = sprite or "SPRITE_YOUNGSTER",
-    graphicsId = resolvedGfx,
-    elevation = elev,
-    currentElevation = tonumber(def.elevation) or 0,
-    movementType = mt,
-    movement = spec.movement,
-    range = spec.range,
-    radius = spec.radius or { x = spec.rangeX, y = spec.rangeY },
-    rangeX = spec.rangeX,
-    rangeY = spec.rangeY,
-    spec = spec,
-    seqIndex = 0,
-    sight = tonumber(def.sight or def.trainerRange) or 0,
-    trainerType = tonumber(def.trainerType) or 0,
-    scriptKey = def.scriptKey,
-    flag = def.flag,
-    visible = objectVisible(def),
-    hidden = not objectVisible(def),
-    -- src/event_object_movement.c:1569
-    invisible = mt == MOVEMENT_TYPE_INVISIBLE,
-    frozen = false,
-    passable = def.passable and true or false,
-    moving = false,
-    progress = 0,
-    stepFrames = WALK_FRAMES,
-    targetX = x,
-    targetY = y,
-    stepFlip = false,
-    animClock = 0,
-    scriptBusy = false,
-  }
-  if isRse() then Objects.initRseKind(eo) end
+  local visible = objectVisible(def)
+  local eo = prepared
+  if not eo then
+    local rawMt = canonMt(def.movementType)
+    eo = Prepare.instance(def, { rawMt = rawMt, spec = rawMt and hostSpec(rawMt, def.rangeX, def.rangeY),
+      version = lazyReq("src.core.GameVersion").get(), mapId = Objects._mapId, rse = isRse(),
+      graphicsId = resolvedGfx, elevation = elev, group = mg, num = mn, visible = visible })
+  else
+    -- Only authoritative live state is rebound here. Construction and movement
+    -- specifications came from an immutable worker snapshot.
+    eo.def = def
+    if tonumber(def.movementType) == nil and def.radius then eo.spec.radius = def.radius end
+    if eo.spec.radius then eo.radius = eo.spec.radius end
+    eo.graphicsId = resolvedGfx
+    eo.sprite = def.sprite or (resolvedGfx and GfxIds.spriteFor(resolvedGfx)) or "SPRITE_YOUNGSTER"
+    eo.elevation, eo.visible, eo.hidden = elev, visible, not visible
+    eo.originMapId = def.originMapId or def.mapId or Objects._mapId
+    eo.originMapGroup = tonumber(def.originMapGroup or def.mapGroup) or mg
+    eo.originMapNum = tonumber(def.originMapNum or def.mapNum) or mn
+  end
   return eo
+end
+
+local preparedMaps, preparationStream = {}, nil
+local function definitions(mapId, mapDef)
+  local Sp = Space()
+  local ev = Sp and Sp.bundle and Sp.bundle.events and Sp.bundle.events[mapId]
+  local defs = ev and (ev.objects or ev.objectEvents)
+  return type(defs) == "table" and defs or (mapDef and mapDef.objects) or {}
+end
+local function preparationCurrent(row, defs)
+  if row.defs ~= defs or row.version ~= lazyReq("src.core.GameVersion").get()
+      or row.inPlace ~= fieldBlock().inPlaceMovementTypes or #row.snapshot.defs ~= #defs then return false end
+  for i, def in ipairs(defs) do
+    if not sameTemplate(def, row.snapshot.defs[i]) then return false end
+  end
+  return true
+end
+function Objects.prefetchMap(mapId, mapDef, priority)
+  if not (love and love.thread and love.thread.newThread) then return end
+  local Stream = lazyReq("src.core.game3.asset_stream")
+  if Stream.workerFailed then return end
+  local defs = definitions(mapId, mapDef)
+  local old = preparedMaps[mapId]
+  if old and old.error and preparationCurrent(old, defs) then return false end
+  if old and preparationCurrent(old, defs)
+      and (old.data or (preparationStream and preparationStream.pending[mapId])) then return true end
+  if not preparationStream then
+    preparationStream = Stream.newTask("objects", function(key, data, err)
+      local row = preparedMaps[key]
+      if row then row.data, row.error = data, err end
+    end)
+  end
+  if old then
+    local wanted = {}; for id in pairs(preparedMaps) do if id ~= mapId then wanted[id] = true end end
+    preparationStream:retain(wanted)
+  end
+  local templates = {}
+  for i, def in ipairs(defs) do templates[i] = templateCopy(def) end
+  local frozen = Prepare.freeze(templates)
+  if not frozen then preparedMaps[mapId] = nil; return end
+  local version = lazyReq("src.core.GameVersion").get()
+  local inPlaceEnabled = fieldBlock().inPlaceMovementTypes
+  local snapshot = { defs = frozen, version = version, mapId = mapId, rse = isRse(), inPlace = inPlaceEnabled }
+  preparedMaps[mapId] = { defs = defs, version = version, inPlace = inPlaceEnabled, snapshot = snapshot }
+  preparationStream:submit(mapId, snapshot, priority)
+  lazyReq("src.core.game3.asset_stream").poll()
+  return preparationStream.pending[mapId] ~= nil or preparedMaps[mapId].data ~= nil
+end
+function Objects.preparationReady(mapId, mapDef)
+  local Stream = package.loaded["src.core.game3.asset_stream"]
+  if Stream then Stream.poll() end
+  local row = preparedMaps[mapId]
+  return row and row.data ~= nil and preparationCurrent(row, definitions(mapId, mapDef)) or false
+end
+function Objects.retainPrepared(wanted)
+  if preparationStream then preparationStream:retain(wanted) end
+  for id in pairs(preparedMaps) do if not wanted[id] then preparedMaps[id] = nil end end
+end
+function Objects._preparationPending(mapId)
+  return preparationStream and preparationStream.pending[mapId] ~= nil
+end
+local function takePrepared(mapId, defs)
+  local Stream = package.loaded["src.core.game3.asset_stream"]
+  if Stream then Stream.poll() end
+  local row = preparedMaps[mapId]
+  if row and row.data and preparationCurrent(row, defs) then
+    preparedMaps[mapId] = nil
+    Objects._lastPreparationRoute = "worker"
+    return row.data, row.snapshot.defs
+  end
+  Objects._lastPreparationRoute = "sync"
+end
+local function preparedRow(rows, snapshots, i, def)
+  return rows and sameTemplate(def, snapshots[i]) and rows[i] or nil
 end
 
 function Objects.clear()
@@ -322,6 +354,7 @@ end
 
 -- pokefirered/src/overworld.c:405
 function Objects.reset()
+  Objects.retainPrepared({})
   Objects.clear()
   Objects._perm = {}
   Objects._templateMt = {}
@@ -530,8 +563,8 @@ local function resolveContextualMapObjects(mapId)
   end
 end
 
-local function spawnFromTemplate(def, mapId)
-  local eo = newEventObject(def)
+local function spawnFromTemplate(def, mapId, prepared)
+  local eo = newEventObject(def, nil, prepared)
   if mapId and (not eo.originMapGroup or not eo.originMapNum) then
     local okC, MapCatalog = pcall(lazyReq, "src.import.gba.map_catalog")
     if okC and MapCatalog and MapCatalog.groupNumFor then
@@ -617,9 +650,10 @@ function Objects.loadMap(game, mapId, mapDef)
     end
   end
   resolveContextualMapObjects(mapId)
+  local prepared, snapshots = takePrepared(mapId, Objects._defs)
   local announce = ModRuntime.wants("world.npc_spawned")
-  for _, def in ipairs(Objects._defs) do
-    local eo = spawnFromTemplate(def, mapId)
+  for i, def in ipairs(Objects._defs) do
+    local eo = spawnFromTemplate(def, mapId, preparedRow(prepared, snapshots, i, def))
     if eo.localId > 0 then
       Objects._byId[eo.localId] = eo
       Objects._order[#Objects._order + 1] = eo.localId
@@ -1819,41 +1853,7 @@ function Objects.copyDirection(copyInit, playerInit, playerMove)
   return IDX_DIR[COPY_TO[ci][COPY_FOR[pi][pm]]]
 end
 
-function Objects.initRseKind(eo)
-  local mt = tonumber(eo.movementType) or 0
-  eo.rseKind = nil
-  local copy = COPY_TYPES[mt]
-  if copy then
-    eo.rseKind = "copy"
-    eo.copy = { init = copy.init, grass = copy.grass }
-  else
-    eo.copy = nil
-  end
-  if mt == MT_BERRY_TREE then
-    eo.rseKind = "berry_tree"
-    eo.invisible = true
-    eo.berryTree = eo.berryTree or { id = tonumber(eo.def and (eo.def.berryTreeId or eo.def.trainerRange)) or 0 }
-  else
-    eo.berryTree = nil
-  end
-  if mt == MT_TREE_DISGUISE or mt == MT_MOUNTAIN_DISGUISE then
-    eo.rseKind = "disguise"
-    -- pokeemerald/src/event_object_movement.c:4354
-    local sheet = mt == MT_TREE_DISGUISE and "tree_disguise" or "mountain_disguise"
-    if not (eo.disguise and eo.disguise.sheet == sheet) then eo.disguise = { sheet = sheet } end
-  else
-    eo.disguise = nil
-  end
-  if mt == MT_BURIED then
-    -- pokeemerald/src/event_object_movement.c:4390
-    eo.rseKind = "buried"
-    eo.buried = true
-    eo.invisible = true
-  elseif eo.buried then
-    eo.buried = nil
-    eo.invisible = false
-  end
-end
+Objects.initRseKind = Prepare.initRseKind
 
 -- pokeemerald/src/event_object_movement.c:1890
 local function setBerryTreeGraphics(eo, bt, tree)
@@ -2007,8 +2007,9 @@ function Objects.spawnFromDefs(defs, mapDef, mapId)
   local Sp = mapId and Space()
   local nb = Sp and Sp.neighborObjectState and Sp.neighborObjectState(mapId)
   if mapId and not nb and not (Sp and Sp.mapId == mapId) then nb = { store = { flags = {}, vars = {} }, perm = {}, movementType = {} } end
-  for _, def in ipairs(defs or {}) do
-    local eo = newEventObject(def, nb)
+  local prepared, snapshots = takePrepared(mapId, defs or {})
+  for i, def in ipairs(defs or {}) do
+    local eo = newEventObject(def, nb, preparedRow(prepared, snapshots, i, def))
     if eo.localId > 0 then
       eo.mapDef = mapDef
       if nb then

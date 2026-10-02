@@ -121,6 +121,21 @@ local function markFade(pool, entry)
   end
 end
 
+local function prepareOffscreen(M, entry)
+  local Obj = Objects()
+  local Stream = package.loaded["src.core.game3.asset_stream"]
+  if not (love and love.thread and love.thread.newThread) or (Stream and Stream.workerFailed) then return false end
+  if not (M.warmRect and M.warmNear and Obj.prefetchMap and Obj.preparationReady) then return false end
+  local x0, y0, x1, y1 = M.warmRect(0)
+  -- Visible actors and collision queries retain immediate authoritative
+  -- adoption. Offscreen pools can wait for immutable worker preparation.
+  if not x0 or M.warmNear(entry, x0, y0, x1, y1) then return false end
+  x0, y0, x1, y1 = M.warmRect()
+  if not M.warmNear(entry, x0, y0, x1, y1) then return true end
+  if not Obj.prefetchMap(entry.id, entry.def, 1) then return false end
+  return not Obj.preparationReady(entry.id, entry.def)
+end
+
 function Ghosts.sync()
   local M = Map()
   local world = M.world or EMPTY
@@ -129,7 +144,7 @@ function Ghosts.sync()
     for id in pairs(placed) do placed[id] = nil end
     for _, entry in ipairs(world) do
       placed[entry.id] = true
-      if not Ghosts._pools[entry.id] then
+      if not Ghosts._pools[entry.id] and not prepareOffscreen(M, entry) then
         local defs = defsFor(entry.id, entry.def)
         if defs then
           local pool = Objects().spawnFromDefs(defs, entry.def, entry.id)

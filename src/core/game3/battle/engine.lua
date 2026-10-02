@@ -2611,12 +2611,18 @@ function Engine.collectResidualEvents(_st, adapter)
   return Residuals.collectEvents(adapter)
 end
 
+-- pokeemerald/src/battle_script_commands.c:3556
+-- pokefirered/src/battle_script_commands.c:3395
+local function mon_can_battle(mon)
+  if not mon or (tonumber(mon.hp) or 0) <= 0 then return false end
+  if require("src.core.game3.pokemon").isEgg(mon) then return false end
+  return true
+end
+
 function Engine.hasLivingMons(party)
   if not party then return false end
   for _, mon in ipairs(party) do
-    if mon and (tonumber(mon.hp) or 0) > 0 then
-      return true
-    end
+    if mon_can_battle(mon) then return true end
   end
   return false
 end
@@ -2624,9 +2630,7 @@ end
 function Engine.nextLivingMonIndex(party, currentIdx)
   if not party then return nil end
   for i, mon in ipairs(party) do
-    if i ~= currentIdx and mon and (tonumber(mon.hp) or 0) > 0 then
-      return i
-    end
+    if i ~= currentIdx and mon_can_battle(mon) then return i end
   end
   return nil
 end

@@ -71,6 +71,24 @@ do
     { species = 4, hp = 0, maxHp = 19 },
   }
   eq(Engine.hasLivingMons(deadParty), false, "hasLivingMons false when all dead")
+
+  -- pokeemerald/src/battle_script_commands.c:3556 Cmd_checkteamslost
+  local eggParty = {
+    { species = 1, hp = 0, maxHp = 20 },
+    { species = 4, hp = 20, maxHp = 20, isEgg = true },
+  }
+  eq(Engine.hasLivingMons(eggParty), false, "an egg with HP is not a living battler")
+  eq(Engine.nextLivingMonIndex(eggParty, 1), nil, "nextLivingMonIndex skips the egg")
+  local foeUp = { { species = 16, hp = 30, maxHp = 30 } }
+  local foeDown = { { species = 16, hp = 0, maxHp = 30 } }
+  eq(Engine.checkEnd({ playerParty = eggParty, foeParty = foeUp }), "lose",
+    "egg-only party loses while the foe is still up")
+  eq(Engine.checkEnd({ playerParty = eggParty, foeParty = foeDown }), "lose",
+    "egg-only party loses even when the foe has also fainted")
+  eq(Engine.checkEnd({
+    playerParty = { { species = 1, hp = 12, maxHp = 20 } },
+    foeParty = { { species = 16, hp = 20, maxHp = 20, isEgg = true } },
+  }), "win", "a foe party that is only an egg is defeated")
 end
 
 print("\n--- Testing SwitchSeq Dynamic Withdraw Strings ---")

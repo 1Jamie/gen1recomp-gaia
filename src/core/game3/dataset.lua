@@ -401,7 +401,7 @@ function Dataset.attachMidLayouts(maps, cache)
         local decoded = NativePack.decodeMidLayout(blob)
         if decoded then
           local pair = (info and info.pair) or def.pair
-          def.midLayout = LayoutNative.fromDecoded(decoded, mapId, pair)
+          def.midLayout = LayoutNative.fromDecoded(decoded, mapId, pair, blob)
           local tw = decoded.trueWidth or decoded.width
           local th = decoded.trueHeight or decoded.height
           if tw and tw > 0 then def.width = tw end

@@ -43,6 +43,7 @@ function VoidFill.label(mode)
 end
 
 function VoidFill.invalidate()
+  VoidFill._revision = (VoidFill._revision or 0) + 1
   VoidFill._borders = {}
   local FieldView = package.loaded["src.core.game3.field_view"]
   if FieldView then FieldView._nativeDirty = true end
