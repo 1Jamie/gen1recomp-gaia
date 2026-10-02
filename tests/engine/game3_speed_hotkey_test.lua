@@ -11,8 +11,9 @@ local Game3 = require("src.core.Game3")
 
 local battleActive = false
 package.loaded["src.core.game3.battle"] = { isActive = function() return battleActive end }
-local stackBusy = false
-package.loaded["src.ui.game3.stack"] = { busy = function() return stackBusy end, clear = function() end }
+local Stack = require("src.ui.game3.stack")
+local StartMenu = require("src.ui.game3.start_menu")
+Stack.clear()
 
 local function newGame3(phase)
   local g = setmetatable({
@@ -29,13 +30,13 @@ Input:applyBindings(nil)
 
 do
   local g = newGame3("field")
-  stackBusy = true
-  eq(g:speedCategory(), "overworld", "menu over the field inherits overworld")
+  Stack.push("start", StartMenu)
+  eq(g:speedCategory(), "menu", "an explicit field menu owns MENU SPEED")
   g:keypressed("1")
-  eq(g.options.speedOverworld, 2, "1 with a field menu open bumps OVERWORLD SPEED")
+  eq(g.options.speedOverworld, 2, "1 with a field menu open syncs OVERWORLD SPEED")
   eq(g.options.speedMenu, 2, "1 with a field menu open syncs MENU SPEED")
   eq(g.options.speedBattle, 2, "and syncs BATTLE SPEED")
-  stackBusy = false
+  Stack.pop("start")
   eq(g:logicSpeed(), 2, "walk speed sticks after the menu closes")
   battleActive = true
   eq(g:speedCategory(), "battle", "battle stays battle")

@@ -9,7 +9,7 @@ local Badges = require("src.inventory.Badges")
 local Font = require("src.render.Font")
 local Strings = require("src.core.Strings")
 
-local TrainerCard = {}
+local TrainerCard = { isMenu = true }
 TrainerCard.__index = TrainerCard
 TrainerCard.isOpaque = true
 

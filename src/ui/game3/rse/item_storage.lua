@@ -5,7 +5,7 @@ local RomText = require("src.core.game3.rom_text")
 local Storage = require("src.core.game3.storage")
 local Bag = require("src.core.game3.bag")
 
-local ItemStorage = {}
+local ItemStorage = { isMenu = true }
 
 ItemStorage.open = false
 

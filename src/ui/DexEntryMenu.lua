@@ -16,7 +16,7 @@ local Font = require("src.render.Font")
 local Strings = require("src.core.Strings")
 local Theme = require("src.ui.Theme")
 
-local DexEntryMenu = {}
+local DexEntryMenu = { isMenu = true }
 DexEntryMenu.__index = DexEntryMenu
 DexEntryMenu.isOpaque = true
 

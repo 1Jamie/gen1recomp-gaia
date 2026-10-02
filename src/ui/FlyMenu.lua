@@ -5,7 +5,7 @@ local ListMenu = require("src.ui.ListMenu")
 local Map = require("src.world.Map")
 local Strings = require("src.core.Strings")
 
-local FlyMenu = {}
+local FlyMenu = { isMenu = true }
 
 function FlyMenu.new(game)
   local items = {}
@@ -25,12 +25,14 @@ function FlyMenu.new(game)
       })
     end
   end
-  return ListMenu.new(game, Strings.source("FLY TO?"), items, {
+  local menu = ListMenu.new(game, Strings.source("FLY TO?"), items, {
     onChoose = function(item, list)
       list:close()
       game.overworld:flyTo(item.value)
     end,
   })
+  menu.isMenu = true
+  return menu
 end
 
 return FlyMenu

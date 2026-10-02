@@ -6,7 +6,7 @@ local Kit = require("src.ui.game3.rse.scene_kit")
 local Gfx = require("src.ui.game3.rse.pokeblock_gfx")
 local Pokeblock = require("src.core.game3.rse.pokeblock")
 
-local Case = {}
+local Case = { isMenu = true }
 
 Case.ID = "rse_pokeblock_case"
 Case.open = false

@@ -19,7 +19,7 @@ local SummaryMenu = require("src.ui.game3.summary_menu")
 local Strings = require("src.core.Strings")
 local RomText = require("src.core.game3.rom_text")
 
-local BoxStorageUI = {}
+local BoxStorageUI = { isMenu = true }
 
 -- pokefirered/src/pokemon_storage_system_data.c:2027
 local MENU_TEXT = {

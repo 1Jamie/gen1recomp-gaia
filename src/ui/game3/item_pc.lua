@@ -7,7 +7,7 @@ local Storage = require("src.core.game3.storage")
 local RomText = require("src.core.game3.rom_text")
 local Trig = require("src.core.game3.trig")
 
-local ItemPc = {}
+local ItemPc = { isMenu = true }
 
 ItemPc.open = false
 ItemPc.mode = "list"

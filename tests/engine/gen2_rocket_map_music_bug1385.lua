@@ -63,6 +63,58 @@ eq(World.mapMusicLabel(audio, 72, true, true), nil,
 eq(World.mapMusicLabel(audio, nil, true, true), nil,
   "a missing music byte resolves to nothing")
 
+local function newWorld(engineFlagOrder)
+  local maps = { MAHOGANY_MART_1F = { music = MUSIC_MAHOGANY_MART } }
+  for floor = 1, 5 do
+    maps["RADIO_TOWER_" .. floor .. "F"] = { music = RADIO_TOWER_SENTINEL }
+  end
+  return setmetatable({
+    constants = { engineFlagOrder = engineFlagOrder },
+    maps = maps,
+    game = { save = { engineFlags = {} }, data = { audio = audio } },
+  }, { __index = World })
+end
+
+-- pokecrystal/constants/engine_flags.asm:25
+local crystalOrder = {
+  [19] = "ENGINE_SAFARI_ZONE",
+  [20] = "ENGINE_ROCKETS_IN_RADIO_TOWER",
+  [23] = "ENGINE_REACHED_GOLDENROD",
+  [24] = "ENGINE_ROCKETS_IN_MAHOGANY",
+}
+for _, version in ipairs({
+  { name = "Gold", tower = 18, mahogany = 22 },
+  { name = "Crystal", tower = 19, mahogany = 23, order = crystalOrder },
+}) do
+  local world = newWorld(version.order)
+  world.game.save.engineFlags[version.tower] = true
+  world.game.save.engineFlags[version.mahogany] = true
+  for floor = 1, 5 do
+    local mapId = "RADIO_TOWER_" .. floor .. "F"
+    eq(world:mapMusicSong(mapId), "Music_RocketTheme",
+      version.name .. " takeover uses its own engine flag on " .. mapId)
+  end
+  eq(world:mapMusicSong("MAHOGANY_MART_1F"), "Music_RocketHideout",
+    version.name .. " Mahogany Rocket state uses its own engine flag")
+
+  world.game.save.engineFlags = {}
+  for floor = 1, 5 do
+    local mapId = "RADIO_TOWER_" .. floor .. "F"
+    eq(world:mapMusicSong(mapId), "Music_GoldenrodCity",
+      version.name .. " cleared takeover restores city music on " .. mapId)
+  end
+  eq(world:mapMusicSong("MAHOGANY_MART_1F"), "Music_CherrygroveCity",
+    version.name .. " cleared Mahogany restores Cherrygrove music")
+end
+
+local crystal = newWorld(crystalOrder)
+crystal.game.save.engineFlags[18] = true
+crystal.game.save.engineFlags[22] = true
+eq(crystal:mapMusicSong("RADIO_TOWER_1F"), "Music_GoldenrodCity",
+  "Crystal Safari flag does not start Radio Tower takeover music")
+eq(crystal:mapMusicSong("MAHOGANY_MART_1F"), "Music_CherrygroveCity",
+  "Crystal reached-Goldenrod flag does not start Mahogany Rocket music")
+
 local data = { audio = {
   songs = {
     Music_RocketHideout = { file = "rocket_hideout.wav" },

@@ -4,7 +4,7 @@ local FrlgFont = require("src.ui.game3.frlg_font")
 local RomText = require("src.core.game3.rom_text")
 local Mail = require("src.core.game3.mail")
 
-local Mailbox = {}
+local Mailbox = { isMenu = true }
 
 Mailbox.open = false
 

@@ -7,7 +7,7 @@ local Chrome = require("src.ui.game3.chrome")
 local Kit = require("src.ui.game3.rse.scene_kit")
 local Screens = require("src.ui.game3.screens")
 
-local OptionMenu = {}
+local OptionMenu = { isMenu = true }
 
 OptionMenu.ID = "option"
 OptionMenu.VISIBLE = 7

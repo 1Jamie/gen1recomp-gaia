@@ -22,7 +22,8 @@ local function stack(...) return { states = { ... } } end
 
 local battle = { isBattle = true }
 local overworld = { isOverworld = true }
-local overlay = {} -- a party menu/choice box/naming screen/text box: no marker
+local overlay = {}
+local menu = { isMenu = true }
 
 eq(Game.speedCategoryInStack(nil), "menu", "a nil stack falls to menu")
 eq(Game.speedCategoryInStack(stack()), "menu", "an empty stack falls to menu")
@@ -35,16 +36,20 @@ eq(Game.speedCategoryInStack(stack(battle)), "battle",
   "a battle alone resolves to battle")
 
 eq(Game.speedCategoryInStack(stack(overworld, overlay)), "overworld",
-  "a menu opened while walking inherits overworld")
+  "unmarked dialogue while walking inherits overworld")
 eq(Game.speedCategoryInStack(stack(battle, overlay)), "battle",
-  "a menu opened mid-battle inherits battle, not menu")
+  "unmarked battle dialogue inherits battle")
 eq(Game.speedCategoryInStack(stack(overworld, overlay, overlay)), "overworld",
   "the inheritance walk sees through more than one stacked overlay")
 
 eq(Game.speedCategoryInStack(stack(overworld, battle)), "battle",
   "a battle opened over the overworld reads as battle, not the overworld underneath it")
 eq(Game.speedCategoryInStack(stack(overworld, battle, overlay)), "battle",
-  "and a menu on top of THAT still reads as battle")
+  "dialogue on top of battle still reads as battle")
+eq(Game.speedCategoryInStack(stack(overworld, menu)), "menu",
+  "an explicit field menu owns MENU SPEED")
+eq(Game.speedCategoryInStack(stack(overworld, battle, menu, overlay)), "menu",
+  "dialogue over an explicit battle menu inherits MENU SPEED")
 
 -- ------- Game:_resolveLogicSpeed: category -> save.options key -> clamp
 

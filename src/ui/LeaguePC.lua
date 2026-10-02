@@ -4,7 +4,7 @@ local Font = require("src.render.Font")
 local Strings = require("src.core.Strings")
 local HallOfFame = require("src.ui.HallOfFame")
 
-local LeaguePC = {}
+local LeaguePC = { isMenu = true }
 LeaguePC.__index = LeaguePC
 LeaguePC.isOpaque = true
 

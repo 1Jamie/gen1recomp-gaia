@@ -10,7 +10,7 @@ local SummaryData = require("src.core.game3.summary_data")
 local RomText = require("src.core.game3.rom_text")
 local Kit = require("src.ui.game3.rse.scene_kit")
 
-local RseRelearner = {}
+local RseRelearner = { isMenu = true }
 
 RseRelearner.SUB = "rse/move_relearner"
 RseRelearner.open = false

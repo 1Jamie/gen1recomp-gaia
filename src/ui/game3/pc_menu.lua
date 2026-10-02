@@ -15,7 +15,7 @@ local Strings = require("src.core.Strings")
 local RomText = require("src.core.game3.rom_text")
 local Profile = require("src.core.game3.profile")
 
-local PcMenu = {}
+local PcMenu = { isMenu = true }
 
 local function rse_pc()
   if Profile.family(PcMenu._session) ~= "rse" then return nil end

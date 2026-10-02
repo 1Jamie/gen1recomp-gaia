@@ -11,7 +11,7 @@ local SummaryData = require("src.core.game3.summary_data")
 local Strings = require("src.core.Strings")
 local RomText = require("src.core.game3.rom_text")
 
-local MoveRelearner = {}
+local MoveRelearner = { isMenu = true }
 
 MoveRelearner.open = false
 MoveRelearner.state = "list"

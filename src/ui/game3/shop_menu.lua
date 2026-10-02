@@ -9,7 +9,7 @@ local Bag = require("src.core.game3.bag")
 local MoneyBox = require("src.ui.game3.money_box")
 local RomText = require("src.core.game3.rom_text")
 
-local ShopMenu = {}
+local ShopMenu = { isMenu = true }
 
 ShopMenu.open = false
 ShopMenu.mode = "root"

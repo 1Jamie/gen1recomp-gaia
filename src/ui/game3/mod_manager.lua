@@ -11,7 +11,7 @@ local FrlgFont = require("src.ui.game3.frlg_font")
 local Strings = require("src.core.Strings")
 local ManagerState = require("src.mods.ManagerState")
 
-local ModManager = {}
+local ModManager = { isMenu = true }
 
 ModManager.open = false
 

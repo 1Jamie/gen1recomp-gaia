@@ -8,7 +8,7 @@ local Runtime = require("src.mods.Runtime")
 local TextBox = require("src.render.TextBox")
 local romText = require("src.core.RomText")
 
-local BagMenu = {}
+local BagMenu = { isMenu = true }
 
 local Bag = require("src.inventory.Bag")
 local Strings = require("src.core.Strings")
@@ -735,6 +735,7 @@ function BagMenu.new(game, opts)
   -- the item box overlaps the kept-open START menu box, so neither docks to
   -- a screen edge on its own (start_sub_menus.asm:302-329) #1745
   list.holdsUIAnchors = true
+  list.isMenu = true
   return list
 end
 

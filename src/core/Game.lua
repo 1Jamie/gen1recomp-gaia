@@ -545,22 +545,11 @@ function Game.wideBattleInStack(stack)
   return nil
 end
 
--- Which of "battle"/"overworld"/"menu" per-category GAME SPEED (RFC 0007)
--- applies right now. Whole-stack, the same idiom as fillScaleInStack/
--- wideBattleInStack above: an overlay with neither marker (PartyMenu,
--- ChoiceBox, a NamingScreen, a text box) is transparent to the walk and
--- inherits whatever is under it, making the category a property of the
--- STACK POSITION the overlay sits over, not of the overlay itself. A
--- scripted sequence (script.started/ended) never pushes a state of its
--- own either -- it runs through the owning overworld/battle state's own
--- script runner or message queue -- so it inherits the same way. Nothing
--- identifying as either (the title screen, credits, an intro cutscene
--- with nothing under it) falls to "menu", the bucket every non-gameplay
--- screen gets; see the RFC's Decisions section for the full reasoning.
 function Game.speedCategoryInStack(stack)
   local states = stack and stack.states
   for i = #(states or {}), 1, -1 do
     local state = states[i]
+    if state and state.isMenu then return "menu" end
     if state and state.isBattle then return "battle" end
     if state and state.isOverworld then return "overworld" end
   end

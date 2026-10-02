@@ -7,7 +7,7 @@ local Pokemon = require("src.core.game3.pokemon")
 local RomText = require("src.core.game3.rom_text")
 local HofGfx = require("src.ui.game3.hall_of_fame_gfx")
 
-local HofPc = {}
+local HofPc = { isMenu = true }
 
 HofPc.open = false
 HofPc._teams = {}

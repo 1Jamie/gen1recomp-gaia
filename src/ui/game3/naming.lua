@@ -14,7 +14,7 @@ local Versions = require("src.import.gba.versions")
 local RomText = require("src.core.game3.rom_text")
 local TextIR = require("src.core.game3.scripting.text_ir")
 
-local Naming = {}
+local Naming = { isMenu = true }
 
 Naming.MAX_LEN = 7
 Naming.openFlag = false

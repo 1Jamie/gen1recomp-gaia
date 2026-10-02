@@ -24,6 +24,8 @@ end
 -- opts.drawUnder: if true, still draw layers below this one.
 function Stack.push(id, mod, opts)
   opts = opts or {}
+  local isMenu = opts.isMenu
+  if isMenu == nil then isMenu = mod and mod.isMenu end
   if opts.hideBelow ~= false then
     local Message = package.loaded["src.ui.game3.message"]
     if Message and Message.closeStay then Message.closeStay() end
@@ -37,6 +39,7 @@ function Stack.push(id, mod, opts)
   Stack._layers[#Stack._layers + 1] = {
     id = id,
     mod = mod,
+    isMenu = isMenu == true,
     drawUnder = opts.drawUnder and true or false,
     hideBelow = opts.hideBelow ~= false, -- default hide layers underneath
     fullscreen = opts.fullscreen,

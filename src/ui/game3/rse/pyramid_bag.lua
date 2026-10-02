@@ -6,7 +6,7 @@ local RomText = require("src.core.game3.rom_text")
 local ItemsData = require("src.core.game3.items_data")
 local Gfx = require("src.ui.game3.rse.pokeblock_gfx")
 
-local PBag = {}
+local PBag = { isMenu = true }
 
 PBag.ID = "rse_pyramid_bag"
 PBag.open = false

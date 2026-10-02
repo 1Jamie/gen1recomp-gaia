@@ -11,7 +11,7 @@ local Stats = require("src.pokemon.Stats")
 local TextBox = require("src.render.TextBox")
 local Strings = require("src.core.Strings")
 
-local BoxMenu = {}
+local BoxMenu = { isMenu = true }
 
 -- engine/pokemon/bills_pc.asm:118
 -- vChars2 $78; engine/menus/save.asm:497
@@ -396,6 +396,7 @@ function BoxMenu.new(game)
     baseDraw(self)
     drawChrome(game)
   end
+  menu.isMenu = true
   return menu
 end
 

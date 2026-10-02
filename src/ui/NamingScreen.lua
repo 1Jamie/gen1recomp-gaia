@@ -17,7 +17,7 @@ local Sound = require("src.core.Sound")
 local Theme = require("src.ui.Theme")
 local Strings = require("src.core.Strings")
 
-local NamingScreen = {}
+local NamingScreen = { isMenu = true }
 NamingScreen.__index = NamingScreen
 NamingScreen.isOpaque = true
 

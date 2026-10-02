@@ -2358,7 +2358,7 @@ function Pokedex.draw(s)
   love.graphics.pop()
 end
 
-local Host = {}
+local Host = { isMenu = true }
 Pokedex.Host = Host
 Host._s = nil
 Host._step = nil

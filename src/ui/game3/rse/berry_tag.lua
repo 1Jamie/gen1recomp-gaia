@@ -5,7 +5,7 @@ local Kit = require("src.ui.game3.rse.scene_kit")
 local Gfx = require("src.ui.game3.rse.pokeblock_gfx")
 local BerryTrees = require("src.core.game3.rse.berry_trees")
 
-local Tag = {}
+local Tag = { isMenu = true }
 
 Tag.ID = "rse_berry_tag"
 Tag.open = false

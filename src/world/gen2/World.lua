@@ -2703,7 +2703,8 @@ function World:mapMusicSong(mapId)
   local def = self.maps and self.maps[mapId]
   -- ENGINE_ROCKETS_IN_MAHOGANY / _RADIO_TOWER (data/events/engine_flags.asm:40,:36)
   return World.mapMusicLabel(audio, def and def.music,
-    self:engineFlag(22), self:engineFlag(18))
+    self:engineFlag(self:engineFlagId("ENGINE_ROCKETS_IN_MAHOGANY", 22)),
+    self:engineFlag(self:engineFlagId("ENGINE_ROCKETS_IN_RADIO_TOWER", 18)))
 end
 
 function World:playMapMusic()

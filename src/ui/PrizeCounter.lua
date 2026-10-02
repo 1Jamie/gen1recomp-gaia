@@ -4,7 +4,7 @@ local Font = require("src.render.Font")
 local Strings = require("src.core.Strings")
 local Theme = require("src.ui.Theme")
 
-local PrizeCounter = {}
+local PrizeCounter = { isMenu = true }
 PrizeCounter.__index = PrizeCounter
 
 local NAME_X, TOP_Y, ROW_STEP = 16, 32, 16

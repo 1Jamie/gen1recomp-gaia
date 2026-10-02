@@ -604,6 +604,10 @@ function Game3:fixedUpdate(dt)
 end
 
 function Game3:speedCategory()
+  local Stack = lazyReq("src.ui.game3.stack")
+  for i = #(Stack._layers or {}), 1, -1 do
+    if Stack._layers[i].isMenu then return "menu" end
+  end
   local okB, Battle = pcall(lazyReq, "src.core.game3.battle")
   if okB and Battle and Battle.isActive and Battle.isActive() then
     return "battle"

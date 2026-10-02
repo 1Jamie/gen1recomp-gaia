@@ -5,7 +5,7 @@ local Kit = require("src.ui.game3.rse.scene_kit")
 local Gfx = require("src.ui.game3.rse.pokeblock_gfx")
 local PalFade = require("src.core.game3.pal_fade")
 
-local Pass = {}
+local Pass = { isMenu = true }
 
 Pass.ID = "rse_frontier_pass"
 Pass.MAP_ID = "rse_frontier_map"

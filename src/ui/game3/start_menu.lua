@@ -10,7 +10,7 @@ local RomText = require("src.core.game3.rom_text")
 local ModRuntime = require("src.mods.Runtime")
 local FrlgData = require("src.ui.game3.start_menu_frlg")
 
-local StartMenu = {}
+local StartMenu = { isMenu = true }
 
 local function se(id)
   pcall(function() require("src.core.game3.audio").playSe(require("src.core.game3.se_ids").resolve(id)) end)

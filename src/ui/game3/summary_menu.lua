@@ -17,7 +17,7 @@ local Strings = require("src.core.Strings")
 local RomText = require("src.core.game3.rom_text")
 local ItemsData = require("src.core.game3.items_data")
 
-local SummaryMenu = {}
+local SummaryMenu = { isMenu = true }
 
 -- pokefirered/src/pokemon_summary_screen.c:2139
 function SummaryMenu.heldItemText(mon)

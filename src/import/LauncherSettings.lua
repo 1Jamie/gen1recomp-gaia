@@ -146,6 +146,19 @@ local function addTouchRows(rows, add, opts, hooks)
   end
 end
 
+local function addOrientationRow(add, opts)
+  local okOr, Orientation = pcall(require, "src.core.Orientation")
+  if okOr and (Orientation.isAndroid() or Orientation.isIOS()) then
+    add(Strings("ORIENTATION"),
+      function() return Strings(Orientation.modeLabel(opts.orientation)) end,
+      function(dir)
+        opts.orientation = Orientation.cycle(opts.orientation, dir)
+        Orientation.apply(opts.orientation)
+        return true
+      end)
+  end
+end
+
 local function coreRows(opts, hooks)
   local rows = {}
   local function add(label, value, step)
@@ -295,21 +308,7 @@ local function coreRows(opts, hooks)
       end)
   end
 
-  -- ORIENTATION (#592, #1638): mobile only.  Unlike the other launcher rows
-  -- this one live-applies: the window exists here too, and rotating under
-  -- the player's finger is the only feedback that reads.
-  do
-    local okOr, Orientation = pcall(require, "src.core.Orientation")
-    if okOr and (Orientation.isAndroid() or Orientation.isIOS()) then
-      add(Strings("ORIENTATION"),
-        function() return Strings(Orientation.modeLabel(opts.orientation)) end,
-        function(dir)
-          opts.orientation = Orientation.cycle(opts.orientation, dir)
-          Orientation.apply(opts.orientation)
-          return true
-        end)
-    end
-  end
+  addOrientationRow(add, opts)
 
   local okFr, FaithfulRes = pcall(require, "src.core.FaithfulRes")
   if okFr then
@@ -738,6 +737,7 @@ local function gen2Rows(opts, hooks, shared)
     end)
 
   addTouchRows(rows, add, shared, hooks)
+  addOrientationRow(add, shared)
 
   return rows
 end

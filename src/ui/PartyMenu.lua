@@ -21,7 +21,7 @@ local Map = require("src.world.Map")
 local Strings = require("src.core.Strings")
 local Status = require("src.battle.Status")
 
-local PartyMenu = {}
+local PartyMenu = { isMenu = true }
 PartyMenu.__index = PartyMenu
 PartyMenu.isOpaque = true
 

@@ -50,7 +50,7 @@ Pokenav.SCREENS = SCREENS
 local Shell = {}
 Shell.__index = Shell
 
-local Host = {}
+local Host = { isMenu = true }
 Pokenav.Host = Host
 
 -- pokeemerald/src/pokenav.c:388

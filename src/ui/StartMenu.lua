@@ -13,7 +13,7 @@ local Screens = require("src.ui.Screens")
 local Strings = require("src.core.Strings")
 local Theme = require("src.ui.Theme")
 
-local StartMenu = {}
+local StartMenu = { isMenu = true }
 
 local function sameItems(_, items) return items end
 
@@ -229,6 +229,7 @@ function StartMenu.new(game)
       love.graphics.setColor(1, 1, 1, 1)
     end
   end
+  menu.isMenu = true
   return menu
 end
 

@@ -17,7 +17,7 @@ local PokedexChrome = require("src.ui.game3.pokedex_chrome")
 local Strings = require("src.core.Strings")
 local RomText = require("src.core.game3.rom_text")
 
-local Pokedex = {}
+local Pokedex = { isMenu = true }
 
 Pokedex.open = false
 Pokedex.screen = "mode_select"

@@ -21,7 +21,7 @@ local SpriteRenderer = require("src.render.SpriteRenderer")
 local Strings = require("src.core.Strings")
 local Theme = require("src.ui.Theme")
 
-local TownMap = {}
+local TownMap = { isMenu = true }
 TownMap.__index = TownMap
 TownMap.isOpaque = true
 

@@ -2462,6 +2462,7 @@ function Game2:applyOptions()
     hotbar = options.hotbar,
   })
   require("src.core.VideoMode").applyOptions(options)
+  require("src.core.Orientation").applyOptions(options)
   require("src.core.FaithfulRes").applyOptions(options)
   require("src.core.ScreenPosition").applyOptions(options)
   require("src.core.VSync").applyOptions(options)

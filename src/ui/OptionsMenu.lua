@@ -34,7 +34,7 @@ local OptionRows = require("src.ui.OptionRows")
 local Renderer = require("src.render.Renderer")
 local Strings = require("src.core.Strings")
 
-local OptionsMenu = {}
+local OptionsMenu = { isMenu = true }
 OptionsMenu.__index = OptionsMenu
 OptionsMenu.isOpaque = true
 

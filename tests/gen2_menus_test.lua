@@ -366,7 +366,7 @@ local options = OptionsMenu.new(optionsGame, {
 })
 -- The cart's seven rows, then the port's: CONTROLS, audio, PERFORMANCE,
 -- speed, display, SHADER FX + SHADER FX 2 (the second slot added alongside
-check("thirty-five rows", #OptionsMenu.ROWS, 35)
+check("thirty-six row descriptors", #OptionsMenu.ROWS, 36)
 check("the cart's rows come first", OptionsMenu.ROWS[7].key, "frame")
 check("then the rebind screen", OptionsMenu.ROWS[8].id, "controls")
 check("then the port's audio group", OptionsMenu.ROWS[9].key, "musicVol")
@@ -377,6 +377,17 @@ check("last row is BACK", OptionsMenu.ROWS[#OptionsMenu.ROWS].cancel, true)
 local function hasRow(rows, key)
   for _, row in ipairs(rows) do if row.key == key then return true end end
   return false
+end
+check("ORIENTATION is a descriptor", hasRow(OptionsMenu.ROWS, "orientation"), true)
+do
+  local oldSystem = love.system
+  for _, osName in ipairs({ "Linux", "Android", "iOS" }) do
+    love.system = { getOS = function() return osName end }
+    local platformOptions = OptionsMenu.new(newGame(Save.newGame()))
+    check(osName .. " orientation row visibility",
+      hasRow(platformOptions.rows, "orientation"), osName ~= "Linux")
+  end
+  love.system = oldSystem
 end
 check("PRINT is still a descriptor", hasRow(OptionsMenu.ROWS, "print"), true)
 check("but never reaches the screen", hasRow(options.rows, "print"), false)

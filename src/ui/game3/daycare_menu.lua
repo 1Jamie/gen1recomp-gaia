@@ -3,7 +3,7 @@
 local Strings = require("src.core.Strings")
 local RomText = require("src.core.game3.rom_text")
 
-local DaycareMenu = {}
+local DaycareMenu = { isMenu = true }
 
 local DAYCARE_MON_COUNT = 2 -- pokefirered/include/constants/global.h:34
 local DAYCARE_LEVEL_MENU_EXIT = 5 -- pokefirered/include/constants/daycare.h:20

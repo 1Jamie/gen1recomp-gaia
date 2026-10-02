@@ -604,7 +604,7 @@ function Player.tryMove(dir, game, run)
     return "blocked", "acro"
   end
   local isDismount = Player.surfing and not Player.underwater
-    and (not (Collision.isWater and Collision.isWater(tx, ty)))
+    and Collision.isSurfDismount(tx, ty, Player.currentElevation)
   if isDismount then
     Player.dismounting = true
     lazyReq("src.core.game3.audio").stopSurfMusic()
@@ -747,8 +747,8 @@ function Player.forcedStep(dir, frames, opts)
     beginStep(opts.ledgeX, opts.ledgeY, false, true)
   else
     local tx, ty = Player.cellX + d[1], Player.cellY + d[2]
-    Player.dismounting = Player.surfing
-      and (not (Collision.isWater and Collision.isWater(tx, ty))) or false
+    Player.dismounting = Player.surfing and not Player.underwater
+      and Collision.isSurfDismount(tx, ty, Player.currentElevation) or false
     -- pokefirered/src/field_player_avatar.c:1609
     if Player.dismounting then lazyReq("src.core.game3.audio").stopSurfMusic() end
     beginStep(tx, ty, false, false)
@@ -931,11 +931,6 @@ local function finishStep(game)
   elseif Player.dismounting then
     Player.dismounting = false
     Player.surfing = false
-  elseif Player.surfing then
-    local onWater = Collision.isWater and Collision.isWater(Player.cellX, Player.cellY)
-    if not onWater then
-      Player.surfing = false
-    end
   end
 
   local session = package.loaded["src.core.game3.runtime"]

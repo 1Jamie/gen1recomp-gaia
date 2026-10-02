@@ -6,7 +6,7 @@ local Strings = require("src.core.Strings")
 local Theme = require("src.ui.Theme")
 local MenuRepeat = require("src.ui.MenuRepeat")
 
-local PokedexMenu = {}
+local PokedexMenu = { isMenu = true }
 PokedexMenu.__index = PokedexMenu
 PokedexMenu.isOpaque = true
 

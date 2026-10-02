@@ -6,7 +6,7 @@ local Strings = require("src.core.Strings")
 local BindingsMenu = require("src.ui.BindingsMenu")
 local ChoiceBox = require("src.ui.ChoiceBox")
 
-local Controls = {}
+local Controls = { isMenu = true }
 
 Controls.ID = "controls"
 Controls.open = false

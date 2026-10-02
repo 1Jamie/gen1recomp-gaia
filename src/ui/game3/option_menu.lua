@@ -4,7 +4,7 @@ local Options = require("src.core.game3.options")
 local Rows = require("src.ui.game3.option_rows")
 local RomText = require("src.core.game3.rom_text")
 
-local OptionMenu = {}
+local OptionMenu = { isMenu = true }
 
 OptionMenu.open = false
 OptionMenu.cursor = 1

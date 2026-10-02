@@ -13,7 +13,7 @@ local PartyView = require("src.core.game3.battle.party_view")
 local RomText = require("src.core.game3.rom_text")
 local TextIR = require("src.core.game3.scripting.text_ir")
 
-local BagMenu = {}
+local BagMenu = { isMenu = true }
 
 BagMenu.open = false
 BagMenu.cursor = 1

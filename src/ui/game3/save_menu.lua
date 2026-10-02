@@ -14,7 +14,7 @@ local RomText = require("src.core.game3.rom_text")
 local Flags = require("src.core.game3.scripting.flags")
 local Dex = require("src.core.game3.dex")
 
-local SaveMenu = {}
+local SaveMenu = { isMenu = true }
 
 SaveMenu.open = false
 SaveMenu.cursor = 1 -- 1=YES 2=NO

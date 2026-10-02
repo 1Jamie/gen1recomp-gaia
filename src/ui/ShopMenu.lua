@@ -16,7 +16,7 @@ local Strings = require("src.core.Strings")
 local TextBox = require("src.render.TextBox")
 local romText = require("src.core.RomText")
 
-local ShopMenu = {}
+local ShopMenu = { isMenu = true }
 
 local function txt(game, key, fallback)
   return game.data.text[key] or fallback
@@ -343,6 +343,7 @@ function ShopMenu.new(game, stock, onQuit)
     drawClerk(self)
     Menu.draw(self)
   end
+  menu.isMenu = true
   return menu
 end
 

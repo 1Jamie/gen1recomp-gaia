@@ -16,7 +16,7 @@ local romText = require("src.core.RomText")
 local Font = require("src.render.Font")
 local Theme = require("src.ui.Theme")
 
-local PlayerPC = {}
+local PlayerPC = { isMenu = true }
 
 local function itemName(game, id)
   local def = game.data.items[id]
@@ -308,6 +308,7 @@ function PlayerPC.new(game, opts)
     end
     love.graphics.setColor(1, 1, 1, 1)
   end
+  menu.isMenu = true
   return menu
 end
 

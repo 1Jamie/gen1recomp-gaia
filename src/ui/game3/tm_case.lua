@@ -18,7 +18,7 @@ local SummaryData = require("src.core.game3.summary_data")
 local SummaryChrome = require("src.ui.game3.summary_chrome")
 local RomText = require("src.core.game3.rom_text")
 
-local TmCase = {}
+local TmCase = { isMenu = true }
 
 TmCase.open = false
 TmCase.cursor = 1

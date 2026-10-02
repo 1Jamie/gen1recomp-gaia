@@ -16,7 +16,7 @@ local Strings = require("src.core.Strings")
 local RomText = require("src.core.game3.rom_text")
 local TextIR = require("src.core.game3.scripting.text_ir")
 
-local PartyMenu = {}
+local PartyMenu = { isMenu = true }
 
 PartyMenu.open = false
 PartyMenu.cursor = 1

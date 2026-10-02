@@ -976,6 +976,13 @@ function Collision.isWater(cx, cy)
   return Collision.isWaterOn(Collision._mapDef, cx, cy, Collision.cell(cx, cy))
 end
 
+-- pokeemerald/src/field_player_avatar.c:693
+-- pokefirered/src/field_player_avatar.c:568
+function Collision.isSurfDismount(cx, cy, elevation)
+  return Collision.elevationAt(cx, cy) == 3
+    and Collision.elevationMismatchOn(Collision._mapDef, elevation, cx, cy)
+end
+
 -- pokeemerald/src/rotating_gate.c:961
 function Collision.rotatingGateCollision(game, dir, x, y)
   local RG = package.loaded["src.core.game3.rotating_gate"]

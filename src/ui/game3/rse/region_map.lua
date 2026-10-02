@@ -606,7 +606,7 @@ function RegionMap.draw(s)
   love.graphics.pop()
 end
 
-local Host = {}
+local Host = { isMenu = true }
 RegionMap.Host = Host
 Host._s = nil
 Host._step = nil

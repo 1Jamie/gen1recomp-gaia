@@ -70,12 +70,15 @@ do
   eq(stale.options.speedOverworld, 7, "a stale Runtime game is untouched")
   check(wrote() > 0, "the change is persisted")
   g.phase = "field"
-  eq(g:logicSpeed(), 2, "logicSpeed follows the menu change")
+  eq(g:speedCategory(), "menu", "the actual OPTION layer owns its speed while open")
+  eq(g:logicSpeed(), 1, "open OPTION keeps MENU SPEED after changing OVERWORLD SPEED")
 
   check(selectRow("textSpeed"), "TEXT SPEED row reachable")
   OptionMenu.handleInput(fakeInput("right"))
   eq(Options.block(g.options).textSpeed, 2, "TEXT SPEED lands on the game's cart block")
   OptionMenu.close()
+  eq(g:speedCategory(), "overworld", "closing OPTION restores the field category")
+  eq(g:logicSpeed(), 2, "the changed OVERWORLD SPEED applies after OPTION closes")
   menu.state = "options"
   menu:frame({ new = {}, held = {} })
   eq(state.textSpeed, 2, "closing OPTION refreshes the boot text speed for NEW GAME")

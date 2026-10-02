@@ -8,7 +8,7 @@ local Strings = require("src.core.Strings")
 local Gpu = require("src.ui.game3.region_map_gpu")
 local Position = require("src.ui.game3.region_map_position")
 
-local RegionMap = {}
+local RegionMap = { isMenu = true }
 
 RegionMap.open = false
 RegionMap.cursorX = 0

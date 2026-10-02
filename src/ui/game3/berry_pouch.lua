@@ -25,7 +25,7 @@ local ItemUse = require("src.core.game3.item_use")
 local PartyView = require("src.core.game3.battle.party_view")
 local RomText = require("src.core.game3.rom_text")
 
-local BerryPouch = {}
+local BerryPouch = { isMenu = true }
 
 BerryPouch.open = false
 BerryPouch.cursor = 1

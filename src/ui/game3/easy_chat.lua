@@ -10,7 +10,7 @@ local Chrome = require("src.ui.game3.chrome")
 local Strings = require("src.core.Strings")
 local RomText = require("src.core.game3.rom_text")
 
-local EasyChat = {}
+local EasyChat = { isMenu = true }
 
 EasyChat.openFlag = false
 EasyChat._state = nil

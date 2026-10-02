@@ -65,7 +65,17 @@ return function(game)
   end
   local function phases(name)
     U.wait(90)
-    local pairs = { "general__rom_082d4b54", "general__rom_082d4b6c" }
+    local pairs = {}
+    for index, mapId in ipairs({ "FR_ROUTE_19", "FR_ROUTE_20" }) do
+      local def = game.data and game.data.maps and game.data.maps[mapId]
+      local layout = def and Map.ensureMidLayout(game, mapId, def)
+      local pair = layout and layout.pair
+      if type(pair) ~= "string" or pair == "" or pair == pairs[1] then
+        result(false, name .. "_distinct_loaded_pair_" .. mapId)
+        return false
+      end
+      pairs[index] = pair
+    end
     for index, phase in ipairs({ 2, 4 }) do
       local target = phase * 16 + 3
       local ready = false

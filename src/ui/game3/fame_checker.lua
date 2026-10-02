@@ -7,7 +7,7 @@ local FameChecker = require("src.core.game3.fame_checker")
 local TextIR = require("src.core.game3.scripting.text_ir")
 local RomText = require("src.core.game3.rom_text")
 
-local FameCheckerUi = {}
+local FameCheckerUi = { isMenu = true }
 
 local PERSON = FameChecker.PERSON
 local PICK = FameChecker.PICKSTATE

@@ -39,7 +39,7 @@ do
   end
 end
 
-local SummaryMenu = {}
+local SummaryMenu = { isMenu = true }
 SummaryMenu.__index = SummaryMenu
 SummaryMenu.isOpaque = true
 

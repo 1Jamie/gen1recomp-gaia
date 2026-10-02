@@ -4,7 +4,7 @@ local Stack = require("src.ui.game3.stack")
 local FrlgFont = require("src.ui.game3.frlg_font")
 local RomText = require("src.core.game3.rom_text")
 
-local TrainerCard = {}
+local TrainerCard = { isMenu = true }
 
 TrainerCard.open = false
 TrainerCard._session = nil
