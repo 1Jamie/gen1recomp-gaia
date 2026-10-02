@@ -125,6 +125,7 @@ local function launcher(allCurrent)
   }, RomImporter)
   ri._refreshMods = function() end
   ri._syncModUpdateInfo = function() end
+  ri._refreshFindSources = function(self) self.findSources = {} end
   return ri
 end
 
