@@ -1,8 +1,9 @@
 local LauncherSplash = {}
 LauncherSplash.__index = LauncherSplash
 
-local DURATION = 127 / 30
+local DURATION = 381 / 30
 local FADE_SECONDS = 0.75
+local REVEAL_START_SECONDS = 127 / 60
 local REVEAL_SECONDS = 0.65
 
 local function smoothstep(value)
@@ -16,7 +17,7 @@ function LauncherSplash.new()
   if options.splashVideo == false then return nil end
   local self = setmetatable({ elapsed = 0, age = 0, opacity = 1 }, LauncherSplash)
   local ok, err = pcall(function()
-    self.video = love.graphics.newVideo("assets/launcher/splash.ogv", {
+    self.video = love.graphics.newVideo("assets/launcher/spooky.ogv", {
       audio = love.audio ~= nil and options.splashMute ~= true,
     })
     self.video:setFilter("linear", "linear")
@@ -57,7 +58,7 @@ function LauncherSplash:update(dt)
 end
 
 function LauncherSplash:blocksInput()
-  return self.elapsed < DURATION / 2
+  return self.elapsed < REVEAL_START_SECONDS
 end
 
 function LauncherSplash:draw()
@@ -65,7 +66,7 @@ function LauncherSplash:draw()
   local width, height = g.getDimensions()
   local vw, vh = self.video:getDimensions()
   local scale = width / vw
-  local backdrop = 1 - smoothstep((self.elapsed - DURATION / 2) / REVEAL_SECONDS)
+  local backdrop = 1 - smoothstep((self.elapsed - REVEAL_START_SECONDS) / REVEAL_SECONDS)
 
   g.push("all")
   g.origin()
