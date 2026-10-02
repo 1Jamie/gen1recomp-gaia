@@ -11,9 +11,8 @@
 -- no network) so the engine tier can table-drive it, and the fetch/cache half
 -- reaches for curl and options.lua.
 --
--- Sources are never added automatically.  options.modIndexes is a player-built
--- list -- adding an index is a deliberate act of trusting whoever publishes it,
--- so the launcher ships with none and asks.
+-- The main index is built in and cannot be removed.  options.modIndexes keeps
+-- player-added sources, including main-index rows saved by older launchers.
 --
 -- schema_version is a hard gate, not a hint: a bumped feed may reuse a field
 -- name for something else, so an unknown version is refused outright rather
@@ -637,17 +636,33 @@ local function loadOptions()
   return require("src.core.SaveData").loadOptions()
 end
 
--- The player's index list, normalised.  Rows are { url, feed, base, fallback,
+local BUILTIN = ModIndex.resolveSource("bryanthaboi/gen1recomp-mod-index")
+BUILTIN.url = "bryanthaboi/gen1recomp-mod-index"
+
+function ModIndex.isBuiltIn(feed)
+  return feed == BUILTIN.feed
+end
+
+-- The player's index list plus the built-in source.  Rows are { url, feed, base, fallback,
 -- label }; `url` is what they typed, kept so the row reads back the way they
--- entered it.
+-- entered it.  Keep an existing main-index row in place to preserve source
+-- precedence and its cache; otherwise append it without rewriting options.
 function ModIndex.sources()
   local ok, opts = pcall(loadOptions)
-  if not ok or type(opts) ~= "table" then return {} end
-  local out = {}
-  for _, row in ipairs(opts.modIndexes or {}) do
+  local saved = ok and type(opts) == "table" and opts.modIndexes or {}
+  local out, hasBuiltin = {}, false
+  for _, row in ipairs(type(saved) == "table" and saved or {}) do
     if type(row) == "table" and type(row.feed) == "string" then
-      out[#out + 1] = row
+      if not ModIndex.isBuiltIn(row.feed) or not hasBuiltin then
+        out[#out + 1] = row
+      end
+      if ModIndex.isBuiltIn(row.feed) then hasBuiltin = true end
     end
+  end
+  if not hasBuiltin then
+    local row = {}
+    for k, v in pairs(BUILTIN) do row[k] = v end
+    out[#out + 1] = row
   end
   return out
 end
@@ -657,6 +672,7 @@ end
 function ModIndex.addSource(input)
   local source, err = ModIndex.resolveSource(input)
   if not source then return nil, err end
+  if ModIndex.isBuiltIn(source.feed) then return nil, "that index is already added" end
   local ok, result, addErr = pcall(function()
     local SaveData = require("src.core.SaveData")
     local opts = loadOptions()
@@ -680,6 +696,7 @@ end
 -- outlives the index it came from.
 function ModIndex.removeSource(feed)
   if type(feed) ~= "string" or feed == "" then return nil, "missing index" end
+  if ModIndex.isBuiltIn(feed) then return nil, "the built-in index cannot be removed" end
   local ok, result = pcall(function()
     local SaveData = require("src.core.SaveData")
     local opts = loadOptions()

@@ -1229,6 +1229,7 @@ check(find.findBase == nil, "with no base-game filter armed")
 find.tab = "find"
 find.modScope = nil
 find.findLoaded = true
+find._findFetch = nil
 find.findSources = { { feed = "https://example.test/data/index.json",
                        base = "https://example.test/",
                        label = "example/index" } }

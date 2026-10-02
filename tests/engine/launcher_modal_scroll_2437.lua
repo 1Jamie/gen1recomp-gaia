@@ -8,6 +8,7 @@ local View = require("src.import.LauncherView")
 local Transition = require("src.ui.kit.Transition")
 local Importer = require("src.import.RomImporter")
 local GameVersion = require("src.core.GameVersion")
+local ModIndex = require("src.mods.ModIndex")
 
 local width, height = 853, 480
 love.graphics.getDimensions = function() return width, height end
@@ -23,6 +24,7 @@ local function fixture(tab)
   local imp = Importer.new(function() end, { launcher = true, onEditSave = function() end })
   for _, v in ipairs(GameVersion.ORDER) do imp.ready[v] = true end
   imp._ensureSlots, imp._ensureMods = function() end, function() end
+  imp._ensureFind = function() end
   imp._refreshMods = function() end
   imp._resetModOrder = function(self) self.didReset = true end
   imp.mods = {}
@@ -44,6 +46,7 @@ local MODALS = {
     open = function(imp)
       imp.findSources = {}
       for i = 1, 6 do imp.findSources[i] = { feed = "https://x/" .. i, label = "Index " .. i } end
+      imp.findSources[1] = ModIndex.resolveSource("bryanthaboi/gen1recomp-mod-index")
       imp._indexManage = true
     end },
 }
@@ -85,7 +88,9 @@ for _, size in ipairs({ { 853, 480 }, { 780, 360 }, { 1280, 720 } }) do
     local state = imp._modalScroll and imp._modalScroll[spec.key]
     T.check(state ~= nil and state.rect ~= nil, tag .. " records a scroll rect")
     local closeSeen, escaped = false, {}
+    local removes = 0
     for _, r in ipairs(rects) do
+      if r.label == "Remove" then removes = removes + 1 end
       if r.clip then
         if not inside(r.clip, width, height) then escaped[#escaped + 1] = r.label .. " clip" end
         if state and not within(r.clip, state.rect) then escaped[#escaped + 1] = r.label .. " clip outside body" end
@@ -98,6 +103,9 @@ for _, size in ipairs({ { 853, 480 }, { 780, 360 }, { 1280, 720 } }) do
       end
     end
     T.check(closeSeen, tag .. " draws a pinned Close")
+    if spec.key == "_indexManage" then
+      T.eq(removes, 5, tag .. " only offers Remove for the five custom indexes")
+    end
     T.check(#escaped == 0, tag .. " keeps every control on screen or in the scroll clip: "
       .. table.concat(escaped, ", "))
     if state and state.rect then

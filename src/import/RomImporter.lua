@@ -8032,10 +8032,8 @@ end
 --
 -- The index is metadata only (src/mods/ModIndex.lua): it says where a mod's
 -- zip lives, and the install runs through exactly the same path "Import mod
--- .zip" does.  Nothing here is automatic -- no index ships with the launcher,
--- and the tab stays an empty "Add an index" prompt until the player names one,
--- because subscribing to somebody's list of mods is a trust decision and not a
--- default.
+-- .zip" does.  The main index is included by default; players can add other
+-- indexes alongside it.  Installing a listed mod remains an explicit action.
 --
 -- Fetching is the same synchronous curl the update checks already use, cached
 -- in options for a day, so the first open of the tab costs one round trip and
@@ -8556,9 +8554,7 @@ function RomImporter:_pumpFindStats()
   if next(pending) == nil then self._findStatsPending = nil end
 end
 
--- Open the "add an index" text prompt.  Deliberately a typed URL rather than a
--- picked-from-a-list affair: there is no blessed index, and presenting one
--- would make the launcher's choice look like an endorsement.
+-- Open the text prompt for an additional index URL.
 function RomImporter:_promptAddIndex()
   self._indexPrompt = { text = "" }
   self:_armTextInput()

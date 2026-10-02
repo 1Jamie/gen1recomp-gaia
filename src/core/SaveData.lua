@@ -672,12 +672,10 @@ function SaveData.defaultOptions()
     -- GitHub release checks for mods with a manifest "github" field
     -- (src/mods/ModUpdate.lua). Keyed by owner/repo; TTL is six hours.
     modUpdateCache = {},
-    -- Community mod indexes the player has chosen to browse
-    -- (src/mods/ModIndex.lua), in the order they added them.  Empty by
-    -- default and never populated automatically: adding an index is how a
-    -- player says they trust whoever publishes it, so the launcher asks
-    -- rather than shipping one.  Rows are { url, feed, base, fallback,
-    -- label }.
+    -- Player-added mod indexes, in their chosen order.  ModIndex.sources()
+    -- includes the permanent main index alongside these and reuses any
+    -- main-index row saved by an older launcher.  Rows are
+    -- { url, feed, base, fallback, label }.
     modIndexes = {},
     -- Parsed index listings keyed by feed URL; TTL is 24 hours, matching how
     -- often the feeds themselves rebuild.

@@ -5005,10 +5005,11 @@ local function buildFilterModal(imp, m)
       action = function() imp._filterPopup = nil end })
 end
 
--- Index manager: every source with its Remove, plus Add and Refresh all.
+-- Index manager: built-in source and removable additions, plus Add and Refresh all.
 -- This replaces both the old always-visible source rows above the search
 -- field and the lone "Add index" header button.
 local function buildIndexesModal(imp, m)
+  local ModIndex = require("src.mods.ModIndex")
   local sources = imp.findSources or {}
   local pad = math.floor(18 * m.s)
   local w = math.floor(520 * m.s)
@@ -5031,17 +5032,24 @@ local function buildIndexesModal(imp, m)
   else
     for i, source in ipairs(sources) do
       local feed = source.feed
+      local builtIn = ModIndex.isBuiltIn(feed)
+      local actionLabel = builtIn and Strings("Built-in") or Strings("Remove")
       local id = "idx-rm-" .. tostring(feed)
       local cy = place(id, (i - 1) * (rowH + gap), rowH)
-      local rmW = Kit.textWidth("small", Strings("Remove"))
+      local rmW = Kit.textWidth("small", actionLabel)
         + math.floor(20 * m.s)
       Kit.text("small", Kit.ellipsize("small", source.label or feed,
         rw - rmW - math.floor(12 * m.s)), x,
         cy + (rowH - Kit.textHeight("small")) / 2, PAL.detail)
-      btn(imp, x + rw - rmW, cy, rmW, rowH,
-        id, Strings("Remove"), {
-          kind = "danger", font = "small",
-          action = function() imp:_removeIndex(feed) end })
+      if builtIn then
+        Kit.text("small", actionLabel, x + rw - rmW,
+          cy + (rowH - Kit.textHeight("small")) / 2, PAL.muted)
+      else
+        btn(imp, x + rw - rmW, cy, rmW, rowH,
+          id, actionLabel, {
+            kind = "danger", font = "small",
+            action = function() imp:_removeIndex(feed) end })
+      end
     end
   end
   btn(imp, x, place("idx-add", addY, m.btnH), rw, m.btnH, "idx-add",

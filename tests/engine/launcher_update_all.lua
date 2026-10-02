@@ -108,6 +108,7 @@ local function launcher(secondStatus, feedCarts)
     findIndex = { mods = {}, carts = feedCarts or {} },
   }, RomImporter)
   ri._refreshMods = function() end
+  ri._refreshFindSources = function(self) self.findSources = {} end
   return ri
 end
 
