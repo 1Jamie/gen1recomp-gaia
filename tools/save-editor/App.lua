@@ -513,6 +513,11 @@ function App.mousepressed(x, y, button)
 end
 
 function App.touchpressed(id, x, y)
+  if S and MapBrowser.touchpressed(S, id, x, y) then
+    if touch then touch.moved = true end
+    Kit.blur()
+    return
+  end
   if touch then
     return
   end
@@ -526,6 +531,8 @@ function App.touchpressed(id, x, y)
 end
 
 function App.touchmoved(id, x, y)
+  local pinched = S and MapBrowser.touchmoved(S, id, x, y)
+  if pinched and touch then touch.moved = true end
   if not touch or touch.id ~= id then
     return
   end
@@ -534,16 +541,25 @@ function App.touchmoved(id, x, y)
   if math.abs(x - touch.startX) + math.abs(y - touch.startY) > 10 then
     touch.moved = true
   end
-  if touch.moved then
+  if touch.moved and not pinched then
     Kit.dragAdd(lastY - y)
   end
 end
 
 function App.touchreleased(id, x, y)
+  App.touchmoved(id, x, y)
+  local pinched = S and MapBrowser.touchreleased(S, id)
   if not touch or touch.id ~= id then
     return
   end
-  App.touchmoved(id, x, y)
+  if pinched then
+    local nextId, point = next(S._mapTouches)
+    if nextId then
+      touch = { id = nextId, x = point.x, y = point.y, startX = point.x, startY = point.y, moved = true }
+      Kit._touchDrag = { x = point.x, startY = point.y }
+      return
+    end
+  end
   if not touch.moved then
     mouseClicked, clickX, clickY = true, x, y
   end
@@ -589,7 +605,7 @@ end
 local function drawTitleBar(x, y, w, h)
   local pad, gap, row = 12 * Kit.scale, 8 * Kit.scale, Kit.controlH()
   local inner = w - 2 * pad
-  if not S.compactChrome then
+  if not S.compactChrome and not Kit.desktop then
     Kit.text(
       "tab",
       "SAVE EDITOR" .. (S.version and (" / " .. S.version:upper()) or ""),
@@ -672,6 +688,29 @@ local function drawTitleBar(x, y, w, h)
     opts.kind, opts.enabled, opts.font = action[2], action[4], "small"
     return opts
   end
+  if Kit.desktop then
+    local widths, total = {}, 5 * gap
+    for i, action in ipairs(actions) do
+      widths[i] = Kit.buttonWidth(action[1], actionOptions(action), row)
+      if i == 1 then
+        widths[i] = math.max(widths[i], Kit.buttonWidth("Save locked", { font = "small", icon = "lock" }, row))
+      elseif i == 6 then
+        widths[i] = math.max(widths[i], Kit.buttonWidth("Discard?", { font = "small" }, row))
+      end
+      total = total + widths[i]
+    end
+    local bx, by = x + w - pad - total, y + 8 * Kit.scale
+    local identityW = bx - gap - (x + pad)
+    local labelH, pathH = Kit.textHeight("tab"), Kit.textHeight("tiny")
+    local ty = by + (row - labelH - pathH - 4 * Kit.scale) / 2
+    Kit.text("tab", Kit.ellipsize("tab", "SAVE EDITOR" .. (S.version and (" / " .. S.version:upper()) or ""), identityW), x + pad, ty, PAL.heading)
+    Kit.text("tiny", Kit.ellipsize("tiny", (S.dirty and "UNSAVED  " or "SAVED  ") .. (S.path or "New save"), identityW), x + pad, ty + labelH + 4 * Kit.scale, S.dirty and PAL.yellow or PAL.caption)
+    for i, action in ipairs(actions) do
+      if Kit.button(bx, by, widths[i], row, action[1], actionOptions(action)) then action[3]() end
+      bx = bx + widths[i] + gap
+    end
+    return
+  end
   if narrow then
     local more = {
       S.chromeMenu and "Less" or "More",
@@ -734,7 +773,7 @@ local function drawTabRail(x, y, w, h)
     TABS,
     x + pad,
     y,
-    math.min(w - 2 * pad, 360 * Kit.scale),
+    math.min(w - 2 * pad, (Kit.desktop and 240 or 360) * Kit.scale),
     row,
     function()
       S.mobileInspector = false
@@ -802,6 +841,15 @@ function App.draw()
   sh = math.max(1, tonumber(sh) or height)
   Kit.layout(sw, sh)
   local s = Kit.scale
+  if S.tab == "map" then
+    local shape = sw .. "x" .. sh
+    if S._mapFocusShape ~= shape then
+      S._mapFocusShape = shape
+      if not Kit.desktop and sw > sh and sh < 500 * s then S.mapFocused = true end
+    end
+  else
+    S._mapFocusShape = nil
+  end
 
   local mx, my = love.mouse.getPosition()
   local padX, padY, padOn = PadInput.pointer()
@@ -827,6 +875,7 @@ function App.draw()
     or (S.navPopup ~= nil)
     or (S.editPopup ~= nil)
     or Motion.active()
+  if S.tab ~= "map" or Kit.blockClicks then MapBrowser.clearTouches(S) end
 
   Theme.field(width, height)
 
@@ -862,14 +911,14 @@ function App.draw()
     + Kit.textHeight("tiny")
     + 28 * s
     + (titleTwoRow and 2 or 1) * (Kit.controlH() + 8 * s)
-  if S.compactChrome then
+  if S.compactChrome or Kit.desktop then
     titleH = Kit.controlH() + 16 * s
   end
   local tabH = Kit.controlH() + 6 * s
-  local statusH = 38 * s
-  -- A short landscape map needs room for actual cells. Its focus control
+  local statusH = (Kit.desktop and 28 or 38) * s
+  -- A phone map needs room for actual cells. Its focus control
   -- hides the editor chrome while keeping the map navigation and status.
-  local focusMap = S.tab == "map" and S.mapSection == "view" and S.mapFocused and sw > sh
+  local focusMap = S.tab == "map" and S.mapFocused
   if focusMap then
     titleH, tabH = 0, 0
   end
@@ -1029,6 +1078,12 @@ function App.keypressed(key)
     Ops.say(S, "Menu closed")
     return
   end
+  if key == "escape" and S.tab == "map" and S.mapFocused then
+    S.mapFocused = false
+    MapBrowser.clearTouches(S)
+    Kit.blur()
+    return
+  end
   if key == "escape" then
     S.editingMon = nil
     Ops.disarm(S)
@@ -1059,13 +1114,15 @@ function App.wheelmoved(x, y)
     wheelY = wheelY + (y or 0)
     return
   end
-  -- The map tab spends the wheel on zoom; every other tab routes it through
-  -- Kit so whichever list the pointer is over takes it next draw (#595).
+  -- Only the map viewport spends the wheel on zoom. Search results and
+  -- spawn cards keep the launcher's normal scrolling under the pointer.
+  local mx, my = love.mouse.getPosition()
   if
     S.tab == "map"
     and MapBrowser.wheelmoved
     and not S._scrollingPage
-    and (not S.mapSection or S.mapSection == "view")
+    and (not S._mapStacked or not S.mapSection or S.mapSection == "view")
+    and (not S._mapViewRect or MapBrowser.contains(S, mx, my))
   then
     MapBrowser.wheelmoved(S, y)
     return

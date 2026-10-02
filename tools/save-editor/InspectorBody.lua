@@ -70,6 +70,14 @@ local function drawSection(S, Kit, x, y, w, h, report, issues)
     end
   end
   S.monDrafts = S.monDrafts or {}
+  local layoutKey = tostring(Kit._fontKey) .. ":" .. w .. ":" .. h
+  local resizedScroll
+  if S._formLayoutKey ~= layoutKey then
+    resizedScroll = S.inspectorScroll or 0
+    local oldMax = math.max(0, (S._formHeight or 0) - (S._formViewHeight or bodyH))
+    if resizedScroll > 0 and resizedScroll >= oldMax - 1 then resizedScroll = math.huge end
+    S._formLayoutKey = layoutKey
+  end
   S.inspectorScroll =
     Kit.scrollPixels(cx, bodyY, inner, bodyH, S.inspectorScroll or 0, S._formHeight or 0)
   Kit.pushClip(cx, bodyY, inner, bodyH)
@@ -96,13 +104,14 @@ local function drawSection(S, Kit, x, y, w, h, report, issues)
     cy = cy + buttonH + gap
     if issue and not help then hint(id) end
   end
+  local numberX, numberW
   local function field(id, label, value, fn, sanitize)
     if type(value) == "number" then
       label = label:gsub(" %(.-%)", "")
       cy = cy
         + Touch.value(S, Kit, id, label, value, function()
           return Limits.mon(S, mon, id)
-        end, cx, cy, inner, fn, issues.fields[id])
+        end, numberX or cx, cy, numberW or inner, fn, issues.fields[id])
         + 2 * gap
       return
     end
@@ -386,6 +395,15 @@ local function drawSection(S, Kit, x, y, w, h, report, issues)
       hint("dv-hp")
     end
     for _, k in ipairs(keys) do
+      local paired = Kit.desktop and inner >= 640 * s and (g == 3 or k ~= "hp")
+      local startY, leftEnd = cy, cy
+      if paired then numberX, numberW = cx, (inner - gap) / 2 end
+      local function nextColumn()
+        if paired then
+          leftEnd, cy = cy, startY
+          numberX = cx + numberW + gap
+        end
+      end
       if g == 3 then
         field(
           "iv-" .. k,
@@ -397,6 +415,7 @@ local function drawSection(S, Kit, x, y, w, h, report, issues)
             return Ops.setIv(S, mon, k, tonumber(v) or 0)
           end
         )
+        nextColumn()
         field(
           "ev-" .. k,
           (
@@ -412,6 +431,7 @@ local function drawSection(S, Kit, x, y, w, h, report, issues)
           field("dv-" .. k, k:upper() .. " DV", mon.dvs and mon.dvs[k] or 0, function(v)
             return Ops.setDv(S, mon, k, tonumber(v) or 0)
           end)
+          nextColumn()
         end
         field(
           "se-" .. k,
@@ -422,6 +442,8 @@ local function drawSection(S, Kit, x, y, w, h, report, issues)
           end
         )
       end
+      if paired then cy = math.max(cy, leftEnd) end
+      numberX, numberW = nil, nil
     end
   elseif S.monSection == "moves" then
     for slot = 1, 4 do
@@ -487,6 +509,10 @@ local function drawSection(S, Kit, x, y, w, h, report, issues)
     end
   end
   S._formHeight = cy - start
+  S._formViewHeight = bodyH
+  if resizedScroll then
+    S.inspectorScroll = Ops.clamp(resizedScroll, 0, math.max(0, S._formHeight - bodyH))
+  end
   Kit.popClip()
   Kit.scrollbar(cx, bodyY, inner, bodyH, S.inspectorScroll, S._formHeight, bodyH)
 end

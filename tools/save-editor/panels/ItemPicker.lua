@@ -19,6 +19,39 @@ local PAL = Theme.PAL
 local Picker = {}
 
 local FIELD_ID = "item-picker"
+local FEEDBACK_SECONDS = 2.5
+
+local function feedback(S, Kit, changed, dest)
+  local p = S.itemPicker
+  if p then
+    p.feedback = {
+      text = changed and (dest == "pc" and "Added to PC" or "Added to Bag") or "Item not added",
+      good = changed,
+      at = love.timer and love.timer.getTime and love.timer.getTime() or Kit.time,
+    }
+  end
+  return changed
+end
+
+local function drawFeedback(p, Kit, x, y, w, h)
+  local toast = p.feedback
+  if not toast then return false end
+  local elapsed = math.max(0, Kit.time - toast.at)
+  if elapsed >= FEEDBACK_SECONDS then
+    p.feedback = nil
+    return false
+  end
+  local alpha = math.min(1, (FEEDBACK_SECONDS - elapsed) / 0.4)
+  local s, pad = Kit.scale, 8 * Kit.scale
+  local icon = 18 * s
+  local tw = math.min(w, Kit.textWidth("small", toast.text) + icon + 3 * pad)
+  local color = toast.good and PAL.green or PAL.red
+  Theme.fillRounded(x, y, tw, h, PAL.cardBody, 0.98 * alpha)
+  Theme.stroke(x, y, tw, h, Theme.radius(), color, 0.8 * alpha, 1)
+  Kit.icon(toast.good and "check" or "triangle-alert", x + pad, y + (h - icon) / 2, icon, color, alpha)
+  Kit.text("small", toast.text, x + icon + 2 * pad, y + (h - Kit.textHeight("small")) / 2, PAL.text, alpha)
+  return true
+end
 
 function Picker.results(S)
   local p = S.itemPicker
@@ -60,9 +93,9 @@ function Picker.commit(S, Kit, id)
     return changed
   end
   if dest == "pc" then
-    return Ops.addToPc(S, id)
+    return feedback(S, Kit, Ops.addToPc(S, id), dest)
   end
-  return Ops.addToBag(S, id)
+  return feedback(S, Kit, Ops.addToBag(S, id), dest)
 end
 
 function Picker.draw(S, Kit, width, height)
@@ -101,7 +134,9 @@ function Picker.draw(S, Kit, width, height)
   local closeW = PickerChrome.closeSize(Kit)
   local captionH = Kit.textHeight("caption")
   local headH = math.max(captionH, closeW)
-  Kit.caption(cx, cy + (headH - captionH) / 2, "ADD AN ITEM")
+  if not drawFeedback(p, Kit, cx, cy, inner - closeW - 10 * s, headH) then
+    Kit.caption(cx, cy + (headH - captionH) / 2, "ADD AN ITEM")
+  end
   if
     Kit.iconButton(
       x + w - pad - closeW,

@@ -316,5 +316,44 @@ check(App.save(), "bulk-edited save writes")
 check(App.reload(), "bulk-edited save reloads")
 S = App.getState()
 check(require("Legality").save(S).errors == 0, "bulk edits survive save round trip")
+-- Result clicks and keyboard adds report inside the open picker, where the
+-- dimmed status bar cannot provide visible confirmation.
+local picker = require("ItemPicker")
+local item = assert(Ops.itemSearch(S, "potion")[1])
+local oldClock, oldPrint = love.timer.getTime, love.graphics.print
+local toastClock, printed = 50, {}
+love.timer.getTime = function() return toastClock end
+love.graphics.print = function(text, ...)
+  printed[tostring(text)] = true
+  return oldPrint(text, ...)
+end
+local function pickerFrame()
+  printed = {}
+  App.draw()
+end
+S.tab = "items"
+Ops.openItemPicker(S, Kit, "bag")
+pickerFrame()
+pickerFrame()
+check(picker.commit(S, Kit, item), "bag add succeeds")
+pickerFrame()
+check(printed["Added to Bag"] and S.itemPicker ~= nil, "bag toast renders without closing picker")
+toastClock = toastClock + 2.6
+pickerFrame()
+check(not printed["Added to Bag"], "toast disappears automatically")
+S.itemPicker.dest = "pc"
+App.textinput("potion")
+App.keypressed("return")
+pickerFrame()
+check(printed["Added to PC"], "keyboard add renders PC toast")
+local realAdd = Ops.addToBag
+Ops.addToBag = function(state) return Ops.say(state, "Bag is full") end
+S.itemPicker.dest = "bag"
+check(not picker.commit(S, Kit, item), "refused add does not report success")
+pickerFrame()
+check(printed["Item not added"] and not printed["Added to Bag"], "refused add has visible failure feedback")
+Ops.addToBag = realAdd
+Ops.closeItemPicker(S, Kit)
+love.timer.getTime, love.graphics.print = oldClock, oldPrint
 os.remove(path)
 print("save editor touch controls: " .. count .. " checks passed (" .. version .. ")")

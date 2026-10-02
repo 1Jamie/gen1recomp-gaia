@@ -140,10 +140,15 @@ function Kit.endFrame()
   end
 end
 
--- Use the launcher's font scale, with reflow and scrolling on small screens.
+-- Desktop windows keep a stable reading size instead of inflating controls
+-- with the monitor. Mobile and console layouts use the launcher touch scale.
 function Kit.layout(width, height)
-  local s = Theme.clamp(math.min(width / 640, height / 768), 0.9, 1.6) * 1.3
-  local key = ("%dx%d"):format(width, height)
+  local osName = love and love.system and love.system.getOS and love.system.getOS()
+  Kit.desktop = (osName == "OS X" or osName == "Windows" or osName == "Linux")
+    and width >= 960 and height >= 540 and width > height
+  local s = Kit.desktop and Theme.clamp(height / 768, 1, 1.15)
+    or Theme.clamp(math.min(width / 640, height / 768), 0.9, 1.6) * 1.3
+  local key = ("%dx%d:%s"):format(width, height, tostring(Kit.desktop))
   if Kit._fontKey ~= key then
     Kit._fontKey = key
     Kit.fonts = Theme.fonts(s)

@@ -190,6 +190,7 @@ check(
 )
 check(not History.undo(S), "undo cannot revive edits from before reload")
 Ops.selectParty(S, 1)
+S.mapId = S.data.maps.PALLET_TOWN and "PALLET_TOWN" or next(S.data.maps)
 
 -- Audit every visible control at phone, landscape and desktop sizes,
 -- including all inspector sections at several scroll positions.
@@ -256,6 +257,7 @@ local function frame(label, W, H)
     end
   end
   Kit.audit = nil
+  return list
 end
 for _, size in ipairs({
   { 320, 568 },
@@ -384,6 +386,87 @@ for _, size in ipairs({
   end
 end
 
+-- Wide desktop windows retain readable targets while exposing more of each
+-- list and form. Run the same full-label and overlap audit on the compact UI.
+local mobileOS = love.system.getOS
+love.system.getOS = function() return "Windows" end
+local potionItem = assert(Ops.itemSearch(S, "potion")[1])
+Ops.addToBag(S, potionItem)
+Ops.addToPc(S, potionItem)
+for _, size in ipairs({ { 960, 540 }, { 960, 600 }, { 1024, 768 }, { 1280, 720 }, { 1792, 792 }, { 1920, 1080 }, { 2560, 1440 } }) do
+  local W, H = size[1], size[2]
+  love.graphics.getDimensions = function() return W, H end
+  love.window.getSafeArea = function() return 0, 0, W, H end
+  S.chromeMenu, S.mapFocused, S.itemMenu, S.navPopup = false, false, nil, nil
+  for _, tab in ipairs({ "party", "boxes", "items", "events", "dex", "map", "trainer", "legality" }) do
+    S.tab, S.pageScroll, S.inspectorScroll = tab, {}, 0
+    frame("desktop " .. tab, W, H)
+    check(Kit.desktop and Kit.scale <= 1.15, "desktop scale stays compact")
+  end
+  S.tab, S.itemView = "items", "bag"
+  local controls = frame("desktop inventory actions", W, H)
+  local itemRect, increase, decrease
+  for _, c in ipairs(controls) do
+    if c.label:find("POTION ×", 1, true) then itemRect = c end
+    if c.label == "Increase" then increase = c end
+    if c.label == "Decrease" then decrease = c end
+  end
+  check(itemRect and increase and decrease and itemRect.y == increase.y and increase.y == decrease.y,
+    "desktop inventory actions share the item row")
+  local heldCount = S.save.inventory[potionItem]
+  App.mousepressed(increase.x + increase.w / 2, increase.y + increase.h / 2, 1)
+  App.draw()
+  check(S.save.inventory[potionItem] == heldCount + 1, "desktop increase edits the intended stack")
+  App.mousepressed(itemRect.x + itemRect.w / 2, itemRect.y + itemRect.h / 2, 1)
+  App.draw()
+  check(S.editPopup and S.editPopup.id == "item-" .. tostring(potionItem), "compact item row opens its value editor")
+  App.keypressed("escape")
+  local tools = assert(navigationRects.itemTools)
+  local beforeTools = SD.encode(S.save)
+  App.mousepressed(tools.x + tools.w / 2, tools.y + tools.h / 2, 1)
+  App.draw()
+  check(S.navPopup and S.navPopup.mode == "actions" and #S.navPopup.options == 3,
+    "desktop inventory tools open a popup")
+  frame("desktop inventory tools popup", W, H)
+  App.keypressed("escape")
+  check(SD.encode(S.save) == beforeTools, "opening and cancelling tools preserves inventory")
+  controls = frame("desktop inventory confirmation", W, H)
+  local drop
+  for _, c in ipairs(controls) do
+    if c.label == "Drop" and c.y == itemRect.y then drop = c end
+  end
+  App.mousepressed(drop.x + drop.w / 2, drop.y + drop.h / 2, 1)
+  App.draw()
+  controls = frame("desktop armed Drop", W, H)
+  local confirm
+  for _, c in ipairs(controls) do if c.label == "Confirm?" then confirm = c end end
+  check(confirm and confirm.x == drop.x and confirm.w == drop.w, "desktop Drop confirmation keeps its full-size target")
+  Ops.disarm(S)
+  local allowSave = S.allowSave
+  S.allowSave = false
+  frame("desktop locked Save", W, H)
+  S.allowSave, S._quitArmed = allowSave, true
+  frame("desktop discard confirmation", W, H)
+  S._quitArmed = false
+  S.tab, S.editingMon = "party", S.save.party[1]
+  for _, section in ipairs({ "main", "stats", "moves", "origin", "extras", "checks" }) do
+    S.monSection = section
+    for _, offset in ipairs({ 0, 120, 300, 600, 10000 }) do
+      S.inspectorScroll = offset
+      frame("desktop " .. section, W, H)
+    end
+  end
+end
+love.system.getOS = mobileOS
+Kit.layout(1920, 1080)
+check(not Kit.desktop and math.abs(Kit.scale - 1.828125) < 0.001 and Kit.tapMin() >= 44,
+  "wide Android keeps launcher touch sizing")
+love.system.getOS = function() return "NX" end
+Kit.layout(1280, 720)
+check(not Kit.desktop and math.abs(Kit.scale - 1.21875) < 0.001 and Kit.tapMin() >= 44,
+  "Switch keeps launcher touch sizing")
+love.system.getOS = mobileOS
+
 -- Short landscape popups scroll to the keyboard choice; clicks outside
 -- dismiss without reaching Save, and choosing a destination is view state.
 love.graphics.getDimensions = function()
@@ -479,6 +562,11 @@ love.window.getSafeArea = function()
 end
 S.tab, S.mapSection, S.mapZoom = "map", "view", 2
 App.draw()
+check(S.mapFocused and S._mapViewH >= 140, "short landscape opens a usable expanded map")
+App.keypressed("escape")
+App.draw()
+check(not S.mapFocused, "landscape Back restores the editor without immediately reopening focus")
+S.mapZoom, S.mapAutoFit = 2, false
 rect = navigationRects.tab
 App.mousepressed(rect.x + rect.w / 2, rect.y + rect.h / 2, 1)
 App.draw()
@@ -640,6 +728,102 @@ check(seen == 0 and owned == 0, "confirmed wipe clears both flags")
 check(History.undo(S), "confirmed wipe is undoable")
 seen, owned = Ops.dexCounts(S)
 check(seen == total and owned == total, "undo restores seen and owned")
+
+-- A phone gets an actual map viewport, not just non-negative geometry.
+local MapBrowser = require("MapBrowser")
+local mapId = S.data.maps.PALLET_TOWN and "PALLET_TOWN" or next(S.data.maps)
+local map = require("src.world.MapLoader").load(S.data, mapId)
+local mapDraw = map.renderer.draw
+map.renderer.draw = function(self, ...)
+  local r, g, b, a = love.graphics.getColor()
+  check(r == 1 and g == 1 and b == 1 and a == 1, "map tiles never inherit the dark card tint")
+  return mapDraw(self, ...)
+end
+S.tab, S.mapSection, S.mapFocused, S.chromeMenu = "map", "view", false, false
+S.navPopup, S.editPopup, S.mapClickCell = nil, nil, nil
+MapBrowser.select(S, mapId)
+love.graphics.getDimensions = function() return 320, 568 end
+love.window.getSafeArea = function() return 0, 0, 320, 568 end
+local controls = frame("usable phone map", 320, 568)
+local ordinaryHeight = S._mapViewH
+check(ordinaryHeight >= 130 and S._mapViewW >= 270, "small phone has room for map cells")
+check(S.mapZoom * map.widthCells * 16 <= S._mapViewW
+  and S.mapZoom * map.heightCells * 16 <= S._mapViewH, "phone starts with the whole map fitted")
+local function tapMapControl(label)
+  Kit.audit = {}
+  App.draw()
+  local target
+  for _, control in ipairs(Kit.audit) do
+    if control.class == "control" and control.label == label then target = control; break end
+  end
+  Kit.audit = nil
+  check(target ~= nil, "map control available: " .. label)
+  local x, y = target.x + target.w / 2, target.y + target.h / 2
+  App.touchpressed("map-control", x, y)
+  App.touchreleased("map-control", x, y)
+  App.draw(); App.draw()
+end
+tapMapControl("Focus map")
+check(S.mapFocused and S._mapViewH >= ordinaryHeight + 100, "portrait focus gives the map more space")
+local beforeMapGesture = SD.encode(S.save)
+local r = S._mapViewRect
+local x, y = r.x + r.w / 2, r.y + r.h / 2
+local zoom = S.mapZoom
+App.touchpressed("map-first", x - 30, y)
+App.draw()
+App.touchpressed("map-second", x + 30, y)
+App.touchmoved("map-second", x + 90, y)
+App.draw()
+check(math.abs(S.mapZoom - zoom * 2) < 0.001, "real App events pinch to zoom")
+check(S.mapClickCell == nil, "pinching never selects a cell")
+App.touchreleased("map-first", x - 30, y)
+App.draw()
+local cam = S.mapCamX
+App.touchmoved("map-second", x + 110, y)
+App.draw()
+check(S.mapCamX < cam, "remaining finger pans after a pinch")
+App.touchreleased("map-second", x + 110, y)
+App.draw()
+check(S.mapClickCell == nil and not Kit.touchDown, "pinch release never becomes a tap or stuck drag")
+check(SD.encode(S.save) == beforeMapGesture, "map gestures do not edit the save")
+tapMapControl("Fit")
+check(S.mapAutoFit, "Fit recovers from a pan and zoom")
+local dragCam = S.mapCamX
+r = S._mapViewRect
+x, y = r.x + r.w / 2, r.y + r.h / 2
+App.touchpressed("map-pan", x, y)
+App.draw()
+App.touchreleased("map-pan", x + 30, y)
+App.draw()
+check(math.abs(S.mapCamX - (dragCam - 30 / S.mapZoom)) < 0.001,
+  "pan includes final release movement even without an intervening frame")
+check(S.mapClickCell == nil, "pan release never selects a map cell")
+tapMapControl("Fit")
+local cx, cy = 1, 1
+for _, warp in ipairs(map.def.warps or {}) do
+  if warp.x == cx and warp.y == cy then cx = 2 end
+end
+r = S._mapViewRect
+x = r.x + ((cx + 0.5) * 16 - S.mapCamX) * S.mapZoom
+y = r.y + ((cy + 0.5) * 16 - S.mapCamY) * S.mapZoom
+App.touchpressed("map-cell", x, y)
+App.touchreleased("map-cell", x, y)
+App.draw()
+check(S.mapClickCell and S.mapClickCell.cx == cx and S.mapClickCell.cy == cy, "tap selects the intended map cell")
+S.mapSection = "spawn"
+App.draw()
+tapMapControl("Set here")
+local playerMap, px, py = require("Gen").playerMap(S.save)
+check(playerMap == mapId and px == cx and py == cy, "mobile spawn control uses the selected cell")
+S.mapSection = "view"
+App.draw()
+tapMapControl("Back to editor")
+check(not S.mapFocused and S._mapViewH == ordinaryHeight, "return restores the regular editor layout")
+tapMapControl("Focus map")
+App.keypressed("escape")
+App.draw()
+check(not S.mapFocused, "Back or Escape exits the focused viewer")
+map.renderer.draw = mapDraw
 App.unload()
 os.remove(path)
 Paint.draw = realPaint

@@ -11,12 +11,16 @@ local function drawView(S, Kit, x, y, w, h)
   Ops.pcItems(S)
   local cx, cy, inner = x + pad, y + pad, w - 2 * pad
   S.itemView = S.itemView or "bag"
-  local compact = h < 430 * s
+  local compact = Kit.desktop or h < 430 * s
   local views = { { "bag", "Bag" }, { "pc", "PC" }, { "wallet", "Wallet" }, { "badges", "Badges" } }
   if compact then
-    local addW = math.max(row, Kit.textWidth("small", "Add") + 20 * s)
-    local toolsW = math.max(row, Kit.textWidth("small", "Tools") + 20 * s)
+    local addW = Kit.desktop and Kit.buttonWidth("Add", { font = "small" }, row)
+      or math.max(row, Kit.textWidth("small", "Add") + 20 * s)
+    local toolsW = Kit.desktop and Kit.buttonWidth("Tools", { font = "small", trailingIcon = "chevron-down" }, row)
+      or math.max(row, Kit.textWidth("small", "Tools") + 20 * s)
     local viewW = inner - addW - toolsW - 2 * gap
+    if Kit.desktop then viewW = math.min(viewW, 240 * s) end
+    local toolsX = Kit.desktop and cx + viewW + addW + 2 * gap or cx + inner - toolsW
     Chooser.navigation(S, Kit, "itemView", "Inventory view", views, cx, cy, viewW, row, function()
       S.itemMenu = nil
     end)
@@ -26,9 +30,16 @@ local function drawView(S, Kit, x, y, w, h)
     then
       Ops.openItemPicker(S, Kit, S.itemView)
     end
-    if
+    if Kit.desktop and storage then
+      local dest = S.itemView == "pc" and "pc" or "bag"
+      Chooser.actions(S, Kit, "itemTools", "Tools", {
+        { id = "max", label = "Max all stacks", icon = "chevrons-up", fn = function(state) Ops[dest .. "MaxAll"](state) end },
+        { id = "name", label = "Sort by name", icon = "arrow-up-down", fn = function(state) Ops[dest .. "Sort"](state, "name") end },
+        { id = "index", label = "Sort by item number", icon = "list-filter", fn = function(state) Ops[dest .. "Sort"](state, "index") end },
+      }, toolsX, cy, toolsW, row)
+    elseif
       Kit.button(
-        cx + inner - toolsW,
+        toolsX,
         cy,
         toolsW,
         row,
@@ -140,7 +151,7 @@ local function drawView(S, Kit, x, y, w, h)
       call("Sort", "index")
     end
     cy = cy + row + gap
-  elseif S.itemMenu == "tools" then
+  elseif S.itemMenu == "tools" and not Kit.desktop then
     local tools = {
       {
         "Max all",
@@ -179,7 +190,17 @@ local function drawView(S, Kit, x, y, w, h)
   local actionMin = Kit.buttonWidth("Confirm?", { font = "small", iconStack = true }, row)
   local actionCols = inner >= 5 * actionMin + 4 * gap and 5 or 3
   local actionRows = math.ceil(5 / actionCols)
-  local itemH = actionRows * row + (actionRows - 1) * gap + row + 3 * gap
+  local desktopWidths, desktopActionsW = {}, 4 * gap
+  if Kit.desktop then
+    for j, label in ipairs({ "Decrease", "Increase", "Max", pc and "Bag" or "PC", "Confirm?" }) do
+      desktopWidths[j] = Kit.buttonWidth(label, {
+        font = "small", iconOnly = j <= 2,
+        icon = ({ "minus", "plus", "chevrons-up", pc and "backpack" or "package", "trash" })[j],
+      }, row)
+      desktopActionsW = desktopActionsW + desktopWidths[j]
+    end
+  end
+  local itemH = Kit.desktop and row + gap or actionRows * row + (actionRows - 1) * gap + row + 3 * gap
   local visible = math.max(1, math.floor(bodyH / itemH))
   local offsetKey = prefix .. "Offset"
   local drawn, shift = Kit.list(S, offsetKey, cx, cy, inner, bodyH, #order, itemH)
@@ -200,7 +221,7 @@ local function drawView(S, Kit, x, y, w, h)
       Kit.button(
         cx,
         by,
-        inner,
+        Kit.desktop and inner - desktopActionsW - gap or inner,
         row,
         tostring(def and def.name or id):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
           .. " ×"
@@ -225,7 +246,8 @@ local function drawView(S, Kit, x, y, w, h)
         end,
       })
     end
-    by = by + row + gap
+    if not Kit.desktop then by = by + row + gap end
+    local actionX = cx + inner - desktopActionsW
     local labels = {
       "Decrease",
       "Increase",
@@ -238,12 +260,13 @@ local function drawView(S, Kit, x, y, w, h)
       local first = actionRow * actionCols + 1
       local cols = math.min(actionCols, #labels - first + 1)
       local bw = (inner - (cols - 1) * gap) / cols
+      if Kit.desktop then bw = desktopWidths[j] end
       if
-        Kit.button(cx + (j - first) * (bw + gap), by + actionRow * (row + gap), bw, row, label, {
+        Kit.button(Kit.desktop and actionX or cx + (j - first) * (bw + gap), by + (Kit.desktop and 0 or actionRow * (row + gap)), bw, row, label, {
           font = "small",
           icon = ({ "minus", "plus", "chevrons-up", pc and "backpack" or "package", "trash" })[j],
           iconOnly = j == 1 or j == 2,
-          iconStack = j >= 3,
+          iconStack = not Kit.desktop and j >= 3,
           kind = j == 5 and "danger" or "ghost",
           enabled = j ~= 4 or Ops.moveCount(S, not pc, id) > 0,
         })
@@ -266,6 +289,7 @@ local function drawView(S, Kit, x, y, w, h)
           call("Drop", id)
         end
       end
+      actionX = actionX + bw + gap
     end
   end
   Kit.popClip()

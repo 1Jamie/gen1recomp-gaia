@@ -156,10 +156,12 @@ function MapPreview.bake(baker, map, daytime)
   end
 
   local function paint()
+    love.graphics.push("all")
+    love.graphics.origin()
+    -- The editor's screen clip must not cut tiles out of the cached canvas.
+    love.graphics.setScissor()
     love.graphics.clear(clearColor[1], clearColor[2], clearColor[3], 1)
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.push()
-    love.graphics.origin()
     if colored then
       for slot = 1, 8 do
         GbcPalette.with(bgSet[slot], function() drawTiles(slot) end)
@@ -175,6 +177,13 @@ function MapPreview.bake(baker, map, daytime)
     paint()
   end
   return canvas
+end
+
+function MapPreview.clear(baker)
+  for _, img in pairs(baker.mapImages) do
+    if img and img.release then img:release() end
+  end
+  baker.mapImages = {}
 end
 
 function MapPreview.imageFor(baker, map)

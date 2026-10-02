@@ -432,9 +432,58 @@ do
   local map = Map2.new(def, tileset)
   check(map.renderer == nil, "Map2 does not ship a renderer")
   local baker = MapPreview.baker({ tilesets = { TILESET_GYM = tileset } })
+  local g = love.graphics
+  local original = { push = g.push, pop = g.pop, clear = g.clear, draw = g.draw, setScissor = g.setScissor }
+  local clip, stack, clippedDraws = { 10, 186, 297, 328 }, {}, 0
+  g.push = function(mode)
+    stack[#stack + 1] = { clip = clip }
+    original.push(mode)
+  end
+  g.pop = function()
+    clip = stack[#stack].clip
+    stack[#stack] = nil
+    original.pop()
+  end
+  g.setScissor = function(x, y, w, h) clip = x and { x, y, w, h } or nil end
+  g.clear = function(...)
+    check(clip == nil, "map canvas clear ignores the editor's screen clip")
+    original.clear(...)
+  end
+  g.draw = function(...)
+    if clip then clippedDraws = clippedDraws + 1 end
+    original.draw(...)
+  end
+  g.setColor(0.2, 0.3, 0.4, 0.5)
   local renderer = MapPreview.renderer(baker, map)
+  check(clippedDraws == 0, "all preview tiles render without the editor's screen clip")
+  check(clip and clip[1] == 10 and clip[2] == 186 and clip[3] == 297 and clip[4] == 328,
+    "preview bake restores the editor's clipping region")
+  local r, green, b, a = g.getColor()
+  check(r == 0.2 and green == 0.3 and b == 0.4 and a == 0.5,
+    "preview bake restores the caller's graphics color")
+  for key, fn in pairs(original) do g[key] = fn end
   check(renderer ~= nil and renderer.draw ~= nil,
     "MapPreview attaches a draw for a Gold map")
+  local S = newState("gold")
+  S.data.maps, S.data.tilesets = { AZALEA_GYM = def }, { TILESET_GYM = tileset }
+  S.mapId, S.mapSection, S.tab = "AZALEA_GYM", "view", "map"
+  local Kit, Browser = require("Kit"), require("MapBrowser")
+  local dimensions = g.getDimensions
+  local width, height = 320, 568
+  g.getDimensions = function() return width, height end
+  Kit.layout(width, height); Kit.beginFrame(-1, -1, false, 0)
+  Browser.draw(S, Kit, 10, 180, 300, 330)
+  Kit.endFrame()
+  local first = S._g2MapBaker.mapImages.AZALEA_GYM
+  check(first and not first.released, "phone view creates a live preview canvas")
+  width, height = 640, 360
+  Kit.layout(width, height); Kit.beginFrame(-1, -1, false, 0)
+  Browser.draw(S, Kit, 10, 10, 620, 300)
+  Kit.endFrame()
+  check(first.released, "resize retires the canvas whose pixels can be cleared by the window")
+  check(S._g2MapBaker.mapImages.AZALEA_GYM ~= first,
+    "resized viewer redraws the map into a fresh canvas")
+  g.getDimensions = dimensions
 end
 
 do

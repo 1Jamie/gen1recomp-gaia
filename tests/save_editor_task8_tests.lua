@@ -157,7 +157,44 @@ do
   for _ = 1, 40 do MapBrowser.wheelmoved(S, 1) end
   eq(S.mapZoom, 4, "zoom clamps at 4x")
   for _ = 1, 80 do MapBrowser.wheelmoved(S, -1) end
-  eq(S.mapZoom, 1, "zoom clamps at 1x")
+  eq(S.mapZoom, 0.03125, "zoom can show large maps on a phone")
+end
+
+do
+  local S = newState()
+  S._mapViewW, S._mapViewH = 280, 160
+  MapBrowser.fit(S, { widthCells = 10, heightCells = 16 })
+  check(S.mapZoom * 160 <= 280 and S.mapZoom * 256 <= 160, "Fit shows the whole indoor map")
+  check(S.mapAutoFit, "Fit keeps the map fitted after resizing")
+  local cx = S.mapCamX + S._mapViewW / (2 * S.mapZoom)
+  local cy = S.mapCamY + S._mapViewH / (2 * S.mapZoom)
+  MapBrowser.wheelmoved(S, 1)
+  eq(S.mapCamX + S._mapViewW / (2 * S.mapZoom), cx, "zoom keeps the viewed center fixed horizontally")
+  eq(S.mapCamY + S._mapViewH / (2 * S.mapZoom), cy, "zoom keeps the viewed center fixed vertically")
+  check(not S.mapAutoFit, "manual zoom leaves Fit mode")
+  local zoom = S.mapZoom
+  MapBrowser.wheelmoved(S, 0)
+  eq(S.mapZoom, zoom, "zero wheel motion does not change zoom")
+end
+
+do
+  local S = newState()
+  S.tab, S.mapSection, S._mapStacked = "map", "view", true
+  S.mapZoom, S.mapCamX, S.mapCamY = 1, 10, 20
+  S._mapViewRect = { x = 20, y = 100, w = 280, h = 300 }
+  check(not MapBrowser.touchpressed(S, "outside", 10, 90), "pinch ignores touches outside the map")
+  check(not MapBrowser.touchpressed(S, "first", 100, 200), "first finger starts a normal pan")
+  check(MapBrowser.touchpressed(S, "second", 200, 200), "second finger starts a pinch")
+  check(MapBrowser.touchmoved(S, "second", 300, 200), "pinch movement is handled")
+  eq(S.mapZoom, 2, "doubling the finger distance doubles zoom")
+  eq(S.mapCamX + (200 - 20) / S.mapZoom, 140, "pinch keeps its map point under the midpoint")
+  eq(S.mapCamY + (200 - 100) / S.mapZoom, 120, "pinch preserves its vertical anchor")
+  check(MapBrowser.touchreleased(S, "second"), "lifting a finger ends the pinch")
+  check(S._mapPinch == nil and S._mapTouches.first ~= nil, "remaining finger can keep panning")
+  MapBrowser.clearTouches(S)
+  check(S._mapTouches == nil, "navigation clears map gestures")
+  S.navPopup = {}
+  check(not MapBrowser.touchpressed(S, "modal", 100, 200), "a popup shields map gestures")
 end
 
 print(string.format("save editor task 8 tests: %d passed, %d failed", passed, failed))
