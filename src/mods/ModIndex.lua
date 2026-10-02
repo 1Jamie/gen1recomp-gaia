@@ -558,11 +558,9 @@ function ModIndex.filter(mods, opts)
         keep = wantGames[tostring(entry.base or ""):lower()] == true
       else
         local ids = ModIndex.targets(entry)
-        if #ids > 0 then
-          keep = false
-          for _, id in ipairs(ids) do
-            if wantGames[id] then keep = true; break end
-          end
+        keep = false
+        for _, id in ipairs(ids) do
+          if wantGames[id] then keep = true; break end
         end
       end
     end

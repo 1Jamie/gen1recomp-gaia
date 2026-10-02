@@ -388,12 +388,12 @@ do
   }
   eq(#ModIndex.filter(mods, {}), 4, "no game filter keeps every listing")
   local gen1 = ModIndex.filter(mods, { game = "gen1" })
-  eq(#gen1, 3, "gen1 keeps the Gen 1 mods, the all-games mod and the silent one")
+  eq(#gen1, 2, "gen1 keeps the Gen 1 mods and the all-games mod")
   eq(gen1[1].id, "gen1only", "feed order survives the game filter")
   local gen2 = ModIndex.filter(mods, { game = "gen2" })
-  eq(#gen2, 3, "gen2 drops the Gen 1-only mod")
+  eq(#gen2, 2, "gen2 keeps only explicitly matching listings")
   eq(gen2[1].id, "goldonly", "and keeps the one that names a Gen 2 game")
-  eq(#ModIndex.filter(mods, { game = "red" }), 3,
+  eq(#ModIndex.filter(mods, { game = "red" }), 2,
     "a single version reads the generation's mods too")
   eq(ModIndex.filter(mods, { game = "gold" })[1].id, "goldonly",
     "and a Gen 2 version keeps a mod that names only that game")
@@ -404,7 +404,7 @@ do
   for _, entry in ipairs(gen2) do
     if entry.id == "silent" then silentSeen = true end
   end
-  check(silentSeen, "a listing with no games stays in every game's list")
+  check(not silentSeen, "a listing with no games is excluded by a game filter")
 
   local carts = {
     { id = "johto", kind = "cart", base = "gold" },
@@ -414,6 +414,34 @@ do
     "a cart is filtered by the game it plays as")
   eq(#ModIndex.filter(carts, { game = "gen1" }), 1,
     "and only that game")
+end
+
+do
+  local mods = {
+    { id = "red_audio", games = { "red" }, categories = { "AUDIO" } },
+    { id = "gen2_art", games = { "gen2" }, categories = { "ART" } },
+    { id = "missing_games", categories = { "ART" } },
+    { id = "empty_games", games = {}, categories = { "ART" } },
+    { id = "unknown_games", games = { "nonsense" }, categories = { "ART" } },
+    { id = "missing_category", games = { "red" } },
+    { id = "empty_categories", games = { "red" }, categories = {} },
+  }
+  eq(#ModIndex.filter(mods, { game = "emerald" }), 0,
+    "a game with no declared matches has no results")
+  eq(#ModIndex.filter(mods, { game = "gen2", category = "ART" }), 1,
+    "combined filters require both declared game and category matches")
+  eq(#ModIndex.filter(mods, { game = "gen2", category = "AUDIO" }), 0,
+    "an empty game and category intersection stays empty")
+  eq(#ModIndex.filter(mods, { game = "gen2", query = "missing_games" }), 0,
+    "search cannot restore undeclared game compatibility")
+  eq(#ModIndex.filter(mods, { category = "ART" }), 4,
+    "category filtering requires that category without assuming a game filter")
+  eq(#ModIndex.filter(mods, { category = "AUDIO" }), 1,
+    "missing or empty category metadata is excluded")
+  eq(#ModIndex.filter(mods, { category = "TOOLS" }), 0,
+    "a category with no declared matches has no results")
+  eq(#ModIndex.filter(mods, { game = "all" }), 7,
+    "clearing game filters restores listings with unknown compatibility")
 end
 
 do

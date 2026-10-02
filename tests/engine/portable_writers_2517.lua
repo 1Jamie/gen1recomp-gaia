@@ -208,7 +208,31 @@ local function saveDirEntries()
 end
 
 local function run()
+  stubLove("", "")
+  love.system.getOS = function() return "Windows" end
+  love.filesystem.isFused = function() return true end
+  love.filesystem.getExecutablePath = function()
+    return (GAME .. "/gen1recomp.exe"):gsub("/", "\\")
+  end
+  eq(SaveData.gameFolders()[1], GAME, "empty Windows source paths recover the executable folder")
+  check(not SaveData.isPortable(), "executable folder still requires portable.txt")
   writeReal(GAME .. "/portable.txt", "")
+  SaveData._resetPortableCacheForTests()
+  check(SaveData.isPortable(), "fused Windows executable finds its portable marker")
+  eq(SaveData.portableBaseDir(), GAME, "fused Windows portable root is beside the executable")
+  local fallbackFs = SaveData.persistenceFs()
+  check(fallbackFs.write("signed-layout-options.txt", "portable"), "fallback persistence write succeeds")
+  eq(slurp(GAME .. "/signed-layout-options.txt"), "portable", "fallback write lands beside the executable")
+  eq(fallbackFs.read("signed-layout-options.txt"), "portable", "fallback persistence reads back")
+  fallbackFs.remove("signed-layout-options.txt")
+  eq(saveDirEntries(), 0, "fallback persistence leaves the OS save directory empty")
+  love.filesystem.isFused = function() return false end
+  eq(#SaveData.gameFolders(), 0, "unfused LOVE runtime directory is not a game folder")
+  love.filesystem.isFused = function() return true end
+  love.filesystem.getExecutablePath = function() return "C:\\gen1recomp.exe" end
+  eq(SaveData.gameFolders()[1], "C:/", "drive-root executable keeps an absolute directory")
+  love.filesystem.getExecutablePath = function() error("unavailable") end
+  eq(#SaveData.gameFolders(), 0, "unavailable native executable path is guarded")
   stubLove(OTHER .. "/x.exe", GAME)
 
   check(SaveData.isPortable(), "marker under a non-ASCII folder is detected")

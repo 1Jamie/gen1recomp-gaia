@@ -406,8 +406,9 @@ function SaveData.gameFolders()
   -- ROM cache) in the game folder next to the executable/source.  On
   -- Android/iOS the source is a read-only package with no such folder, so
   -- portable mode never applies there.
+  local osName
   if type(love.system) == "table" and type(love.system.getOS) == "function" then
-    local osName = love.system.getOS()
+    osName = love.system.getOS()
     if osName ~= "Windows" and osName ~= "Linux" and osName ~= "OS X" then
       return {}
     end
@@ -444,6 +445,20 @@ function SaveData.gameFolders()
   if appDir then candidates[#candidates + 1] = appDir end
   if sbd and sbd ~= "" then candidates[#candidates + 1] = sbd end
   if src and src ~= "" then candidates[#candidates + 1] = src end
+  -- A certificate trailer on a fused Windows executable can leave both
+  -- source paths empty. The native executable path still locates its marker.
+  if osName == "Windows" and (not src or src == "") and (not sbd or sbd == "")
+      and love.filesystem.isFused and love.filesystem.isFused()
+      and love.filesystem.getExecutablePath then
+    local ok, exe = pcall(love.filesystem.getExecutablePath)
+    if ok and type(exe) == "string" then
+      local dir = parentDir(exe:gsub("\\", "/"))
+      if dir and dir ~= "" then
+        if dir:match("^%a:$") then dir = dir .. "/" end
+        candidates[#candidates + 1] = dir
+      end
+    end
+  end
   return candidates
 end
 

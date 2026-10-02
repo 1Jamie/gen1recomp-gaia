@@ -14,8 +14,8 @@
 -- Fresh love threads do not carry the "src.*" package searcher, so sibling
 -- modules are pulled in with love.filesystem.load exactly like
 -- src/core/chip_worker.lua does.  Semver and Boot are authored in parallel; we
--- load them defensively and degrade (a local semver fallback, a permissive
--- gate) if they are not present yet.
+-- load them defensively, using a local semver fallback and requiring a full
+-- package when payload compatibility cannot be established.
 
 require("love.thread")
 require("love.filesystem")
@@ -38,7 +38,7 @@ local Semver  = loadModule("src/update/Semver.lua")
 local HostShell = loadModule("src/core/HostShell.lua")
 -- Boot's top-level require("src.update.Semver") cannot resolve in this thread
 -- (no src.* searcher), which would leave Boot nil and the minShell gate
--- permanently permissive.  Seed the loaded table first so it resolves.
+-- unavailable. Seed the loaded table first so it resolves.
 if Semver then package.loaded["src.update.Semver"] = Semver end
 local Boot    = loadModule("src/update/Boot.lua")
 
@@ -144,13 +144,14 @@ local function verifyFullPackage(rel, assetName, sumsText)
   return verifyPayload(rel, assetName, sumsText)
 end
 
--- true = ok to run, false = payload needs a newer shell (needs_full).  When Boot
--- cannot probe (module missing during parallel dev, or a probe failure) we allow
--- it: Boot.run's crash-guard handles a payload that turns out unrunnable.
+-- Only offer a restart after this shell has successfully probed the payload.
+-- An unavailable or failed probe requires the full native package instead.
 local function gatePasses(rel)
-  if not (Boot and Boot.probePayload) then return true end
-  local info = Boot.probePayload(rel)
-  if not info then return true end
+  if not (Boot and type(Boot.probePayload) == "function") then
+    return false, "payload_probe_unavailable"
+  end
+  local ok, info = pcall(Boot.probePayload, rel)
+  if not ok or type(info) ~= "table" then return false, "payload_probe_failed" end
   local shell = (Version and Version.shell) or 1
   local payloadHost = (Version and Version.payloadHost) or "love"
   if info.payloadHost and info.payloadHost ~= payloadHost then return false, "payload_host" end
