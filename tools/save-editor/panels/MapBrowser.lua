@@ -310,18 +310,17 @@ local function drawSection(S, Kit, x, y, w, h)
     local mGap = 4 * s
     local listBodyH = (compactList and lr.y + lr.h - pad or pagerY - 10 * s) - listTop
     local perPage = math.max(1, math.floor(listBodyH / (mRowH + mGap)))
-    S.mapListOffset = Ops.clamp(S.mapListOffset or 0, 0, math.max(0, #ids - perPage))
     -- wheel and touch drag reach the list too (#715): App routes the wheel to
     -- zoom on this tab, so the list rides Kit's drag path and the pager alone
     -- on desktop -- on a phone the drag is the difference between "stuck" and
     -- scrollable.
-    S.mapListOffset =
-      Kit.scroll(lr.x + pad, listTop, listInner, listBodyH, S.mapListOffset, #ids, perPage)
+    local drawn, shift =
+      Kit.list(S, "mapListOffset", lr.x + pad, listTop, listInner, listBodyH, #ids, mRowH + mGap)
 
     Kit.pushClip(lr.x + pad, listTop, listInner, math.max(0, listBodyH))
-    for i = 1, math.min(perPage, #ids - S.mapListOffset) do
+    for i = 1, drawn do
       local id = ids[S.mapListOffset + i]
-      local ry = listTop + (i - 1) * (mRowH + mGap)
+      local ry = listTop + (i - 1) * (mRowH + mGap) - shift
       if Kit.row(lr.x + pad, ry, listInner, mRowH, id == S.mapId, PAL.blue, 7 * s) then
         MapBrowser.select(S, id)
         if stacked then
@@ -340,7 +339,7 @@ local function drawSection(S, Kit, x, y, w, h)
       Kit.text("mono", "no map matches", lr.x + pad + 9 * s, listTop + 8 * s, PAL.faint)
     end
     Kit.popClip()
-    Kit.scrollbar(lr.x + pad, listTop, listInner, listBodyH, S.mapListOffset, #ids, perPage)
+    Kit.listScrollbar(S, "mapListOffset", lr.x + pad, listTop, listInner, listBodyH)
     if not compactList then
       S.mapListOffset = Kit.pager(lr.x + pad, pagerY, listInner, S.mapListOffset, #ids, perPage)
     end

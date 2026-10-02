@@ -19,7 +19,7 @@ local function restore(S, snapshot)
   S.editingMon, S.formMon, S.nicknameMon = nil, nil, nil
   S.monDrafts, S.trainerDrafts, S.walletDrafts = {}, {}, {}
   S.propertyChoice, S.itemMenu = nil, nil
-  S.navPopup = nil
+  S.navPopup, S.editPopup = nil, nil
   S.speciesPicker, S.movePicker, S.itemPicker = nil, nil, nil
   S.revision = (S.revision or 0) + 1
   require("Gen").ensureBoxes(S.save)

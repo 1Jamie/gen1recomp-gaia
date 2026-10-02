@@ -52,6 +52,7 @@ local clickX, clickY
 -- Wheel notches queued by App.wheelmoved since the last draw, handed to Kit
 -- there like mouseClicked is: LOVE delivers events before love.draw, so a
 -- notch is always spent by the frame that follows it (#595).
+local TouchEditor = require("TouchEditor")
 local wheelY = 0
 local touch
 
@@ -135,7 +136,8 @@ local function applyLoaded(path, statusVerb)
   S.formMon, S.nicknameMon = nil, nil
   S.monDrafts, S.trainerDrafts, S.walletDrafts = {}, {}, {}
   S.propertyChoice, S.itemMenu = nil, nil
-  S.navPopup = nil
+  S.navPopup, S.editPopup = nil, nil
+  S._listState = nil
   S.mobileInspector = nil
   S._quitArmed = false
   S._openArmed = false
@@ -305,7 +307,8 @@ end
 function App.unload()
   Motion.reset()
   touch = nil
-  Kit.touchDown = nil
+  Kit.touchDown, Kit.ignoreMouseDown = nil, nil
+  Kit._touchDrag, Kit._pointerDrag, Kit._tapPending, Kit._dragDelta = nil, nil, nil, 0
   S = nil
   mods = nil
   App.dataVersion = nil
@@ -346,19 +349,25 @@ local function handlePadAction(action)
     local mx, my = PadInput.pointer()
     App.mousepressed(mx, my, 1)
   elseif action == "b" then
-    if S.navPopup then
+    if S.editPopup then
+      TouchEditor.close(S, Kit)
+    elseif S.navPopup then
       Chooser.close(S)
     else
       App.close()
     end
   elseif action == "tab_prev" then
-    if S.navPopup then
+    if S.editPopup then
+      TouchEditor.keypressed(S, Kit, S.editPopup.mode == "number" and "left" or "up")
+    elseif S.navPopup then
       Chooser.keypressed(S, "up")
     else
       cycleTab(-1)
     end
   elseif action == "tab_next" then
-    if S.navPopup then
+    if S.editPopup then
+      TouchEditor.keypressed(S, Kit, S.editPopup.mode == "number" and "right" or "down")
+    elseif S.navPopup then
       Chooser.keypressed(S, "down")
     else
       cycleTab(1)
@@ -491,6 +500,9 @@ function App.update(dt)
 end
 
 function App.mousepressed(x, y, button)
+  if touch then
+    return
+  end
   if button == 1 then
     mouseClicked = true
     clickX, clickY = x, y
@@ -506,6 +518,10 @@ function App.touchpressed(id, x, y)
   end
   touch = { id = id, x = x, y = y, startX = x, startY = y, moved = false }
   Kit.touchDown = true
+  Kit.ignoreMouseDown = true
+  Kit._pointerDrag, Kit._tapPending = nil, nil
+  Kit._touchDrag = { x = x, startY = y }
+  Kit._dragDelta = 0
   PadInput.yieldToPointer()
 end
 
@@ -513,9 +529,13 @@ function App.touchmoved(id, x, y)
   if not touch or touch.id ~= id then
     return
   end
+  local lastY = touch.y
   touch.x, touch.y = x, y
   if math.abs(x - touch.startX) + math.abs(y - touch.startY) > 10 then
     touch.moved = true
+  end
+  if touch.moved then
+    Kit.dragAdd(lastY - y)
   end
 end
 
@@ -525,10 +545,11 @@ function App.touchreleased(id, x, y)
   end
   App.touchmoved(id, x, y)
   if not touch.moved then
-    App.mousepressed(x, y, 1)
+    mouseClicked, clickX, clickY = true, x, y
   end
   touch = nil
   Kit.touchDown = false
+  Kit.ignoreMouseDown = true
 end
 
 function App.textinput(text)
@@ -804,6 +825,7 @@ function App.draw()
     or (S.itemPicker ~= nil)
     or (S.movePicker ~= nil)
     or (S.navPopup ~= nil)
+    or (S.editPopup ~= nil)
     or Motion.active()
 
   Theme.field(width, height)
@@ -898,7 +920,9 @@ function App.draw()
   Kit.blockClicks = false
   -- Scrim still covers the full window (including unsafe bands); the card
   -- itself is centred in the safe rect so search fields clear the notch.
-  if S.navPopup then
+  if S.editPopup then
+    TouchEditor.draw(S, Kit, width, height)
+  elseif S.navPopup then
     Chooser.draw(S, Kit, width, height)
   else
     SpeciesPicker.draw(S, Kit, width, height)
@@ -916,6 +940,9 @@ end
 
 function App.keypressed(key)
   if not S or S.missingCache then
+    return
+  end
+  if TouchEditor.keypressed(S, Kit, key) then
     return
   end
   if Chooser.keypressed(S, key) then
@@ -1028,7 +1055,7 @@ function App.wheelmoved(x, y)
   if not S or S.missingCache then
     return
   end
-  if S.navPopup then
+  if S.navPopup or S.editPopup or S.speciesPicker or S.movePicker or S.itemPicker then
     wheelY = wheelY + (y or 0)
     return
   end

@@ -67,17 +67,15 @@ local function drawRoster(S, Kit, x, y, listW, h)
     -- The list used to `break` past the fold, silently hiding party slots on
     -- a short window; it scrolls instead now (#715), same offset contract as
     -- every other list in the editor.
-    local visible = math.max(1, math.floor((listH + rowGap) / (rowH + rowGap)))
-    S.partyOffset =
-      Kit.scroll(cx, listTop, innerW, listH, S.partyOffset or 0, #S.save.party, visible)
+    local drawn, shift = Kit.list(S, "partyOffset", cx, listTop, innerW, listH, #S.save.party, rowH + rowGap)
     Kit.pushClip(cx, listTop, innerW, listH)
-    for i = 1, visible do
+    for i = 1, drawn do
       local slot = S.partyOffset + i
       local mon = S.save.party[slot]
       if not mon then
         break
       end
-      local ry = listTop + (i - 1) * (rowH + rowGap)
+      local ry = listTop + (i - 1) * (rowH + rowGap) - shift
       local selected = (S.editingMon == mon)
       if Kit.row(cx, ry, innerW, rowH, selected, PAL.green) then
         Ops.selectParty(S, slot)
@@ -146,7 +144,7 @@ local function drawRoster(S, Kit, x, y, listW, h)
       )
     end
     Kit.popClip()
-    Kit.scrollbar(cx, listTop, innerW, listH, S.partyOffset, #S.save.party, visible)
+    Kit.listScrollbar(S, "partyOffset", cx, listTop, innerW, listH)
   end
 
   local halfW = (innerW - 10 * s) / 2

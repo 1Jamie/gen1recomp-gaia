@@ -10,6 +10,9 @@
 #
 #   scripts/test.sh                 every tier this checkout can run
 #   scripts/test.sh --quick         skip the slow content tier
+#   scripts/test.sh --group NAME    one ROM-free CI group
+#   scripts/test.sh --list          show selected tiers without running them
+#   scripts/test.sh --list-groups   list the ROM-free CI groups
 #   scripts/test.sh --bless         re-pin the fingerprint goldens
 #   WITH_SHOTS=1 scripts/test.sh    also capture and diff golden shots
 #                                   (fails today -- see the T5 block below)
@@ -33,16 +36,39 @@ LUA54=${LUA54:-lua5.4}
 BLESS=0
 QUICK=0
 SHOTS=${WITH_SHOTS:-0}
+GROUP=all
+LIST=0
+ACTIVE_GROUP=engine
+SELECTED_TIERS=0
+ROM_FREE_GROUPS=(engine gen2 save-codecs save-records save-world save-editor mods game3)
 
-for arg in "$@"; do
+while [ $# -gt 0 ]; do
+  arg="$1"
   case "$arg" in
     --bless) BLESS=1 ;;
     --bless-shots) SHOTS=1; BLESS=1 ;;
     --quick) QUICK=1 ;;
-    --help|-h) sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --group) [ $# -ge 2 ] || { echo "--group needs a name" >&2; exit 2; }; GROUP="$2"; shift ;;
+    --list) LIST=1 ;;
+    --list-groups) printf '%s\n' "${ROM_FREE_GROUPS[@]}"; exit 0 ;;
+    --help|-h) awk 'NR == 1 { next } /^set -uo pipefail/ { exit } { sub(/^# ?/, ""); print }' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
+  shift
 done
+
+case "$GROUP" in
+  all|engine|gen2|save-codecs|save-records|save-world|save-editor|mods|game3) ;;
+  *) echo "unknown test group: $GROUP (use --list-groups)" >&2; exit 2 ;;
+esac
+if [ "$GROUP" != all ] && { [ "$BLESS" = 1 ] || [ "$SHOTS" = 1 ]; }; then
+  echo "--group selects ROM-free tests; blessing and screenshots require the full suite" >&2
+  exit 2
+fi
+if [ "$LIST" = 1 ] && { [ "$BLESS" = 1 ] || [ "$SHOTS" = 1 ]; }; then
+  echo "--list cannot bless goldens or capture screenshots" >&2
+  exit 2
+fi
 
 if ! command -v "$LUA" >/dev/null 2>&1; then
   echo "no lua interpreter '$LUA' on PATH (set LUA=...)" >&2
@@ -133,6 +159,13 @@ fi
 FAILED=()
 run_tier() {
   local label="$1"; shift
+  [ "$GROUP" = all ] || [ "$GROUP" = "$ACTIVE_GROUP" ] || return 0
+  SELECTED_TIERS=$((SELECTED_TIERS + 1))
+  if [ "$LIST" = 1 ]; then
+    printf '[tier] %s\n' "$label"
+    printf '[command]'; printf ' %q' "$@"; printf '\n'
+    return 0
+  fi
   echo ""
   echo "=============================================================="
   echo "  $label"
@@ -175,15 +208,26 @@ run_tier "T0 URI launch arguments" "$LUA" tests/engine/launch_uri_args_test.lua
 run_tier "T1/T2 engine invariants + parity gates" "$LUA" tests/run_engine.lua
 # Gen 2 / Crystal: ROM-free (own fixtures, or a self-skip on a missing cache),
 # so it runs here rather than behind the Red content gate below.
+ACTIVE_GROUP=gen2
 run_tier "T2 Gen 2 / Crystal suites" "$LUA" tests/run_gen2.lua
-run_tier "T2 save compat (R1/R2 round trips, reader validator)" "$LUA" tests/run_save_compat.lua
+ACTIVE_GROUP=save-codecs
+run_tier "T2 save compat: codecs + cross-generation contracts" "$LUA" tests/run_save_compat.lua --group codecs
+ACTIVE_GROUP=save-records
+run_tier "T2 save compat: Gen 3 records + gifts" "$LUA" tests/run_save_compat.lua --group records
+ACTIVE_GROUP=save-world
+run_tier "T2 save compat: Gen 3 towns + TV" "$LUA" tests/run_save_compat.lua --group world
 # The mobile UI and input suites use committed fixtures, so they must run
 # even on CI's ROM-free checkout. Keep the native-cache property suite below.
+ACTIVE_GROUP=save-editor
 run_tier "T2 save editor: mobile properties (fixtures)" \
   env POKEPORT_DATA_DIR=tests/fixture_data "$LUA" tests/save_editor_mobile_properties_tests.lua
 run_tier "T2 save editor: Gen 3 IV / EV / PP (fixtures)" "$LUA" tests/save_editor_gen3_ev_iv_tests.lua
+run_tier "T2 save editor: touch value controls" \
+  env POKEPORT_DATA_DIR=tests/fixture_data "$LUA" tests/save_editor_touch_controls_test.lua
 run_tier "T2 save editor: wheel scrolling" "$LUA" tests/save_editor_wheel_bug595_test.lua
 run_tier "T2 save editor: pad / NX input" "$LUA" tests/save_editor_pad_input_test.lua
+run_tier "T2 save editor: gold / gen2 (fixtures)" "$LUA" tests/save_editor_gen2_tests.lua
+ACTIVE_GROUP=mods
 run_tier "T4 mod-SDK" "$LUA" tests/run_modkit.lua
 run_tier "T4 modkit dev tooling (fixture)" "$LUA" tests/modkit_tests.lua
 
@@ -298,10 +342,12 @@ run_game3_tier() {
   rm -rf "$tmp"
   return 0
 }
+ACTIVE_GROUP=game3
 run_tier "T6 game3 top-level scenario suites" run_game3_tier
 
 # This suite loads the imported FireRed tables itself and self-skips when
 # absent. It must not depend on also having a Red dataset installed.
+ACTIVE_GROUP=save-editor
 if [ -n "$GAME3_IDENTITY" ]; then
   run_tier "T6 save editor: native property legality" \
     env POKEPORT_IDENTITY="$GAME3_IDENTITY" "$LUA" tests/save_editor_property_legality_test.lua
@@ -311,6 +357,9 @@ elif [ -n "$GAME3_GBA_CACHE" ]; then
 else
   run_tier "T6 save editor: native property legality" "$LUA" tests/save_editor_property_legality_test.lua
 fi
+run_tier "T6 save editor: native bulk actions" \
+  env POKEPORT_TOUCH_NATIVE=1 POKEPORT_IDENTITY="${POKEPORT_IDENTITY:-$GAME3_IDENTITY}" \
+  POKEPORT_GBA_CACHE="${POKEPORT_GBA_CACHE:-$GAME3_GBA_CACHE}" "$LUA" tests/save_editor_touch_controls_test.lua
 
 run_emerald_tier() {
   local t rc=0
@@ -322,8 +371,10 @@ run_emerald_tier() {
     || { echo "FAIL tests/game3_cart_random_sessions_test.lua (emerald)"; rc=1; }
   return $rc
 }
+ACTIVE_GROUP=game3
 run_tier "T6e emerald suites" run_emerald_tier
 
+ACTIVE_GROUP=mods
 run_tier "T4 title checkpoint cold restart" \
   bash tests/integration/title_checkpoint_cold_start.sh
 
@@ -388,6 +439,7 @@ run_content_behavior() {
 
 # The Red dataset is the source tree's when tools/build_data.py wrote one, and
 # otherwise the imported Red cache, through Data:load's POKEPORT_DATA_DIR hook.
+ACTIVE_GROUP=content
 HAVE_RED_DATA=0
 if [ -f data/generated/maps.lua ]; then
   HAVE_RED_DATA=1
@@ -411,7 +463,6 @@ if [ "$HAVE_RED_DATA" = "1" ]; then
     run_tier "T3 save editor: events + dex" "$LUA" tests/save_editor_task7_tests.lua
     run_tier "T3 save editor: map browser" "$LUA" tests/save_editor_task8_tests.lua
     run_tier "T3 save editor: mod awareness" "$LUA" tests/save_editor_mod_tests.lua
-    run_tier "T3 save editor: gold / gen2" "$LUA" tests/save_editor_gen2_tests.lua
     run_tier "T3 save editor: bag / PC move" "$LUA" tests/save_editor_item_move_bug1951_test.lua
     run_tier "T3 save editor: mobile properties" "$LUA" tests/save_editor_mobile_properties_tests.lua
     run_tier "T5 link (loopback lockstep)" "$LUA" tests/run_link_tests.lua
@@ -488,6 +539,10 @@ fi
 
 # ------- verdict
 
+if [ "$LIST" = 1 ]; then
+  echo "Listed $SELECTED_TIERS tiers for $GROUP (tests were not run)"
+  exit 0
+fi
 echo ""
 echo "=============================================================="
 if [ ${#FAILED[@]} -eq 0 ]; then

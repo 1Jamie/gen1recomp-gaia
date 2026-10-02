@@ -68,12 +68,24 @@ for _, atlas in ipairs(atlases) do
   end
 end
 
+Icons.NAMES[#Icons.NAMES + 1] = "triangle-alert"
 function Icons.has(name)
-  return cells[name] ~= nil
+  return name == "triangle-alert" or cells[name] ~= nil
 end
 
 function Icons.draw(name, x, y, size, color, alpha)
   local g = love and love.graphics
+  if g and name == "triangle-alert" then
+    g.push("all")
+    g.setColor(color[1] / 255, color[2] / 255, color[3] / 255, alpha or 1)
+    g.setLineWidth(math.max(1, size * 0.075))
+    g.polygon("line", x + size * 0.5, y + size * 0.1,
+      x + size * 0.08, y + size * 0.88, x + size * 0.92, y + size * 0.88)
+    g.line(x + size * 0.5, y + size * 0.35, x + size * 0.5, y + size * 0.59)
+    g.circle("fill", x + size * 0.5, y + size * 0.74, size * 0.045)
+    g.pop()
+    return
+  end
   if not g or not g.newQuad or not g.newImage then
     return
   end

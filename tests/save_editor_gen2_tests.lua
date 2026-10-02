@@ -746,7 +746,9 @@ do
   local labels = {}
   for _, r in ipairs(Kit.audit) do labels[r.label] = true end
   Kit.audit = nil
-  check(labels["property-caughtTime"] ~= nil, "the Crystal origin form offers the caught time")
+  local timeChoice=false
+  for label in pairs(labels) do if label:match("^Time found:") then timeChoice=true end end
+  check(timeChoice, "the Crystal origin form offers named caught times")
   S.inspectorScroll=300
   Kit.audit={}
   MonEditor.draw(S,Kit,0,0,1280,720)
@@ -885,6 +887,38 @@ do
   else
     check(true, "crystal cache absent : cart cross-check SKIPPED")
   end
+end
+
+for _, version in ipairs({ "gold", "silver", "crystal" }) do
+  local S = newState(version)
+  S.data = require("src.mods.Merge").deepCopy(data)
+  S.data.maps = { ROUTE_29 = { landmark = 3 } }
+  S.data.encounters = {
+    grass = { ROUTE_29 = { slots = { NITE = { { species = "TOTODILE", level = 5 } } } } },
+    fishGroups = { NO_MAP = { { species = "CYNDAQUIL", level = 90 } } },
+  }
+  Ops.partyAdd(S)
+  local mon = S.save.party[1]
+  Ops.setHeldItem(S, mon, "FLOWER_MAIL")
+  mon.level, mon.hp, mon.dvs.attack, mon.statExp.hp, mon.pokerus = 110, -10, 20, 999999, 255
+  check(Ops.fixMonErrors(S, mon), version .. " repairs malformed properties")
+  eq(require("Legality").mon(S, mon).errors, 0, version .. " repaired values pass validator")
+  check(Ops.maxMon(S, mon), version .. " max out succeeds")
+  eq(mon.level, 100, version .. " max reaches level 100")
+  eq(mon.happiness, 255, version .. " max fills friendship")
+  eq(mon.statExp.hp, 65535, version .. " max fills stat experience")
+  eq(mon.dvs.attack, 15, version .. " max fills DVs")
+  eq(require("Legality").mon(S, mon).errors, 0, version .. " maxed values pass validator")
+  check(Ops.randomizeMon(S, mon), version .. " randomize succeeds with native DV properties")
+  eq(mon.species, "TOTODILE", version .. " randomize uses available encounters")
+  eq(mon.level, 5, version .. " randomize uses encounter level")
+  if version == "crystal" then
+    eq(mon.caughtLocation, 3, "Crystal randomize keeps the encounter landmark")
+    eq(mon.caughtTime, 3, "Crystal randomize keeps the nighttime slot")
+  end
+  eq(require("Legality").mon(S, mon).errors, 0, version .. " random values pass validator")
+  eq(require("src.core.gen2.Mail").state(S.save).party[1], nil,
+    version .. " randomize clears the replaced held mail")
 end
 
 print(string.format("save editor gen2 tests: %d passed, %d failed", passed, failed))

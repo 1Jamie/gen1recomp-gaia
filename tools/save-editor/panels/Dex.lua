@@ -99,15 +99,14 @@ function M.draw(S, Kit, x, y, w, h)
   local gridH = math.max(0, pagerY - 12 * s - gridTop)
   local perCol = math.max(1, math.floor((gridH + gap) / (cardH + gap)))
   local perPage = perCol * cols
-  S.dexOffset = Ops.clamp(S.dexOffset or 0, 0, math.max(0, #species - perPage))
-  S.dexOffset = Kit.scroll(cx, gridTop, inner, gridH, S.dexOffset, #species, perPage, cols)
+  local drawn, shift = Kit.list(S, "dexOffset", cx, gridTop, inner, gridH, #species, cardH + gap, cols)
   local chipW = (colW - 2 * cardPad - gap) / 2
   local ownedKey = Gen.dexOwnedKey(S.save)
   Kit.pushClip(cx, gridTop, inner, gridH)
-  for i = 1, math.min(perPage, #species - S.dexOffset) do
+  for i = 1, drawn do
     local id = species[S.dexOffset + i]
     local ci, ri = (i - 1) % cols, math.floor((i - 1) / cols)
-    local rx, ry = cx + ci * (colW + gap), gridTop + ri * (cardH + gap)
+    local rx, ry = cx + ci * (colW + gap), gridTop + ri * (cardH + gap) - shift
     local def = S.data.pokemon[id]
     local spId = def and (def.speciesId or def.dex)
     local isSeen = dex.seen[id] == true or (spId and dex.seen[spId] == true)
@@ -145,7 +144,7 @@ function M.draw(S, Kit, x, y, w, h)
     end
   end
   Kit.popClip()
-  Kit.scrollbar(cx, gridTop, inner, gridH, S.dexOffset, #species, perPage)
+  Kit.listScrollbar(S, "dexOffset", cx, gridTop, inner, gridH)
   S.dexOffset = Kit.pager(cx, pagerY, inner, S.dexOffset, #species, perPage)
 end
 return M

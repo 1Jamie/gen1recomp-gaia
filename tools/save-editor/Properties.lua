@@ -33,8 +33,8 @@ local G3 = {
       },
     }
   ),
-  field("metLevel", "Met level (0 hatched / 1-100 caught)", 0, 100),
-  field("metLocation", "Met location ID", 0, 255),
+  field("metLevel", "Found at level", 0, 100),
+  field("metLocation", "Found at", 0, 255),
   field(
     "metGame",
     "Origin game",
@@ -76,8 +76,8 @@ local G3 = {
       },
     }
   ),
-  field("pokerus", "Pokerus (packed strain / days)", 0, 255),
-  field("markings", "Markings (bit mask)", 0, 15),
+  field("pokerus", "Pokérus", 0, 255),
+  field("markings", "Markings", 0, 15),
   field("isEgg", "Egg", nil, nil, { toggle = true, alias = "egg" }),
   field("modernFatefulEncounter", "Fateful encounter", nil, nil, { toggle = true }),
 }
@@ -118,13 +118,13 @@ function P.identity(S)
       out[#out + 1] = d
     end
   elseif Gen.ofState(S) == 2 then
-    out[#out + 1] = field("pokerus", "Pokerus (packed strain / days)", 0, 255)
+    out[#out + 1] = field("pokerus", "Pokérus", 0, 255)
     out[#out + 1] = field("isEgg", "Egg", nil, nil, { toggle = true, alias = "egg" })
     if Gen.hasCaughtData(S.save, S.version) then
       out[#out + 1] = field("caughtLevel", "Caught level", 0, 63)
-      out[#out + 1] = field("caughtLocation", "Caught landmark ID", 0, 127)
+      out[#out + 1] = field("caughtLocation", "Found at", 0, 127)
       out[#out + 1] =
-        field("caughtTime", "Caught time (0 unknown / 1 morning / 2 day / 3 night)", 0, 3)
+        field("caughtTime", "Time found", 0, 3)
     end
   end
   return out

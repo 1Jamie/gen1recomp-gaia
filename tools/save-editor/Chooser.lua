@@ -12,7 +12,8 @@ local function id(option)
 end
 
 local function label(option)
-  return option.label or option[2]
+  local text = option.label or option[2]
+  return (option.errors or 0) > 0 and (text .. " (" .. option.errors .. ")") or text
 end
 
 function Chooser.close(S)
@@ -64,6 +65,7 @@ function Chooser.navigation(S, kit, key, title, options, x, y, w, h, after)
   if
     kit.button(x, y, w, h, text, {
       id = "navigate-" .. key,
+      invalid = (current.errors or 0) > 0,
       face = "invert",
       font = "small",
       icon = icon,
@@ -202,6 +204,7 @@ function Chooser.draw(S, kit, width, height)
     if
       kit.button(cx, cy + (i - 1) * (row + gap) - popup.scroll, contentW, row, text, {
         face = "selection",
+        invalid = (option.errors or 0) > 0,
         active = active(S, popup, option),
         font = "small",
         align = "left",

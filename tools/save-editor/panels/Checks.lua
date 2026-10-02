@@ -1,6 +1,7 @@
 local L = require("Legality")
 local PAL = require("Theme").PAL
 local M = {}
+local Touch = require("TouchEditor")
 local Motion = require("Motion")
 function M.draw(S, Kit, x, y, w, h)
   Kit.card(x, y, w, h)
@@ -11,7 +12,7 @@ function M.draw(S, Kit, x, y, w, h)
     S._checksRevision, S._checksSave = S.revision, S.save
   end
   local r = S.checkReport
-  local message = ("%d Pokemon / %d property errors. Encounter legality remains unchecked."):format(
+  local message = ("%d Pokémon · %d errors. Origin checks still need review."):format(
     #r.entries,
     r.errors
   )
@@ -23,6 +24,20 @@ function M.draw(S, Kit, x, y, w, h)
     inner,
     r.errors > 0 and PAL.red or PAL.yellow
   ) + gap
+  local actionH = Touch.action(
+    S,
+    Kit,
+    "Fix all errors",
+    "Fixes invalid values, stats and PP across your party and boxes. Anything needing a manual choice stays for review.",
+    function()
+      require("Ops").fixAllErrors(S)
+    end,
+    cx,
+    y + pad + head,
+    inner,
+    "good"
+  )
+  head = head + actionH + gap
   local top = y + pad + head
   local bodyH = math.max(0, h - 2 * pad - head)
   S.checkScroll =

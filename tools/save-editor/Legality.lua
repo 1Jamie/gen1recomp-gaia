@@ -58,6 +58,10 @@ function L.mon(S, mon)
     add("error", "species", "Species is missing from the active game catalog")
   end
   range("level", mon.level, 1, 100)
+  if type(mon.hp) ~= "number" or mon.hp ~= mon.hp or mon.hp ~= math.floor(mon.hp)
+    or mon.hp < 0 or mon.hp == math.huge then
+    add("error", "current HP", "Current HP must be a nonnegative whole number")
+  end
   for _, key in ipairs({ "happiness", "friendship" }) do
     if mon[key] ~= nil then
       range(key, mon[key], 0, 255)
@@ -387,6 +391,113 @@ function L.mon(S, mon)
     r.status = "invalid"
   end
   return r
+end
+-- Match validator fields to the controls that edit them. Warnings are not errors.
+function L.highlights(report, mon)
+  local out =
+    { fields = {}, sections = { main = 0, stats = 0, moves = 0, origin = 0, extras = 0, checks = report.errors } }
+  local main = {
+    species = true,
+    nickname = true,
+    level = true,
+    experience = true,
+    ["current-hp"] = true,
+    friendship = true,
+    status = true,
+    nature = true,
+    gender = true,
+    ability = true,
+    shiny = true,
+    heldItem = true,
+  }
+  local function section(id)
+    if main[id] then
+      return "main"
+    end
+    if id:match("^iv%-") or id:match("^ev%-") or id:match("^dv%-") or id:match("^se%-") or id == "calculated" then
+      return "stats"
+    end
+    if id:match("^move%d") or id:match("^pp%-") or id:match("^ppup%-") then
+      return "moves"
+    end
+    if id:match("^contest%.") or id:match("^ribbon%.") then
+      return "extras"
+    end
+    return "origin"
+  end
+  for _, check in ipairs(report.checks) do
+    if check.kind == "error" then
+      local ids, f = {}, check.field
+      local function add(id)
+        ids[#ids + 1] = id
+      end
+      local key = f:match("^IV (.+)$")
+        or f:match("^EV (.+)$")
+        or f:match("^DV (.+)$")
+        or f:match("^Stat experience (.+)$")
+      if key then
+        add((f:match("^IV ") and "iv-" or f:match("^EV ") and "ev-" or f:match("^DV ") and "dv-" or "se-") .. key)
+      elseif f == "evs" or f == "ivs" then
+        for _, k in ipairs(IV_KEYS) do
+          add((f == "evs" and "ev-" or "iv-") .. k)
+        end
+      elseif f == "dvs" or f == "statExp" then
+        for _, k in ipairs(DV_KEYS) do
+          add((f == "dvs" and "dv-" or "se-") .. k)
+        end
+      elseif f == "moves" or f == "pp" or f == "ppBonuses" or f == "packed PP Ups" then
+        for i = 1, 4 do
+          add("move" .. i)
+          add("pp-" .. i)
+          add("ppup-" .. i)
+        end
+      elseif f:match("^move%d$") then
+        local slot = f:match("(%d)$")
+        add(f)
+        if check.message:find("PP Ups", 1, true) then
+          add("ppup-" .. slot)
+        end
+        if check.message:find("PP", 1, true) and not check.message:find("Empty move slot has PP Ups", 1, true) then
+          add("pp-" .. slot)
+        end
+      elseif f:match("^PP %d$") then
+        add("pp-" .. f:match("(%d)$"))
+      elseif f:match("PP Ups %d$") then
+        add("ppup-" .. f:match("(%d)$"))
+      elseif f == "contest" then
+        add("contest")
+        for _, d in ipairs(Properties.contest) do
+          if not mon or type(mon.contest) ~= "table" or (mon.contest[d.child] or 0) ~= 0 then
+            add(d.key)
+          end
+        end
+      elseif f == "ribbons" or f == "ribbon word" then
+        add("ribbons")
+      else
+        add(
+          ({
+            ["current HP"] = "current-hp",
+            happiness = "friendship",
+            ["ability slot"] = "ability",
+            ["dvs.hp"] = "dv-hp",
+            sleep = "status",
+          })[f]
+            or (f:match("^stats") and "calculated")
+            or f
+        )
+      end
+      local counted = {}
+      for _, id in ipairs(ids) do
+        out.fields[id] = out.fields[id] or check.message
+        local page = (id == "contest" or id == "ribbons") and "extras" or section(id)
+        if not counted[page] then
+          out.sections[page] = out.sections[page] + 1
+          counted[page] = true
+        end
+      end
+    end
+  end
+  return out
 end
 function L.save(S)
   local report = { entries = {}, errors = 0, warnings = 0 }

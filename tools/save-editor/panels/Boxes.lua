@@ -143,10 +143,9 @@ local function drawView(S, Kit, x, y, w, h)
   end
   local bodyH = math.max(0, footer - gap - cy)
   if S.boxView == "party" then
-    local visible = math.max(1, math.floor(bodyH / (row + gap)))
-    S.dockOffset = Kit.scroll(cx, cy, inner, bodyH, S.dockOffset or 0, #S.save.party, visible)
+    local drawn, shift = Kit.list(S, "dockOffset", cx, cy, inner, bodyH, #S.save.party, row + gap)
     Kit.pushClip(cx, cy, inner, bodyH)
-    for i = 1, visible do
+    for i = 1, drawn do
       local slot = S.dockOffset + i
       local mon = S.save.party[slot]
       if not mon then
@@ -155,7 +154,7 @@ local function drawView(S, Kit, x, y, w, h)
       if
         Kit.button(
           cx,
-          cy + (i - 1) * (row + gap),
+          cy + (i - 1) * (row + gap) - shift,
           inner,
           row,
           tostring(slot)

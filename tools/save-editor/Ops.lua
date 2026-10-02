@@ -2253,13 +2253,66 @@ function Ops.cloneMonToBox(S, mon)
   return Ops.say(S,"All boxes are full")
 end
 
+function Ops.fixMonErrors(S, mon)
+  local was = mon and (mon.item or mon.heldItem)
+  local ok = require("MonActions").fixMon(S, mon)
+  if ok then
+    syncPartyMailHeldItem(S, mon, was, mon.item or mon.heldItem)
+  end
+  return ok
+end
+function Ops.fixAllErrors(S)
+  local before = {}
+  for i, mon in ipairs(S.save.party or {}) do
+    before[i] = mon.item or mon.heldItem
+  end
+  local ok = require("MonActions").fixAll(S)
+  if ok then
+    for i, mon in ipairs(S.save.party or {}) do
+      syncPartyMailHeldItem(S, mon, before[i], mon.item or mon.heldItem)
+    end
+  end
+  return ok
+end
+function Ops.randomizeMon(S, mon)
+  local was = mon and (mon.item or mon.heldItem)
+  local ok = require("MonActions").randomize(S, mon)
+  if ok then
+    syncPartyMailHeldItem(S, mon, was, mon.item or mon.heldItem)
+    syncPartyMailSpecies(S, mon)
+  end
+  return ok
+end
+function Ops.maxMon(S, mon)
+  return require("MonActions").maxMon(S, mon)
+end
+function Ops.maxDvs(S, mon)
+  for _, k in ipairs({ "attack", "defense", "speed", "special" }) do
+    MonOps.setDv(S.data, mon, k, 15, Gen.ofState(S))
+  end
+  return Ops.mark(S, "Maxed DVs")
+end
+function Ops.maxStatExp(S, mon)
+  for _, k in ipairs({ "hp", "attack", "defense", "speed", "special" }) do
+    Ops.setStatExp(S, mon, k, 65535)
+  end
+  return true
+end
+function Ops.itemMax(S, id, pc)
+  if not Ops.itemStacks(S, id) then
+    return 1
+  end
+  return Gen.ofState(S) == 3 and g3Max(S, id, pc) or Ops.stackMax(S)
+end
+
 -- Wrap only mutations. Nested helpers share one snapshot and one undo entry.
 for name, fn in pairs(Ops) do
   local mutation=type(fn)=="function" and (name:match("^set") or name:match("^clear")
     or name:match("^toggle") or name:match("^max") or name:match("^addTo")
     or name:match("^bag[A-Z]") or name:match("^pc[A-Z]") or name:match("^dex[A-Z]"))
   local extras={partyAdd=true,partyRemove=true,partyMove=true,boxAdd=true,boxAddSpecies=true,
-    deposit=true,withdraw=true,release=true,healMon=true,resetMoves=true,cloneMonToBox=true,addMoney=true,addCoins=true}
+    deposit=true,withdraw=true,release=true,healMon=true,resetMoves=true,cloneMonToBox=true,addMoney=true,addCoins=true,
+    fixMonErrors=true,fixAllErrors=true,randomizeMon=true}
   local excluded={pcItems=true,pcOrder=true,pcCanMax=true,pcCanMaxAll=true,bagCanMax=true,
     bagCanMaxAll=true,dexCounts=true,dexList=true,dexSort=true,clearSelection=true}
   if (mutation or extras[name]) and not excluded[name] then

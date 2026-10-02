@@ -37,31 +37,37 @@ end
 
 -- runs every suite in `dirs`, prints one line per suite, returns the
 -- number that failed
-function Runner.run(dirs, label)
+function Runner.run(dirs, label, include)
   local lua = interpreter()
   local failed, total = 0, 0
 
   for _, dir in ipairs(dirs) do
     for _, path in ipairs(Runner.suites(dir)) do
-      total = total + 1
-      local status = os.execute(("%s %s"):format(lua, path))
-      local ok = status == 0 or status == true
-      if ok then
-        print("ok   " .. path)
-      else
-        failed = failed + 1
-        print("FAIL " .. path)
+      if not include or include(path) then
+        total = total + 1
+        local status = os.execute(("%s %s"):format(lua, path))
+        local ok = status == 0 or status == true
+        if ok then
+          print("ok   " .. path)
+        else
+          failed = failed + 1
+          print("FAIL " .. path)
+        end
       end
     end
   end
 
+  if total == 0 then
+    print("FAIL no suites selected for " .. label)
+    return 1, 0
+  end
   print(("\n%s: %d/%d suites passed"):format(label, total - failed, total))
   print(("%s"):format(failed == 0 and "ALL TESTS PASSED" or failed .. " FAILURES"))
   return failed, total
 end
 
-function Runner.main(dirs, label)
-  local failed = Runner.run(dirs, label)
+function Runner.main(dirs, label, include)
+  local failed = Runner.run(dirs, label, include)
   os.exit(failed == 0 and 0 or 1)
 end
 

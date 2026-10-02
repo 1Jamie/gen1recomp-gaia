@@ -1522,7 +1522,7 @@ end
 local TAB_ICONS = { mods = "puzzle", find = "search", online = "globe",
   skins = "paintbrush", importers = "download" }
 local TAB_LABELS = { mods = "MODS", find = "FIND", online = "ONLINE",
-  skins = "SKINS", importers = "IMPORT" }
+  skins = "SKINS", importers = "EXTRA" }
 for _, t in ipairs(HEADER_TABS) do
   t.opts = { face = "tab", font = "tab", icon = TAB_ICONS[t.id] }
 end

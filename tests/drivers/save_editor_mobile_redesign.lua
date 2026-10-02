@@ -223,22 +223,56 @@ return function(game)
     shot(section, 390, 844)
     shot("full-label-" .. section, 320, 568)
   end
-  if Gen.ofState(S) == 3 then
-    for _, choice in ipairs({
-      { "main", "nature" },
-      { "origin", "language" },
-      { "origin", "pokeball" },
-      { "origin", "metGame" },
-    }) do
-      S.monSection, S.propertyChoice, S.inspectorScroll = choice[1], choice[2], 300
-      shot("full-label-choice-" .. choice[2], 320, 568)
-    end
-    S.monSection, S.propertyChoice, S.inspectorScroll = "origin", "language", 500
-    shot("language-choices", 390, 844, function()
-      S.inspectorScroll = 500
-    end)
-    S.propertyChoice, S.inspectorScroll = nil, 0
+  local Touch=require("TouchEditor")
+  local mon=S.editingMon
+  for _,size in ipairs({{320,568},{390,844},{640,360}}) do
+    Touch.open(S,Kit,{mode="number",id="level",title="Level",value=mon.level,
+      limits=function() return require("ValueLimits").mon(S,mon,"level") end,
+      apply=function(v) return Ops.setLevel(S,mon,v) end})
+    shot("value-wheel-"..size[1],size[1],size[2])
+    S.editPopup.scroll=10000
+    shot("value-wheel-footer-"..size[1],size[1],size[2])
+    Touch.close(S,Kit)
   end
+  if Gen.ofState(S)==3 then
+    Touch.open(S,Kit,{mode="choice",title="Found at",value=mon.metLocation,
+      options=require("NamedChoices").locations(S),apply=function(v) return Ops.setMonProperty(S,mon,"metLocation",v) end})
+    shot("searchable-locations",390,844)
+    S.editPopup.query="route"
+    shot("searchable-locations-filtered",320,568)
+    Touch.close(S,Kit)
+    Ops.setEv(S,mon,"hp",255);Ops.setEv(S,mon,"atk",200)
+    S.monSection,S.inspectorScroll="stats",0
+    shot("ev-budget",390,844)
+    Touch.open(S,Kit,{mode="number",title="Defense EV",value=0,
+      limits=function() return require("ValueLimits").mon(S,mon,"ev-def") end,
+      apply=function(v) return Ops.setEv(S,mon,"def",v) end})
+    shot("ev-budget-wheel",390,844)
+    Touch.close(S,Kit)
+  end
+  Touch.open(S,Kit,{mode="help",title="Randomize Pokémon",help="Replaces this Pokémon with a wild one from this game. Real level range, normal moves. Undo brings yours back."})
+  shot("action-help",320,568)
+  Touch.close(S,Kit)
+  local originalMon = require("src.mods.Merge").deepCopy(mon)
+  mon.level, mon.hp, mon.status = 105, -20, "UNKNOWN"
+  if Gen.ofState(S) == 3 then
+    mon.ivs.hp, mon.language = 99, 6
+    mon.evs.hp, mon.evs.atk, mon.evs.def = 255, 255, 100
+  else
+    mon.dvs.attack = 25
+  end
+  S.monSection, S.inspectorScroll = "main", 0
+  shot("invalid-saved-main", 390, 844)
+  S.monSection, S.inspectorScroll = "stats", 0
+  shot("invalid-saved-stats", 390, 844)
+  if Gen.ofState(S) == 3 then
+    S.monSection, S.inspectorScroll = "origin", 0
+    shot("invalid-saved-origin", 320, 568)
+    S.inspectorScroll = 300
+    shot("invalid-saved-language", 320, 568)
+  end
+  for k in pairs(mon) do mon[k] = nil end
+  for k, v in pairs(originalMon) do mon[k] = v end
   S.monSection = "main"
   shot("selected-buttons", 390, 844)
   shot("rounded-buttons", 390, 844)

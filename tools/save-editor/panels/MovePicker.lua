@@ -103,10 +103,9 @@ function Picker.draw(S, Kit, width, height)
   local hits = Picker.results(S)
   local listH, rowH, rowGap, pagerH = PickerChrome.listMetrics(Kit, y, h, pad, cy)
   local perPage = math.max(1, math.floor((listH + rowGap) / (rowH + rowGap)))
-  p.offset = Theme.clamp(p.offset or 0, 0, math.max(0, #hits - perPage))
   -- wheel / touch drag scroll the modal list too; the shield is already
   -- lowered for this layer, so Kit.scroll works here and only here (#715)
-  p.offset = Kit.scroll(cx, cy, inner, listH, p.offset, #hits, perPage)
+  local drawn, shift = Kit.list(p, "offset", cx, cy, inner, listH, #hits, rowH + rowGap)
 
   local mon = S.editingMon
   local mv = mon and mon.moves and mon.moves[p.slot]
@@ -116,12 +115,12 @@ function Picker.draw(S, Kit, width, height)
     Kit.emptyBox(cx, cy, inner, listH, "Nothing matches that.")
   else
     Kit.pushClip(cx, cy, inner, listH)
-    for i = 1, perPage do
+    for i = 1, drawn do
       local id = hits[p.offset + i]
       if not id then
         break
       end
-      local ry = cy + (i - 1) * (rowH + rowGap)
+      local ry = cy + (i - 1) * (rowH + rowGap) - shift
       local def = S.data.moves[id]
       local usable = Ops.moveUsable(S, id)
       local current = (currentId ~= nil)
@@ -162,7 +161,7 @@ function Picker.draw(S, Kit, width, height)
       )
     end
     Kit.popClip()
-    Kit.scrollbar(cx, cy, inner, listH, p.offset, #hits, perPage)
+    Kit.listScrollbar(p, "offset", cx, cy, inner, listH)
   end
 
   p.offset = Kit.pager(cx, y + h - pad - pagerH, inner, p.offset, #hits, perPage)

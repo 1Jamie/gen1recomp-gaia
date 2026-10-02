@@ -73,18 +73,46 @@ function Kit.beginFrame(mx, my, clicked, wheel)
   Kit._fieldHit = false
   Kit._focusDrawn = false
   Kit.wheelY = wheel or 0
-  -- Held-button state is polled, not evented: the editor is hosted both
-  -- standalone and inside the launcher, and neither routes mousereleased
-  -- here.  Touch drag scrolling (#715) rides this poll, so it works in both
-  -- hosts without new plumbing.  The stub has no love.mouse.isDown; a frame
-  -- without it simply has no drags.
+  -- Mouse taps dispatch on release, so dragging never activates a row.
+  -- The real touch stream supplies its own precise drag deltas. SDL
+  -- synthesized mouse holds are suppressed until the finger is up.
   local down = false
   if love and love.mouse and love.mouse.isDown then
     down = love.mouse.isDown(1) and true or false
   end
+  if Kit.ignoreMouseDown then
+    if not down then
+      Kit.ignoreMouseDown = nil
+    end
+    down = false
+  end
   Kit.mouseDown = down
   if Kit.touchDown == true then
     Kit.mouseDown = true
+  end
+  if Kit.mouseDown and not Kit.touchDown then
+    local d = Kit._pointerDrag
+    if not d then
+      Kit._pointerDrag = { x = mx, y = my, lastY = my, startY = my, moved = false }
+    else
+      if math.abs(my - d.startY) + math.abs(mx - d.x) > 10 then
+        d.moved = true
+      end
+      if d.moved then
+        Kit.dragAdd(d.lastY - my)
+      end
+      d.lastY = my
+    end
+    if clicked then
+      Kit._tapPending = true
+    end
+    Kit.mouseClicked = false
+  elseif Kit._pointerDrag then
+    local d = Kit._pointerDrag
+    if Kit._tapPending and not d.moved then
+      Kit.mouseClicked = true
+    end
+    Kit._pointerDrag, Kit._tapPending = nil, nil
   end
   if not Kit.mouseDown then
     Kit._drag = nil
@@ -106,6 +134,10 @@ function Kit.endFrame()
     edits[i] = nil
   end
   Kit.wheelY = 0
+  Kit._dragDelta = 0
+  if not Kit.touchDown then
+    Kit._touchDrag = nil
+  end
 end
 
 -- Use the launcher's font scale, with reflow and scrolling on small screens.
@@ -443,8 +475,17 @@ local ACTION_ICONS = {
   Prev = "chevron-left",
   Next = "chevron-right",
 }
+local ERROR_FILL = { 58, 31, 37 }
+local function errorFace(opts)
+  if not opts or not opts.invalid then return opts or {} end
+  local copy = {}
+  for key, value in pairs(opts) do copy[key] = value end
+  copy.face, copy.fill, copy.ink, copy.stroke = "invert", ERROR_FILL, PAL.red, PAL.red
+  copy.trailingIcon, copy.ring = copy.trailingIcon or "triangle-alert", false
+  return copy
+end
 function Kit.buttonWidth(label, opts, h)
-  opts = opts or {}
+  opts = errorFace(opts)
   h = h or Kit.controlH()
   if opts.iconOnly then
     return h
@@ -462,7 +503,7 @@ end
 
 function Kit.buttonHeight(label, w, opts)
   local h = Kit.controlH()
-  local height = Button.labelLayout(Kit, w, h, label, opts or {}).height + 4 * Kit.scale
+  local height = Button.labelLayout(Kit, w, h, label, errorFace(opts)).height + 4 * Kit.scale
   return math.max(h, math.ceil(height))
 end
 
@@ -474,7 +515,7 @@ function Kit.button(x, y, w, h, label, opts)
   for key, value in pairs(opts or {}) do
     faceOpts[key] = value
   end
-  opts = faceOpts
+  opts = errorFace(faceOpts)
   opts.radius = Theme.radius()
   opts.segments = Theme.CONTROL.segments
   opts.emboss = false
@@ -492,6 +533,9 @@ function Kit.button(x, y, w, h, label, opts)
     opts.labelLayout = Button.labelLayout(Kit, w, h, label, opts)
   end
   Button.draw(Kit, x, y, w, h, shown, opts, hot, false)
+  if opts.invalid then
+    Theme.stroke(x, y, w, h, Theme.radius(), PAL.red, 0.95, 2 * Kit.scale)
+  end
   return opts.enabled ~= false and Kit.press(x, y, w, h) or false
 end
 
@@ -667,16 +711,17 @@ function Kit.textfield(id, x, y, w, h, value, placeholder, opts)
   end
   if G then
     local r = Theme.radius()
-    Theme.fillRounded(x, y, w, h, PAL.rowBg, 0.7, r)
+    local invalid = opts and opts.invalid
+    Theme.fillRounded(x, y, w, h, invalid and ERROR_FILL or PAL.rowBg, 0.7, r)
     Theme.stroke(
       x,
       y,
       w,
       h,
       r,
-      focused and PAL.blue or PAL.cardBorder,
-      focused and 0.8 or 0.3,
-      focused and 1.5 * Kit.scale or 1
+      invalid and PAL.red or focused and PAL.blue or PAL.cardBorder,
+      invalid and 0.95 or focused and 0.8 or 0.3,
+      invalid and 2 * Kit.scale or focused and 1.5 * Kit.scale or 1
     )
     local pad = 10 * Kit.scale
     local ty = y + (h - Kit.textHeight("mono")) / 2
@@ -684,7 +729,7 @@ function Kit.textfield(id, x, y, w, h, value, placeholder, opts)
       Kit.text("mono", placeholder or "", x + pad, ty, PAL.faint)
     else
       local shown = Theme.ellipsizeLeft(font("mono"), value, w - 2 * pad)
-      local tw = Kit.text("mono", shown, x + pad, ty, PAL.heading)
+      local tw = Kit.text("mono", shown, x + pad, ty, invalid and PAL.red or PAL.heading)
       -- caret: blinks only while focused, parked at the end of the text
       if focused and (Kit.time % 1) < 0.55 then
         Theme.col(PAL.blue, 1)
@@ -848,14 +893,19 @@ function Kit.scrollPixels(x, y, w, h, offset, contentH)
     return offset
   end
 
-  if Kit.mouseDown and maxOffset > 0 and h > 0 then
-    local key = "px:" .. math.floor(x) .. ":" .. math.floor(y)
-    local d = Kit._drag
-    if not d and Kit.hit(x, y, w, h) then
-      Kit._drag = { key = key, startY = Kit.mouseY, base = offset }
-    elseif d and d.key == key then
-      offset = Theme.clamp(d.base + (d.startY - Kit.mouseY), 0, maxOffset)
-    end
+  local d = Kit._pointerDrag or Kit._touchDrag
+  if
+    d
+    and maxOffset > 0
+    and h > 0
+    and Kit._dragDelta ~= 0
+    and d.x >= x
+    and d.x <= x + w
+    and d.startY >= y
+    and d.startY <= y + h
+  then
+    offset = Theme.clamp(offset + (Kit._dragDelta or 0), 0, maxOffset)
+    Kit._dragDelta = 0
   end
 
   if (Kit.wheelY or 0) == 0 then
@@ -865,9 +915,43 @@ function Kit.scrollPixels(x, y, w, h, offset, contentH)
     return offset
   end
   local notch = 48 * Kit.scale
-  local delta = (Kit.wheelY > 0) and -notch or notch
+  local delta = -Kit.wheelY * notch
   Kit.wheelY = 0
   return Theme.clamp(offset + delta, 0, maxOffset)
+end
+
+function Kit.dragAdd(delta)
+  Kit._dragDelta = (Kit._dragDelta or 0) + delta
+end
+
+-- Lists keep the old row offset for keyboard/pager callers, but draw from a
+-- pixel offset so a finger moves the content by exactly the distance travelled.
+function Kit.list(S, key, x, y, w, h, total, stride, cols)
+  cols = cols or 1
+  S._listState = S._listState or {}
+  local st = S._listState[key] or { pixels = (S[key] or 0) / cols * stride }
+  S._listState[key] = st
+  if st.first ~= nil and S[key] ~= st.first then
+    st.pixels = (S[key] or 0) / cols * stride
+  end
+  if st.stride and (st.stride ~= stride or st.cols ~= cols) then
+    st.pixels = (S[key] or 0) / cols * stride
+  end
+  st.stride, st.cols = stride, cols
+  local content = math.max(0, math.ceil(total / cols) * stride)
+  st.pixels = Kit.scrollPixels(x, y, w, h, st.pixels, content)
+  local firstRow = math.floor(st.pixels / stride)
+  local shift = st.pixels - firstRow * stride
+  S[key], st.first = firstRow * cols, firstRow * cols
+  st.content, st.view = content, h
+  return math.min(total - S[key], math.ceil((h + shift) / stride) * cols), shift
+end
+
+function Kit.listScrollbar(S, key, x, y, w, h)
+  local st = S._listState and S._listState[key]
+  if st then
+    Kit.scrollbar(x, y, w, h, st.pixels, st.content, st.view)
+  end
 end
 
 -- Thin scrollbar in the card's right padding, clear of control faces and

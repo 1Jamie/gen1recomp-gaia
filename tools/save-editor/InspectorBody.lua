@@ -6,8 +6,11 @@ local PAL = require("Theme").PAL
 local Body = {}
 local Motion = require("Motion")
 local Chooser = require("Chooser")
+local Touch = require("TouchEditor")
+local Limits = require("ValueLimits")
+local Named = require("NamedChoices")
 
-local function drawSection(S, Kit, x, y, w, h)
+local function drawSection(S, Kit, x, y, w, h, report, issues)
   local mon = S.editingMon
   if not mon then
     Kit.textWrapped(
@@ -32,6 +35,10 @@ local function drawSection(S, Kit, x, y, w, h)
     { "extras", "Extras" },
     { "checks", "Checks" },
   }
+  for _, entry in ipairs(sections) do
+    entry.errors = issues.sections[entry[1]]
+    entry.icon = entry.errors > 0 and "triangle-alert" or Kit.navigationIcon(entry[2])
+  end
   S.monSection = S.monSection or "main"
   local navY = y + pad
   local navX = cx
@@ -71,16 +78,35 @@ local function drawSection(S, Kit, x, y, w, h)
   local function text(str, color)
     cy = cy + Kit.textWrapped("small", str, cx, cy, inner, color or PAL.caption) + gap
   end
-  local function button(label, fn, kind)
-    local opts = { kind = kind, font = "small" }
+  local function hint(id)
+    cy = cy + Touch.issue(Kit, issues.fields[id], cx, cy, inner)
+  end
+  if report.errors > 0 then
+    text(report.errors .. " saved value errors. Check the red fields.", PAL.red)
+  end
+  local function button(label, fn, kind, help, id)
+    local issue = id and issues.fields[id]
+    local opts = { kind = kind, font = "small", invalid = issue ~= nil }
     local buttonH = Kit.buttonHeight(label, inner, opts)
-    if Kit.button(cx, cy, inner, buttonH, label, opts) then
+    if help then
+      buttonH = Touch.action(S, Kit, label, help, fn, cx, cy, inner, kind, issue)
+    elseif Kit.button(cx, cy, inner, buttonH, label, opts) then
       fn()
     end
     cy = cy + buttonH + gap
+    if issue and not help then hint(id) end
   end
   local function field(id, label, value, fn, sanitize)
-    text(label, PAL.text)
+    if type(value) == "number" then
+      label = label:gsub(" %(.-%)", "")
+      cy = cy
+        + Touch.value(S, Kit, id, label, value, function()
+          return Limits.mon(S, mon, id)
+        end, cx, cy, inner, fn, issues.fields[id])
+        + 2 * gap
+      return
+    end
+    text(label, issues.fields[id] and PAL.red or PAL.text)
     local key = "property-" .. id
     local draft = S.monDrafts[id]
     if Kit.focus ~= key and draft == nil then
@@ -106,7 +132,7 @@ local function drawSection(S, Kit, x, y, w, h)
       row,
       draft or tostring(value or ""),
       "value",
-      { sanitize = sanitize, onSubmit = apply }
+      { sanitize = sanitize, onSubmit = apply, invalid = issues.fields[id] ~= nil }
     )
     if
       Kit.button(cx + inner - applyW, cy, applyW, row, "Set", { kind = "accent", font = "small" })
@@ -115,65 +141,28 @@ local function drawSection(S, Kit, x, y, w, h)
       Kit.blur()
     end
     cy = cy + row + 2 * gap
+    hint(id)
   end
   local function choice(id, label, value, options, apply)
-    local shown = "Unknown (" .. tostring(value) .. ")"
-    for _, v in ipairs(options) do
-      if v[1] == value then
-        shown = v[2]
-      end
-    end
-    text(label, PAL.text)
-    if
-      Kit.button(cx, cy, inner, row, shown, {
-        face = "invert",
-        font = "small",
-        trailingIcon = S.propertyChoice == id and "chevron-up" or "chevron-down",
-      })
-    then
-      if S.propertyChoice == id then
-        S.propertyChoice = nil
-      else
-        S.propertyChoice = id
-        S._choiceScroll = S.inspectorScroll
-      end
-      Kit.blur()
-    end
-    cy = cy + row + gap
-    if S.propertyChoice == id then
-      local cw = (inner - gap) / 2
-      for i, v in ipairs(options) do
-        if
-          Kit.chip(
-            cx + (i - 1) % 2 * (cw + gap),
-            cy + math.floor((i - 1) / 2) * (row + gap),
-            cw,
-            row,
-            v[2],
-            v[1] == value,
-            PAL.blue
-          )
-        then
-          apply(v[1])
-          S.propertyChoice = nil
-          S.inspectorScroll = math.min(S._choiceScroll or 0, S.inspectorScroll or 0)
-        end
-      end
-      cy = cy + math.ceil(#options / 2) * (row + gap)
-    end
-    cy = cy + gap
+    cy = cy + Touch.choice(S, Kit, id, label, value, options, cx, cy, inner, apply, nil, issues.fields[id]) + 2 * gap
   end
   local function props(list)
     for _, d in ipairs(list) do
       if d.toggle then
         local on = P.get(mon, d)
         on = on == true or on == 1
-        if Kit.chip(cx, cy, inner, row, d.label .. ": " .. (on and "ON" or "OFF"), on) then
+        local issue = issues.fields[d.key]
+        local shown = issue and tostring(P.get(mon, d)) or (on and "ON" or "OFF")
+        local label = d.label .. ": " .. shown
+        local opts = { face = "selection", active = on, font = "small", invalid = issue ~= nil }
+        local height = Kit.buttonHeight(label, inner, opts)
+        if Kit.button(cx, cy, inner, height, label, opts) then
           Ops.setMonProperty(S, mon, d.key, not on)
         end
-        cy = cy + row + gap
-      elseif d.choices then
-        choice(d.key, d.label, P.get(mon, d), d.choices, function(v)
+        cy = cy + height + gap
+        hint(d.key)
+      elseif Named.property(S, d) then
+        choice(d.key, d.label, P.get(mon, d), Named.property(S, d), function(v)
           return Ops.setMonProperty(S, mon, d.key, v)
         end)
       else
@@ -188,7 +177,7 @@ local function drawSection(S, Kit, x, y, w, h)
     text(def.name or tostring(mon.species or mon.speciesId), PAL.heading)
     button("Change species", function()
       Ops.openSpeciesPicker(S, Kit)
-    end, "accent")
+    end, "accent", nil, "species")
     if S.nicknameMon ~= mon then
       S.nicknameMon, S.nicknameDraft = mon, mon.nickname or ""
     end
@@ -203,6 +192,7 @@ local function drawSection(S, Kit, x, y, w, h)
       S.nicknameDraft or "",
       "no nickname",
       {
+        invalid = issues.fields.nickname ~= nil,
         sanitize = function(v)
           return Ops.nicknameSanitize(S, v)
         end,
@@ -213,6 +203,7 @@ local function drawSection(S, Kit, x, y, w, h)
       Kit.blur()
     end
     cy = cy + row + gap
+    hint("nickname")
     button("Clear nickname", function()
       Ops.clearNickname(S, mon)
       S.nicknameDraft = ""
@@ -235,22 +226,30 @@ local function drawSection(S, Kit, x, y, w, h)
         return Ops.setCurrentHp(S, mon, v)
       end
     )
-    button("Status: " .. tostring(mon.status or "healthy"), function()
-      local choices = g == 1 and { "", "SLP", "PSN", "BRN", "FRZ", "PAR" }
-        or { "", "SLP", "PSN", "BRN", "FRZ", "PAR", "TOX" }
-      local at = 1
-      for i, v in ipairs(choices) do
-        if v == (mon.status or "") then
-          at = i
-        end
-      end
-      local want = choices[at % #choices + 1]
-      Ops.setMonStatus(S, mon, want ~= "" and want or nil)
+    local statuses = {
+      { "healthy", "Healthy" },
+      { "SLP", "Asleep" },
+      { "PSN", "Poisoned" },
+      { "BRN", "Burned" },
+      { "FRZ", "Frozen" },
+      { "PAR", "Paralyzed" },
+    }
+    if g >= 2 then
+      statuses[#statuses + 1] = { "TOX", "Badly poisoned" }
+    end
+    local savedStatus = mon.status or "healthy"
+    if type(savedStatus) == "number" then
+      savedStatus = ({ [0]="healthy",[8]="PSN",[16]="BRN",[32]="FRZ",[64]="PAR",[128]="TOX" })[savedStatus]
+        or (savedStatus >= 1 and savedStatus <= 7 and "SLP") or savedStatus
+    end
+    choice("status", "Status", savedStatus, statuses, function(v)
+      return Ops.setMonStatus(S, mon, v ~= "healthy" and v or nil)
     end)
     if g >= 2 then
-      button("Held item: " .. tostring(mon.heldItem or mon.item or "none"), function()
+      local held = S.data.items and S.data.items[mon.heldItem or mon.item]
+      button("Held item: " .. tostring(held and held.name or "None"), function()
         Ops.openItemPicker(S, Kit, "held")
-      end, "accent")
+      end, "accent", nil, "heldItem")
       button("Clear held item", function()
         Ops.setHeldItem(S, mon, nil)
       end, "danger")
@@ -265,7 +264,7 @@ local function drawSection(S, Kit, x, y, w, h)
     if g == 3 then
       local Pokemon = require("src.core.game3.pokemon")
       local Summary = require("src.core.game3.summary_data")
-      local nature = (mon.personality or 0) % 25
+      local nature = mon.nature or (tonumber(mon.personality) or 0) % 25
       local natures = {}
       for id = 0, 24 do
         local ok, name = pcall(function()
@@ -276,39 +275,57 @@ local function drawSection(S, Kit, x, y, w, h)
       choice("nature", "Nature", nature, natures, function(v)
         return Ops.setNature(S, mon, v)
       end)
-      local slot = mon.abilityNum or (mon.personality or 0) % 2
-      button(
-        "Ability: "
-          .. tostring(
-            Pokemon.abilityName(mon.ability or Pokemon.abilityId(mon.species, mon.personality))
-          )
-          .. " / slot "
-          .. (slot + 1),
-        function()
-          Ops.setAbility(S, mon, 1 - slot)
-        end,
-        "accent"
-      )
-      local gender = Pokemon.gender(mon.species, mon.personality)
-      button("Gender: " .. gender, function()
-        Ops.setMonGender(S, mon, gender == "M" and "F" or "M")
-      end)
-      button("Shiny: " .. (Pokemon.isShiny(mon) and "ON" or "OFF"), function()
-        Ops.setShiny(S, mon, not Pokemon.isShiny(mon))
-      end, "warn")
-      text(
-        "Nature, ability, gender and shiny changes regenerate PID. Use Checks to review the result."
-      )
-    elseif g == 2 then
-      field("pokerus", "Pokerus (packed strain / days)", mon.pokerus or 0, function(v)
-        local n = tonumber(v)
-        if not require("Legality").integer(n, 0, 255) then
-          return Ops.say(S, "Pokerus must be 0-255")
+      local slot = mon.abilityNum or (tonumber(mon.personality) or 0) % 2
+      local abilities = {}
+      for i, id in ipairs(Pokemon.abilities(mon.species)) do
+        if id and id ~= 0 then
+          abilities[#abilities + 1] = { i - 1, Pokemon.abilityName(id) }
         end
-        return Ops.setPokerus(S, mon, n)
+      end
+      choice("ability", "Ability", slot, abilities, function(v)
+        return Ops.setAbility(S, mon, v)
+      end)
+      local gender = mon.gender or Pokemon.gender(mon.species, tonumber(mon.personality) or 0)
+      local ratio = (Pokemon.speciesMeta(mon.species) or {}).genderRatio or 255
+      local genders = ratio == 255 and { { "U", "Genderless" } }
+        or ratio == 0 and { { "M", "Male" } }
+        or ratio == 254 and { { "F", "Female" } }
+        or { { "M", "Male" }, { "F", "Female" } }
+      choice("gender", "Gender", gender, genders, function(v)
+        return Ops.setMonGender(S, mon, v)
+      end)
+      local shiny = mon.isShiny
+      if shiny == nil then shiny = Pokemon.isShiny(mon) end
+      button("Shiny: " .. (shiny and "ON" or "OFF"), function()
+        Ops.setShiny(S, mon, not shiny)
+      end, "warn", "Changes shininess and personality. Review Checks after editing.", "shiny")
+    elseif g == 2 then
+      local d = P.find(S, "pokerus")
+      choice("pokerus", "Pokérus", mon.pokerus or 0, Named.property(S, d), function(v)
+        return Ops.setPokerus(S, mon, v)
       end)
       text("Gender, shininess and Unown form follow DVs.")
+      for _, id in ipairs({ "gender", "shiny", "form" }) do hint(id) end
     end
+    button("Fix all errors", function()
+      Ops.fixMonErrors(S, mon)
+    end, "good", "Fixes invalid values, stats and PP. Origin warnings still need checking.")
+    button(
+      "Randomize Pokémon",
+      function()
+        Ops.randomizeMon(S, mon)
+      end,
+      "accent",
+      "Replaces this Pokémon with a wild one from this game. Real level range, normal moves. Undo brings yours back."
+    )
+    button(
+      "Max out Pokémon",
+      function()
+        Ops.maxMon(S, mon)
+      end,
+      "good",
+      "Level 100, max IVs or DVs, friendship and PP. Spare EVs go to the strongest stats. Fully heals."
+    )
     button("Full heal", function()
       Ops.healMon(S, mon)
     end, "good")
@@ -326,7 +343,7 @@ local function drawSection(S, Kit, x, y, w, h)
         tostring(stats.defense or mon.defense or "?"),
         tostring(stats.speed or mon.speed or "?")
       ),
-      PAL.heading
+      issues.fields.calculated and PAL.red or PAL.heading
     )
     text(
       g == 1 and ("Special: " .. tostring(stats.special or "?"))
@@ -336,16 +353,17 @@ local function drawSection(S, Kit, x, y, w, h)
           .. " / Sp. Def: "
           .. tostring(stats.specialDefense or stats.spDef or mon.spDef or "?")
         ),
-      PAL.heading
+      issues.fields.calculated and PAL.red or PAL.heading
     )
+    hint("calculated")
     text(
       g == 3 and "IVs 0-31. EVs 0-255 with a total limit of 510."
         or "DVs 0-15. HP DV follows the other DVs. Stat experience 0-65535."
     )
     if g == 3 then
-      button("Max all (31)", function()
+      button("Max all IVs", function()
         Ops.maxIvs(S, mon)
-      end, "good")
+      end, "good", "Sets all six IVs to 31. Origin checks may still need review.")
       button("Clear EVs", function()
         Ops.clearEvs(S, mon)
       end, "danger")
@@ -353,16 +371,42 @@ local function drawSection(S, Kit, x, y, w, h)
       for _, k in ipairs(keys) do
         total = total + (mon.evs and mon.evs[k] or 0)
       end
-      text("Total EVs: " .. total .. " / 510", total > 510 and PAL.red or PAL.green)
+      text(
+        "EVs: " .. total .. " / 510  ·  " .. math.max(0, 510 - total) .. " free",
+        total > 510 and PAL.red or PAL.green
+      )
+    else
+      button("Max all DVs", function()
+        Ops.maxDvs(S, mon)
+      end, "good", "Sets DVs to 15. In Gen 2 this can change gender and shininess.")
+      button("Max stat training", function()
+        Ops.maxStatExp(S, mon)
+      end, "good", "Fills stat experience for every stat.")
+      text("HP DV: " .. tostring(mon.dvs and mon.dvs.hp or 0) .. " / 15 · follows the other DVs", issues.fields["dv-hp"] and PAL.red)
+      hint("dv-hp")
     end
     for _, k in ipairs(keys) do
       if g == 3 then
-        field("iv-" .. k, k:upper() .. " IV", mon.ivs and mon.ivs[k] or 0, function(v)
-          return Ops.setIv(S, mon, k, tonumber(v) or 0)
-        end)
-        field("ev-" .. k, k:upper() .. " EV", mon.evs and mon.evs[k] or 0, function(v)
-          return Ops.setEv(S, mon, k, tonumber(v) or 0)
-        end)
+        field(
+          "iv-" .. k,
+          (
+            { hp = "HP", atk = "Attack", def = "Defense", spa = "Sp. Atk", spd = "Sp. Def", spe = "Speed" }
+          )[k] .. " IV",
+          mon.ivs and mon.ivs[k] or 0,
+          function(v)
+            return Ops.setIv(S, mon, k, tonumber(v) or 0)
+          end
+        )
+        field(
+          "ev-" .. k,
+          (
+            { hp = "HP", atk = "Attack", def = "Defense", spa = "Sp. Atk", spd = "Sp. Def", spe = "Speed" }
+          )[k] .. " EV",
+          mon.evs and mon.evs[k] or 0,
+          function(v)
+            return Ops.setEv(S, mon, k, tonumber(v) or 0)
+          end
+        )
       else
         if k ~= "hp" then
           field("dv-" .. k, k:upper() .. " DV", mon.dvs and mon.dvs[k] or 0, function(v)
@@ -386,7 +430,7 @@ local function drawSection(S, Kit, x, y, w, h)
       local md = id and S.data.moves and S.data.moves[id]
       button("Slot " .. slot .. ": " .. tostring(md and md.name or id or "empty"), function()
         Ops.openMovePicker(S, Kit, slot)
-      end, "accent")
+      end, "accent", nil, "move" .. slot)
       if id and id ~= 0 then
         local pp = type(mv) == "table" and mv.pp or mon.pp and mon.pp[slot] or 0
         local ups = MonOps.getPpUps(mon, slot)
@@ -417,18 +461,22 @@ local function drawSection(S, Kit, x, y, w, h)
     end
   elseif S.monSection == "extras" then
     if g == 3 then
-      text("Contest conditions")
+      text("Contest conditions", issues.fields.contest and PAL.red)
+      hint("contest")
       props(P.contest)
-      text("Ribbons: setting a ribbon does not establish award or event eligibility.")
+      text("Ribbons: setting a ribbon does not establish award or event eligibility.", issues.fields.ribbons and PAL.red)
+      hint("ribbons")
       props(P.ribbons)
     else
       text("This generation has no contest conditions or ribbons.")
     end
   else
-    local report = require("Legality").mon(S, mon)
+    button("Fix all errors", function()
+      Ops.fixMonErrors(S, mon)
+    end, "good", "Fixes invalid values, stats and PP. Does not invent encounter or event history.")
     text(
       report.errors > 0 and (report.errors .. " property errors")
-        or "Property checks passed; encounter legality is unchecked",
+        or "Values pass. Origin still needs checking.",
       report.errors > 0 and PAL.red or PAL.yellow
     )
     for _, check in ipairs(report.checks) do
@@ -443,6 +491,10 @@ local function drawSection(S, Kit, x, y, w, h)
   Kit.scrollbar(cx, bodyY, inner, bodyH, S.inspectorScroll, S._formHeight, bodyH)
 end
 function Body.draw(S, Kit, x, y, w, h)
-  Motion.pages(S, Kit, "monSection", x, y, w, h, drawSection)
+  local report = require("Legality").mon(S, S.editingMon)
+  local issues = require("Legality").highlights(report, S.editingMon)
+  Motion.pages(S, Kit, "monSection", x, y, w, h, function(state, kit, px, py, pw, ph)
+    drawSection(state, kit, px, py, pw, ph, report, issues)
+  end)
 end
 return Body

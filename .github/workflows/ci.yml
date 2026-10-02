@@ -501,6 +501,41 @@ jobs:
   headless:
     name: headless suites (no ROM)
     runs-on: ubuntu-latest
+    needs: headless-groups
+    if: ${{ always() }}
+    steps:
+      - name: require every headless group to pass
+        env:
+          HEADLESS_RESULT: ${{ needs.headless-groups.result }}
+        run: |
+          if [ "$HEADLESS_RESULT" != "success" ]; then
+            echo "Headless groups finished with $HEADLESS_RESULT" >&2
+            exit 1
+          fi
+
+  headless-groups:
+    name: headless / ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: engine
+            name: engine
+          - group: gen2
+            name: Gen 2
+          - group: save-codecs
+            name: save codecs
+          - group: save-records
+            name: Gen 3 save records
+          - group: save-world
+            name: Gen 3 save world
+          - group: save-editor
+            name: save editor
+          - group: mods
+            name: mod tools
+          - group: game3
+            name: Gen 3 runtime
     steps:
       - uses: actions/checkout@v7
 
@@ -516,8 +551,8 @@ jobs:
       - name: interpreter version
         run: luajit -v
 
-      - name: run every ROM-free tier
-        run: ./scripts/test.sh
+      - name: run ROM-free group
+        run: ./scripts/test.sh --group "${{ matrix.group }}"
 
   fixture-dataset:
     name: fixture dataset integrity

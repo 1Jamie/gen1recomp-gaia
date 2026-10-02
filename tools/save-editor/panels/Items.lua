@@ -1,8 +1,8 @@
 local Ops = require("Ops")
 local Gen = require("Gen")
 local Bag = require("src.inventory.Bag")
-local PAL = require("Theme").PAL
 local M = {}
+local Touch = require("TouchEditor")
 local Motion = require("Motion")
 local Chooser = require("Chooser")
 local function drawView(S, Kit, x, y, w, h)
@@ -62,44 +62,34 @@ local function drawView(S, Kit, x, y, w, h)
     cy = cy + row + gap
   end
   if S.itemView == "wallet" then
-    local ch = 2 * (row + gap + Kit.textHeight("small") + gap) + (row + gap) * 2
+    local bodyH = math.max(0, y + h - pad - cy)
     S.walletScroll =
-      Kit.scrollPixels(cx, cy, inner, math.max(0, y + h - pad - cy), S.walletScroll or 0, ch)
-    Kit.pushClip(cx, cy, inner, math.max(0, y + h - pad - cy))
-    cy = cy - S.walletScroll
+      Kit.scrollPixels(cx, cy, inner, bodyH, S.walletScroll or 0, S._walletHeight or 0)
+    Kit.pushClip(cx, cy, inner, bodyH)
+    local start = cy - S.walletScroll
+    cy = start
     for _, f in ipairs({
-      { "money", "Money", Gen.money(S.save), Ops.maxMoney },
-      { "coins", "Coins", Gen.coins(S.save), Ops.maxCoins },
+      { "money", "Money", Gen.money(S.save), 999999 },
+      { "coins", "Coins", Gen.coins(S.save), 9999 },
     }) do
-      Kit.text("small", f[2], cx, cy, PAL.text)
-      cy = cy + Kit.textHeight("small") + gap
-      S.walletDrafts = S.walletDrafts or {}
-      local function apply(v)
-        if Ops.setTrainerProperty(S, f[1], v) then
-          S.walletDrafts[f[1]] = nil
-        end
-      end
-      local bw = math.max(row, 64 * s)
-      S.walletDrafts[f[1]] = Kit.textfield(
-        "wallet-" .. f[1],
-        cx,
-        cy,
-        inner - bw - gap,
-        row,
-        S.walletDrafts[f[1]] or tostring(f[3]),
-        "value",
-        { onSubmit = apply }
-      )
-      if Kit.button(cx + inner - bw, cy, bw, row, "Set", { kind = "accent", font = "small" }) then
-        apply(S.walletDrafts[f[1]])
-        Kit.blur()
-      end
-      cy = cy + row + gap
-      if Kit.button(cx, cy, inner, row, "Max " .. f[2], { kind = "good", font = "small" }) then
-        f[4](S)
-      end
-      cy = cy + row + gap
+      cy = cy
+        + Touch.value(
+          S,
+          Kit,
+          "wallet-" .. f[1],
+          f[2],
+          f[3],
+          { lo = 0, hi = f[4], help = "Max fills it. Type a value for an exact amount." },
+          cx,
+          cy,
+          inner,
+          function(v)
+            return Ops.setTrainerProperty(S, f[1], v)
+          end
+        )
+        + gap
     end
+    S._walletHeight = cy - start
     Kit.popClip()
     return
   elseif S.itemView == "badges" then
@@ -189,30 +179,53 @@ local function drawView(S, Kit, x, y, w, h)
   local actionMin = Kit.buttonWidth("Confirm?", { font = "small", iconStack = true }, row)
   local actionCols = inner >= 5 * actionMin + 4 * gap and 5 or 3
   local actionRows = math.ceil(5 / actionCols)
-  local itemH = actionRows * row + (actionRows - 1) * gap + Kit.textHeight("small") + 3 * gap
+  local itemH = actionRows * row + (actionRows - 1) * gap + row + 3 * gap
   local visible = math.max(1, math.floor(bodyH / itemH))
   local offsetKey = prefix .. "Offset"
-  S[offsetKey] = Kit.scroll(cx, cy, inner, bodyH, S[offsetKey] or 0, #order, visible)
+  local drawn, shift = Kit.list(S, offsetKey, cx, cy, inner, bodyH, #order, itemH)
   Kit.pushClip(cx, cy, inner, bodyH)
-  for i = 1, visible do
+  for i = 1, drawn do
     local id = order[S[offsetKey] + i]
     if id == nil then
       break
     end
-    local by = cy + (i - 1) * itemH
+    local by = cy + (i - 1) * itemH - shift
     local def = S.data.items[id]
-    Kit.text(
-      "small",
-      Kit.ellipsize(
-        "small",
-        tostring(def and def.name or id) .. " x" .. tostring(quantities[id] or 0),
-        inner
-      ),
-      cx,
-      by,
-      PAL.text
-    )
-    by = by + Kit.textHeight("small") + gap
+    local count = quantities[id] or 0
+    local max = Ops.itemMax(S, id, pc)
+    local issue = not require("Legality").integer(count, 1, max)
+      and ("Saved stack must be a whole number from 1 to " .. max) or nil
+    local opts = { font = "small", align = "left", trailingIcon = "pencil", face = "invert", invalid = issue ~= nil }
+    if
+      Kit.button(
+        cx,
+        by,
+        inner,
+        row,
+        tostring(def and def.name or id):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+          .. " ×"
+          .. count,
+        opts
+      )
+    then
+      Touch.open(S, Kit, {
+        mode = "number",
+        id = "item-" .. tostring(id),
+        title = def and def.name or tostring(id),
+        value = count,
+        savedValue = count,
+        issue = issue,
+        limits = {
+          lo = 1,
+          hi = max,
+          help = "Set the stack size. Max fills it; Drop removes it.",
+        },
+        apply = function(v)
+          return call("Adjust", id, v - count)
+        end,
+      })
+    end
+    by = by + row + gap
     local labels = {
       "Decrease",
       "Increase",

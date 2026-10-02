@@ -354,8 +354,7 @@ local function drawSection(S, Kit, x, y, w, h)
   local perCol = math.max(1, math.floor(gridH / (rowH + rowGap)))
   local perPage = perCol * cols
 
-  S.eventsOffset = Ops.clamp(S.eventsOffset or 0, 0, math.max(0, #rows - perPage))
-  S.eventsOffset = Kit.scroll(cx, gridTop, inner, gridH, S.eventsOffset, #rows, perPage, cols)
+  local drawn, shift = Kit.list(S, "eventsOffset", cx, gridTop, inner, gridH, #rows, rowH + rowGap, cols)
 
   if #rows == 0 then
     Kit.emptyBox(
@@ -368,12 +367,12 @@ local function drawSection(S, Kit, x, y, w, h)
   end
 
   Kit.pushClip(cx, gridTop, inner, gridH)
-  for i = 1, math.min(perPage, #rows - S.eventsOffset) do
+  for i = 1, drawn do
     local row = rows[S.eventsOffset + i]
     local ci = (i - 1) % cols
     local ri = math.floor((i - 1) / cols)
     local rx = cx + ci * (colW + colGap)
-    local ry = gridTop + ri * (rowH + rowGap)
+    local ry = gridTop + ri * (rowH + rowGap) - shift
     if row.header then
       Kit.text(
         "mono",
@@ -438,7 +437,7 @@ local function drawSection(S, Kit, x, y, w, h)
   end
   Kit.popClip()
 
-  Kit.scrollbar(cx, gridTop, inner, gridH, S.eventsOffset, #rows, perPage)
+  Kit.listScrollbar(S, "eventsOffset", cx, gridTop, inner, gridH)
 
   -- "Clear all" button
   if clearKey then
