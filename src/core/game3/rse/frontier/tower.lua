@@ -58,7 +58,7 @@ function Tower.init(sess)
   if bit.band(tonumber(f.winStreakActiveFlags) or 0, streakFlag(mode, lvl)) == 0 then
     Util.set2(f.towerWinStreaks, mode, lvl, 0)
   end
-  sess.dynamicWarp = { map = sess.map, warpId = 0xFF }
+  sess.dynamicWarp = { map = sess.map, warpId = 0xFF, x = sess.x, y = sess.y }
   sess.frontierOpponentA = 0
 end
 
@@ -262,16 +262,17 @@ end
 -- pokeemerald/src/battle_tower.c:2194
 function Tower.save(ctx, sess)
   local f = Util.frontier(sess)
-  local mode, lvl = modeLvl(sess)
-  local challengeNum = math.floor(Util.get2(f.towerWinStreaks, mode, lvl) / D.STAGES_PER_CHALLENGE)
-  local status = specialVar(ctx, Util.VAR_0x8005)
-  if status == 0 and (challengeNum > 1 or (tonumber(f.curChallengeBattleNum) or 0) ~= 0) then
-    Tower.saveBattleTowerRecord(sess)
-  end
-  f.challengeStatus = status
-  Rse.setVar("VAR_TEMP_0", 0, sess)
-  f.challengePaused = 1
-  return Util.saveGameFrontier(sess)
+  return Util.saveChallenge(sess, "VAR_TEMP_0", function()
+    local mode, lvl = modeLvl(sess)
+    local challengeNum = math.floor(Util.get2(f.towerWinStreaks, mode, lvl) / D.STAGES_PER_CHALLENGE)
+    local status = specialVar(ctx, Util.VAR_0x8005)
+    if status == 0 and (challengeNum > 1 or (tonumber(f.curChallengeBattleNum) or 0) ~= 0) then
+      Tower.saveBattleTowerRecord(sess)
+    end
+    f.challengeStatus = status
+    Rse.setVar("VAR_TEMP_0", 0, sess)
+    f.challengePaused = 1
+  end)
 end
 
 -- pokeemerald/src/battle_tower.c:1936

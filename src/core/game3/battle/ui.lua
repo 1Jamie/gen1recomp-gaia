@@ -204,6 +204,7 @@ end
 
 function Ui.reset(opts)
   opts = opts or {}
+  Ui._caughtDexScene = nil
   Ui._timed = nil
   Ui._linger = false
   Ui._queue = {}
@@ -2551,10 +2552,54 @@ local function draw_party_bars(stage)
   end
 end
 
+-- pokeemerald/src/battle_script_commands.c:10131
+function Ui.beginCaughtDexScene(caught)
+  local Pal = require("src.core.game3.pal_fade")
+  caught.pal = Pal.new()
+  -- pokefirered/src/battle_script_commands.c:9709
+  caught.pal:beginFade(caught.family == "frlg" and 0x1FFFF or Pal.BG, 0, 16, 0, Pal.BLACK)
+  Ui._caughtDexScene = caught
+end
+
+-- pokeemerald/src/pokedex.c:4079
+function Ui.updateCaughtDexScene()
+  local c = Ui._caughtDexScene
+  if not c then return true end
+  local spr = c.sprite
+  local centerY = c.family == "frlg" and 64 or 80
+  if spr.x < 120 then spr.x = math.min(120, spr.x + 2) end
+  if spr.x > 120 then spr.x = math.max(120, spr.x - 2) end
+  if spr.y < centerY then spr.y = math.min(centerY, spr.y + 1) end
+  if spr.y > centerY then spr.y = math.max(centerY, spr.y - 1) end
+  c.pal:updateFade()
+  return not c.pal:fadeActive()
+end
+
+function Ui.clearCaughtDexScene()
+  Ui._caughtDexScene = nil
+end
+
 function Ui.draw(w, h)
   if not (love and love.graphics) then return end
   w = w or Display.W
   h = h or Display.H
+
+  local caught = Ui._caughtDexScene
+  if caught then
+    -- pokeemerald/src/battle_script_commands.c:10133
+    local Fx = require("src.core.game3.gba_fx")
+    Fx.draw(function()
+      BattleChrome.drawPostDexBg(BattleBg.sheetKey())
+      BattleChrome.drawPanel("none")
+    end, caught.pal:fx(0))
+    local spr = caught.sprite
+    Fx.draw(function()
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.draw(spr.img, spr.x + (spr.x2 or 0), spr.y + (spr.y2 or 0), 0, 1, spr.scaleY or 1, 32, 32)
+    end, caught.pal:fx(16))
+    if Choice and Choice.active and Choice.draw then Choice.draw() end
+    return
+  end
 
   local st = Ui._st
   local stage = Anim.stage and Anim.stage()

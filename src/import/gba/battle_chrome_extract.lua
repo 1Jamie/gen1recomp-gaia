@@ -471,13 +471,23 @@ local function bake_terrain(get, cache, root, key, tr)
   local tGfx = Lz77.decompress(get, tr.tiles)
   local tPal = Lz77.decompress(get, tr.pal)
   local tMap = Lz77.decompress(get, tr.tilemap)
+  if byte_len(tMap) < 4096 then
+    error("battle_chrome_extract: post-dex terrain map missing right screen for " .. key)
+  end
   local rgba, trW, trH = bake_tilemap_rgba(tGfx, tPal, tMap, 32, 32, { transparent0 = false, bgPalBase = 2 })
   cache:write(root .. "/terrain_" .. key .. ".rgba", rgba)
   local bgRgba, enemyRgba, playerRgba = split_terrain_layers(rgba, tMap)
   cache:write(root .. "/terrain_bg_" .. key .. ".rgba", bgRgba)
   cache:write(root .. "/terrain_enemy_" .. key .. ".rgba", enemyRgba)
   cache:write(root .. "/terrain_player_" .. key .. ".rgba", playerRgba)
-  return { w = trW, h = trH }
+  -- pokeemerald/src/battle_script_commands.c:10133
+  -- pokefirered/src/battle_script_commands.c:9693
+  local postMap, bytes = {}, bytes_to_array(tMap)
+  for i = 1, 2048 do postMap[i] = bytes[2048 + i] end
+  local postRgba = bake_tilemap_rgba(tGfx, tPal, postMap, 32, 32, { transparent0 = false, bgPalBase = 2 })
+  local postDexFile = "terrain_" .. key .. "_post_dex.rgba"
+  cache:write(root .. "/" .. postDexFile, postRgba)
+  return { w = trW, h = trH, postDexFile = postDexFile }
 end
 
 -- pokeemerald/src/battle_bg.c:859
@@ -522,7 +532,7 @@ function BattleChromeExtract.runRse(rom, cache, opts, cfg)
   for _, key in ipairs(terrainOrder) do
     local m = terrainMeta[key]
     terrainLines[#terrainLines + 1] = string.format(
-      '    %s = { file = "terrain_%s.rgba", w = %d, h = %d },', key, key, m.w, m.h)
+      '    %s = { file = "terrain_%s.rgba", postDexFile = %q, w = %d, h = %d },', key, key, m.postDexFile, m.w, m.h)
   end
   for _, sc in ipairs(cfg.scenes or {}) do sceneKeys[#sceneKeys + 1] = string.format("%q", sc.key) end
   local envKeys = {}
@@ -632,19 +642,7 @@ function BattleChromeExtract.run(rom, cache, opts)
   for _, t in ipairs(terrains) do
     local tr = t.cfg
     if tr then
-      local tGfx = Lz77.decompress(get, tr.tiles)
-      local tPal = Lz77.decompress(get, tr.pal)
-      local tMap = Lz77.decompress(get, tr.tilemap)
-      local rgba, trW, trH = bake_tilemap_rgba(tGfx, tPal, tMap, 32, 32, {
-        transparent0 = false,
-        bgPalBase = 2,
-      })
-      cache:write(root .. "/terrain_" .. t.key .. ".rgba", rgba)
-      local bgRgba, enemyRgba, playerRgba = split_terrain_layers(rgba, tMap)
-      cache:write(root .. "/terrain_bg_" .. t.key .. ".rgba", bgRgba)
-      cache:write(root .. "/terrain_enemy_" .. t.key .. ".rgba", enemyRgba)
-      cache:write(root .. "/terrain_player_" .. t.key .. ".rgba", playerRgba)
-      terrainMeta[t.key] = { w = trW, h = trH }
+      terrainMeta[t.key] = bake_terrain(get, cache, root, t.key, tr)
       terrainOrder[#terrainOrder + 1] = t.key
     end
   end
@@ -654,7 +652,7 @@ function BattleChromeExtract.run(rom, cache, opts)
   for _, key in ipairs(terrainOrder) do
     local m = terrainMeta[key]
     terrainLines[#terrainLines + 1] = string.format(
-      '    %s = { file = "terrain_%s.rgba", w = %d, h = %d },', key, key, m.w, m.h)
+      '    %s = { file = "terrain_%s.rgba", postDexFile = %q, w = %d, h = %d },', key, key, m.postDexFile, m.w, m.h)
   end
 
   -- Party summary bar (128×8); balls use elements tiles 66..69.

@@ -174,11 +174,10 @@ function TextBox.new(game, text, onDone, opts)
   local marks
   text, marks = stripPauses(text)
   local save = game and game.save
-  local gen1 = doubleLine
-    and not (save and (save.generation == 2 or save.generation == 3
+  self.fixedGen1Rows = not (save and (save.generation == 2 or save.generation == 3
       or save.version == "gold"))
     and require("src.core.GameVersion").generation() == 1
-  self.pages = TextBox.paginate(text, self.maxCols, gen1)
+  self.pages = TextBox.paginate(text, self.maxCols, doubleLine and self.fixedGen1Rows)
   -- opts.pauseSounds[i] is the sfx the i-th marker fires once its wait is
   -- over (text_asm SFX_SWAP, engine/pokemon/learn_move.asm:210-213)
   self.pauseSounds = opts and opts.pauseSounds
@@ -190,6 +189,7 @@ function TextBox.new(game, text, onDone, opts)
   self.lineIndex = 1
   self.charIndex = 0
   self.shown = {} -- visible lines (max 2), each a list of glyph codes
+  self.shownSource = {}
   self.waiting = false
   self.contAdvance = false
   self.done = false
@@ -204,9 +204,12 @@ function TextBox.new(game, text, onDone, opts)
     -- twice, then the next line is written at TEXTBOX_INNERY + 2, i.e. the
     -- bottom row.  Taking the first two would walk the text backwards the
     -- instant the prompt appears.
-    for index = math.max(1, #page - 1), #page do
-      self.shown[#self.shown + 1] = Font.encode(page[index])
+    for index = 1, #page do
+      self.lineIndex = index
+      self:beginLine()
+      self.shown[#self.shown] = self.codes
     end
+    self.scrollPx = nil
     self.lineIndex = #page
     self.codes = self.shown[#self.shown] or {}
     self.charIndex = #self.codes
@@ -381,19 +384,27 @@ end
 function TextBox:beginLine()
   self.charIndex = 0
   self.codes = Font.encode(self:currentLine())
+  local conts = self.pages.contBefore and self.pages.contBefore[self.pageIndex]
+  -- pokered/home/text.asm:262
+  if self.fixedGen1Rows and conts and conts[self.lineIndex] and #self.shown == 1 then
+    table.insert(self.shown, {})
+    table.insert(self.shownSource, false)
+  end
   if #self.shown >= 2 then
     table.remove(self.shown, 1)
+    table.remove(self.shownSource, 1)
     self.scrollPx = 8 -- pixel scroll-up (ScrollTextUpOneLine)
   end
   table.insert(self.shown, {})
+  table.insert(self.shownSource, self.lineIndex)
 end
 
 function TextBox:visibleText()
   local page = self.pages[self.pageIndex]
   if not page then return nil end
-  local out, count = {}, #(self.shown or {})
-  for i = math.max(1, self.lineIndex - count + 1), self.lineIndex do
-    if page[i] ~= nil then out[#out + 1] = page[i] end
+  local out = {}
+  for _, source in ipairs(self.shownSource) do
+    out[#out + 1] = source and page[source] or ""
   end
   return #out > 0 and out or nil
 end
@@ -636,6 +647,7 @@ function step(self, dt)
         self.holdFrames = Timing.TEXT_SCROLL_PAIR
       else
         self.shown = {}
+        self.shownSource = {}
         self.pageIndex = self.pageIndex + 1
         self.lineIndex = 1
         self:beginLine()

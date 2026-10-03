@@ -109,7 +109,7 @@ function Factory.init(sess)
   local r = rentals(sess)
   for i = 1, Factory.RENTAL_COUNT do r[i].monId = Factory.NO_MON end
   sess.frontierTempParty = { Factory.NO_MON, Factory.NO_MON, Factory.NO_MON }
-  sess.dynamicWarp = { map = sess.map, warpId = 0xFF }
+  sess.dynamicWarp = { map = sess.map, warpId = 0xFF, x = sess.x, y = sess.y }
   sess.frontierOpponentA = 0
 end
 
@@ -155,10 +155,11 @@ end
 -- pokeemerald/src/battle_factory.c:269
 function Factory.save(ctx, sess)
   local f = Util.frontier(sess)
-  f.challengeStatus = specialVar(ctx, Util.VAR_0x8005)
-  Rse.setVar("VAR_TEMP_CHALLENGE_STATUS", 0, sess)
-  f.challengePaused = 1
-  return Util.saveGameFrontier(sess)
+  return Util.saveChallenge(sess, "VAR_TEMP_CHALLENGE_STATUS", function()
+    f.challengeStatus = specialVar(ctx, Util.VAR_0x8005)
+    Rse.setVar("VAR_TEMP_CHALLENGE_STATUS", 0, sess)
+    f.challengePaused = 1
+  end)
 end
 
 -- pokeemerald/src/battle_factory.c:298

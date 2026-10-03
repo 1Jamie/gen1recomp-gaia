@@ -183,6 +183,8 @@ local function objectEventCollision(game, x, y, dir, beh)
   local P = player()
   if Collision.ledgeLanding(game, P.cellX, P.cellY, dir) then return C.LEDGE_JUMP end
   if not Collision.inBounds(x, y) then return C.NONE end
+  -- pokeemerald/src/event_object_movement.c:4663
+  if Collision.isWarpDoor(beh) then return C.IMPASSABLE end
   local ok, why = Collision.canEnter(game, x, y, {
     fromX = P.cellX, fromY = P.cellY, dir = dir, surfing = P.surfing, elevation = P.currentElevation,
   })

@@ -130,11 +130,30 @@ function BattleChrome.terrain(key)
     bgImage = rgba_to_image(read_bytes(root .. "/terrain_bg_" .. key .. ".rgba"), 256, 160),
     enemyPlat = rgba_to_image(read_bytes(root .. "/terrain_enemy_" .. key .. ".rgba"), 256, 160),
     playerPlat = rgba_to_image(read_bytes(root .. "/terrain_player_" .. key .. ".rgba"), 256, 160),
+    postDexImage = info.postDexFile and rgba_to_image(read_bytes(root .. "/" .. info.postDexFile), 256, 256) or nil,
     w = w,
     h = h,
   }
   rawset(cache, key, entry)
   return entry
+end
+
+-- pokeemerald/src/battle_script_commands.c:10131
+-- pokefirered/src/battle_script_commands.c:9691
+function BattleChrome.drawPostDexBg(key)
+  local entry = BattleChrome.terrain(key)
+  if not (entry and entry.postDexImage) then
+    error("battle_chrome: missing ROM post-dex background for " .. tostring(key))
+  end
+  local qKey = "post_dex_" .. tostring(key)
+  local q = BattleChrome._quads[qKey]
+  if not q then
+    q = love.graphics.newQuad(0, 0, 240, 112, 256, 256)
+    BattleChrome._quads[qKey] = q
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(entry.postDexImage, q, 0, 0)
+  return true
 end
 
 local TERRAIN_MT = {

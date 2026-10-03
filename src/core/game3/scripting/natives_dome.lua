@@ -19,7 +19,9 @@ function NativesDome.call(ctx, adapters)
   local id = Rse.specialVar(ctx, Util.VAR_0x8004)
   if not s then return false end
   local F = Dome().FUNC
-  if id == F.SHOW_OPPONENT_INFO then
+  if id == F.SAVE then
+    return Util.saveFromNative(ctx, adapters, s, Dome().save)
+  elseif id == F.SHOW_OPPONENT_INFO then
     -- pokeemerald/src/battle_dome.c:3043
     local D = Dome()
     local tid = D.tournamentId(s, D.playerOpponentTrainerId(s))

@@ -307,6 +307,111 @@ local function drawOverlays(S, map)
   love.graphics.setColor(1, 1, 1, 1)
 end
 
+local function gridMap(def, id, generation)
+  local factor = generation == 3 and 1 or 2
+  local map = {
+    id = id, def = def, width = def.width, height = def.height,
+    widthCells = def.width * factor, heightCells = def.height * factor,
+    warps = def.warps or {},
+  }
+  function map:inBounds(cx, cy)
+    return cx >= 0 and cy >= 0 and cx < self.widthCells and cy < self.heightCells
+  end
+  function map:warpAtCell(cx, cy)
+    for i, warp in ipairs(self.warps) do
+      if warp.x == cx and warp.y == cy then return { index = i, def = warp } end
+    end
+  end
+  return map
+end
+
+function MapBrowser.preview(S)
+  local generation = Gen.of(S.save, S.version)
+  local def = Gen.maps(S.data)[S.mapId]
+  if not def then return false, "unknown map" end
+  if generation == 3 and not def.midLayout then
+    S._mapNativeTried = S._mapNativeTried or {}
+    if not S._mapNativeTried[def] then
+      S._mapNativeTried[def] = true
+      pcall(function()
+        require("src.core.game3.map").ensureMidLayout({ data = S.data }, S.mapId, def)
+      end)
+    end
+  end
+  if type(def.width) ~= "number" or type(def.height) ~= "number" then
+    return false, "incomplete map record (missing width/height)"
+  end
+  local map = gridMap(def, S.mapId, generation)
+  local reason
+  if generation == 3 then
+    local layout = def.midLayout
+    local pair = def.pair or (layout and layout.pair)
+    if not layout or type(layout.midAt) ~= "function" then
+      reason = "missing native map layout"
+    elseif not pair then
+      reason = "missing native tileset pair"
+    else
+      local NativeTileset = require("src.core.game3.tileset_native")
+      local loaded, ts = pcall(NativeTileset.get, pair)
+      if not loaded or not ts or not ts.image then
+        reason = "native tileset image unavailable: " .. tostring(pair)
+      else
+        function map:tileAtCell(cx, cy) return layout:midAt(cx, cy) or 0 end
+        map.renderer = {
+          draw = function(_, camX, camY)
+            local zoom = S.mapZoom or 1
+            local startCx = math.max(0, math.floor(camX / CELL) - 1)
+            local endCx = math.min(def.width - 1, math.ceil((camX + (S._mapViewW or 480) / zoom) / CELL) + 1)
+            local startCy = math.max(0, math.floor(camY / CELL) - 1)
+            local endCy = math.min(def.height - 1, math.ceil((camY + (S._mapViewH or 432) / zoom) / CELL) + 1)
+            love.graphics.setColor(1, 1, 1, 1)
+            for cy = startCy, endCy do
+              for cx = startCx, endCx do
+                local mid = layout:midAt(cx, cy)
+                if mid and mid >= 0 then
+                  local slot = NativeTileset.slotFor(ts, mid)
+                  local quad = NativeTileset.quad(ts, slot)
+                  if quad then love.graphics.draw(ts.image, quad, cx * CELL - camX, cy * CELL - camY) end
+                  if ts.layered and ts.overImage then
+                    local over = NativeTileset.overQuad(ts, slot)
+                    if over then love.graphics.draw(ts.overImage, over, cx * CELL - camX, cy * CELL - camY) end
+                  end
+                end
+              end
+            end
+          end,
+        }
+      end
+    end
+  else
+    local tileset = Gen.tilesets(S.data)[def.tileset]
+    if not tileset then
+      reason = "missing tileset: " .. tostring(def.tileset)
+    elseif not tileset.image then
+      reason = "missing tileset image: " .. tostring(def.tileset)
+    elseif not tileset.blocks then
+      reason = "missing tileset blocks: " .. tostring(def.tileset)
+    elseif generation == 2 then
+      local loadedMap, built = pcall(require("src.world.gen2.Map").new, def, tileset)
+      if not loadedMap then return false, built end
+      map = built
+      local MapPreview = require("src.world.gen2.MapPreview")
+      S._g2MapBaker = S._g2MapBaker or MapPreview.baker({
+        tilesets = Gen.tilesets(S.data), gen2Roofs = S.data.gen2Roofs,
+        roofs = S.data.roofs, gen2Palettes = S.data.gen2Palettes, palettes = S.data.palettes,
+      })
+      local loaded, renderer = pcall(MapPreview.renderer, S._g2MapBaker, map)
+      if loaded and renderer then map.renderer = renderer
+      else reason = "tileset image unavailable: " .. tostring(tileset.image) end
+    else
+      local loaded, rendered = pcall(MapLoader.load, S.data, S.mapId)
+      if loaded then map = rendered
+      else reason = "tileset image unavailable: " .. tostring(tileset.image) end
+    end
+  end
+  return true, map, reason and ("Preview unavailable: " .. reason .. ". Coordinate grid remains available.")
+end
+
 local function drawSection(S, Kit, x, y, w, h)
   local s = Kit.scale
   local gap = 20 * s
@@ -496,110 +601,8 @@ local function drawSection(S, Kit, x, y, w, h)
     )
   end
 
-  local ok, map
-  if Gen.of(S.save) == 3 then
-    local def = Gen.maps(S.data)[S.mapId]
-    if def then
-      local mw = def.width or 20
-      local mh = def.height or 18
-      local midLayout = def.midLayout
-      local pair = def.pair or (midLayout and midLayout.pair)
-      map = {
-        id = S.mapId,
-        def = def,
-        width = mw,
-        height = mh,
-        widthCells = mw,
-        heightCells = mh,
-        warps = def.warps or {},
-        inBounds = function(self, cx, cy)
-          return cx >= 0 and cx < self.width and cy >= 0 and cy < self.height
-        end,
-        warpAtCell = function(self, cx, cy)
-          for _, w in ipairs(self.warps or {}) do
-            if w.x == cx and w.y == cy then
-              return { def = w }
-            end
-          end
-          return nil
-        end,
-        tileAtCell = function(self, cx, cy)
-          if midLayout and midLayout.midAt then
-            return midLayout:midAt(cx, cy) or 0
-          end
-          return 0
-        end,
-      }
-
-      local okN, NativeTileset = pcall(require, "src.core.game3.tileset_native")
-      if okN and NativeTileset and pair and midLayout and midLayout.midAt then
-        local ts = NativeTileset.get(pair)
-        if ts and ts.image then
-          map.renderer = {
-            draw = function(self, camX, camY)
-              local viewW = S._mapViewW or 480
-              local viewH = S._mapViewH or 432
-              local zoom = S.mapZoom or 1
-              local startCx = math.max(0, math.floor(camX / CELL) - 1)
-              local endCx = math.min(mw - 1, math.ceil((camX + viewW / zoom) / CELL) + 1)
-              local startCy = math.max(0, math.floor(camY / CELL) - 1)
-              local endCy = math.min(mh - 1, math.ceil((camY + viewH / zoom) / CELL) + 1)
-
-              love.graphics.setColor(1, 1, 1, 1)
-              for cy = startCy, endCy do
-                for cx = startCx, endCx do
-                  local mid = midLayout:midAt(cx, cy)
-                  if mid and mid >= 0 then
-                    local slot = NativeTileset.slotFor(ts, mid)
-                    local q = NativeTileset.quad(ts, slot)
-                    if q then
-                      love.graphics.draw(ts.image, q, cx * CELL - camX, cy * CELL - camY)
-                    end
-                    if ts.layered and ts.overImage then
-                      local oq = NativeTileset.overQuad(ts, slot)
-                      if oq then
-                        love.graphics.draw(ts.overImage, oq, cx * CELL - camX, cy * CELL - camY)
-                      end
-                    end
-                  end
-                end
-              end
-            end,
-          }
-        end
-      end
-      ok = true
-    else
-      ok, map = false, "unknown map"
-    end
-  elseif Gen.of(S.save) == 2 then
-    local def = Gen.maps(S.data)[S.mapId]
-    if def then
-      local Map2 = require("src.world.gen2.Map")
-      if type(def.width) ~= "number" or type(def.height) ~= "number" then
-        ok, map = false, "incomplete map record (missing width/height)"
-      else
-        local tileset = Gen.tilesets(S.data)[def.tileset]
-        ok, map = pcall(Map2.new, def, tileset or {})
-        if ok and map and not map.renderer then
-          local MapPreview = require("src.world.gen2.MapPreview")
-          S._g2MapBaker = S._g2MapBaker
-            or MapPreview.baker({
-              tilesets = Gen.tilesets(S.data),
-              gen2Roofs = S.data.gen2Roofs,
-              roofs = S.data.roofs,
-              gen2Palettes = S.data.gen2Palettes,
-              palettes = S.data.palettes,
-            })
-          map.renderer = MapPreview.renderer(S._g2MapBaker, map)
-        end
-      end
-    else
-      ok, map = false, "unknown map"
-    end
-  else
-    ok, map = pcall(MapLoader.load, S.data, S.mapId)
-  end
+  local ok, map, previewReason = MapBrowser.preview(S)
+  S.mapPreviewReason = previewReason
   if not ok then
     Kit.text(
       "mono",
@@ -777,6 +780,9 @@ local function drawSection(S, Kit, x, y, w, h)
       end
       drawOverlays(S, map)
       love.graphics.pop()
+      if previewReason then
+        Kit.textWrapped("tiny", previewReason, vx0 + 8 * s, vy0 + 8 * s, math.max(0, vinner - 16 * s), PAL.yellow)
+      end
       Kit.popClip()
     end
 

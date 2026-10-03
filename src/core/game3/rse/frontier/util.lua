@@ -200,7 +200,7 @@ function Util.newGame(sess)
   Util.clearRankingHallRecords(sess)
 end
 
-Util.SAVE_FIELDS = { "frontier", "hallRecords1P", "hallRecords2P" }
+Util.SAVE_FIELDS = { "frontier", "hallRecords1P", "hallRecords2P", "savedPlayerParty" }
 
 local okS, SaveSections = pcall(require, "src.core.game3.save_sections")
 if okS and SaveSections then
@@ -786,14 +786,70 @@ end
 
 -- pokeemerald/src/frontier_util.c:2421
 function Util.saveGameFrontier(sess)
+  local warp = sess.dynamicWarp
+  if type(warp) ~= "table" or type(warp.map) ~= "string" or not tonumber(warp.x) or not tonumber(warp.y) then
+    return false, "The saved Frontier entrance is incomplete. The challenge was not saved."
+  end
+  if type(sess.savedPlayerParty) ~= "table" then
+    return false, "The original party is unavailable. The challenge was not saved."
+  end
   local party = {}
   for i, mon in ipairs(sess.party or {}) do party[i] = deepCopy(mon) end
   story().loadPlayerParty(sess)
+  sess.continueGameWarp = deepCopy(sess.dynamicWarp)
+  sess.specialSaveWarpFlags = bit.bor(tonumber(sess.specialSaveWarpFlags) or 0, 1)
   local f = Util.frontier(sess)
+  local savedGame = f.savedGame
   f.savedGame = 1
-  local ok = Util.persist()
+  local ok, written = pcall(Util.persist)
+  sess.specialSaveWarpFlags = bit.band(tonumber(sess.specialSaveWarpFlags) or 0, bit.bnot(1))
   sess.party = party
-  return ok
+  if not ok or written ~= true then
+    f.savedGame = savedGame
+    return false, "The challenge could not be saved."
+  end
+  return true
+end
+
+function Util.saveChallenge(sess, tempName, prepare)
+  local f = Util.frontier(sess)
+  local before = deepCopy(f)
+  local id = assert(Rse.varId(tempName, sess))
+  local store = Rse.store()
+  local vars = store and store.vars
+  local temp = vars and vars[id]
+  prepare()
+  local ok, err = Util.saveGameFrontier(sess)
+  if not ok then
+    for k in pairs(f) do f[k] = nil end
+    for k, v in pairs(before) do f[k] = v end
+    if vars then vars[id] = temp end
+  end
+  return ok, err
+end
+
+function Util.saveFromNative(ctx, adapters, sess, save)
+  local ok, err = save(ctx, sess)
+  if ok then return false end
+  local done = false
+  if adapters and adapters.closeMessage then adapters.closeMessage() end
+  ctx.messageOpen = true
+  ctx.mode, ctx.status = "native", "waiting"
+  ctx.nativePoll = function()
+    if not done then return false end
+    if adapters and adapters.closeMessage then adapters.closeMessage() end
+    ctx.messageOpen = false
+    ctx.pc, ctx.stack = nil, {}
+    return true
+  end
+  if adapters and adapters.openMessageAsync then
+    adapters.openMessageAsync(err, function() done = true end)
+  else
+    if adapters and adapters.openMessage then adapters.openMessage(err) end
+    if adapters and adapters.waitButton then adapters.waitButton(function() done = true end)
+    else done = true end
+  end
+  return true
 end
 
 -- pokeemerald/src/battle_tower.c:1956

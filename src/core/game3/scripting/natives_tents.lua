@@ -30,14 +30,14 @@ local function build()
   VERDANTURF[V.SET_OPPONENT_GFX] = function(_, _, s) Tents().setVerdanturfGfx(s) end
   -- pokeemerald/src/battle_tent.c:134
   VERDANTURF[V.GET_OPPONENT_INTRO] = function(ctx, adapters, s) Tents().opponentIntro(ctx, adapters, s, F.PALACE) end
-  VERDANTURF[V.SAVE] = function(ctx, _, s) Tents().save(ctx, s) end
+  VERDANTURF[V.SAVE] = function(ctx, adapters, s) return Util.saveFromNative(ctx, adapters, s, Tents().save) end
   VERDANTURF[V.SET_RANDOM_PRIZE] = function(_, _, s) Tents().setRandomPrize(s, "verdanturf") end
   VERDANTURF[V.GIVE_PRIZE] = function(ctx, adapters, s) Tents().givePrize(ctx, adapters, s, "verdanturf") end
   -- pokeemerald/src/battle_tent.c:172
   FALLARBOR[Fa.INIT] = function(_, _, s) Tents().init(s) end
   FALLARBOR[Fa.GET_PRIZE] = function(ctx, _, s) Tents().getPrize(ctx, s, "fallarbor") end
   FALLARBOR[Fa.SET_PRIZE] = function(ctx, _, s) Tents().setPrize(ctx, s, "fallarbor") end
-  FALLARBOR[Fa.SAVE] = function(ctx, _, s) Tents().save(ctx, s) end
+  FALLARBOR[Fa.SAVE] = function(ctx, adapters, s) return Util.saveFromNative(ctx, adapters, s, Tents().save) end
   FALLARBOR[Fa.SET_RANDOM_PRIZE] = function(_, _, s) Tents().setRandomPrize(s, "fallarbor") end
   FALLARBOR[Fa.GIVE_PRIZE] = function(ctx, adapters, s) Tents().givePrize(ctx, adapters, s, "fallarbor") end
   -- pokeemerald/src/battle_tent.c:203
@@ -46,7 +46,7 @@ local function build()
   SLATEPORT[S.INIT] = function(_, _, s) Tents().init(s) end
   SLATEPORT[S.GET_PRIZE] = function(ctx, _, s) Tents().getPrize(ctx, s, "slateport") end
   SLATEPORT[S.SET_PRIZE] = function(ctx, _, s) Tents().setPrize(ctx, s, "slateport") end
-  SLATEPORT[S.SAVE] = function(ctx, _, s) Tents().save(ctx, s) end
+  SLATEPORT[S.SAVE] = function(ctx, adapters, s) return Util.saveFromNative(ctx, adapters, s, Tents().save) end
   SLATEPORT[S.SET_RANDOM_PRIZE] = function(_, _, s) Tents().setRandomPrize(s, "slateport") end
   SLATEPORT[S.GIVE_PRIZE] = function(ctx, adapters, s) Tents().givePrize(ctx, adapters, s, "slateport") end
   -- pokeemerald/src/battle_tent.c:272

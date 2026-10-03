@@ -699,6 +699,11 @@ do
       frlg[#frlg + 1] = string.format("%s%s_%d_female.png", hoenn, side, stars)
     end
   end
+  -- pokefirered/src/battle_script_commands.c:9693
+  local terrainKeys = require("src.import.gba.battle_chrome_extract").TERRAIN_KEYS
+  for id = 0, 19 do
+    frlg[#frlg + 1] = "data/generated/gba/pokemon/battle/terrain_" .. terrainKeys[id] .. "_post_dex.rgba"
+  end
 end
 CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.leafgreen = {}
 for i, path in ipairs(CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.firered) do
@@ -760,6 +765,16 @@ function CacheContract.planFilesFor(version)
   end
   for _, path in ipairs(CacheContract.PLAN_CORE_FILES) do add(path) end
   for _, path in ipairs(Plans.required(Plans.of(version), CachePaths.CACHE_ROOT)) do add(path) end
+  if version == "emerald" then
+    local cfg = require("src.import.gba.games.emerald").BATTLE_UI
+    local keys = require("src.import.gba.battle_chrome_extract").TERRAIN_KEYS
+    -- pokeemerald/src/battle_script_commands.c:10133
+    local function postDex(key)
+      add(CachePaths.CACHE_ROOT .. "/pokemon/battle/terrain_" .. key .. "_post_dex.rgba")
+    end
+    for id = 0, cfg.terrain_count - 1 do postDex(keys[id]) end
+    for _, scene in ipairs(cfg.scenes) do postDex(scene.key) end
+  end
   composed[version] = files
   return files
 end

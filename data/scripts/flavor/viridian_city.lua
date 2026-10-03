@@ -34,25 +34,22 @@ end
 
 M.VIRIDIAN_CITY = {
   talk = {
-    -- ViridianCityGambler1Text (scripts/ViridianCity.asm): normally
-    -- comments that the gym is "always closed"; once the 7th badge is
-    -- earned (badges == ~EARTHBADGE) but Giovanni hasn't been beaten
-    -- yet, he instead says the gym leader returned.
+    -- pokered/scripts/ViridianCity.asm:150
+    -- pokeyellow/scripts/ViridianCity_2.asm:10
     TEXT_VIRIDIANCITY_GAMBLER1 = function(game, ow, npc, done)
       local t = text(game)
       local sevenBadges = game.save.inventory and
         game.save.inventory.BOULDERBADGE and game.save.inventory.CASCADEBADGE
         and game.save.inventory.THUNDERBADGE and game.save.inventory.RAINBOWBADGE
         and game.save.inventory.SOULBADGE and game.save.inventory.MARSHBADGE
-        and game.save.inventory.VOLCANOBADGE
-      -- (pokered checks EVENT_BEAT_VIRIDIAN_GYM_GIOVANNI; the port's flag for
-      -- that win is EVENT_BEAT_GIOVANNI, set by victories.lua OPP_GIOVANNI#3)
-      if sevenBadges and not (game.save.flags and game.save.flags.EVENT_BEAT_GIOVANNI) then
-        push(game, t._ViridianCityGambler1GymLeaderReturnedText
-          or "VIRIDIAN GYM's\nLEADER returned!", done)
+        and game.save.inventory.VOLCANOBADGE and not game.save.inventory.EARTHBADGE
+      local flags = game.save.flags or {}
+      local beatGiovanni = flags.EVENT_BEAT_GIOVANNI
+        or flags.EVENT_BEAT_VIRIDIAN_GYM_GIOVANNI
+      if sevenBadges or beatGiovanni then
+        push(game, t._ViridianCityGambler1GymLeaderReturnedText, done)
       else
-        push(game, t._ViridianCityGambler1GymAlwaysClosedText
-          or "This POKéMON GYM\nis always closed.\nI wonder who the\nLEADER is?", done)
+        push(game, t._ViridianCityGambler1GymAlwaysClosedText, done)
       end
     end,
 

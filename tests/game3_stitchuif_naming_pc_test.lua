@@ -23,7 +23,7 @@ require("src.core.GameVersion").set("firered")
 local gfx = setmetatable({}, { __index = function() return function() end end })
 gfx.newQuad = function() return {} end
 gfx.newImage = function() return { setFilter = function() end, getDimensions = function() return 8, 8 end } end
-_G.love = { graphics = gfx }
+_G.love = { graphics = gfx, image = require("tests.love_stub").image }
 
 local Storage = require("src.core.game3.storage")
 local Flags = require("src.core.game3.scripting.flags")

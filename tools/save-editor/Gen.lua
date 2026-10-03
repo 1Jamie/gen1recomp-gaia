@@ -97,8 +97,9 @@ end
 
 function Gen.maps(data)
   if type(data) ~= "table" then return {} end
+  if data.game3Maps then return data.maps or data.game3Maps end
   local m = overlayRecords(data.maps, data.gen2Maps)
-  return overlayRecords(m, data.game3Maps)
+  return m
 end
 
 function Gen.tilesets(data)

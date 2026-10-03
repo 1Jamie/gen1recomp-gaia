@@ -402,6 +402,10 @@ local function finish(result)
   require("src.core.game3.battle.link_guard").disarm()
   Battle._active = false
   Battle._phase = nil
+  Ui.clearCaughtDexScene()
+  Battle._catchDexReturn = nil
+  if Battle._rseDex then require("src.ui.game3.rse.pokedex").reset() end
+  Battle._rseDex = nil
   Battle._residualEvents = nil
   Battle._residualIndex = 1
   Battle._residualStepState = nil
@@ -3551,12 +3555,15 @@ local function finish_catch_flow(catchRes, ename, nicknamed)
       return
     end
   end
+  Ui.clearCaughtDexScene()
   Battle._actions = {}
   Battle._pendingEnd = "catch"
   Battle._phase = "ending"
 end
 
 local function start_post_catch_flow(catchRes)
+  Ui.clearCaughtDexScene()
+  Battle._catchDexReturn = nil
   -- pokefirered/data/battle_scripts_2.s:99 BattleScript_OldMan_Pokedude_CaughtMessage
   if Battle._headless or (Battle._st and (Battle._st.oldManTutorial or Battle._st.pokedude
       or Wally.active(Battle._st))) then
@@ -3580,14 +3587,17 @@ local function start_post_catch_flow(catchRes)
     or Pokemon.name(sp)
   local gender = (mon and (mon.gender or (mon.isFemale and 1))) or (enemy and enemy.gender) or 0
   local personality = (mon and mon.personality) or 0
+  local caughtState = Battle._st
 
   local function prompt_nickname()
     Battle._phase = "catch_nickname_prompt"
     -- pokefirered/src/battle_message.c:477
     Ui.askYesNo(BattleText.get("STRINGID_GIVENICKNAMECAPTURED", { opponentMon1 = ename }), function(yes)
+      if not Battle._active or Battle._st ~= caughtState or Battle._phase ~= "catch_nickname_prompt" then return end
       if yes then
         local okN, Naming = pcall(require, "src.ui.game3.naming")
         if okN and Naming and Naming.open then
+          Ui.clearCaughtDexScene()
           Battle._phase = "catch_naming"
           Naming.open({
             template = "CAUGHT_MON",
@@ -3603,6 +3613,7 @@ local function start_post_catch_flow(catchRes)
             -- was 141px wide and spilled over the frame's right edge.
             title = Naming.monTitle(Pokemon.name(sp)),
             onDone = function(nick)
+              if not Battle._active or Battle._st ~= caughtState or Battle._phase ~= "catch_naming" then return end
               if nick and nick ~= "" and nick ~= ename then
                 if mon then mon.nickname = nick end
               end
@@ -3622,12 +3633,20 @@ local function start_post_catch_flow(catchRes)
     local Runtime = package.loaded["src.core.game3.runtime"]
     Battle._phase = "pokedex_reg"
     Battle._rseDex = true
+    -- pokeemerald/src/battle_script_commands.c:10115
+    local dexMon = (enemy and enemy.mon) or mon
     require("src.ui.game3.rse.pokedex").showCaughtMon(sp, {
       session = Runtime and Runtime.getSession and Runtime.getSession(),
-      personality = personality,
-      onDone = function()
+      personality = dexMon and dexMon.personality or personality,
+      otId = dexMon and dexMon.otId,
+      otSecretId = dexMon and dexMon.otSecretId,
+      shiny = Pokemon.isShiny(dexMon),
+      onDone = function(caught)
+        if not Battle._active or Battle._st ~= caughtState or Battle._phase ~= "pokedex_reg" then return end
         Battle._rseDex = nil
-        prompt_nickname()
+        Ui.beginCaughtDexScene(caught)
+        Battle._phase = "catch_dex_return"
+        Battle._catchDexReturn = prompt_nickname
       end,
     })
     return
@@ -3641,7 +3660,19 @@ local function start_post_catch_flow(catchRes)
       Pokedex.showRegistration(sp, {
         session = session,
         onDone = function()
-          prompt_nickname()
+          if not Battle._active or Battle._st ~= caughtState or Battle._phase ~= "pokedex_reg" then return end
+          -- pokefirered/src/battle_script_commands.c:9699
+          local target = (enemy and enemy.mon) or mon
+          local pid = target and target.personality or personality
+          local shiny = Pokemon.isShiny(target)
+          local pic = Pokemon.frontPic(Pokemon.picSpecies(sp, pid), nil, shiny, pid)
+          Ui.beginCaughtDexScene({
+            family = "frlg", personality = pid,
+            otId = target and target.otId, otSecretId = target and target.otSecretId,
+            shiny = shiny, sprite = { img = pic.image, x = 120, y = 64 },
+          })
+          Battle._phase = "catch_dex_return"
+          Battle._catchDexReturn = prompt_nickname
         end,
       })
       return
@@ -4030,6 +4061,15 @@ update_body = function(dt, game)
     return
   end
 
+  if Battle._phase == "catch_dex_return" then
+    if Ui.updateCaughtDexScene() then
+      local cb = Battle._catchDexReturn
+      Battle._catchDexReturn = nil
+      if cb then cb() end
+    end
+    return
+  end
+
   if Battle._phase == "catch_naming" then
     return
   end
@@ -4196,6 +4236,10 @@ end
 
 -- pokefirered/src/main.c:480
 function Battle.reset()
+  Ui.clearCaughtDexScene()
+  Battle._catchDexReturn = nil
+  if Battle._rseDex then require("src.ui.game3.rse.pokedex").reset() end
+  Battle._rseDex = nil
   stop_low_hp_song()
   require("src.core.game3.battle.link_guard").disarm()
   Battle._active = false

@@ -134,8 +134,7 @@ return function(game)
             and inVoiceover == (sh.voiceover == true) then
           sh.held = sh.held + 1
           if sh.held >= 6 then
-            sh.taken = true
-            U.shot(game, DIR .. "/" .. sh.file)
+            sh.taken = U.still(game, DIR .. "/" .. sh.file)
             print("shot " .. sh.file)
           end
         else
@@ -162,10 +161,13 @@ return function(game)
     if dim < lastDim and dim > 0 and not (Message.isOpen() and Message.frameKind() == "voiceover") then
       closedEarly = true
     end
-    if not undimShot and Message.isHeld and Message.isHeld() and dim > 0 and dim < 0.5 then
-      undimShot = true
-      U.shot(game, DIR .. "/2310_09_oak_voiceover_undim.png")
+    if not undimShot and Message.isHeld and Message.isHeld()
+        and Message.isOpen() and Message.frameKind() == "voiceover"
+        and dim < lastDim and dim > 0 and dim < 0.5 then
+      undimShot = U.still(game, DIR .. "/2310_09_oak_voiceover_undim.png")
       print("shot 2310_09_oak_voiceover_undim.png")
+      print("undim capture dim=" .. tostring(dim) .. " held=" .. tostring(Message.isHeld())
+        .. " frame=" .. tostring(Message.frameKind()) .. " text=" .. tostring(page_text()))
     end
     lastDim = dim
   end
@@ -217,8 +219,8 @@ return function(game)
   end
   result(oak_fx().phase == "text" and oak_fx().y == 6, "msg 1 prints once the dim reaches 6")
   U.wait(4)
-  U.shot(game, DIR .. "/2310_03_oak_party_menu.png")
-  result(true, "shot 2310_03_oak_party_menu.png (party-menu advice)")
+  local partyShot = U.still(game, DIR .. "/2310_03_oak_party_menu.png")
+  result(partyShot, "shot 2310_03_oak_party_menu.png (party-menu advice)")
   -- pokefirered/src/party_menu.c:1970
   U.tap(game, "a")
   for _ = 1, 120 do
@@ -228,8 +230,8 @@ return function(game)
   result(PartyMenu._oakPage == 2 and oak_fx().slot == 0 and oak_fx().y == 6,
     "the first slot lightens before msg 2")
   U.wait(4)
-  U.shot(game, DIR .. "/2310_08_oak_party_menu_slot_lit.png")
-  result(true, "shot 2310_08_oak_party_menu_slot_lit.png (first slot lit, msg 2)")
+  local slotShot = U.still(game, DIR .. "/2310_08_oak_party_menu_slot_lit.png")
+  result(slotShot, "shot 2310_08_oak_party_menu_slot_lit.png (first slot lit, msg 2)")
   for _ = 1, 40 do
     if not (PartyMenu.isOpen() and PartyMenu.mode == "oak") then break end
     U.tap(game, "a")

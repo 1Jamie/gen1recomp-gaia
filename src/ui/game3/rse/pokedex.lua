@@ -2004,9 +2004,15 @@ function tasks.caughtExit(s)
   if not s.pal:fadeActive() then
     local c = s.caught
     local Stack = require("src.ui.game3.stack")
+    -- pokeemerald/src/pokedex.c:4069
+    local species = Pokedex.speciesOf(c.dexNum)
+    local pic = pokemon().frontPic(pokemon().picSpecies(species, c.personality or 0), nil, c.shiny,
+      c.personality or 0)
+    c.mon.img = assert(pic and pic.image, "caught mon palette missing from the cache")
     Pokedex.Host._s = nil
     Stack.pop(Pokedex.ID)
-    if c.onDone then c.onDone() end
+    if c.onDone then c.onDone({ sprite = c.mon, species = species, personality = c.personality,
+      otId = c.otId, otSecretId = c.otSecretId, shiny = c.shiny }) end
   end
 end
 
@@ -2384,7 +2390,8 @@ function Pokedex.showCaughtMon(species, opts)
   opts = opts or {}
   local s = newView(opts)
   local nat = pokemon().national(species) or species
-  s.caught = { dexNum = nat, personality = opts.personality, onDone = opts.onDone }
+  s.caught = { dexNum = nat, personality = opts.personality, otId = opts.otId, otSecretId = opts.otSecretId,
+    shiny = opts.shiny, onDone = opts.onDone }
   s.fn = "caught"
   s.state = 0
   return push(s)

@@ -35,7 +35,7 @@ function Arena.init(sess)
   if bit.band(tonumber(f.winStreakActiveFlags) or 0, streakFlag(sess)) == 0 then
     Util.set1(f.arenaWinStreaks, lvl(sess), 0)
   end
-  sess.dynamicWarp = { map = sess.map, warpId = 0xFF }
+  sess.dynamicWarp = { map = sess.map, warpId = 0xFF, x = sess.x, y = sess.y }
   sess.frontierOpponentA = 0
 end
 
@@ -74,10 +74,11 @@ end
 -- pokeemerald/src/battle_arena.c:731
 function Arena.save(ctx, sess)
   local f = Util.frontier(sess)
-  f.challengeStatus = Rse.specialVar(ctx, Util.VAR_0x8005)
-  Rse.setVar("VAR_TEMP_CHALLENGE_STATUS", 0, sess)
-  f.challengePaused = 1
-  return Util.saveGameFrontier(sess)
+  return Util.saveChallenge(sess, "VAR_TEMP_CHALLENGE_STATUS", function()
+    f.challengeStatus = Rse.specialVar(ctx, Util.VAR_0x8005)
+    Rse.setVar("VAR_TEMP_CHALLENGE_STATUS", 0, sess)
+    f.challengePaused = 1
+  end)
 end
 
 -- pokeemerald/src/battle_arena.c:739

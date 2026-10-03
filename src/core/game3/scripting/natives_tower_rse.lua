@@ -25,7 +25,7 @@ local function build()
   -- pokeemerald/src/battle_tower.c:2769
   FUNCS[F.GIVE_RIBBONS] = function(ctx, _, s) Tower().giveRibbons(ctx, s) end
   -- pokeemerald/src/battle_tower.c:2194
-  FUNCS[F.SAVE] = function(ctx, _, s) Tower().save(ctx, s) end
+  FUNCS[F.SAVE] = function(ctx, adapters, s) return Util.saveFromNative(ctx, adapters, s, Tower().save) end
   -- pokeemerald/src/battle_tower.c:1936
   FUNCS[F.GET_OPPONENT_INTRO] = function(ctx, adapters, s) Tower().opponentIntro(ctx, adapters, s) end
   -- pokeemerald/src/battle_tower.c:2209
@@ -57,8 +57,7 @@ function NativesTowerRse.call(ctx, adapters)
     Rse.missing("tower", "CallBattleTowerFunc " .. tostring(id), adapters and adapters.log)
     return false
   end
-  fn(ctx, adapters, s)
-  return false
+  return fn(ctx, adapters, s) == true
 end
 
 NativesTowerRse.FUNCS = FUNCS

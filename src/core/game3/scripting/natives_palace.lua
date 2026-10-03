@@ -20,7 +20,7 @@ function NativesPalace.call(ctx, adapters)
   elseif id == F.SET_OPPONENT then P.setOpponent(s)
   elseif id == F.GET_OPPONENT_INTRO then P.opponentIntro(ctx, adapters, s)
   elseif id == F.INCREMENT_STREAK then P.incrementStreak(s)
-  elseif id == F.SAVE then P.save(ctx, s)
+  elseif id == F.SAVE then return Util.saveFromNative(ctx, adapters, s, P.save)
   elseif id == F.SET_PRIZE then P.setPrize(s)
   elseif id == F.GIVE_PRIZE then P.givePrize(ctx, adapters, s)
   else

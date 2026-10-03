@@ -27,7 +27,7 @@ function Tents.init(sess)
   f.challengeStatus = 0
   f.curChallengeBattleNum = 0
   f.challengePaused = 0
-  sess.dynamicWarp = { map = sess.map, warpId = 0xFF }
+  sess.dynamicWarp = { map = sess.map, warpId = 0xFF, x = sess.x, y = sess.y }
 end
 
 -- pokeemerald/src/battle_tent.c:118
@@ -43,10 +43,11 @@ end
 -- pokeemerald/src/battle_tent.c:140
 function Tents.save(ctx, sess)
   local f = Util.frontier(sess)
-  f.challengeStatus = specialVar(ctx, Util.VAR_0x8005)
-  Rse.setVar("VAR_TEMP_0", 0, sess)
-  f.challengePaused = 1
-  return Util.saveGameFrontier(sess)
+  return Util.saveChallenge(sess, "VAR_TEMP_0", function()
+    f.challengeStatus = specialVar(ctx, Util.VAR_0x8005)
+    Rse.setVar("VAR_TEMP_0", 0, sess)
+    f.challengePaused = 1
+  end)
 end
 
 -- pokeemerald/src/battle_tent.c:148

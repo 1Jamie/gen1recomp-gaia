@@ -1297,6 +1297,8 @@ local function disobedient(M)
   local species = tonumber(user.species)
   local ob = 0
   if not ((species == 151 or species == 410) and mon.fatefulEncounter == false) then
+    -- pokeemerald/src/battle_util.c:3924
+    if BattleProfile.isRse(st) and Kinds.has(st, "frontier") then return nil end
     if not Engine.isTradedMon(st, mon) or Engine.hasBadge(st, 8) then return nil end
     ob = 10
     if Engine.hasBadge(st, 2) then ob = 30 end
