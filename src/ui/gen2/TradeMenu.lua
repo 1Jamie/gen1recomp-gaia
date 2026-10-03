@@ -30,6 +30,7 @@ local NpcTrade = require("src.core.gen2.NpcTrade")
 local Screens = require("src.ui.Screens")
 local Sound = require("src.core.Sound")
 local Strings = require("src.core.Strings")
+local Typer = require("src.ui.gen2.Typer")
 
 local TradeMenu = {}
 TradeMenu.__index = TradeMenu
@@ -80,6 +81,7 @@ function TradeMenu.paginate(body)
   local function flush(scroll)
     if #current > 0 then pages[#pages + 1] = current end
     current = scroll and { current[#current] or "" } or {}
+    if scroll then current.scrolled = true end
   end
   for chunk, sep in (tostring(body or "") .. PAGE):gmatch(SEPARATORS) do
     current[#current + 1] = chunk
@@ -161,7 +163,7 @@ function TradeMenu:lineFor(dialog)
 end
 
 function TradeMenu:say(dialog, onDone)
-  self.message = { pages = self:lineFor(dialog), page = 1, onDone = onDone }
+  Typer.say(self, self:lineFor(dialog), onDone)
 end
 
 -- TradedForText is the one line here that names something other than the two
@@ -182,11 +184,13 @@ function TradeMenu:sayRaw(body, buffers, onDone)
       self:expand(TradeMenu.fill(body, self.row, self.data, buffers))),
     page = 1, onDone = onDone,
   }
+  Typer.begin(self, self.message)
 end
 
 function TradeMenu:ask(dialog, onYes, onNo)
   self.confirm = { pages = self:lineFor(dialog), page = 1, choice = 1,
     onYes = onYes, onNo = onNo }
+  Typer.begin(self, self.confirm)
 end
 
 function TradeMenu:refuse(dialog)
@@ -276,10 +280,12 @@ function TradeMenu:playAnim(given, received, onDone)
 end
 
 function TradeMenu:updateMessage(input)
+  Typer.step(self)
+  if Typer.typing(self) then return end
   if not (input:wasPressed("a") or input:wasPressed("b")) then return end
   local message = self.message
   if message.page < #message.pages then
-    message.page = message.page + 1
+    Typer.turn(self, message)
     return
   end
   self.message = nil
@@ -288,9 +294,11 @@ end
 
 function TradeMenu:updateConfirm(input)
   local confirm = self.confirm
+  Typer.step(self)
+  if Typer.typing(self) then return end
   if confirm.page < #confirm.pages then
     if input:wasPressed("a") or input:wasPressed("b") then
-      confirm.page = confirm.page + 1
+      Typer.turn(self, confirm)
     end
     return
   end
@@ -337,16 +345,17 @@ function TradeMenu:drawYesNo(choice)
 end
 
 function TradeMenu:draw()
+  local typed = not Typer.typing(self)
   if self.message then
-    self:drawTextBox(self.message.pages[self.message.page])
-    if self.message.page < #self.message.pages then
+    self:drawTextBox(Typer.text(self, self.message.pages[self.message.page]))
+    if typed and self.message.page < #self.message.pages and Typer.arrowOn(self) then
       Chrome.print("\xe2\x96\xbc", ARROW_X, ARROW_Y)
     end
   elseif self.confirm then
-    self:drawTextBox(self.confirm.pages[self.confirm.page])
-    if self.confirm.page >= #self.confirm.pages then
+    self:drawTextBox(Typer.text(self, self.confirm.pages[self.confirm.page]))
+    if typed and self.confirm.page >= #self.confirm.pages then
       self:drawYesNo(self.confirm.choice)
-    else
+    elseif typed and Typer.arrowOn(self) then
       Chrome.print("\xe2\x96\xbc", ARROW_X, ARROW_Y)
     end
   else

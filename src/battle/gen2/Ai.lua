@@ -1442,6 +1442,10 @@ Ai.LAYERS = {
         end
       elseif def.effect == "EFFECT_SWAGGER" and defender.confused then
         return score + DISMISS
+      -- engine/battle/ai/redundant.asm:114
+      elseif def.effect == "EFFECT_NIGHTMARE"
+          and (not defender.status or defender.nightmare) then
+        return score + DISMISS
       end
       if status and (defender.status
           or (status == "confuse" and defender.confused)) then

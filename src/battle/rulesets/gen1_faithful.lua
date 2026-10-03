@@ -2,6 +2,8 @@
 
 return {
   name = "gen1_faithful",
+  -- pokered/engine/battle/effects.asm:508
+  statCapRollbackBug = true,
   -- accuracy roll is rand(0..255) < floor(acc*255/100): a 100%-accurate
   -- move still misses on a roll of 255 (the 1/256 miss)
   oneIn256Miss = true,

@@ -327,7 +327,7 @@ function ItemEffects.use(data, save, itemId, target, battle, moveIndex, ow)
       local stat = X_ITEMS[itemId]
       local cur = b.stages[stat] or 0
       -- ItemUseXStat: PrintItemUseTextAndRemoveItem, then StatModifierUpEffect
-      if cur >= 6 then
+      if cur >= 6 or require("src.battle.Damage").statAtCap(battle, b, stat) then
         return "consumed", { used }, {
           useJingle = true,
           afterMessages = { romText(data, "_NothingHappenedText",

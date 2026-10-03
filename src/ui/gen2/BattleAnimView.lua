@@ -141,6 +141,11 @@ function BattleAnimView:drawObjects(runner, battle)
   local shaded = GbcPalette.available()
   local previous = shaded and G.getShader and G.getShader() or nil
   local active = nil
+  local activeByte = nil
+  local objects = runner.objects
+  local owner = objects and objects.hram or runner.bg
+  local obp0 = owner and owner.obp0
+  if not owner and objects then obp0 = objects.obp0 end
   local gfx = self.data.gfx or EMPTY
   for _, obj in ipairs(runner:oam()) do
     local entry, index = sheetForTile(runner, obj.tile)
@@ -165,9 +170,16 @@ function BattleAnimView:drawObjects(runner, battle)
           local ox = sxScale < 0 and 8 or 0
           local oy = syScale < 0 and 8 or 0
           local colors = shaded and self:objPalette(obj.palette, battle) or nil
-          if colors ~= active then
-            if colors then GbcPalette.use(colors) else G.setShader(previous) end
+          local byte = colors and (obj.palette == "PAL_BATTLE_OB_GRAY"
+            or obj.palette == "PAL_BATTLE_OB_YELLOW") and obp0 or nil
+          if colors ~= active or byte ~= activeByte then
+            if colors then
+              GbcPalette.useRaw(GbcPalette.remap(GbcPalette.resolve(colors), byte))
+            else
+              G.setShader(previous)
+            end
             active = colors
+            activeByte = byte
           end
           G.draw(image, quad, x + ox, y + oy, 0, sxScale, syScale)
         end

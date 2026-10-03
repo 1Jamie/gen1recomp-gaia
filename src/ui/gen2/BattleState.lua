@@ -1870,6 +1870,17 @@ function BattleState:advanceQueue()
     self.message = nil
     return
   end
+  -- ../pokecrystal/home/text.asm:887
+  if event.kind == "text-pause" then
+    self.message, self.typedText, self.typer = nil, nil, nil
+    self.messageTimer = 0
+    local input = self.game and self.game.input
+    if input and input.isDown and (input:isDown("a") or input:isDown("b")) then
+      return self:advanceQueue()
+    end
+    self.messageDelay = TEXT_PAUSE_FRAMES
+    return
+  end
   -- HandleEnemyMonFaint / HandlePlayerMonFaint run their side's
   -- MonFaintedAnimation BEFORE the faint text (engine/battle/core.asm): the pic
   -- sinks out of the field and only then does "X fainted!" go up.  The slide
@@ -4117,6 +4128,7 @@ function BattleState:applyPartyItem(itemId, action, mon, slot, partySlot)
   local menu = stack and stack.top and stack:top()
   if not (menu and menu.showItemResult) then menu = nil end
   local before = (mon and mon.hp) or 0
+  local statusBefore = mon and mon.status
   local result
   if action == "pp" then
     result = ItemEffects.usePpItem(itemId, mon, slot, data)
@@ -4142,6 +4154,11 @@ function BattleState:applyPartyItem(itemId, action, mon, slot, partySlot)
     self.messageTimer = MESSAGE_FRAMES
     self.phase = "resolving"
     return
+  end
+  -- pokecrystal/engine/items/item_effects.asm:1448
+  if mon == self.battle.player and (statusBefore or FULL_MASK_HEALERS[itemId])
+      and not mon.status then
+    self.battle:volatile(mon).nightmare = nil
   end
   self:consumeItem(itemId)
   if menu then

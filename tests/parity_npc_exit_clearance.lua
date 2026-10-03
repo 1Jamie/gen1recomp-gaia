@@ -132,6 +132,7 @@ do
       capture({ save = { flags = c.flags }, data = {} }, 29, c.y)
     local moveTo = row(rows, "move_npc_to")
     local face = row(rows, "face_object")
+    local playerTurn = row(rows, "face_player_dir")
     local walk = row(rows, "walk_npc")
     check(moveTo and face and walk, tag .. ": scene has move/face/walk rows")
     if moveTo and face and walk then
@@ -151,10 +152,11 @@ do
       local fv = DIRV[face[3]]
       check(fv and rx + fv[1] == 29 and ry + fv[2] == c.y,
             ("%s: rival faces %s, straight at the player"):format(tag, tostring(face[3])))
-      local pv = DIRV[playerFacing]
+      eq(playerFacing, "left", tag .. ": player starts facing left during the approach")
+      local pv = DIRV[playerTurn and playerTurn[2]]
       check(pv and 29 + pv[1] == rx and c.y + pv[2] == ry,
             ("%s: player is turned %s, straight at the rival")
-              :format(tag, tostring(playerFacing)))
+              :format(tag, tostring(playerTurn and playerTurn[2])))
 
       local ex, ey = replay(r22, rx, ry, walk[3], { x = 29, y = c.y }, tag .. " exit")
       eq(ex, c.endX, tag .. ": exit ends at x=" .. c.endX)

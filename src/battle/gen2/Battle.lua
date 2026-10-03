@@ -696,6 +696,7 @@ function Battle:smartAiState()
     -- curse volatiles are modelled.
     playerTrapped = ((playerState.wrapCount or 0) > 0) or nil,
     playerCursed = playerState.cursed or nil,
+    playerNightmare = playerState.nightmare or nil,
     knownEffects = known,
     enemyMoveIds = ids,
 
@@ -1721,6 +1722,16 @@ function Battle:useMove(attacker, defender, moveId)
     return
   end
 
+  -- data/moves/effects.asm:953
+  local effectRecord = Battle.moveEffectRecordFor(self.data, def.effect)
+  local handler = effectRecord and effectRecord.run
+  if handler and (def.effect == "EFFECT_SKETCH" or def.effect == "EFFECT_NIGHTMARE"
+      or def.effect == "EFFECT_PSYCH_UP" or def.effect == "EFFECT_MIST"
+      or def.effect == "EFFECT_FOCUS_ENERGY") then
+    handler(self, attacker, defender, def, moveId, true)
+    return
+  end
+
   -- BattleCommand_CheckHit's .LockOn: the flag Lock-On left on the TARGET is
   -- read and cleared by the very next move aimed at it, and while it is up the
   -- accuracy roll does not happen at all.
@@ -1754,8 +1765,6 @@ function Battle:useMove(attacker, defender, moveId)
   -- or falls through to the ordinary damage path.  Through the merged
   -- `move_effects` record, so a mod's own primary effect is dispatched here
   -- the way BattleState:performMove dispatches one on Gen 1.
-  local effectRecord = Battle.moveEffectRecordFor(self.data, def.effect)
-  local handler = effectRecord and effectRecord.run
   if handler then
     handler(self, attacker, defender, def, moveId, sureHit)
     return
@@ -2133,6 +2142,83 @@ Battle.MOVE_EFFECTS = {}
 local function fail(self)
   self:markMissed()
   self:emit({ kind = "message", text = Strings("But it failed!") })
+end
+
+-- engine/battle/move_effects/sketch.asm:1
+Battle.MOVE_EFFECTS.EFFECT_SKETCH = function(self, attacker, defender)
+  self:volatile(attacker).lastMove = nil
+  local target = self:volatile(defender)
+  local last = target.lastMove
+  local copied = last and self:moveDef(last)
+  if self.linkBattle then
+    self:markMissed()
+    self:emit({ kind = "message", text = Strings("But nothing\nhappened.") })
+    return
+  end
+  local slot
+  for i = #(attacker.moves or {}), 1, -1 do
+    if attacker.moves[i].id == "SKETCH" then slot = slot or i end
+    if attacker.moves[i].id == last then copied = nil end
+  end
+  if (target.substitute or 0) > 0 or target.transformed or not copied
+      or last == "STRUGGLE" or not slot then
+    self:markMissed()
+    self:emit({ kind = "message",
+      text = Strings("It didn't affect\n%s!", self:monName(defender)) })
+    return
+  end
+  local pp = copied.pp
+  local partyMoves = Mon.partyMoves(attacker)
+  attacker.moves[slot] = { id = last, pp = pp, maxPp = pp, ppUps = 0 }
+  if partyMoves ~= attacker.moves then
+    partyMoves[slot] = { id = last, pp = pp, maxPp = pp, ppUps = 0 }
+  end
+  self:emit({ kind = "message",
+    text = Strings("%s\nSKETCHED\v%s!", self:monName(attacker), copied.name or last) })
+end
+
+-- engine/battle/move_effects/nightmare.asm:1
+Battle.MOVE_EFFECTS.EFFECT_NIGHTMARE = function(self, attacker, defender)
+  local target = self:volatile(defender)
+  if target.vanished or (target.substitute or 0) > 0
+      or defender.status ~= "sleep" or target.nightmare then return fail(self) end
+  target.nightmare = true
+  self:emit({ kind = "message",
+    text = Strings("%s\nstarted to have a\vNIGHTMARE!", self:monName(defender)) })
+end
+
+-- ../pokecrystal/engine/battle/move_effects/psych_up.asm:1
+Battle.MOVE_EFFECTS.EFFECT_PSYCH_UP = function(self, attacker, defender)
+  local own, target = self.stages[self:sideOf(attacker)], self.stages[self:sideOf(defender)]
+  local changed = false
+  for _, key in ipairs(Battle.LINK_STAGES) do
+    if (target[key] or 0) ~= 0 then changed = true end
+  end
+  if not changed then return fail(self) end
+  for _, key in ipairs(Battle.LINK_STAGES) do own[key] = target[key] or 0 end
+  self:emit({ kind = "message",
+    text = Strings("%s\ncopied the stat\fchanges of\n%s!",
+      self:monName(attacker), self:monName(defender)) })
+end
+
+-- engine/battle/move_effects/mist.asm:1
+Battle.MOVE_EFFECTS.EFFECT_MIST = function(self, attacker)
+  local state = self:volatile(attacker)
+  if state.mist then return fail(self) end
+  state.mist = true
+  self:emit({ kind = "message",
+    text = Strings("%s's\nshrouded in MIST!", self:monName(attacker)) })
+end
+
+-- engine/battle/move_effects/focus_energy.asm:1
+-- ../pokecrystal/data/text/battle.asm:785
+Battle.MOVE_EFFECTS.EFFECT_FOCUS_ENERGY = function(self, attacker)
+  local state = self:volatile(attacker)
+  if state.focusEnergy then return fail(self) end
+  state.focusEnergy = true
+  self:emit({ kind = "text-pause" })
+  self:emit({ kind = "message",
+    text = Strings("%s's\ngetting pumped!", self:monName(attacker)) })
 end
 
 -- BattleCommand_Splash (engine/battle/move_effects/splash.asm): the whole
@@ -3195,6 +3281,7 @@ Battle.STATUSES = {
       if mon.statusTurns <= 0 then
         mon.status = nil
         mon.statusTurns = nil
+        battle:volatile(mon).nightmare = nil
         -- engine/battle/effect_commands.asm:175-181
         battle:emit({ kind = "status", side = battle:sideOf(mon), status = nil,
           text = Strings("%s woke up!", name) })
@@ -4705,6 +4792,7 @@ function Battle:vanillaEnemyMove()
       status = self.player.status,
       gender = self.player.gender,
       attract = self:volatile(self.player).attract,
+      nightmare = self:volatile(self.player).nightmare,
       -- AI_Basic reads SUBSTATUS_CONFUSED for the confusion moves, not the
       -- status byte.
       confused = self:volatile(self.player).confuseCount ~= nil,
@@ -5166,6 +5254,15 @@ function Battle:tickSeedAndCurse(mon)
     local other = mon == self.player and self.enemy or self.player
     if (other.hp or 0) > 0 then self:heal(other, damage) end
   end
+  -- ../pokecrystal/engine/battle/core.asm:1091
+  if state.nightmare and (mon.hp or 0) > 0 then
+    local damage = math.max(1, math.floor(maxHp / 4))
+    mon.hp = math.max(0, mon.hp - damage)
+    self:emit({ kind = "message",
+      text = Strings("%s\nhas a NIGHTMARE!", self:monName(mon)) })
+    self:emit({ kind = "damage", side = self:sideOf(mon), amount = damage,
+      hp = mon.hp, anim = "ANIM_IN_NIGHTMARE", animSide = self:sideOf(mon) })
+  end
   if state.cursed and (mon.hp or 0) > 0 then
     local damage = math.max(1, math.floor(maxHp / 4))
     mon.hp = math.max(0, mon.hp - damage)
@@ -5331,6 +5428,7 @@ function Battle:tickHeldItem(mon)
     mon.statusTurns = nil
     mon.toxicCounter = nil
     mon.item = nil
+    self:volatile(mon).nightmare = nil
     self:emit({ kind = "status", side = self:sideOf(mon), status = nil,
       text = Strings("%s's %s cured its status!", name,
         def.name or "item") })
@@ -5395,7 +5493,7 @@ Battle.LINK_VOLATILE = {
   "bideStored", "bideTurns", "chargeMove", "confuseCount", "curled", "cursed",
   "disabled", "disabledTurns", "encore", "encoreTurns", "endure", "flinched",
   "focusEnergy", "futureSight", "futureSightDamage", "futureSightSide",
-  "identified", "lastMove", "leechSeed", "lockOn", "mist", "perish", "protect",
+  "identified", "lastMove", "leechSeed", "lockOn", "mist", "nightmare", "perish", "protect",
   "protectCount", "rage", "rampCount", "rampMove", "rampageMove",
   "rampageTurns", "recharge", "rolloutLock", "substitute", "tookThisTurn",
   "transformed", "trapsTarget", "turnsTaken", "vanished", "wrapCount",

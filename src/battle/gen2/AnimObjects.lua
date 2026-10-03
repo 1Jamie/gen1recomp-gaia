@@ -1666,6 +1666,7 @@ F.BATTLE_ANIM_FUNC_SKY_ATTACK = function(self, st)
     st.var2 = u8(st.var2 + 1)
     local pals = self.env.sgb and SKY_ATTACK_SGB or SKY_ATTACK_GBC
     self.obp0 = bit.band(pals[bit.rshift(phase, 1)] or 0xff, st.var1)
+    if self.hram then self.hram.obp0 = self.obp0 end
   end
   local jt = st.jt
   if jt == 0 then

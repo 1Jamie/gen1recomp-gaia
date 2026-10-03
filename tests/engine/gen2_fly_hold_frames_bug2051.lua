@@ -20,11 +20,11 @@ do
       .. " + FadeInFromWhite entry 6 for 2 = 23")
   T.eq(World.FLY_EXIT_WHITE_FRAMES, 31,
     "_FlyMap.exit ClearBGPalettes 4 + CloseWindow's WaitBGMap 4 + 23 = 31")
-  T.eq(World.flyCancelBlankFrames(0), 21,
+  T.eq(World.flyCancelBlankFrames(0), 21 + (({ gs = 6, crystal = 3 })[require("src.core.GameVersion").engine()] or 0),
     ".exit 4 + .illegal CloseWindow 4 + WaitBGMap 4 + .choosemenu 4"
-      .. " + WaitBGMap 4 + DelayFrame 1 = 21 with an empty party")
-  T.eq(World.flyCancelBlankFrames(6), 21 + 18,
-    "plus GetIconGFX's 3 frames per party mon")
+      .. " + WaitBGMap 4 + DelayFrame 1 + font reload: 6 GS / 3 Crystal frames")
+  T.eq(World.flyCancelBlankFrames(6), 21 + 18 + (({ gs = 6, crystal = 3 })[require("src.core.GameVersion").engine()] or 0),
+    "plus source font reload and GetIconGFX's 3 frames per party mon")
   T.eq(World.FLY_FROM_PREROLL, 6,
     "FadeInFromWhite entry 3 (2) + FlyFromAnim DelayFrame + InitGFX 1 + 2 = 6")
 end

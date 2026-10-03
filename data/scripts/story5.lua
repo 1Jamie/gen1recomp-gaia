@@ -566,6 +566,7 @@ local function route22Scene(n, objIndex, objName, oppClass, baseParty, beatFlag,
   return {
     { "show_object", "ROUTE_22", objName },                    -- 1
     { "move_npc_to", objIndex, rx, 5 },                        -- 2
+    { "face_player_dir", (py == 4) and "down" or "left" },
     { "face_object", objIndex, rivalFacing },                  -- 3
     { "show_text", "_Route22RivalBeforeBattleText" .. n },     -- 4
     -- scripts/Route22.asm:132-134, 288-290
@@ -591,7 +592,7 @@ M.ROUTE_22 = {
   onStep = function(game, ow, x, y)
     if not inCoords({ { 29, 4 }, { 29, 5 } }, x, y) then return false end
     local f = game.save.flags
-    local playerFacing = (y == 4) and "down" or "left"
+    local playerFacing = "left"
     if f.EVENT_GOT_POKEDEX and not f.EVENT_BEAT_BROCK
        and not f.EVENT_BEAT_ROUTE22_RIVAL_1ST_BATTLE then
       return runAmbush(game, ow,

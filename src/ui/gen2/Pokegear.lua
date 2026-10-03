@@ -2515,9 +2515,7 @@ function Pokegear:drawPhone()
   -- A call in progress replaces the prompt with what the caller is saying;
   -- otherwise the box holds PokegearAskWhoCallText the whole time.
   if self.call then
-    local lines = Chrome.wrap(self.call.text
-      or self:phoneText("GearEllipse"), 18)
-    for i = 1, math.min(#lines, 3) do self:text(lines[i], 1, 13 + i) end
+    self:printBoxText(self.call.text or self:phoneText("GearEllipse"))
   else
     self:printBoxText(self:phoneText("AskWhoCall"))
   end
@@ -2624,8 +2622,8 @@ function Pokegear:drawPlain()
     end
     Chrome.cursor(1, 4 + self.phoneCursor * 2)
     Chrome.textbox(0, 12, 18, 4)
-    Chrome.printWrapped(self.call and (self.call.text or "")
-      or self:phoneText("AskWhoCall"), 1, 14, 18, 3)
+    self:printBoxText(self.call and (self.call.text or "")
+      or self:phoneText("AskWhoCall"))
     self:drawPhoneSubmenu()
   else
     Chrome.box(0, 4, 20, 14)

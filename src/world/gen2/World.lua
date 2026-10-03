@@ -3682,7 +3682,9 @@ end
 
 -- engine/menus/start_menu.asm:511, engine/gfx/mon_icons.asm:287-297
 function World.flyCancelBlankFrames(partySize)
-  return FLY_CANCEL_BLANK_FRAMES + FLY_CANCEL_ICON_FRAMES * (partySize or 0)
+  local engine = loaded("src.core.GameVersion").engine()
+  local font = engine == "crystal" and 3 or engine == "gs" and 6 or 0
+  return FLY_CANCEL_BLANK_FRAMES + font + FLY_CANCEL_ICON_FRAMES * (partySize or 0)
 end
 
 -- engine/tilesets/timeofday_pals.asm:65-91, home/fade.asm:22-120

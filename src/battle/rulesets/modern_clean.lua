@@ -3,6 +3,8 @@
 
 return {
   name = "modern_clean",
+  -- pokered/engine/battle/effects.asm:508
+  statCapRollbackBug = false,
   oneIn256Miss = false,
   critUsesBaseSpeed = true,
   critIgnoresStages = false,

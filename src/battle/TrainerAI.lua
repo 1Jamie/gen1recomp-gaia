@@ -142,7 +142,7 @@ function TrainerAI.useItem(battle, item)
     enemy.mon.hp = math.min(enemy.mon.stats.hp, enemy.mon.hp + HEAL_AMOUNT[item])
   elseif X_STAT[item] then
     local stat = X_STAT[item]
-    if (enemy.stages[stat] or 0) >= 6 then
+    if (enemy.stages[stat] or 0) >= 6 or require("src.battle.Damage").statAtCap(battle, enemy, stat) then
       -- engine/battle/effects.asm:372-373
       table.insert(msgs, romText(battle.data, "_NothingHappenedText", "Nothing happened!"))
       return msgs

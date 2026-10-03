@@ -4378,6 +4378,7 @@ function BattleState:performMove(user, target, moveInst, isCalled)
   end
 
   self.moveAnimRow = nil
+  local moveAnnouncement
   local thrashing = user.thrashTurns and moveInst == user.thrashMove
     and user.thrashAnnounced or false
   if thrashing then
@@ -4391,6 +4392,7 @@ function BattleState:performMove(user, target, moveInst, isCalled)
     end
   else
     self:sayNextAuto(self:romText("_ItemUseText001", "%s\nused %s!", displayName(user), move.name))
+    moveAnnouncement = self.queue[self.nextInsert]
   end
   -- PlayCurrentMoveAnimation follows the announcement; Mimic (announceAnim
   -- = false) queues it from applyMimic after a successful copy
@@ -4442,6 +4444,15 @@ function BattleState:performMove(user, target, moveInst, isCalled)
     chargeRequired = required ~= false
   end
   if chargeRequired then
+    for i, item in ipairs(self.queue) do
+      if item == moveAnnouncement then
+        table.remove(self.queue, i)
+        if self.nextInsert and i <= self.nextInsert then
+          self.nextInsert = self.nextInsert - 1
+        end
+        break
+      end
+    end
     self:cancelMoveAnim()
     user.charging = moveInst
     user.chargeReady = true

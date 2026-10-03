@@ -64,6 +64,11 @@ local function changeStage(battle, who, stat, delta, fromEnemy)
   if new == cur then
     return { romText(battle.data, "_NothingHappenedText", "Nothing happened!"), failed = true }
   end
+  -- pokered/engine/battle/effects.asm:508
+  if delta > 0 and Damage.statAtCap(battle, who, stat) then
+    who.stages[stat] = new - 1
+    return { romText(battle.data, "_NothingHappenedText", "Nothing happened!"), failed = true }
+  end
   who.stages[stat] = new
   -- effects.asm:414-415
   local foe = (who == battle.player) and battle.enemy or battle.player

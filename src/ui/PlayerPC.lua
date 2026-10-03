@@ -23,6 +23,33 @@ local function itemName(game, id)
   return def and def.name or id
 end
 
+local function pcOrder(game)
+  local save, pc = game.save, game.save.pcItems
+  local order = type(save.pcOrder) == "table" and save.pcOrder or {}
+  local kept, seen = {}, {}
+  for _, id in ipairs(order) do
+    if pc[id] and not seen[id] then kept[#kept + 1], seen[id] = id, true end
+  end
+  local added = {}
+  for id in pairs(pc) do if not seen[id] then added[#added + 1] = id end end
+  table.sort(added, function(a, b)
+    local da, db = game.data.items[a], game.data.items[b]
+    local ia = da and (da.index or da.itemId) or math.huge
+    local ib = db and (db.index or db.itemId) or math.huge
+    if ia ~= ib then
+      if type(ia) == type(ib) then return ia < ib end
+      return tostring(ia) < tostring(ib)
+    end
+    if type(a) == type(b) then return a < b end
+    return tostring(a) < tostring(b)
+  end)
+  for _, id in ipairs(added) do kept[#kept + 1] = id end
+  for i = #order, 1, -1 do order[i] = nil end
+  for i, id in ipairs(kept) do order[i] = id end
+  save.pcOrder = order
+  return order
+end
+
 local function buildItems(game, store, order)
   local items = {}
   local ids = order
@@ -139,7 +166,7 @@ local function withdraw(game)
       "There is nothing\nstored."), nil, { noSound = true }))
     return
   end
-  game.stack:push(pcList(game, buildItems(game, pc), {
+  game.stack:push(pcList(game, buildItems(game, pc, pcOrder(game)), {
     kind = "pc_item_withdraw",
     messageBox = true,
     -- players_pc.asm:151-152 WhatToWithdrawText, printed before the list
@@ -156,7 +183,10 @@ local function withdraw(game)
           return
         end
         pc[item.value] = pc[item.value] - qty
-        if pc[item.value] <= 0 then pc[item.value] = nil end
+        if pc[item.value] <= 0 then
+          pc[item.value] = nil
+          pcOrder(game)
+        end
         Sound.play(game.data, "Withdraw_Deposit")
         list:showCompletion(romText(game.data, "_WithdrewItemText",
           "Withdrew\n%s.{PROMPT}", itemName(game, item.value)),
@@ -202,6 +232,10 @@ local function deposit(game)
           list.footer = Strings("No room left to\nstore items.")
           return
         end
+        if not pc[item.value] then
+          local order = pcOrder(game)
+          order[#order + 1] = item.value
+        end
         require("src.inventory.Bag").remove(game.save, item.value, qty)
         pc[item.value] = (pc[item.value] or 0) + qty
         Sound.play(game.data, "Withdraw_Deposit")
@@ -221,7 +255,7 @@ local function toss(game)
       "There is nothing\nstored."), nil, { noSound = true }))
     return
   end
-  game.stack:push(pcList(game, buildItems(game, pc), {
+  game.stack:push(pcList(game, buildItems(game, pc, pcOrder(game)), {
     kind = "pc_item_toss",
     messageBox = true,
     -- players_pc.asm:205-206 WhatToTossText, printed before the list
@@ -245,7 +279,10 @@ local function toss(game)
           game.stack:push(ChoiceBox.new(game, function(yes)
             if yes then
               pc[item.value] = pc[item.value] - qty
-              if pc[item.value] <= 0 then pc[item.value] = nil end
+              if pc[item.value] <= 0 then
+                pc[item.value] = nil
+                pcOrder(game)
+              end
               list:showCompletion(romText(game.data, "_ThrewAwayItemText",
                 "Threw away\n%s.{PROMPT}", itemName(game, item.value)),
                 function() refreshRow(list, pc, item.value) end) -- engine/menus/players_pc.asm:240

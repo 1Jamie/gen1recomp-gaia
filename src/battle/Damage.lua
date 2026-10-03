@@ -53,6 +53,17 @@ function Damage.applyBadgeBoost(battler, stat, value)
   return value
 end
 
+-- pokered/engine/battle/effects.asm:405
+function Damage.statAtCap(battle, battler, stat)
+  if battle.ruleset and battle.ruleset.statCapRollbackBug == false then return false end
+  if stat ~= "attack" and stat ~= "defense" and stat ~= "speed" and stat ~= "special" then return false end
+  local value = battler.curStats and battler.curStats[stat]
+  if type(value) ~= "number" then return false end
+  value = Stats.applyStage(value, battler.stages[stat] or 0)
+  value = Damage.applyBadgeBoost(battler, stat, value)
+  return Status.applyPenalty(battler, stat, value) == 999
+end
+
 -- engine/battle/effects.asm:498,689
 function Damage.reapplyBadgeBoosts(battler, changedStat)
   if not battler or not battler.badges then return end

@@ -2,6 +2,7 @@
 -- ../pokecrystal/home/map.asm:1919-1940 CloseSubmenu / FinishExitMenu
 
 local Chrome = require("src.ui.gen2.Chrome")
+local GameVersion = require("src.core.GameVersion")
 
 local MenuFade = {}
 MenuFade.__index = MenuFade
@@ -60,7 +61,8 @@ MenuFade.OPTION_WHITE = OPTION_WHITE
 -- ../pokecrystal/engine/menus/start_menu.asm:444-518
 local OPEN_WHITE = {
   pokemon = function(partySize)
-    return PARTY_WHITE + PARTY_ICON_FRAMES * (partySize or 0)
+    local extra = GameVersion.engine() == "gs" and 3 or 0
+    return PARTY_WHITE + extra + PARTY_ICON_FRAMES * (partySize or 0)
   end,
   pack = function() return PACK_WHITE end,
   pokegear = function() return GEAR_WHITE end,
