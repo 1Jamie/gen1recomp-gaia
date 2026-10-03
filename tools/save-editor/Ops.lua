@@ -780,6 +780,15 @@ function Ops.setTrainerProperty(S, key, value)
     S.save.player = S.save.player or {}
     S.save.player.name = value
     if Gen.ofState(S)==3 then S.save.name, S.save.playerName = value,value end
+  elseif key == "buenaPoints" then
+    if not Gen.hasBuenaPoints(S.save, S.version) then return Ops.say(S, "Buena points are only available in Crystal") end
+    local n = tonumber(value)
+    if not n or n ~= n or n < 0 or n > 30 or n ~= math.floor(n) then
+      return Ops.say(S, "Buena points must be a whole number from 0 to 30")
+    end
+    if Gen.buenaPoints(S.save, S.version) == n then return true end
+    if not Gen.setBuenaPoints(S.save, n, S.version) then return Ops.say(S, "Invalid Crystal Buena state") end
+    return Ops.mark(S, "Buena points updated")
   else
     local max = ({id=65535,secretId=65535,money=999999,coins=9999})[key]
     local n=tonumber(value)

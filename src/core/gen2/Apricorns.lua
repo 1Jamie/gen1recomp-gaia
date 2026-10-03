@@ -33,7 +33,10 @@
 -- block; both belong in a src/core/gen2/Time.lua once one exists.
 
 local BugContest = require("src.core.gen2.BugContest")
+local Buena = require("src.core.gen2.Buena")
 local Runtime = require("src.mods.Runtime")
+local CartTimers = require("src.save_convert.gen2_state.clock_phone")
+local CartDayCareWild = require("src.save_convert.gen2_state.daycare_wild")
 
 local Apricorns = {}
 
@@ -91,6 +94,71 @@ Apricorns.DAILY_ENGINE_FLAGS = {
   { name = "ENGINE_DAILY_MOVE_TUTOR" },
   { name = "ENGINE_BUENAS_PASSWORD" },
 }
+
+local CRYSTAL_PHONE_FLAGS = {
+  "ENGINE_JACK_READY_FOR_REMATCH",
+  "ENGINE_HUEY_READY_FOR_REMATCH",
+  "ENGINE_GAVEN_READY_FOR_REMATCH",
+  "ENGINE_BETH_READY_FOR_REMATCH",
+  "ENGINE_JOSE_READY_FOR_REMATCH",
+  "ENGINE_REENA_READY_FOR_REMATCH",
+  "ENGINE_JOEY_READY_FOR_REMATCH",
+  "ENGINE_WADE_READY_FOR_REMATCH",
+  "ENGINE_RALPH_READY_FOR_REMATCH",
+  "ENGINE_LIZ_READY_FOR_REMATCH",
+  "ENGINE_ANTHONY_READY_FOR_REMATCH",
+  "ENGINE_TODD_READY_FOR_REMATCH",
+  "ENGINE_GINA_READY_FOR_REMATCH",
+  "ENGINE_ARNIE_READY_FOR_REMATCH",
+  "ENGINE_ALAN_READY_FOR_REMATCH",
+  "ENGINE_DANA_READY_FOR_REMATCH",
+  "ENGINE_CHAD_READY_FOR_REMATCH",
+  "ENGINE_TULLY_READY_FOR_REMATCH",
+  "ENGINE_BRENT_READY_FOR_REMATCH",
+  "ENGINE_TIFFANY_READY_FOR_REMATCH",
+  "ENGINE_VANCE_READY_FOR_REMATCH",
+  "ENGINE_WILTON_READY_FOR_REMATCH",
+  "ENGINE_PARRY_READY_FOR_REMATCH",
+  "ENGINE_ERIN_READY_FOR_REMATCH",
+  "ENGINE_BEVERLY_HAS_NUGGET",
+  "ENGINE_JOSE_HAS_STAR_PIECE",
+  "ENGINE_WADE_HAS_ITEM",
+  "ENGINE_GINA_HAS_LEAF_STONE",
+  "ENGINE_ALAN_HAS_FIRE_STONE",
+  "ENGINE_DANA_HAS_THUNDERSTONE",
+  "ENGINE_DEREK_HAS_NUGGET",
+  "ENGINE_TULLY_HAS_WATER_STONE",
+  "ENGINE_TIFFANY_HAS_PINK_BOW",
+  "ENGINE_WILTON_HAS_ITEM",
+  "ENGINE_JACK_MONDAY_MORNING",
+  "ENGINE_HUEY_WEDNESDAY_NIGHT",
+  "ENGINE_GAVEN_THURSDAY_MORNING",
+  "ENGINE_BETH_FRIDAY_AFTERNOON",
+  "ENGINE_JOSE_SATURDAY_NIGHT",
+  "ENGINE_REENA_SUNDAY_MORNING",
+  "ENGINE_JOEY_MONDAY_AFTERNOON",
+  "ENGINE_WADE_TUESDAY_NIGHT",
+  "ENGINE_RALPH_WEDNESDAY_MORNING",
+  "ENGINE_LIZ_THURSDAY_AFTERNOON",
+  "ENGINE_ANTHONY_FRIDAY_NIGHT",
+  "ENGINE_TODD_SATURDAY_MORNING",
+  "ENGINE_GINA_SUNDAY_AFTERNOON",
+  "ENGINE_ARNIE_TUESDAY_MORNING",
+  "ENGINE_ALAN_WEDNESDAY_AFTERNOON",
+  "ENGINE_DANA_THURSDAY_NIGHT",
+  "ENGINE_CHAD_FRIDAY_MORNING",
+  "ENGINE_TULLY_SUNDAY_NIGHT",
+  "ENGINE_BRENT_MONDAY_MORNING",
+  "ENGINE_TIFFANY_TUESDAY_AFTERNOON",
+  "ENGINE_VANCE_WEDNESDAY_NIGHT",
+  "ENGINE_WILTON_THURSDAY_MORNING",
+  "ENGINE_PARRY_FRIDAY_AFTERNOON",
+  "ENGINE_ERIN_SATURDAY_NIGHT",
+}
+
+function Apricorns.sampleKenjiBreak(random)
+  return (random or math.random)(4) + 2
+end
 
 -- ENGINE_ALL_FRUIT_TREES, the wDailyFlags1 bit TryResetFruitTrees tests before
 -- it will refill the trees.
@@ -403,17 +471,39 @@ end
 function Apricorns.dailyReset(save, resolveId)
   local flags = engineFlags(save)
   if not flags then return end
+  local crystal = save.version == "crystal"
+  local function clear(name, id)
+    id = resolveId and resolveId(name, id) or id
+    if id then flags[id] = nil end
+  end
   for _, row in ipairs(Apricorns.DAILY_ENGINE_FLAGS) do
-    if row.id then flags[row.id] = nil end
-    if resolveId then
-      local id = resolveId(row.name, row.id)
-      if id then flags[id] = nil end
+    if row.id then
+      if save.version == nil then flags[row.id] = nil end
+      local name = crystal and row.name == "ENGINE_SWARM" and "ENGINE_QWILFISH_SWARM" or row.name
+      clear(name, row.id + (crystal and 1 or 0))
+    elseif crystal then
+      clear(row.name, row.name == "ENGINE_DAILY_MOVE_TUTOR" and 94 or 95)
+    elseif save.version == nil and resolveId then
+      clear(row.name)
     end
+  end
+  if crystal then
+    CartTimers.dailyReset(save)
+    CartDayCareWild.dailyReset(save)
+    clear("ENGINE_GOLDENROD_DEPT_STORE_SALE_IS_ON", 97)
+    clear("ENGINE_DUNSPARCE_SWARM", 160)
+    clear("ENGINE_YANMA_SWARM", 161)
+    for i, name in ipairs(CRYSTAL_PHONE_FLAGS) do clear(name, 100 + i) end
+    save.crystal = save.crystal or {}
+    local days = (save.crystal.kenjiBreak or 0) - 1
+    save.crystal.kenjiBreak = days > 0 and days or Apricorns.sampleKenjiBreak()
   end
   -- The port keeps a couple of these under names as well as ids
   -- (src/script/gen2/Specials.lua's ActivateFishingSwarm writes
   -- save.dailyFlags), so the same wipe has to reach that table.
-  save.dailyFlags = {}
+  local fishing = crystal and save.dailyFlags and save.dailyFlags.fishingSwarm or nil
+  save.dailyFlags = fishing ~= nil and { fishingSwarm = fishing } or {}
+  Buena.dailyReset(save, resolveId)
 end
 
 -- ---------------------------------------------------------------- the trees

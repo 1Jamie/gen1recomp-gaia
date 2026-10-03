@@ -259,7 +259,7 @@ function NativesContest.contestLinkTransfer(vm)
       Util().state = { contest = job.contest, partyIndex = NativesContest.partyIndex,
         category = job.contest.category, rank = job.contest.rank, link = s }
       -- pokeemerald/src/contest_util.c:2268
-      if sess then sess.dynamicWarp = { map = sess.map, warpId = 0xFF } end
+      if sess then sess.dynamicWarp = { map = sess.map, warpId = 0xFF, x = sess.x, y = sess.y } end
     else
       job.session:abort()
     end

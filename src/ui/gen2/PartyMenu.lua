@@ -638,7 +638,7 @@ end
 function PartyMenu:tickRepeatSfx()
   local pending = self.repeatSfx
   if not pending then return false end
-  if WaitPlaySFX.waiting(pending) then return true end
+  if WaitPlaySFX.waiting(pending, self.game) then return true end
   self.repeatSfx = nil
   self:playSfx(pending.name)
   return false

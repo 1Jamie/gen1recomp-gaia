@@ -1,6 +1,7 @@
 -- FireRed battle AI command handlers (port of battle_ai_script_commands.c).
 
 local Moves = require("src.core.game3.battle.moves")
+local Pokemon = require("src.core.game3.pokemon")
 local Types = require("src.core.game3.battle.types")
 local Damage = require("src.core.game3.battle.damage")
 local EffectIds = require("src.core.game3.battle.effect_ids")
@@ -235,13 +236,23 @@ local function move_effect(moveId)
   return 0
 end
 
+local function move_metadata(moveId)
+  if moveId == nil or moveId == 0 or moveId == "" then
+    assert(Moves.romReady(), "AI required ROM move cache missing")
+    local row = assert(Pokemon.battleMove(0), "AI ROM MOVE_NONE metadata missing")
+    assert(type(row.power) == "number" and type(row.type) == "number", "AI ROM MOVE_NONE metadata invalid")
+    return row
+  end
+  return Moves.get(moveId)
+end
+
 local function move_power(moveId)
-  local m = Moves.get(moveId)
+  local m = move_metadata(moveId)
   return m and tonumber(m.power) or 0
 end
 
 local function move_type(moveId)
-  local m = Moves.get(moveId)
+  local m = move_metadata(moveId)
   return m and tonumber(m.type) or 0
 end
 
@@ -576,9 +587,10 @@ function CMD.get_how_powerful_move_is(vm, op)
   local mon = vm.user.mon
   for i = 1, 4 do
     local mv = mon and mon.moves and mon.moves[i]
-    local e = mv and move_effect(mv) or 0
-    local p = mv and move_power(mv) or 0
-    if mv and mv ~= 0 and mv ~= "" and not DISCOURAGED[e] and p > 1 then
+    local valid = mv and mv ~= 0 and mv ~= ""
+    local e = valid and move_effect(mv) or 0
+    local p = valid and move_power(mv) or 0
+    if valid and not DISCOURAGED[e] and p > 1 then
       moveDmgs[i] = ai_damage(vm, mv, i)
     else
       moveDmgs[i] = 0

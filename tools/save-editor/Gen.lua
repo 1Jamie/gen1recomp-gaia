@@ -417,6 +417,30 @@ function Gen.setCoins(save, amount)
   end
 end
 
+function Gen.hasBuenaPoints(save, version)
+  return type(save) == "table" and Gen.of(save, version) == 2 and Gen.engineOf(save, version) == "crystal"
+end
+
+function Gen.buenaPoints(save, version)
+  if not Gen.hasBuenaPoints(save, version) then return 0 end
+  local crystal = type(save.crystal) == "table" and save.crystal or nil
+  local buena = crystal and type(crystal.buenaPassword) == "table" and crystal.buenaPassword or nil
+  if buena and buena.balance ~= nil then return buena.balance end
+  return 0
+end
+
+function Gen.setBuenaPoints(save, amount, version)
+  if not Gen.hasBuenaPoints(save, version) or type(amount) ~= "number" or amount ~= amount
+      or amount < 0 or amount > 30 or amount ~= math.floor(amount) then return false end
+  if Gen.buenaPoints(save, version) == amount then return true end
+  if save.crystal ~= nil and type(save.crystal) ~= "table" then return false end
+  local crystal = save.crystal or {}
+  if crystal.buenaPassword ~= nil and type(crystal.buenaPassword) ~= "table" then return false end
+  local buena = crystal.buenaPassword or {}
+  save.crystal, crystal.buenaPassword, buena.balance = crystal, buena, amount
+  return true
+end
+
 function Gen.playerGender(save)
   if type(save) ~= "table" then return "male" end
   if save.gender == 1 or (save.player and (save.player.gender == 1 or save.player.gender == "female")) then

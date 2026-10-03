@@ -141,5 +141,56 @@ class YellowSuperRodParseTest(TestCase):
         self.assertIn({"level": 15, "species": "DRAGONAIR"}, center)
 
 
+class Gen2RequiredAssetPreservationTest(TestCase):
+    def symbol_fixture(self, directory, version):
+        import json
+        from rom_data import SymbolTable
+
+        root = Path(__file__).resolve().parents[1]
+        manifest = json.loads((root / "tools" / ("rom_manifest_" + version + ".json")).read_text())
+        path = Path(directory) / (version + ".sym")
+        path.write_text("\n".join(
+            f"{bank:02x}:{address:04x} {name}"
+            for name, (bank, address) in manifest["symbols"].items()))
+        return manifest, path, SymbolTable(str(path))
+
+    def test_gold_generation_keeps_extracted_field_art(self):
+        import tempfile
+        import make_gold_manifest as gold
+
+        with tempfile.TemporaryDirectory() as directory:
+            manifest, _, symbols = self.symbol_fixture(directory, "gold")
+            embedded = gold.embedded_symbols(symbols, [])
+        for name in ("CutGrassGFX", "JumpShadowGFX"):
+            self.assertEqual(embedded.get(name), manifest["symbols"][name])
+
+    def test_crystal_generation_keeps_tileset_palettes_and_field_art(self):
+        import tempfile
+        import make_gold_manifest as gold
+        from crystal_symbol_deltas import crystal_required
+
+        with tempfile.TemporaryDirectory() as directory:
+            manifest, _, symbols = self.symbol_fixture(directory, "crystal")
+            embedded = gold.embedded_symbols(
+                symbols, [], required=crystal_required(gold.REQUIRED_SYMBOLS))
+        for name in ("BattleTowerInsidePalette", "HousePalette", "IcePathPalette",
+                     "MansionPalette1", "MansionPalette2", "PokeComPalette",
+                     "RadioTowerPalette", "CutGrassGFX", "JumpShadowGFX"):
+            self.assertEqual(embedded.get(name), manifest["symbols"][name])
+
+    def test_silver_derives_field_art_from_generated_gold(self):
+        import tempfile
+        import make_gold_manifest as gold
+        import make_silver_manifest as silver
+
+        with tempfile.TemporaryDirectory() as directory:
+            gold_manifest, _, symbols = self.symbol_fixture(directory, "gold")
+            expected, silver_path, _ = self.symbol_fixture(directory, "silver")
+            gold_manifest["symbols"] = gold.embedded_symbols(symbols, [])
+            derived = silver.derive(gold_manifest, str(silver_path))
+        for name in ("CutGrassGFX", "JumpShadowGFX"):
+            self.assertEqual(derived["symbols"].get(name), expected["symbols"][name])
+
+
 if __name__ == "__main__":
     main()

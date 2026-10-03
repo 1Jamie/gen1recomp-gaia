@@ -1433,8 +1433,16 @@ Ai.LAYERS = {
   -- moves read SUBSTATUS_CONFUSED (defender.confused), not the status byte,
   -- since confusion is a volatile on the cart.
   BASIC = { kind = "layer", flag = "BASIC",
-    score = function(view, _, score)
+    score = function(view, def, score)
       local status, defender = view.status, view.defender
+      if def.effect == "EFFECT_ATTRACT" then
+        local mine, theirs = view.attacker.gender or "unknown", defender.gender or "unknown"
+        if mine == "unknown" or theirs == "unknown" or mine == theirs or defender.attract then
+          return score + DISMISS
+        end
+      elseif def.effect == "EFFECT_SWAGGER" and defender.confused then
+        return score + DISMISS
+      end
       if status and (defender.status
           or (status == "confuse" and defender.confused)) then
         return score + 5

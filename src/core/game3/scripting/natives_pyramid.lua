@@ -15,7 +15,7 @@ local function build()
   FUNCS[Fn.INIT] = function(_, _, s) Py.init(s) end
   FUNCS[Fn.GET_DATA] = function(ctx, _, s) Py.getData(ctx, s) end
   FUNCS[Fn.SET_DATA] = function(ctx, _, s) Py.setData(ctx, s) end
-  FUNCS[Fn.SAVE] = function(ctx, _, s) Py.save(ctx, s) end
+  FUNCS[Fn.SAVE] = function(ctx, adapters, s) return Util.saveFromNative(ctx, adapters, s, Py.save) end
   FUNCS[Fn.SET_PRIZE] = function(_, _, s) Py.setPrize(s) end
   FUNCS[Fn.GIVE_PRIZE] = function(ctx, adapters, s) Py.givePrize(ctx, adapters, s) end
   FUNCS[Fn.SEED_FLOOR] = function(_, _, s) Py.seedFloor(s) end

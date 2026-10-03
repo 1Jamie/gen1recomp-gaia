@@ -17,7 +17,7 @@ CacheContract.VERSION_FORMAT = {
   -- such an export is refused until the ROM re-imports.
   gold = "rom-cache-v13:",
   silver = "rom-cache-v13:",
-  crystal = "rom-cache-v13-crystal5:",
+  crystal = "rom-cache-v13-crystal6:",
   -- engine/overworld/map_sprites.asm:181, engine/battle/animations.asm:2600
   -- data/pikachu/pikachu_pic_animation.asm:340
   yellow = "rom-cache-v12-yellow2:",
@@ -171,6 +171,7 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/scripts.lua",
     "data/generated/text.lua",
     "data/generated/rom_text.lua",
+    "data/generated/events.lua",
     "data/generated/pokemon.lua",
     "data/generated/encounters.lua",
     "data/generated/tilesets.lua",

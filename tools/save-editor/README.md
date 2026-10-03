@@ -77,6 +77,9 @@ PID/SID, language, met data, ball, markings, egg and fateful flags; Crystal
 also exposes caught data. Extras exposes Gen 3 contest conditions and ribbons.
 Trainer edits name, IDs, gender and wallet. Items separates Bag, PC, Wallet and
 Badges. Boxes supports storage, deposit, withdraw, clone, inspect and release.
+Crystal also shows Buena points in Trainer and Items / Wallet. The Blue Card
+balance accepts whole numbers from 0 to 30 through the numeric popup and supports
+Undo/Redo; it preserves the password, daily state and Blue Card inventory.
 
 **Undo/Redo** and Ctrl/Cmd+Z (Shift+Z to redo) retain up to eight session snapshots.
 Snapshots preserve unknown metadata. Saving establishes the clean history point;

@@ -579,7 +579,18 @@ function RomExtractorGen3:runParallel(sha1)
     workerCode = love.filesystem.read("src/import/gba/extract_worker.lua")
   end
 
-  local running, nextTask = {}, 1
+  local running, owned, nextTask = {}, {}, 1
+  local cleanupErrors = {}
+  local function joinWorker(worker)
+    if worker.joinAttempted then return worker.joined end
+    worker.joinAttempted = true
+    local joined, joinError = pcall(worker.thread.wait, worker.thread)
+    worker.joined = joined
+    if not joined then
+      cleanupErrors[#cleanupErrors + 1] = worker.task .. ": " .. tostring(joinError)
+    end
+    return joined
+  end
   local function spawnUpTo(limit)
     while nextTask <= #tasks and #running < limit do
       local t = tasks[nextTask]
@@ -587,68 +598,97 @@ function RomExtractorGen3:runParallel(sha1)
       if not okTh or not th then
         return false, "failed to spawn thread for " .. t .. ": " .. tostring(th)
       end
-      th:start(t, prefix, self.romData, sha1, ch_name)
-      running[#running + 1] = { task = t, thread = th }
+      local worker = { task = t, thread = th }
+      owned[#owned + 1] = worker
+      local okStart, startResult = pcall(th.start, th, t, prefix, self.romData, sha1, ch_name)
+      if not okStart or startResult == false then
+        return false, "failed to start thread for " .. t .. ": " .. tostring(startResult)
+      end
+      running[#running + 1] = worker
       nextTask = nextTask + 1
     end
     return true
   end
   local function retire(task)
     for i, r in ipairs(running) do
-      if r.task == task then table.remove(running, i) return end
+      if r.task == task then
+        if not joinWorker(r) then error(cleanupErrors[#cleanupErrors]) end
+        table.remove(running, i)
+        for j, worker in ipairs(owned) do
+          if worker == r then table.remove(owned, j) break end
+        end
+        return
+      end
     end
   end
 
-  local limit = maxWorkers(#tasks)
-  local okSpawn, spawnErr = spawnUpTo(limit)
-  if not okSpawn then return false, spawnErr end
+  local function runPool()
+    local limit = maxWorkers(#tasks)
+    local okSpawn, spawnErr = spawnUpTo(limit)
+    if not okSpawn then return false, spawnErr end
 
-  local done_count = 0
-  local errors = {}
+    local done_count = 0
+    local errors = {}
 
-  while done_count < #tasks do
-    local msg = ch:pop()
-    if msg then
-      if msg.type == "progress" then
-        task_progress[msg.task] = math.max(task_progress[msg.task] or 0, math.min(1.0, msg.fraction or 0))
-        local total_pct = 0.03
-        for k, w in pairs(weights) do
-          total_pct = total_pct + (task_progress[k] or 0) * w * 0.95
+    while done_count < #tasks do
+      local msg = ch:pop()
+      if msg then
+        if msg.type == "progress" then
+          task_progress[msg.task] = math.max(task_progress[msg.task] or 0, math.min(1.0, msg.fraction or 0))
+          local total_pct = 0.03
+          for k, w in pairs(weights) do
+            total_pct = total_pct + (task_progress[k] or 0) * w * 0.95
+          end
+          self:report(total_pct, msg.stage or "Extracting", msg.current or 0, msg.stageTotal or 1)
+        elseif msg.type == "done" then
+          done_count = done_count + 1
+          task_progress[msg.task] = 1.0
+          local total_pct = 0.03
+          for k, w in pairs(weights) do
+            total_pct = total_pct + (task_progress[k] or 0) * w * 0.95
+          end
+          self:report(total_pct, "Finalizing " .. tostring(msg.task), done_count, #tasks)
+          if not msg.ok then
+            errors[#errors + 1] = msg.task .. ": " .. tostring(msg.error)
+          end
+          retire(msg.task)
+          okSpawn, spawnErr = spawnUpTo(limit)
+          if not okSpawn then return false, spawnErr end
         end
-        self:report(total_pct, msg.stage or "Extracting", msg.current or 0, msg.stageTotal or 1)
-      elseif msg.type == "done" then
-        done_count = done_count + 1
-        task_progress[msg.task] = 1.0
-        local total_pct = 0.03
-        for k, w in pairs(weights) do
-          total_pct = total_pct + (task_progress[k] or 0) * w * 0.95
+      else
+        for i = #running, 1, -1 do
+          local err = running[i].thread:getError()
+          if err then
+            errors[#errors + 1] = running[i].task .. ": " .. tostring(err)
+            retire(running[i].task)
+            done_count = done_count + 1
+          end
         end
-        self:report(total_pct, "Finalizing " .. tostring(msg.task), done_count, #tasks)
-        if not msg.ok then
-          errors[#errors + 1] = msg.task .. ": " .. tostring(msg.error)
-        end
-        retire(msg.task)
         okSpawn, spawnErr = spawnUpTo(limit)
         if not okSpawn then return false, spawnErr end
+        love.timer.sleep(0.005)
       end
-    else
-      for i = #running, 1, -1 do
-        local err = running[i].thread:getError()
-        if err then
-          errors[#errors + 1] = running[i].task .. ": " .. tostring(err)
-          table.remove(running, i)
-          done_count = done_count + 1
-        end
-      end
-      okSpawn, spawnErr = spawnUpTo(limit)
-      if not okSpawn then return false, spawnErr end
-      love.timer.sleep(0.005)
     end
+
+    if #errors > 0 then
+      return false, "Parallel extraction error:\n" .. table.concat(errors, "\n")
+    end
+    return true
   end
 
-  if #errors > 0 then
-    return false, "Parallel extraction error:\n" .. table.concat(errors, "\n")
+  local callOk, poolOk, poolError = pcall(runPool)
+  for _, worker in ipairs(owned) do
+    joinWorker(worker)
   end
+  if #cleanupErrors == 0 then
+    local cleared, clearError = pcall(ch.clear, ch)
+    if not cleared then cleanupErrors[#cleanupErrors + 1] = tostring(clearError) end
+  end
+  if #cleanupErrors > 0 then
+    return false, "Parallel extraction cleanup failed:\n" .. table.concat(cleanupErrors, "\n"), true
+  end
+  if not callOk then return false, tostring(poolOk) end
+  if not poolOk then return false, poolError end
 
   if not CacheFs.exists(GBA_ROOT .. "/maps.json") then
     writeJson(GBA_ROOT .. "/maps.json", { maps = {}, from_extract = true })
@@ -671,9 +711,10 @@ function RomExtractorGen3:run()
   self:writeRequiredMarkers(sha1)
   self:report(0.03, "Markers Ready", 1, 1)
 
-  local okPar, parRes, parErr = pcall(function()
+  local okPar, parRes, parErr, cleanupFailed = pcall(function()
     return self:runParallel(sha1)
   end)
+  if cleanupFailed then error(tostring(parErr)) end
   if okPar and parRes then
     if self:hasTask("pokemon") then
       writeJson(GBA_ROOT .. "/pokemon/extract_status.json", { ok = true, error = nil })

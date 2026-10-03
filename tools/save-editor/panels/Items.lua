@@ -79,10 +79,15 @@ local function drawView(S, Kit, x, y, w, h)
     Kit.pushClip(cx, cy, inner, bodyH)
     local start = cy - S.walletScroll
     cy = start
-    for _, f in ipairs({
+    local fields = {
       { "money", "Money", Gen.money(S.save), 999999 },
       { "coins", "Coins", Gen.coins(S.save), 9999 },
-    }) do
+    }
+    if Gen.hasBuenaPoints(S.save, S.version) then
+      fields[#fields + 1] = { "buenaPoints", "Buena points", Gen.buenaPoints(S.save, S.version), 30,
+        "Blue Card points for Buena's prizes. Choose 0 to 30." }
+    end
+    for _, f in ipairs(fields) do
       cy = cy
         + Touch.value(
           S,
@@ -90,7 +95,7 @@ local function drawView(S, Kit, x, y, w, h)
           "wallet-" .. f[1],
           f[2],
           f[3],
-          { lo = 0, hi = f[4], help = "Max fills it. Type a value for an exact amount." },
+          { lo = 0, hi = f[4], help = f[5] or "Max fills it. Type a value for an exact amount." },
           cx,
           cy,
           inner,

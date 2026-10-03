@@ -633,8 +633,9 @@ for _, v in ipairs(VERSIONS) do
       ser({ 0, 40, 0xFF, 0xFF, 0, 0xABCD }), label .. ": a beaten roamer")
     -- pokegold engine/events/specials.asm:307
     local swarm = syms.wSwarmMapGroup or syms.wDunsparceMapGroup
-    eq(ser({ rb(out, swarm), rb(out, swarm + 1), rb(out, syms.wFishingSwarmFlag) }), ser({ 0, 0, 0 }),
-      label .. ": CheckSwarmFlag's .clear_swarm")
+    eq(ser({ rb(out, swarm), rb(out, swarm + 1), rb(out, syms.wFishingSwarmFlag) }),
+      ser(v == "crystal" and { rb(bytes, swarm), rb(bytes, swarm + 1), rb(bytes, syms.wFishingSwarmFlag) } or { 0, 0, 0 }),
+      label .. (v == "crystal" and ": inactive Crystal swarm bytes retained" or ": Gold/Silver CheckSwarmFlag clears bytes"))
     -- pokecrystal engine/events/bug_contest/contest.asm:1
     eq(rb(out, syms.wContestMon), 0, label .. ": GiveParkBalls clears wContestMon")
     eq(rb(out, syms.wContestMon + 1), rb(bytes, syms.wContestMon + 1), label .. ": and only its species")

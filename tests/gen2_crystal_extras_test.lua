@@ -51,6 +51,7 @@ local H = Specials.HANDLERS
 -- The cache tables the handlers read, plus the landmark registry
 -- GetLandmarkName walks (../pokecrystal/engine/overworld/landmarks.asm:16).
 local DATA = {
+  gen2EventTables = require("tests.fixtures.gen2_buena").gen2EventTables,
   pokemon = {
     tutorMoves = { "FLAMETHROWER", "THUNDERBOLT", "ICE_BEAM" },
     TYPHLOSION = { index = 157, name = "TYPHLOSION",
@@ -258,12 +259,11 @@ end
 -- engine/events/buena.asm:19-23: only wBuenasPassword's low nybble is right.
 do
   local save = newSave()
-  -- BuenasPassword4's two rejection rolls, pinned
-  -- (engine/pokegear/radio.asm:1470-1487).
-  local rolls = { 1, 2 }
+  save.crystal.buenaPassword.word = 0x01
+  save.engineFlags = { [95] = true }
   local taken = 0
   local realRandom = Specials.random
-  Specials.random = function() taken = taken + 1 return rolls[taken] end
+  Specials.random = function() taken = taken + 1; error("NPC rolled a password") end
 
   local hooks = newHooks(save, { answers = { 1 } })
   local vm = newVm(hooks)
@@ -271,15 +271,15 @@ do
   Specials.random = realRandom
 
   local pushed = hooks.log.pushed[1]
-  eq(pushed.id, "Gen2BuenaPassword", "the show opens its own menu")
+  eq(pushed.id, "Gen2BuenaPassword", "the NPC opens the captured-password menu")
   eq(pushed.opts.mode, "password", "in password mode")
-  eq(pushed.opts.width, 10, "the box is as wide as the category's points byte")
+  eq(pushed.opts.width, 10, "the box uses the ROM menu-width byte")
   eq(table.concat(pushed.opts.words, ","), "CYNDAQUIL,TOTODILE,CHIKORITA",
     ".PlacePasswordChoices resolves BUENA_MON rows through GetPokemonName")
   eq(vm.scriptVar, 1, "picking the low nybble's row is the right answer")
   eq(save.crystal.buenaPassword.word, 0x01,
-    "and the roll is packed group-high, word-low into wBuenasPassword")
-  eq(hooks.vars[0x19], 0x01, "VAR_BUENASPASSWORD sees the same byte")
+    "the captured packed word stays unchanged")
+  eq(taken, 0, "NPC does not generate the radio's password")
 
   -- DAILYFLAGS2_BUENAS_PASSWORD_F holds the roll for the day
   -- (engine/pokegear/radio.asm:1467).
@@ -298,10 +298,8 @@ do
   local save = newSave()
   local realRandom = Specials.random
   local function pin(group, word)
-    local rolls, taken = { group + 1, word + 1 }, 0
-    Specials.random = function() taken = taken + 1 return rolls[taken] end
-    save.crystal.buenaPassword.word = nil
-    save.crystal.buenaPassword.day = nil
+    Specials.random = function() error("NPC rolled a password") end
+    save.crystal.buenaPassword.word = group * 16 + word
     local hooks = newHooks(save, { answers = { word } })
     local vm = newVm(hooks)
     run(vm, H.BuenasPassword)
@@ -310,7 +308,7 @@ do
   local balls = pin(3, 2)
   eq(table.concat(balls.words, ","), "POKé BALL,GREAT BALL,ULTRA BALL",
     "BUENA_ITEM rows resolve through GetItemName")
-  eq(balls.width, 12, "and .Balls is worth 12 points")
+  eq(balls.width, 12, "the ROM .Balls menu is twelve tiles wide")
   local towns = pin(6, 0)
   eq(table.concat(towns.words, ","), "NEW BARK TOWN,CHERRYGROVE CITY,AZALEA TOWN",
     "BUENA_STRING rows are the literals themselves")

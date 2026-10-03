@@ -1350,16 +1350,10 @@ H.SelectRandomBugContestContestants = function(vm)
   if vm.events and vm.onFlagsChanged then vm.onFlagsChanged() end
 end
 
--- ActivateFishingSwarm: wFishingSwarmFlag takes wScriptVar, and the routine
--- FALLS THROUGH into SetSwarmFlag -- so the map pair and DAILYFLAGS1_SWARM are
--- both live afterwards.  A port that set only the flag would leave the Qwilfish
--- swarm on for good.
 H.ActivateFishingSwarm = function(vm)
   local record = save(vm)
   if not record then return end
-  record.dailyFlags = record.dailyFlags or {}
-  record.dailyFlags.fishingSwarm = vm.scriptVar or 0
-  record.dailyFlags.swarm = true
+  Roamers.Swarm.setFishing(record, vm.scriptVar or 0)
 end
 
 -- ---- 74-77 gifts and health -----------------------------------------------
@@ -2595,7 +2589,7 @@ H.UnusedBattleTowerDummySpecial2 = function() end
 -- which ../pokecrystal/maps/Route45.asm:50 reads back through VAR_KENJI_BREAK.
 H.SampleKenjiBreakCountdown = function(vm)
   local h = hooks(vm)
-  if h.setKenjiBreak then h.setKenjiBreak(Specials.random(4) - 1 + 3) end
+  if h.setKenjiBreak then h.setKenjiBreak(Apricorns.sampleKenjiBreak(Specials.random)) end
 end
 
 --------------------------------------------------------------------------

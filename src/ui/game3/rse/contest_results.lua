@@ -471,6 +471,20 @@ function UI:taskShowContestResults(tid, d)
       if okN and NC and NC.onResultsShown and sess then NC.onResultsShown(c, sess) end
     end
     if self:pal():fadeActive() then return end
+    if not self.linkResultsPersisted and not self.opts.noFieldHooks then
+      if self.linkSaveError then
+        if not (self.inp and self.inp.new and self.inp.new.a) then return end
+        self:hideLinkResultsTextBox()
+        self.linkSaveError = nil
+      end
+      local ok, err = require("src.core.game3.rse.contest_util").persistLinkResults(sess, c)
+      if not ok then
+        self.linkSaveError = err
+        self:showLinkResultsTextBox("Save failed. A: retry")
+        return
+      end
+      self.linkResultsPersisted = true
+    end
     -- pokeemerald/src/contest_util.c:653
     if not self.standbyBeforeResults then
       self.standbyBeforeResults = true

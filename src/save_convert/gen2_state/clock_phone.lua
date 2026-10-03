@@ -1,4 +1,5 @@
 local M = {}
+local Syms = require("src.save_convert.Gen2Syms")
 
 M.KEY = "cartTimers"
 
@@ -167,6 +168,20 @@ function M.ranges(S, crystal)
   local c = { { S.wStepCount, S.wCurMapData } }
   local sram = { { S.sRTCStatusFlags, S.sLuckyIDNumber + 2 } }
   return { clock = a, daily = b, steps = c, sram = sram }
+end
+
+function M.dailyReset(save)
+  if save.version ~= "crystal" then return end
+  local carrier = save[M.KEY]
+  if type(carrier) ~= "table" then return end
+  local S, t = Syms.crystal, {}
+  local ranges = M.ranges(S, true).daily
+  if not unhex(t, ranges, carrier.daily) then return end
+  t[S.wUnusedDailyFlag] = 0
+  for _, array in ipairs(CRYSTAL_ARRAYS) do
+    for i = 0, 3 do t[S[array.label] + i] = 0 end
+  end
+  carrier.daily = hexOf(t, ranges)
 end
 
 local function flagsOf(save)

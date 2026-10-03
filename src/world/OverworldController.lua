@@ -22,6 +22,7 @@ local Renderer = require("src.render.Renderer")
 local Runtime = require("src.mods.Runtime")
 local Screens = require("src.ui.Screens")
 local ScriptRunner = require("src.script.ScriptRunner")
+local SpriteRenderer = require("src.render.SpriteRenderer")
 local Theme = require("src.ui.Theme")
 local Tilt = require("src.render.Tilt")
 local TextBox = require("src.render.TextBox")
@@ -5929,8 +5930,7 @@ end
 -- === shared FX draw bodies ==========================================
 -- Each draws at flat world-canvas offsets; the tilt path wraps the
 -- standing ones in an upright billboard, the flat path calls them inline
--- in their historical order.  (Bodies are byte-identical to the pre-tilt
--- inline code, so the flat draw sequence is unchanged.)  Module-level and
+-- in their historical order.  Module-level and
 -- handed (self, cam) so drawWorld does not build six closures per frame;
 -- the pipeline path wraps them for its no-argument ctx.fx contract.
 
@@ -5992,6 +5992,28 @@ local function fxHeal(self, cam)
   end
 end
 
+local fieldFxGroups = {}
+
+local function fieldFxImage(path, image, group)
+  if not PaletteFX.usesGbcPack() then return image end
+  local pack = PaletteFX.worldPack()
+  local colors = pack and pack.spritePalettes and pack.spritePalettes[group]
+  if not colors then return image end
+  local version = GameVersion.get()
+  local groups = fieldFxGroups[version]
+  if not groups then
+    groups = {}
+    fieldFxGroups[version] = groups
+  end
+  local name = groups[group]
+  if not name then
+    name = "fieldfx:" .. version .. ":" .. group
+    groups[group] = name
+  end
+  colors, name = PaletteFX.darkObp(colors, name)
+  return SpriteRenderer.obpImage(path, colors, name)
+end
+
 -- the Cut/boulder dust puff: the smoke tile drawn 2x2 over the cell,
 -- flickering (AnimateBoulderDust XORs the OBJ palette every step)
 local function fxDust(self, cam)
@@ -6005,6 +6027,7 @@ local function fxDust(self, cam)
     end
     if self.smokeImg then
       local da = self.dustAnim
+      local img = fieldFxImage(smoke.path, self.smokeImg, da.boulder and 7 or 6)
       local dx = da.x * 16 + (da.ox or 0) - cam.x
       local dy = da.y * 16 + (da.oy or 0) - cam.y
       local flicker = math.floor(da.frames / 4) % 2 == 0
@@ -6012,7 +6035,7 @@ local function fxDust(self, cam)
       love.graphics.setColor(1, 1, 1, flicker and 1 or 0.55)
       for i = 0, 1 do
         for j = 0, 1 do
-          love.graphics.draw(self.smokeImg, dx + i * 8, dy + j * 8)
+          love.graphics.draw(img, dx + i * 8, dy + j * 8)
         end
       end
       love.graphics.setColor(1, 1, 1, 1)
@@ -6033,6 +6056,7 @@ local function fxCutTree(self, cam)
   end
   local img = self.cutTreeImg
   if not img then return end
+  img = fieldFxImage(tree.path, img, 6)
   if not self.cutTreeQuads then
     local w, h = img:getWidth(), img:getHeight()
     self.cutTreeQuads = {
@@ -6154,6 +6178,7 @@ local function fxRod(self, cam)
       self.rodImg = ok and img or false
     end
     if self.rodImg then
+      local img = fieldFxImage(rod.path, self.rodImg, 0)
       local p = self.player
       local oam = ROD_OAM[self.fishing.facing] or ROD_OAM.down
       if not self.rodQuads then
@@ -6177,9 +6202,9 @@ local function fxRod(self, cam)
       local ry = sy + oam.dy + (p.fishShakeDy or 0)
       love.graphics.setColor(1, 1, 1, 1)
       if quad and oam.flip then
-        love.graphics.draw(self.rodImg, quad, rx + 8, ry, 0, -1, 1)
+        love.graphics.draw(img, quad, rx + 8, ry, 0, -1, 1)
       elseif quad then
-        love.graphics.draw(self.rodImg, quad, rx, ry)
+        love.graphics.draw(img, quad, rx, ry)
       end
     end
   end

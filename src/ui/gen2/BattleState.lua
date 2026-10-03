@@ -38,6 +38,7 @@ local Prize = require("src.battle.gen2.Prize")
 local Runtime = require("src.mods.Runtime")
 local Screens = require("src.ui.Screens")
 local Sound = require("src.core.Sound")
+local WaitPlaySFX = require("src.ui.gen2.WaitPlaySFX")
 -- Only for Sprites_Sine / Sprites_Cosine: ../pokecrystal/engine/math/sine.asm
 local SpriteAnims = require("src.ui.gen2.SpriteAnims")
 -- Only for playerPic: the player.sprite raiser both generations share.
@@ -1379,7 +1380,7 @@ function BattleState:stepExpBurst(anim)
     burst.left = (Sound.waitFramesFor and Sound.waitFramesFor(SFX_END_OF_EXP_BAR))
       or 0
   end
-  burst.left = burst.left - 1
+  burst.left = burst.left - WaitPlaySFX.step(self.game)
   if burst.left > 0 and Sound.isPlaying(SFX_END_OF_EXP_BAR) then return true end
   self.expBurst = nil
   -- ../pokecrystal/engine/battle/core.asm:7540
@@ -2752,7 +2753,7 @@ function BattleState:update(_dt)
         self.waitSfxLeft = Sound.waitFramesFor
           and Sound.waitFramesFor(self.waitSfx) or 180
       end
-      self.waitSfxLeft = self.waitSfxLeft - 1
+      self.waitSfxLeft = self.waitSfxLeft - WaitPlaySFX.step(self.game)
       if Sound.isPlaying(self.waitSfx) then
         if self.waitSfxLeft > 0 then return end
         if Sound.stop then Sound.stop(self.waitSfx) end

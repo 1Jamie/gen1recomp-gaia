@@ -542,7 +542,7 @@ end
 function Swarm.set(save, mapId, kind)
   if type(save) ~= "table" then return false end
   save.dailyFlags = save.dailyFlags or {}
-  save.dailyFlags.swarm = true
+  if save.version ~= "crystal" then save.dailyFlags.swarm = true end
   local name = kindName(kind)
   local maps = Swarm.maps(save)
   maps[name] = mapId
@@ -557,35 +557,46 @@ function Swarm.setFishing(save, kind)
   if type(save) ~= "table" then return false end
   save.dailyFlags = save.dailyFlags or {}
   save.dailyFlags.fishingSwarm = kind or Swarm.FISH_NONE
-  save.dailyFlags.swarm = true
+  if save.version ~= "crystal" then save.dailyFlags.swarm = true end
   return true
 end
 
-function Swarm.active(save)
+function Swarm.active(save, kind, resolveId)
+  if type(save) == "table" and save.version == "crystal" then
+    local function set(name, id)
+      id = resolveId and resolveId(name, id) or id
+      return save.engineFlags and save.engineFlags[id] == true or false
+    end
+    if kind == "DUNSPARCE" or kind == 0 then return set("ENGINE_DUNSPARCE_SWARM", 160) end
+    if kind == "YANMA" or kind == 1 then return set("ENGINE_YANMA_SWARM", 161) end
+    if kind == "fishing" then return set("ENGINE_QWILFISH_SWARM", 82) end
+    return set("ENGINE_DUNSPARCE_SWARM", 160) or set("ENGINE_YANMA_SWARM", 161)
+      or set("ENGINE_QWILFISH_SWARM", 82)
+  end
   return type(save) == "table" and save.dailyFlags ~= nil
     and save.dailyFlags.swarm == true
 end
 
-function Swarm.mapId(save, kind)
-  if not Swarm.active(save) then return nil end
+function Swarm.mapId(save, kind, resolveId)
+  if not Swarm.active(save, kindName(kind), resolveId) then return nil end
   local maps = Swarm.maps(save)
   return maps and maps[kindName(kind)] or nil
 end
 
 -- pokecrystal/engine/overworld/wildmons.asm:414-451 tests Dunsparce first and
 -- falls through to Yanma, so a map both are on answers Dunsparce.
-function Swarm.onMap(save, mapId)
-  if mapId == nil or not Swarm.active(save) then return nil end
+function Swarm.onMap(save, mapId, resolveId)
+  if mapId == nil then return nil end
   local maps = Swarm.maps(save)
   if not maps then return nil end
   for _, name in ipairs(Swarm.KIND_ORDER) do
-    if maps[name] == mapId then return name end
+    if maps[name] == mapId and Swarm.active(save, name, resolveId) then return name end
   end
   return nil
 end
 
-function Swarm.fishing(save)
-  if not Swarm.active(save) then return Swarm.FISH_NONE end
+function Swarm.fishing(save, resolveId)
+  if not Swarm.active(save, "fishing", resolveId) then return Swarm.FISH_NONE end
   return (save.dailyFlags and save.dailyFlags.fishingSwarm) or Swarm.FISH_NONE
 end
 
@@ -595,10 +606,9 @@ end
 -- an `iffalse` after this special means "the swarm is still on".
 function Swarm.check(save)
   if type(save) ~= "table" then return 1 end
+  if save.version == "crystal" then return Swarm.active(save) and 0 or 1 end
   if Swarm.active(save) then return 0 end
   if save.dailyFlags then save.dailyFlags.fishingSwarm = nil end
-  -- pokecrystal/engine/overworld/time.asm:103-112 zeroes wSwarmFlags whole,
-  -- which strands both of Crystal's pairs on the one daily tick.
   local maps = save.swarmMaps
   if type(maps) == "table" then
     for _, name in ipairs(Swarm.KIND_ORDER) do maps[name] = nil end
@@ -646,9 +656,9 @@ end
 -- RomExtractorGen2 writes, since the cart's swarm tables ARE grass and water
 -- records.  A cache built before it did simply has no swarm rows and every
 -- lookup here falls through to the map's own list.
-function Swarm.entry(save, encounters, mapId, kind)
+function Swarm.entry(save, encounters, mapId, kind, resolveId)
   if not encounters then return nil end
-  if not Swarm.onMap(save, mapId) then return nil end
+  if not Swarm.onMap(save, mapId, resolveId) then return nil end
   local table_ = (kind == "water") and encounters.swarmWater
     or encounters.swarmGrass
   return table_ and table_[mapId] or nil
@@ -658,10 +668,10 @@ end
 -- caller that wants to keep using src/battle/gen2/Encounter.lua unchanged.
 -- Returns the ORIGINAL table when no swarm applies, so the common step pays
 -- nothing.
-function Swarm.tables(save, encounters, mapId)
+function Swarm.tables(save, encounters, mapId, resolveId)
   if not encounters then return encounters end
-  local grass = Swarm.entry(save, encounters, mapId, "grass")
-  local water = Swarm.entry(save, encounters, mapId, "water")
+  local grass = Swarm.entry(save, encounters, mapId, "grass", resolveId)
+  local water = Swarm.entry(save, encounters, mapId, "water", resolveId)
   if not (grass or water) then return encounters end
   local view = {}
   for key, value in pairs(encounters) do view[key] = value end

@@ -4631,7 +4631,7 @@ end
 function World:wildTables()
   local save = self.game and self.game.save
   if not (save and self.map and self.encounters) then return self.encounters end
-  return Roamers.Swarm.tables(save, self.encounters, self.map.id)
+  return Roamers.Swarm.tables(save, self.encounters, self.map.id, self:engineFlagResolver())
 end
 
 -- ---------------------------------------------------------------------------
@@ -4705,7 +4705,7 @@ function World:checkTimeEvents()
     -- a swarm: the reset above takes DAILYFLAGS1_SWARM down, and this is what
     -- notices and clears wSwarmMapGroup/Number and wFishingSwarmFlag with it.
     -- Without it a Dunsparce call would leave Dark Cave swarming forever.
-    Roamers.Swarm.check(save)
+    if save.version ~= "crystal" then Roamers.Swarm.check(save) end
     Pokerus.checkTick(save)
     local ctx = self:stepContext().phone
     local coll = self.map and self.player
@@ -4821,7 +4821,7 @@ function World:rollFishing(rod)
   -- swarms reach the rods at all: the phone call's ActivateFishingSwarm writes
   -- the flag and nothing about the map changes.  Roamers.Swarm.fishing is the
   -- same store CheckSwarmFlag clears when the swarm expires.
-  local swarm = Roamers.Swarm.fishing(game.save)
+  local swarm = Roamers.Swarm.fishing(game.save, self:engineFlagResolver())
   -- engine/events/fish.asm:24-30
   local groupRow = self.encounters.fishGroups
     and self.encounters.fishGroups[

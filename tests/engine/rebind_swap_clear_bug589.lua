@@ -89,7 +89,13 @@ for button, action in pairs(Input.padBindings) do
   seen[action] = button
   actions[#actions + 1] = action
 end
-eq(#actions, 8, "all eight actions still have exactly one pad button")
+local gbCount = 0
+for _, action in ipairs(actions) do
+  if action ~= "l" and action ~= "r" then gbCount = gbCount + 1 end
+end
+eq(gbCount, 8, "all eight GB actions still have exactly one pad button")
+eq(Input.padBindings.leftshoulder, "l", "first-class left shoulder remains L")
+eq(Input.padBindings.rightshoulder, "r", "first-class right shoulder remains R")
 Input:init()
 
 -- ---- (b) a second input while the first is held cancels -------------------

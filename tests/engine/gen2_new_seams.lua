@@ -121,7 +121,7 @@ end
 -- ------- breeding.compatibility, breeding.egg_created, egg.hatched
 
 do
-  local man = { species = "SEEDMON", dvs = { attack = 1, defense = 2,
+  local man = { species = "SEEDMON", dvs = { attack = 2, defense = 2,
                 speed = 3, special = 4 }, otId = 1 }
   local lady = { species = "SEEDMON", dvs = { attack = 5, defense = 6,
                  speed = 7, special = 8 }, otId = 2 }

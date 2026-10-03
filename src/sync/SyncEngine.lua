@@ -311,22 +311,50 @@ local function playedMinutes(meta)
   return nil
 end
 
--- Same minute of playtime means the same point in the playthrough, so there
--- is no fork.  Unknown playtime on either side is NOT a match.
 function SyncEngine.samePlaytime(a, b)
   local left, right = playedMinutes(a), playedMinutes(b)
   return left ~= nil and left == right
 end
 
-function SyncEngine.sameProgress(a, b)
-  if SyncEngine.samePlaytime(a, b) then return true end
-  if type(a) ~= "table" or type(b) ~= "table" then return false end
-  local left = type(a.summary) == "table" and a.summary or nil
-  local right = type(b.summary) == "table" and b.summary or nil
-  if not (left and right) then return false end
-  if type(left.name) ~= "string" or left.name == "" then return false end
-  return left.name == right.name and left.badges == right.badges
-    and left.timeText == right.timeText and left.dexCount == right.dexCount
+local function snapshot(value, seen)
+  if type(value) ~= "table" then return value end
+  seen = seen or {}
+  if seen[value] then return seen[value] end
+  local out = {}; seen[value] = out
+  for k, v in pairs(value) do out[k] = snapshot(v, seen) end
+  return out
+end
+
+local function contents(blob)
+  if type(blob) ~= "string" or blob == "" or #blob > SyncClient.MAX_BLOB then return nil end
+  local ok, save = pcall(saveApi().decode, blob)
+  if not ok or type(save) ~= "table"
+      or (save.meta ~= nil and type(save.meta) ~= "table") then return nil end
+  local native = save.engine == "game3" and save.generation == 3
+    and type(save.name) == "string" and type(save.party) == "table" and type(save.bag) == "table"
+  if type(save.player) ~= "table" and not native then return nil end
+  save.savedAt = nil
+  if save.meta then save.meta.savedAt, save.meta.sessionStart = nil, nil end
+  return save
+end
+
+local function equalValues(a, b)
+  if type(a) ~= type(b) then return false end
+  if type(a) ~= "table" then return a == b end
+  for k, v in pairs(a) do if not equalValues(v, b[k]) then return false end end
+  for k in pairs(b) do if a[k] == nil then return false end end
+  return true
+end
+
+local function sameContents(a, b)
+  local left, right = contents(a), contents(b)
+  return left ~= nil and right ~= nil and equalValues(left, right)
+end
+
+local function revision(value)
+  local n = tonumber(value)
+  if not n or n ~= n or n <= 0 or n == math.huge or n % 1 ~= 0 then return nil end
+  return n
 end
 
 function SyncEngine.displayMeta(meta)
@@ -749,11 +777,7 @@ function SyncEngine:_planFrom(remoteState)
       elseif not row then
         self:_queueUpload(entry, key, false)
       elseif localChanged and remoteChanged then
-        if SyncEngine.sameProgress(entry.meta, SyncEngine.metaOf(row)) then
-          self:_queueUpload(entry, key, true)
-        else
-          self:_addConflict(entry, key, row)
-        end
+        self:_queueComparison(entry, key, row)
       elseif localChanged then
         self:_queueUpload(entry, key, false)
       elseif remoteChanged and key ~= self.protectedKey then
@@ -845,7 +869,43 @@ function SyncEngine:_addConflict(entry, key, row)
   }
 end
 
+function SyncEngine:_queueComparison(entry, key, row)
+  entry, row = snapshot(entry), snapshot(row)
+  self:_enqueue(function(eng)
+    eng.phase = "checking"
+    eng.status = "Checking save contents..."
+    local function conflict(e, data)
+      data = type(data) == "table" and data or {}
+      local meta = snapshot(SyncEngine.metaOf(row) or {})
+      local fetchedMeta = type(data.meta) == "table" and data.meta
+        or type(data.remoteMeta) == "table" and data.remoteMeta or {}
+      for k, v in pairs(fetchedMeta) do meta[k] = v end
+      e:_addConflict(entry, key, {
+        rev = revision(data.rev) or row.rev,
+        meta = meta,
+      })
+      if not e:busy() then e:_finish() end
+    end
+    local handle, err = eng.client:getSave(entry.version, entry.playthroughId)
+    if not handle then conflict(eng) return end
+    eng:_request(handle, err, function(e, res)
+      local data = type(res.data) == "table" and res.data or {}
+      local fetched, observed = revision(data.rev), revision(row.rev)
+      if fetched and observed and fetched >= observed
+          and sameContents(entry.blob, data.blob) then
+        SyncState.setRev(e.state, key, fetched, unixSeconds(entry.meta and entry.meta.savedAt))
+        e:_persist()
+        if not e:busy() then e:_finish() end
+      else conflict(e, data) end
+    end, function(e, res)
+      conflict(e, res.data)
+      return true
+    end)
+  end)
+end
+
 function SyncEngine:_queueUpload(entry, key, force)
+  entry = snapshot(entry)
   self:_enqueue(function(eng)
     eng.phase = "uploading"
     eng.status = "Uploading saves..."
@@ -866,11 +926,8 @@ function SyncEngine:_queueUpload(entry, key, force)
     end, function(e, res)
       if res.code == 409 then
         local row = res.data or {}
-        -- Retried with force only once: a forced write that still 409s is a
-        -- real refusal, and retrying it would spin.
-        if not force
-            and SyncEngine.sameProgress(entry.meta, SyncEngine.metaOf(row)) then
-          e:_queueUpload(entry, key, true)
+        if not force then
+          e:_queueComparison(entry, key, row)
         else
           e:_addConflict(entry, key, row)
         end

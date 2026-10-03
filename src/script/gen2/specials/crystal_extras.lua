@@ -4,10 +4,9 @@
 -- :57 OverworldTownMap and :126 PrintDiploma.
 
 local Bag = require("src.inventory.Bag")
-local BugContest = require("src.core.gen2.BugContest")
+local Buena = require("src.core.gen2.Buena")
 local Mon = require("src.battle.gen2.Mon")
 local Nests = require("src.core.gen2.Nests")
-local Save = require("src.core.gen2.Save")
 local Specials = require("src.script.gen2.Specials")
 local Strings = require("src.core.Strings")
 
@@ -17,7 +16,6 @@ local M = {}
 
 -- engine/overworld/variables.asm:65 wBlueCardBalance, :66 wBuenasPassword.
 local VAR_BLUECARDBALANCE = 0x18
-local VAR_BUENASPASSWORD = 0x19
 
 -- maps/RadioTower2F.asm:1 BLUE_CARD_POINT_CAP.
 local BLUE_CARD_POINT_CAP = 30
@@ -67,83 +65,6 @@ end
 -- Buena -- ../pokecrystal/engine/events/buena.asm:1, ../pokecrystal/engine/events/buena_menu.asm:1
 --------------------------------------------------------------------------
 
--- data/radio/buenas_passwords.asm, in table order.  `kind` is the BUENA_*
--- function of ../pokecrystal/constants/radio_constants.asm:128-131; `points` is both the
--- Blue Card value and the menu width ../pokecrystal/engine/events/buena.asm:9 adds.
-local BUENA_PASSWORDS = {
-  { kind = "mon", points = 10,
-    words = { "CYNDAQUIL", "TOTODILE", "CHIKORITA" } },
-  { kind = "item", points = 12,
-    words = { "FRESH_WATER", "SODA_POP", "LEMONADE" } },
-  { kind = "item", points = 12,
-    words = { "POTION", "ANTIDOTE", "PARLYZ_HEAL" } },
-  { kind = "item", points = 12,
-    words = { "POKE_BALL", "GREAT_BALL", "ULTRA_BALL" } },
-  { kind = "mon", points = 10,
-    words = { "PIKACHU", "RATTATA", "GEODUDE" } },
-  { kind = "mon", points = 10,
-    words = { "HOOTHOOT", "SPINARAK", "DROWZEE" } },
-  { kind = "string", points = 16,
-    words = { Strings.source("NEW BARK TOWN"), Strings.source("CHERRYGROVE CITY"),
-              Strings.source("AZALEA TOWN") } },
-  { kind = "string", points = 6,
-    words = { Strings.source("FLYING"), Strings.source("BUG"),
-              Strings.source("GRASS") } },
-  { kind = "move", points = 12,
-    words = { "TACKLE", "GROWL", "MUD_SLAP" } },
-  { kind = "item", points = 12,
-    words = { "X_ATTACK", "X_DEFEND", "X_SPEED" } },
-  { kind = "string", points = 13,
-    words = { Strings.source("#MON Talk"), Strings.source("#MON Music"),
-              Strings.source("Lucky Channel") } },
-}
-
--- ../pokecrystal/constants/radio_constants.asm:120-121.
-local NUM_PASSWORD_CATEGORIES = #BUENA_PASSWORDS
-local NUM_PASSWORDS_PER_CATEGORY = 3
-
--- GetBuenasPassword.StringFunctionJumptable (../pokecrystal/engine/pokegear/radio.asm:1534).
-local function passwordWord(vm, group, index)
-  local row = BUENA_PASSWORDS[group + 1]
-  if not row then return "?" end
-  local word = row.words[index + 1]
-  if not word then return "?" end
-  if row.kind == "string" then return Strings(word) end
-  local d = S.data(vm)
-  if row.kind == "mon" then
-    local def = d and d.pokemon and d.pokemon[word]
-    return (def and def.name) or word
-  end
-  if row.kind == "item" then
-    local def = d and d.items and d.items[word]
-    return (def and def.name) or word
-  end
-  local def = d and d.moves and d.moves[word]
-  return (def and def.name) or word
-end
-
--- BuenasPassword4's two rejection rolls, packed group-high over word-low
--- (../pokecrystal/engine/pokegear/radio.asm:1470-1487).
-local function rollPassword(save, day)
-  local buena = Save.crystalState(save).buenaPassword
-  buena.word = (Specials.random(NUM_PASSWORD_CATEGORIES) - 1) * 16
-    + (Specials.random(NUM_PASSWORDS_PER_CATEGORY) - 1)
-  buena.day = day
-  return buena.word
-end
-
--- DAILYFLAGS2_BUENAS_PASSWORD_F is what makes the roll once a day
--- (../pokecrystal/engine/pokegear/radio.asm:1467, :1489); the day stamp stands in for it.
-local function currentPassword(vm)
-  local record = S.save(vm)
-  if not record then return 0 end
-  local buena = Save.crystalState(record).buenaPassword
-  local today = BugContest.now().day
-  if buena.word == nil or buena.day ~= today then rollPassword(record, today) end
-  if vm.writeVarFn then vm.writeVarFn(VAR_BUENASPASSWORD, buena.word % 256) end
-  return buena.word % 256
-end
-
 -- ../pokecrystal/engine/events/buena_menu.asm:1-9: carry (NO or B) is 0 and a YES is 1.  The
 -- question is the script's own writetext at maps/RadioTower2F.asm:119.
 M.AskRememberPassword = function(vm)
@@ -155,13 +76,12 @@ end
 -- and :44-49 .PasswordIndices, which makes the menu's answer zero based.
 M.BuenasPassword = function(vm)
   local h = hooks(vm)
-  local packed = currentPassword(vm)
-  local group = math.floor(packed / 16) % 16
-  if group >= NUM_PASSWORD_CATEGORIES then group = 0 end
-  local answer = packed % 4
+  local data = S.data(vm)
+  local category, answer = Buena.captured(S.save(vm), data)
+  if not category then S.answer(vm, 0); return end
   local words = {}
-  for row = 0, NUM_PASSWORDS_PER_CATEGORY - 1 do
-    words[row + 1] = passwordWord(vm, group, row)
+  for row = 0, 2 do
+    words[row + 1] = Buena.word(data, category, row)
   end
   if not h.pushScreen then
     S.answer(vm, 0)
@@ -171,7 +91,7 @@ M.BuenasPassword = function(vm)
     local ok = h.pushScreen("Gen2BuenaPassword", {
       mode = "password",
       words = words,
-      width = BUENA_PASSWORDS[group + 1].points,
+      width = category.width,
       onDone = function(index) done(index or -1) end,
     })
     if not ok then done(-1) end

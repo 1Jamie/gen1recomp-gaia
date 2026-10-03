@@ -46,7 +46,7 @@ end
 local function saveEntry(version, id, savedAt, sessionStart, slot)
   return {
     version = version, slot = slot or "slot1", playthroughId = id,
-    blob = "return { player = { name = 'ASH' } }",
+    blob = 'return { player = { name = "ASH" } }',
     meta = { savedAt = savedAt, sessionStart = sessionStart,
              playthroughId = id, summary = { name = "ASH", badges = 2 } },
   }
@@ -249,23 +249,19 @@ do
   T.eq(eng.phase, "idle", "and the sync ends idle")
 end
 
--- Identical playtime is not a fork.  The Gold prompt the player saw offered
--- "GOLD - 8 badges - 3:46 - 9 seen" against "GOLD - 8 badges - 3:46 - 9 seen":
--- the same minute of the same playthrough, two saves that differ only in
--- their savedAt stamp.  Nothing to choose between, so nothing to ask.
 do
   T.eq(SyncEngine.samePlaytime(
         { summary = { timeText = "3:46" } },
         { summary = { timeText = "3:46" } }), true,
-    "the same H:MM is the same point in the playthrough")
+    "the helper recognizes matching displayed minutes")
   T.eq(SyncEngine.samePlaytime(
         { summary = { timeText = "3:46" } },
         { summary = { timeText = "3:47" } }), false,
-    "one minute apart is a real fork")
+    "the helper distinguishes different displayed minutes")
   T.eq(SyncEngine.samePlaytime({ playTime = 13560 }, { playTime = 13599 }),
     true, "Gen 1's seconds count compares to the minute, not the second")
   T.eq(SyncEngine.samePlaytime({ playTime = 13560 }, { playTime = 13620 }),
-    false, "and a whole minute apart still forks")
+    false, "and a whole minute apart differs")
   -- Gen 2 stores playTime as a table, so meta.playTime is nil on a Gold
   -- save and only timeText survives; a missing time must never read as a
   -- match, or an unknowable conflict would be silently discarded.
@@ -285,20 +281,22 @@ do
       body = '{"saves":{"red/abc":{"rev":9,"meta":{"savedAt":760,' ..
              '"sessionStart":600,"summary":{"name":"ASH","timeText":"3:46"}}}}}' },
     ["PUT /sync/save"] = { code = 200, body = '{"ok":true,"rev":10}' },
+    ["GET /sync/save"] = { code = 200, data = { rev = 9,
+      meta = { savedAt = 760 }, blob = entry.blob } },
   }, { entry }, state)
 
   eng:syncNow()
   pump(eng)
-  T.eq(#eng.conflicts, 0, "matching playtime raises no conflict")
+  T.eq(#eng.conflicts, 0, "verified matching contents raise no conflict")
   T.eq(#eng.state.pendingConflicts, 0, "and leaves nothing pending")
   T.neq(eng.phase, "conflict", "so the player is never prompted")
   local put
   for _, req in ipairs(transport.sent) do
     if req.method == "PUT" then put = req end
   end
-  T.check(put ~= nil, "this device's copy is pushed instead")
-  T.check(put and put.body:find('"force":true', 1, true) ~= nil,
-    "forced past the moved rev, since there is nothing to preserve")
+  T.eq(put, nil, "matching contents require no replacement PUT")
+  T.eq(SyncState.rev(eng.state, "red/abc"), 9, "the verified revision is adopted")
+  T.eq(SyncState.stamp(eng.state, "red/abc"), 700, "the compared local stamp is remembered")
 end
 
 local function conflictEngine()
@@ -326,7 +324,7 @@ do
     "and the status is the wording the player was promised")
   T.eq(eng.conflicts[1].remoteMeta.summary.name, "BLUE",
     "the other device's save is summarized for the prompt")
-  T.eq(#transport.sent, 1, "nothing is uploaded while the player decides")
+  T.eq(#transport.sent, 2, "only state and remote contents are read before the player decides")
   T.eq(#eng.state.pendingConflicts, 1, "the conflict survives in the state")
 end
 
@@ -336,7 +334,7 @@ do
   pump(eng)
   eng:resolveConflict("red/abc", "local")
   pump(eng)
-  local put = transport.sent[2]
+  local put = transport.sent[3]
   T.eq(put.method, "PUT", "keep this device uploads")
   T.eq(Json.decode(put.body).force, true, "with the force flag")
   T.eq(SyncState.rev(eng.state, "red/abc"), 10, "and adopts the new rev")
@@ -350,7 +348,7 @@ do
   pump(eng)
   eng:resolveConflict("red/abc", "remote")
   pump(eng)
-  T.eq(transport.sent[2].method, "GET", "keep the other device downloads")
+  T.eq(transport.sent[3].method, "GET", "keep the other device downloads")
   T.eq(#saves.writes, 1, "and writes it locally")
   T.eq(saves.writes[1].mode, "replace", "over this playthrough's slot")
   T.eq(SyncState.rev(eng.state, "red/abc"), 9, "adopting the remote rev")
@@ -365,7 +363,7 @@ do
   pump(eng)
   T.eq(#saves.writes, 1, "keep both imports the other save")
   T.eq(saves.writes[1].mode, "new", "into a new slot")
-  local put = transport.sent[3]
+  local put = transport.sent[4]
   T.eq(put.method, "PUT", "and still uploads this device's save")
   T.eq(Json.decode(put.body).force, true, "forcing past the stale rev")
   T.eq(eng.phase, "idle", "the conflict is cleared")
@@ -891,20 +889,22 @@ do
              '"summary":{"name":"GOLD","badges":8,"timeText":"3:46",' ..
              '"dexCount":9}}}}}' },
     ["PUT /sync/save"] = { code = 200, body = '{"ok":true,"rev":5}' },
+    ["GET /sync/save"] = { code = 200, data = { rev = 4,
+      meta = { savedAt = 0 }, blob = entry.blob } },
   }, { entry }, state)
 
   eng:syncNow()
   pump(eng)
   T.eq(#eng.conflicts, 0,
-    "the same playthrough with an epoch-dated server row is not a fork")
+    "verified equal contents with an epoch-dated server row need no prompt")
   T.neq(eng.phase, "conflict", "so no duplicate-save prompt is raised")
   T.eq(SyncState.stamp(eng.state, "gold/xyz"), 1700000500,
-    "and the upload leaves a stamp behind")
+    "and equality verification leaves the local stamp behind")
   local put
   for _, req in ipairs(transport.sent) do
     if req.method == "PUT" then put = req end
   end
-  T.check(put ~= nil, "this device's copy is pushed instead")
+  T.eq(put, nil, "the epoch-dated equal copy is not overwritten")
 end
 
 do

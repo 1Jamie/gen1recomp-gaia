@@ -204,10 +204,11 @@ end
 -- pokeemerald/src/battle_pike.c:708
 function Pike.save(ctx, sess)
   local f = Util.frontier(sess)
-  f.challengeStatus = specialVar(ctx, Util.VAR_0x8005)
-  Rse.setVar("VAR_TEMP_CHALLENGE_STATUS", 0, sess)
-  f.challengePaused = 1
-  return Util.persist()
+  return Util.saveChallengeInPlace(sess, "VAR_TEMP_CHALLENGE_STATUS", function()
+    f.challengeStatus = specialVar(ctx, Util.VAR_0x8005)
+    Rse.setVar("VAR_TEMP_CHALLENGE_STATUS", 0, sess)
+    f.challengePaused = 1
+  end)
 end
 
 -- pokeemerald/src/battle_pike.c:727

@@ -811,7 +811,7 @@ function Util.saveGameFrontier(sess)
   return true
 end
 
-function Util.saveChallenge(sess, tempName, prepare)
+function Util.saveChallenge(sess, tempName, prepare, save)
   local f = Util.frontier(sess)
   local before = deepCopy(f)
   local id = assert(Rse.varId(tempName, sess))
@@ -819,13 +819,23 @@ function Util.saveChallenge(sess, tempName, prepare)
   local vars = store and store.vars
   local temp = vars and vars[id]
   prepare()
-  local ok, err = Util.saveGameFrontier(sess)
+  local called, ok, err = pcall(save or Util.saveGameFrontier, sess)
+  if not called then ok, err = false, "The challenge could not be saved." end
   if not ok then
     for k in pairs(f) do f[k] = nil end
     for k, v in pairs(before) do f[k] = v end
     if vars then vars[id] = temp end
+    if sess.vars then sess.vars[id] = temp end
   end
   return ok, err
+end
+
+function Util.saveChallengeInPlace(sess, tempName, prepare)
+  return Util.saveChallenge(sess, tempName, prepare, function()
+    local ok, written = pcall(Util.persist)
+    if not ok or written ~= true then return false, "The challenge could not be saved." end
+    return true
+  end)
 end
 
 function Util.saveFromNative(ctx, adapters, sess, save)

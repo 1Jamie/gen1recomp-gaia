@@ -19,6 +19,7 @@
 
 local GameVersion = require("src.core.GameVersion")
 local Unown = require("src.core.gen2.Unown")
+local Gender = require("src.core.gen2.Gender")
 -- The mod event bus.  pokemon.level_up and pokemon.move_learned are the SAME
 -- names src/battle/Experience.lua and src/battle/BattleState.lua raise on
 -- Gen 1, with the same payload keys: a mod that watches a Red party watches a
@@ -606,16 +607,9 @@ function Mon.isShiny(dvs, ctx)
   return shiny and true or false
 end
 
--- Gender comes from the Attack DV against the species' ratio threshold: an
--- Attack DV *below* the threshold is female (BaseData's `db GENDER_F12_5` is
--- already scaled out of 256).
+-- pokecrystal/engine/pokemon/mon_stats.asm:124
 function Mon.vanillaGender(def, dvs)
-  local ratio = def and def.genderRatio
-  if not ratio then return "unknown" end
-  if ratio == 0xff then return "unknown" end
-  -- The DV is 0..15; the threshold is out of 256 in steps of 16.
-  local threshold = math.floor(ratio / 16)
-  return ((dvs and dvs.attack or 0) < threshold) and "female" or "male"
+  return Gender.of(def and def.genderRatio, dvs)
 end
 
 local GENDERS = { male = true, female = true, unknown = true }

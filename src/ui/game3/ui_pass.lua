@@ -117,6 +117,12 @@ function UiPass.drawUi()
   local top = Stack.top()
   local suppressOverworldDialog = top and top.hideBelow
 
+  local MuseumPic = lazyReq("src.ui.game3.museum_fossil_pic")
+  if MuseumPic.isActive() and not suppressOverworldDialog
+      and not Stack.fullscreen() and not Stack.has("box_storage") and not Stack.has("pc_menu") then
+    tryDraw(MuseumPic)
+  end
+
   if Message.isOpen() and not suppressOverworldDialog and not Stack.has("box_storage") and not Stack.has("pc_menu") then
     Message.draw()
   end

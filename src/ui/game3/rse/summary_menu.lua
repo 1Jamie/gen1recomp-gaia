@@ -431,7 +431,7 @@ local function drawSkills(m, Sm, mon)
     or RomText.plain("gText_RibbonsVar1", { stringVars = { string.format("%2d", ribbons) } })
   put(m, pageWin(m, "skills", 1), ribText, math.floor((70 - width(ribText)) / 2) + 6, 1, 0)
   local stats = mon.stats or {}
-  local function stat(k, alt) return tonumber(stats[k] or mon[k] or mon[alt]) or 0 end
+  local function stat(k, alt) return tonumber(mon[alt] or mon[k] or stats[alt] or stats[k]) or 0 end
   local hp, maxHp = tonumber(mon.hp) or 0, tonumber(mon.maxHp or stats.hp) or 0
   local left = pad(hp, 3) .. "/" .. pad(maxHp, 3) .. "\n" .. pad(stat("atk", "attack"), 7) .. "\n" .. pad(stat("def", "defense"), 7)
   put(m, pageWin(m, "skills", 2), left, 4, 1, 0)

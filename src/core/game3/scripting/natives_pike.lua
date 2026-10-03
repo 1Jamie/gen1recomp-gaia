@@ -25,7 +25,7 @@ FUNCS[FN.SET_ROOM_OBJECTS] = function(_, _, s) Pike.setupRoomObjects(s) end
 FUNCS[FN.GET_ROOM_TYPE] = function(ctx, _, s) result(ctx, Pike.rt(s).roomType) end
 FUNCS[FN.SET_IN_WILD_MON_ROOM] = function(_, _, s) Pike.rt(s).inWildMonRoom = true end
 FUNCS[FN.CLEAR_IN_WILD_MON_ROOM] = function(_, _, s) Pike.rt(s).inWildMonRoom = false end
-FUNCS[FN.SAVE] = function(ctx, _, s) Pike.save(ctx, s) end
+FUNCS[FN.SAVE] = function(ctx, adapters, s) return Util.saveFromNative(ctx, adapters, s, Pike.save) end
 FUNCS[FN.DUMMY_1] = function() end
 FUNCS[FN.DUMMY_2] = function() end
 FUNCS[FN.GET_ROOM_STATUS] = function(ctx, _, s)

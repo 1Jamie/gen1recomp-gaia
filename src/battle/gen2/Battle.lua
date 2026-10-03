@@ -4250,13 +4250,6 @@ function Battle:useBattleItem(itemId)
   local def = self:itemDef(itemId)
   self:emit({ kind = "message",
     text = Strings("Used the %s.", (def and def.name) or itemId) })
-  if itemId == "GUARD_SPEC" then
-    self:emit({ kind = "message",
-      text = Strings("%s's shrouded in MIST!", self:monName(self.player)) })
-  elseif itemId == "DIRE_HIT" then
-    self:emit({ kind = "message",
-      text = Strings("%s is getting pumped!", self:monName(self.player)) })
-  end
   return true
 end
 
@@ -4703,12 +4696,15 @@ function Battle:vanillaEnemyMove()
     attacker = {
       level = self.enemy.level,
       stats = self.enemy.stats,
+      gender = self.enemy.gender,
       types = (self:speciesDef(self.enemy) or {}).types or self.enemy.types,
     },
     defender = {
       hp = self.player.hp,
       stats = self.player.stats,
       status = self.player.status,
+      gender = self.player.gender,
+      attract = self:volatile(self.player).attract,
       -- AI_Basic reads SUBSTATUS_CONFUSED for the confusion moves, not the
       -- status byte.
       confused = self:volatile(self.player).confuseCount ~= nil,

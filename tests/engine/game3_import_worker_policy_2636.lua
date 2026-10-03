@@ -32,7 +32,8 @@ for _, flag in ipairs(flags) do
 end
 
 local function run(plan, case, failure)
-  local live, maximum, starts, completions, pending, writes = 0, 0, {}, {}, {}, {}
+  local live, maximum, starts, completions, pending, writes, joins = 0, 0, {}, {}, {}, {}, {}
+  local cleared = 0
   local env = case[4]
   os.getenv = function(key)
     if key == "POKEPORT_NO_THREAD" or key == "POKEPORT_EXTRACT_WORKERS" then return env[key] end
@@ -52,11 +53,13 @@ local function run(plan, case, failure)
           live = live - 1
           completions[task] = (completions[task] or 0) + 1
           return { type = "done", task = task, ok = task ~= failure, error = task == failure and "fixture failure" or nil }
-        end }
+        end, clear = function() cleared = cleared + 1; pending = {} end }
       end,
       newThread = function()
+        local id
         return {
           start = function(_, task, _, rom, sha1)
+            id = task
             T.eq(rom, "ROM fixture", "scheduler transfers unchanged ROM")
             T.eq(sha1, "fixture sha1", "scheduler transfers SHA")
             live = live + 1
@@ -65,6 +68,7 @@ local function run(plan, case, failure)
             pending[#pending + 1] = task
           end,
           getError = function() return nil end,
+          wait = function() joins[id] = (joins[id] or 0) + 1 end,
         }
       end,
     },
@@ -75,9 +79,11 @@ local function run(plan, case, failure)
   T.eq(ok, failure == nil, label .. " scheduler result")
   T.eq(maximum, math.min(#plan.tasks, case[5]), label .. " maximum concurrent nested workers")
   T.eq(live, 0, label .. " completes all workers")
+  T.eq(cleared, 1, label .. " clears private completion channel after joins")
   for _, task in ipairs(plan.tasks) do
     T.eq(starts[task.id], 1, label .. " starts " .. task.id .. " exactly once")
     T.eq(completions[task.id], 1, label .. " completes " .. task.id .. " exactly once")
+    T.eq(joins[task.id], 1, label .. " joins " .. task.id .. " exactly once")
   end
   if failure then
     T.check(tostring(err):find("fixture failure", 1, true) ~= nil, label .. " propagates worker failure")

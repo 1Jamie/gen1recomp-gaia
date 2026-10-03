@@ -323,6 +323,7 @@ function BindingsMenu:drainCapture()
       if ev.kind == "key" then self:captureKey(ev.value)
       elseif ev.kind == "pad" then self:capturePad(ev.value)
       elseif ev.kind == "joy" then self:captureJoy(ev.value)
+      elseif ev.kind == "touch" and ev.value == "b" then self:endCapture()
       end
     else
       if ev.kind == "key" then self:captureKeyRelease(ev.value)
@@ -348,11 +349,12 @@ end
 function BindingsMenu:draw()
   ListMenu.draw(self)
   if self.capture then
-    Font.drawBox(1, 6, 18, 6)
+    Font.drawBox(1, 6, 18, 8)
     love.graphics.setColor(0, 0, 0, 1)
     Font.draw(Strings("PRESS A BUTTON"), 24, 60)
     Font.draw(Strings("RELEASE TO SET"), 24, 72)
     Font.draw(Strings("ESC/2ND CANCELS"), 24, 84)
+    Font.draw(Strings("TOUCH B CANCELS"), 24, 96)
     love.graphics.setColor(1, 1, 1, 1)
   end
 end

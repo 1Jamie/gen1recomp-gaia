@@ -676,11 +676,12 @@ end
 
 -- pokeemerald/src/battle_pyramid.c:931
 function Pyramid.save(ctx, sess)
-  local f = Pyramid.frontier(sess)
-  f.challengeStatus = specialVar(ctx, Util.VAR_0x8005)
-  Rse.setVar("VAR_TEMP_CHALLENGE_STATUS", 0, sess)
-  f.challengePaused = 1
-  Util.persist()
+  local f = Util.frontier(sess)
+  return Util.saveChallengeInPlace(sess, "VAR_TEMP_CHALLENGE_STATUS", function()
+    f.challengeStatus = specialVar(ctx, Util.VAR_0x8005)
+    Rse.setVar("VAR_TEMP_CHALLENGE_STATUS", 0, sess)
+    f.challengePaused = 1
+  end)
 end
 
 -- pokeemerald/src/battle_pyramid.c:940

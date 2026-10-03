@@ -578,7 +578,8 @@ function Game3:fixedUpdate(dt)
     end
     return
   end
-  if FieldModules.enabled("helpSystem") and Help.update(self) then
+  if not (self.input and self.input.captureArmed)
+      and FieldModules.enabled("helpSystem") and Help.update(self) then
     -- Keep streaming BGM fed without advancing fanfare/script callbacks.
     Audio.pumpBgm()
     return
@@ -915,9 +916,8 @@ function Game3:_padPressedBody(joystick, button)
     local ok, down = pcall(function() return joystick:isGamepadDown("back") end)
     selectHeld = ok and down == true
   end
-  local isShoulder = button == "leftshoulder" or button == "rightshoulder"
-  if not selectHeld and not isShoulder and Input2.padAction then
-    local action = Input2:padAction(button)
+  if not selectHeld and Input2.padAction then
+    local action = Input2:padAction(button, true)
     if action == "speedUp" then
       self:_cycleSpeed(1)
       return
@@ -1073,6 +1073,8 @@ function Game3:gamepadaxis(joystick, axis, value)
 end
 
 function Game3:joystickpressed(joystick, button)
+  local Map = lazyReq("src.core.GamepadMap")
+  if Map.ignoreRawForJoystick(joystick) or Map.isAccelerometer(joystick) then return end
   if self.touchControls then self.touchControls:noteGamepad() end
   local Input2 = self.input
   if Input2 and Input2.joyAction and not Input2.captureArmed
@@ -1180,6 +1182,7 @@ local SOFT_RESET = {
   { "src.core.game3.scripting.natives_listmenu", "close" },
   { "src.ui.game3.hud", "clearWaitButton" },
   { "src.ui.game3.mon_pic", "hide" },
+  { "src.ui.game3.museum_fossil_pic", "reset" },
   { "src.ui.game3.seagallop", "stop" },
   { "src.ui.game3.map_preview_screen", "reset" },
   { "src.ui.game3.cave_transition", "clear" },

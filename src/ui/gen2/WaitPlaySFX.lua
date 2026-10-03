@@ -1,5 +1,11 @@
 local WaitPlaySFX = {}
 
+function WaitPlaySFX.step(game)
+  local speed = game and type(game.logicSpeed) == "function" and game:logicSpeed() or 1
+  if type(speed) ~= "number" or speed ~= speed or speed < 1 or speed == math.huge then speed = 1 end
+  return 1 / speed
+end
+
 local function sound()
   local ok, mod = pcall(require, "src.core.Sound")
   return ok and type(mod) == "table" and mod or nil
@@ -15,9 +21,9 @@ function WaitPlaySFX.arm(name, fallback)
 end
 
 -- home/audio.asm:225 WaitSFX
-function WaitPlaySFX.waiting(pending)
+function WaitPlaySFX.waiting(pending, game)
   if not pending then return false end
-  pending.left = (pending.left or 0) - 1
+  pending.left = (pending.left or 0) - WaitPlaySFX.step(game)
   if pending.left <= 0 then return false end
   local Sound = sound()
   if not Sound then return false end

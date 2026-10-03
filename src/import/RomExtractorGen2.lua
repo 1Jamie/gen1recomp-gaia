@@ -3097,6 +3097,78 @@ local function romAddrOk(bank, address)
   return address >= 0x4000 and address < 0x8000
 end
 
+-- pokecrystal/data/radio/buenas_passwords.asm:1
+function RomExtractorGen2:readBuenaPasswordData()
+  if self.edition ~= "crystal" then return nil end
+  local tableAt = self:symbol("BuenasPasswordTable")
+  local nameAt = self:symbol("BuenasPasswordChannelName")
+  local charmap = self.manifest.charmap or {}
+  local constants = self.manifest.constants or {}
+  local kinds = { "mon", "item", "move", "string" }
+  local orders = { constants.speciesOrder, constants.itemOrder,
+    constants.moveOrder }
+  local function range(bank, address, count)
+    assert(type(bank) == "number" and bank % 1 == 0 and bank >= 0
+      and bank <= 0x7f, "invalid Buena ROM bank")
+    local first, last = bank == 0 and 0 or 0x4000,
+      bank == 0 and 0x4000 or 0x8000
+    assert(type(address) == "number" and address % 1 == 0
+      and address >= first and address + count <= last,
+      "invalid Buena ROM pointer")
+  end
+  local function readString(bank, address, limit)
+    local chars = {}
+    for offset = 0, limit - 1 do
+      range(bank, address + offset, 1)
+      local byte = self.rom:byte(bank, address + offset)
+      if byte == 0x50 then
+        assert(#chars > 0, "empty Buena ROM string")
+        return table.concat(chars), offset + 1
+      end
+      local char = charmap[tostring(byte)]
+      assert(type(char) == "string", "invalid Buena ROM character")
+      chars[#chars + 1] = char
+    end
+    error("unterminated Buena ROM string")
+  end
+  local stationName = readString(nameAt.bank, nameAt.address, 32)
+  local categories = {}
+  -- pokecrystal/constants/radio_constants.asm:120
+  range(tableAt.bank, tableAt.address, 11 * 2)
+  for category = 0, 10 do
+    local address = self.rom:word(tableAt.bank,
+      tableAt.address + category * 2)
+    range(tableAt.bank, address, 2)
+    local kind = self.rom:byte(tableAt.bank, address)
+    local width = self.rom:byte(tableAt.bank, address + 1)
+    assert(kinds[kind + 1], "invalid Buena password type")
+    assert(width > 0 and width <= 18, "invalid Buena password width")
+    local words = {}
+    address = address + 2
+    -- pokecrystal/constants/radio_constants.asm:121
+    for option = 1, 3 do
+      if kind == 3 then
+        local word, length = readString(tableAt.bank, address, 32)
+        words[option] = word
+        address = address + length
+      else
+        range(tableAt.bank, address, 1)
+        local id = self.rom:byte(tableAt.bank, address)
+        local word = orders[kind + 1] and orders[kind + 1][id]
+        assert(id > 0 and type(word) == "string"
+          and not word:match("^UNUSED") and word ~= "NO_ITEM",
+          "invalid Buena password identifier")
+        words[option] = word
+        address = address + 1
+      end
+    end
+    categories[#categories + 1] = {
+      kind = kinds[kind + 1], width = width, words = words,
+    }
+  end
+  return { stationName = stationName, categories = categories }
+end
+
 -- The side tables a script command NAMES rather than carries: the phone book,
 -- the in-game trades, the elevator's floor labels, and the five decoration
 -- descriptions.  Each row's script pointers come back with the rest so
@@ -3109,6 +3181,7 @@ function RomExtractorGen2:readEventTables()
   local consts = self.manifest.constants
   local charmap = self.manifest.charmap or {}
   local out = {}
+  out.buenaPassword = self:readBuenaPasswordData()
 
   local function name(list, index, fallback)
     if type(list) ~= "table" then return fallback end

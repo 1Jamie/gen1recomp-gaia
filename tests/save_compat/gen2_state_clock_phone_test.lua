@@ -22,6 +22,9 @@ local Roamers = require("src.core.gen2.Roamers")
 local StepEvents = require("src.world.gen2.StepEvents")
 local FieldMoves = require("src.world.gen2.FieldMoves")
 local Specials = require("src.script.gen2.Specials")
+local Buena = require("src.core.gen2.Buena")
+local Radio = require("src.ui.gen2.Pokegear").Radio
+local BuenaData = require("tests.fixtures.gen2_buena")
 
 local VERSIONS = { "gold", "silver", "crystal" }
 local REGIONS = {
@@ -343,11 +346,10 @@ for _, v in ipairs(VERSIONS) do
   BugContest.useBall(s)
   BugContest.stop(s)
   if v == "crystal" then
-    Specials.random = function(n) return n and 2 or 1 end
-    local bvm = specialVm(s)
-    bvm.specials.pushScreen = nil
-    Specials.HANDLERS.BuenasPassword(bvm)
-    Specials.random = realRandom
+    local radio = Radio.new({ data = { crystal = true, hour = 21,
+      buenaSave = s, buenaData = BuenaData }, rng = function() return 1 end })
+    radio:tune("BUENAS_PASSWORD")
+    for _ = 1, 410 do radio:step() end
     Save.crystalState(s).buenaPassword.balance = 12
     s.rtc.day = Save.crystalState(s).buenaPassword.day
     Save.crystalState(s).kenjiBreak = 5
@@ -375,6 +377,45 @@ for _, v in ipairs(VERSIONS) do
     eq(u8(out, S.wRTC + 1), s.rtc.hour, label .. ": wRTC hour from rtc.hour")
     eq(u8(out, S.wRTC + 2), s.rtc.minute, label .. ": wRTC minute from rtc.minute")
     eq(u8(out, S.wRTC + 3), 0, label .. ": wRTC second is 0")
+  end
+end
+
+-- pokecrystal/engine/pokegear/radio.asm:1467
+do
+  local S = syms("crystal")
+  local bytes = build("crystal", realistic("crystal"))
+  local s = import("crystal", bytes)
+  local buena = s.crystal.buenaPassword
+  local word, points, day = buena.word, buena.balance, buena.day
+  s.engineFlags[96] = true
+  local radio = Radio.new({ data = { crystal = true, hour = 21,
+    buenaSave = s, buenaData = BuenaData }, rng = function() error("imported word rerolled") end })
+  radio:tune("BUENAS_PASSWORD")
+  for _ = 1, 410 do radio:step() end
+  eq(buena.word, word, "2639 imported listening word survives radio")
+  eq(buena.day, day, "2639 imported listening day survives radio")
+  local listening = export("crystal", s, bytes)
+  if listening then
+    eq(u8(listening, S.wBuenasPassword), word, "2639 listening exports captured word")
+    eq(u8(listening, S.wBlueCardBalance), points, "2639 listening exports points")
+    eq(math.floor(u8(listening, S.wDailyFlags2) / 128), 1, "2639 listening exports source bit7")
+  end
+  Buena.clearListening(s, BuenaData)
+  local offair = export("crystal", s, bytes)
+  if offair then
+    local back = import("crystal", offair)
+    eq(back.crystal.buenaPassword.word, word, "2639 off-air preserves packed word through SRAM")
+    eq(back.crystal.buenaPassword.balance, points, "2639 off-air preserves points through SRAM")
+    eq(back.crystal.buenaPassword.day, nil, "2639 off-air does not resurrect cleared listened day")
+    eq(math.floor(u8(offair, S.wDailyFlags2) / 128), 0, "2639 off-air clears SRAM listened bit7")
+    eq(u8(offair, S.wSwarmFlags) % 2, 1, "2639 off-air preserves SRAM played bit0")
+  end
+  Apricorns.dailyReset(s)
+  local reset = export("crystal", s, bytes)
+  if reset then
+    eq(u8(reset, S.wSwarmFlags) % 2, 0, "2639 daily reset clears SRAM played bit0")
+    eq(u8(reset, S.wBuenasPassword), word, "2639 daily reset preserves SRAM packed word")
+    eq(u8(reset, S.wBlueCardBalance), points, "2639 daily reset preserves SRAM points")
   end
 end
 
@@ -535,8 +576,8 @@ for _, v in ipairs(VERSIONS) do
       eq(u8(out, S.wKenjiBreakTimer), 6, label .. ": wKenjiBreakTimer")
       eq(u8(out, S.wYanmaMapGroup) + u8(out, S.wYanmaMapNumber), 0, label .. ": a cleared Yanma swarm")
       eq(u8(out, S.wKurtApricornQuantity), 0, label .. ": wKurtApricornQuantity")
-      eq(u8(out, S.wDailyRematchFlags), 0x01, label .. ": Gaven's rematch flag cleared")
-      eq(u8(out, S.wDailyPhoneTimeOfDayFlags + 1), 0x50, label .. ": Alan's call slot set")
+      eq(u8(out, S.wDailyRematchFlags), 0, label .. ": Crystal daily rematch array cleared")
+      eq(u8(out, S.wDailyPhoneTimeOfDayFlags + 1), 0x40, label .. ": only today's Alan call slot set")
     end
   end
   if not crystal then

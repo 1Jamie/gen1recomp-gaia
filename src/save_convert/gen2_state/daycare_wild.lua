@@ -1,4 +1,5 @@
 local M = {}
+local Syms = require("src.save_convert.Gen2Syms")
 
 local NAME = 11
 local BOX = 32
@@ -60,6 +61,13 @@ local function rangeBytes(S)
   local n = 0
   for _, r in ipairs(M.ranges(S)) do n = n + r[2] - r[1] end
   return n
+end
+
+function M.dailyReset(save)
+  if save.version ~= "crystal" then return end
+  local raw = save[M.CARRIER]
+  if type(raw) ~= "string" or #raw ~= rangeBytes(Syms.crystal) * 2 or raw:find("[^%x]") then return end
+  save[M.CARRIER] = raw:sub(1, -3) .. "00"
 end
 
 local function byteValue(u, v, what)
@@ -361,6 +369,10 @@ local function putSwarmFlags(ctx, t, save)
   if not S.wSwarmFlags then return end
   local flags = type(save.engineFlags) == "table" and save.engineFlags or {}
   local b = u.u8(t, S.wSwarmFlags)
+  local raw = save[M.CARRIER]
+  if type(raw) == "string" and #raw == rangeBytes(S) * 2 and not raw:find("[^%x]") then
+    b = tonumber(raw:sub(-2), 16)
+  end
   for bitN, id in pairs(M.SWARM_FLAG_IDS) do b = u.setBit(b, bitN, flags[id] == true) end
   t[S.wSwarmFlags] = b
 end

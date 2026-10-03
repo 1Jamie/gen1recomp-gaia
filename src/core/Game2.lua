@@ -1066,7 +1066,7 @@ end
 function Game2:load(opts)
   opts = opts or {}
   local arena = opts.arena
-  Input:init()
+  Input:init(false)
   -- Before applyOptions, which is what pushes options.touchControls into it:
   -- init() decides whether the platform wants the overlay at all and loads the
   -- art, applyOptions then lays it out (src/core/Game.lua:59-60 does the pair
@@ -2600,6 +2600,7 @@ local function isRawStick(joystick)
 end
 
 function Game2:joystickpressed(joystick, button)
+  if GamepadMap.ignoreRawForJoystick(joystick) then return end
   if GamepadMap.isAccelerometer(joystick) then return end
   TouchControls:noteGamepad()
   local top = self.stack and self.stack:top()

@@ -13,6 +13,7 @@
 -- parked on the special; `onDone` resumes it, and `closetext` follows.
 
 local Chrome = require("src.ui.gen2.Chrome")
+local Buena = require("src.core.gen2.Buena")
 local Nests = require("src.core.gen2.Nests")
 local Pokegear = require("src.ui.gen2.Pokegear")
 local Runtime = require("src.mods.Runtime")
@@ -49,7 +50,7 @@ local POKEGEAR_ONLY_STATIONS = { "POKE_FLUTE_RADIO", "EVOLUTION_RADIO" }
 --
 -- src/mods/Builtins.lua seeds these engine-owned, so a mod's register of
 -- ROCKET_RADIO collides and has to say override.
-function MapRadio.registerInto(registry, _, owner)
+function MapRadio.registerInto(registry, data, owner)
   local count = 0
   for channel, station in pairs(STATIONS) do
     registry:register(station, { channel = channel,
@@ -61,6 +62,11 @@ function MapRadio.registerInto(registry, _, owner)
   -- leaving `channel` absent keeps wall-radio lookup unambiguous.
   for _, station in ipairs(POKEGEAR_ONLY_STATIONS) do
     registry:register(station, { name = Pokegear.STATION_NAMES[station] }, owner)
+    count = count + 1
+  end
+  local metadata = Buena.metadata(data)
+  if metadata then
+    registry:register("BUENAS_PASSWORD", { name = metadata.stationName }, owner)
     count = count + 1
   end
   return count

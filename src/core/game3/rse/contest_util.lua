@@ -115,6 +115,33 @@ function Util.current()
   return Util.state and Util.state.contest or nil
 end
 
+-- pokeemerald/src/contest_util.c:616
+function Util.persistLinkResults(session, c)
+  if not (c and c:isLink()) then return true end
+  local warp = session and session.dynamicWarp
+  local x, y = type(warp) == "table" and tonumber(warp.x), type(warp) == "table" and tonumber(warp.y)
+  if type(warp) ~= "table" or type(warp.map) ~= "string" or warp.map == ""
+      or not x or not y or x < 0 or y < 0 or x >= math.huge or y >= math.huge
+      or x ~= math.floor(x) or y ~= math.floor(y) then
+    return false, "The saved contest entrance is incomplete. The results were not saved."
+  end
+  local R, bit = Rse(), require("bit")
+  local id, store = R.varId("VAR_CONTEST_HALL_STATE", session), R.store()
+  local vars = store and store.vars
+  if not id or not vars then return false, "The contest results could not be saved." end
+  local before = vars[id]
+  R.setVar(id, 0, session)
+  if session.vars then session.vars[id] = 0 end
+  session.continueGameWarp = { map = warp.map, warpId = warp.warpId, x = x, y = y }
+  session.specialSaveWarpFlags = bit.bor(tonumber(session.specialSaveWarpFlags) or 0, 1)
+  local ok, written = pcall(require("src.core.game3.rse.frontier.util").persist)
+  session.specialSaveWarpFlags = bit.band(tonumber(session.specialSaveWarpFlags) or 0, bit.bnot(1))
+  vars[id] = before
+  if session.vars then session.vars[id] = before end
+  if not ok or written ~= true then return false, "The contest results could not be saved." end
+  return true
+end
+
 local function playerMon(session)
   local st = Util.state
   return st and session and session.party and session.party[st.partyIndex + 1] or nil

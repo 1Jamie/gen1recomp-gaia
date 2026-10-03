@@ -1190,22 +1190,31 @@ do
           msg .. string.format(" (got %.4f, want %.4f)", got, want))
   end
 
-  about(Kit.layout(720, 1560), 1.3 * 720 / 640,
-    "portrait phone scales off its width, gently")
-  check(Kit.layout(720, 1560) >= 0.9,
-        "a portrait phone never drops below the readability floor")
-  about(Kit.layout(1560, 720), 1.3 * 720 / 768, "landscape phone still scales off height")
-  about(Kit.layout(360, 640), 1.17,
-    "a tiny window stops at the readable floor and reflows instead of shrinking")
-  about(Kit.layout(500, 800), 1.17, "500px wide sits on the floor too")
-
-  -- desktop and laptop sizes keep the height-only scale they always had
-  for _, size in ipairs({ { 1280, 800 }, { 1024, 768 }, { 1920, 1080 },
-                          { 1440, 900 }, { 2560, 1440 }, { 900, 700 } }) do
-    about(Kit.layout(size[1], size[2]),
-      1.3 * Theme.clamp(math.min(size[1] / 640, size[2] / 768), 0.9, 1.6),
-      ("%dx%d keeps its height-based scale"):format(size[1], size[2]))
+  local previousOS = love.system.getOS
+  for _, platform in ipairs({ "Android", "iOS", "NX" }) do
+    love.system.getOS = function() return platform end
+    for _, size in ipairs({ { 720, 1560, 1.4625 }, { 1560, 720, 1.21875 },
+                            { 360, 640, 1.17 }, { 500, 800, 1.17 },
+                            { 1920, 1080, 1.828125 } }) do
+      about(Kit.layout(size[1], size[2]), size[3],
+        ("%s %dx%d keeps touch-readable scale"):format(platform, size[1], size[2]))
+      check(not Kit.desktop, platform .. " keeps touch layout at every window size")
+    end
   end
+  for _, platform in ipairs({ "OS X", "Windows", "Linux" }) do
+    love.system.getOS = function() return platform end
+    for _, size in ipairs({ { 1280, 800, 1.0416666667 }, { 1024, 768, 1 },
+                            { 1920, 1080, 1.15 }, { 1440, 900, 1.15 },
+                            { 2560, 1440, 1.15 } }) do
+      about(Kit.layout(size[1], size[2]), size[3],
+        ("%s %dx%d keeps compact desktop scale"):format(platform, size[1], size[2]))
+      check(Kit.desktop, platform .. " selects desktop layout at desktop sizes")
+    end
+    about(Kit.layout(900, 700), 1.1848958333,
+      platform .. " narrow window reflows with readable scale")
+    check(not Kit.desktop, platform .. " narrow window uses reflow layout")
+  end
+  love.system.getOS = previousOS
 end
 
 do

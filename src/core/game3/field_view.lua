@@ -644,7 +644,7 @@ local function collectGame3Actors(game, mapDef, camX, camY, px, py, facing, walk
     local Space = package.loaded["src.core.game3.scripting.space"]
     if Space and Space.resolveObjectGraphicsId then
       for _, a in ipairs(actors) do
-        if a.obj and not a.ghost then
+        if a.obj and not a.ghost and not (a.eventObject and a.eventObject.graphicsId ~= nil) then
           local gid = Space.resolveObjectGraphicsId(a.obj)
           if gid then a.graphicsId = gid end
         end

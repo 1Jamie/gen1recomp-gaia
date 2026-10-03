@@ -72,7 +72,8 @@ local HAT_DIRECTIONS = {
   ld = { "left", "down" }, rd = { "right", "down" },
 }
 
-function Input:init()
+function Input:init(shoulderGameplay)
+  self.shoulderGameplay = shoulderGameplay ~= false
   self:applyBindings(nil)
   self:reset()
 end
@@ -85,53 +86,49 @@ end
 -- BindingsMenu:storeBinding) -- without this the menu records a choice
 -- that never actually reaches gameplay.
 function Input:applyBindings(overlay)
-  local keys, pads, joys = {}, {}, {}
+  local keys, pads, joys, acts, explicit = {}, {}, {}, {}, {}
   for key, action in pairs(DEFAULT_BINDINGS) do keys[key] = action end
-  for button, action in pairs(GamepadMap.gamepadBindings()) do
-    pads[button] = action
-  end
-  -- Seed raw defaults from GamepadMap (desktop XInput order or NX OLED
-  -- indices) so joyN rebinds (#632) and dual-path guards (#620) share one
-  -- table with the Switch face-label remap.
-  for index, action in pairs(GamepadMap.rawBindings()) do
-    joys[index] = action
-  end
-  local acts = {}
-  for button, action in pairs(GamepadMap.DEFAULT_PAD_ACTIONS) do
-    acts[button] = action
-  end
-  for actionId, binding in pairs(overlay or {}) do
-    if Input.PAD_ACTIONS[actionId] then
-      for button, action in pairs(acts) do
-        if action == actionId then acts[button] = nil end
-      end
-      if type(binding) == "table" and binding.pad then
-        acts[GamepadMap.TRIGGER_AXES[binding.pad] or binding.pad] = actionId
-      end
-    elseif type(binding) == "table" then
-      if binding.key then keys[binding.key] = actionId end
-      if binding.pad then
-        pads[GamepadMap.TRIGGER_AXES[binding.pad] or binding.pad] = actionId
-      end
-    elseif type(binding) == "string" then
-      keys[binding] = actionId
+  for button, action in pairs(GamepadMap.gamepadBindings()) do pads[button] = action end
+  pads.leftshoulder, pads.rightshoulder = "l", "r"
+  for index, action in pairs(GamepadMap.rawBindings()) do joys[index] = action end
+  for button, action in pairs(GamepadMap.DEFAULT_PAD_ACTIONS) do acts[button] = action end
+  local ids = {}
+  for id in pairs(overlay or {}) do ids[#ids + 1] = id end
+  table.sort(ids)
+  for _, id in ipairs(ids) do
+    local binding = overlay[id]
+    if not Input.PAD_ACTIONS[id] then
+      if type(binding) == "table" then
+        if binding.key then keys[binding.key] = id end
+        if binding.pad then
+          local button = GamepadMap.TRIGGER_AXES[binding.pad] or binding.pad
+          pads[button], acts[button] = id, nil
+        end
+      elseif type(binding) == "string" then keys[binding] = id end
     end
   end
-  -- A pad binding named "joyN" is the Nth button of a stick SDL has no
-  -- game-controller-database entry for, captured on the joystick path by
-  -- src/ui/BindingsMenu.lua (#632).  It deliberately rides the existing
-  -- pad slot: the CONTROLS row, the swap in BindingsMenu:storeBinding and
-  -- START's reset-all then all stay one code path, and this loop is the
-  -- only place that has to know what the name means.  Laid over the raw
-  -- defaults AFTER them, so a rebind wins the button it claims.
-  for padName, action in pairs(pads) do
-    local n = tonumber(padName:match("^joy(%d+)$"))
+  for _, id in ipairs(ids) do
+    if Input.PAD_ACTIONS[id] then
+      for button, action in pairs(acts) do
+        if action == id then acts[button] = nil end
+      end
+    end
+  end
+  for _, id in ipairs(ids) do
+    local binding = overlay[id]
+    if Input.PAD_ACTIONS[id] and type(binding) == "table" and binding.pad then
+      local button = GamepadMap.TRIGGER_AXES[binding.pad] or binding.pad
+      acts[button], explicit[button], pads[button] = id, true, nil
+    end
+  end
+  for button, action in pairs(pads) do
+    local n = tonumber(button:match("^joy(%d+)$"))
     if n then joys[n] = action end
   end
   local joyActs = {}
-  for padName, action in pairs(acts) do
-    local n = tonumber(padName:match("^joy(%d+)$"))
-    if n then joyActs[n] = action end
+  for button, action in pairs(acts) do
+    local n = tonumber(button:match("^joy(%d+)$"))
+    if n then joyActs[n], joys[n] = action, nil end
   end
   local poll = {}
   local canPoll = GamepadMap.gamepadBindings() ~= GamepadMap.NX_GAMEPAD_BINDINGS
@@ -141,11 +138,8 @@ function Input:applyBindings(overlay)
         chord = GamepadMap.displayChordDigit(button) ~= nil }
     end
   end
-  self.keyBindings = keys
-  self.padBindings = pads
-  self.joyBindings = joys
-  self.padActions = acts
-  self.joyActions = joyActs
+  self.keyBindings, self.padBindings, self.joyBindings = keys, pads, joys
+  self.padActions, self.explicitPadActions, self.joyActions = acts, explicit, joyActs
   self.padPoll = poll
 end
 
@@ -166,7 +160,10 @@ function Input.hotkeyKey(key)
   return key
 end
 
-function Input:padAction(button)
+function Input:padAction(button, shoulderGameplay)
+  button = GamepadMap.TRIGGER_AXES[button] or button
+  if shoulderGameplay and (button == "leftshoulder" or button == "rightshoulder")
+      and not (self.explicitPadActions and self.explicitPadActions[button]) then return nil end
   return self.padActions and self.padActions[button] or nil
 end
 
@@ -400,7 +397,7 @@ function Input:pollPads()
       release(self, e.btn, e.source)
       notePadRepair("release", e.button)
     elseif down and not held and not mute and not minimized and not suppress[e.button]
-        and not self.padActions[e.button] then
+        and not self:padAction(e.button, self.shoulderGameplay) then
       if e.chord and backDown == nil then
         backDown = self.state.select == true or anyPadDown(pads, "back")
       end
@@ -466,10 +463,12 @@ end
 -- buttons directly by name -- not through a keyboard alias -- so a player
 -- rebind can never detach or shadow the overlay.
 function Input:overlayPressed(btn)
+  noteCapture(self, "touch", "pressed", btn)
   press(self, btn, "touch:" .. btn)
 end
 
 function Input:overlayReleased(btn)
+  noteCapture(self, "touch", "released", btn)
   release(self, btn, "touch:" .. btn)
 end
 
@@ -489,30 +488,21 @@ function Input:sourceRelease(btn, source)
 end
 
 function Input:gamepadpressed(joystick, button)
+  button = GamepadMap.TRIGGER_AXES[button] or button
   if self.padSuppress then self.padSuppress[button] = nil end
   noteCapture(self, "pad", "pressed", button)
   local btn = self.padBindings[button]
-  if btn then
+  if btn and not self:padAction(button, self.shoulderGameplay) then
     press(self, btn, "pad:" .. button)
-  end
-  -- FRLG first-class shoulders (bag paging / L=A), independent of speed binds.
-  if button == "leftshoulder" then
-    press(self, "l", "pad:l")
-  elseif button == "rightshoulder" then
-    press(self, "r", "pad:r")
   end
 end
 
 function Input:gamepadreleased(joystick, button)
+  button = GamepadMap.TRIGGER_AXES[button] or button
   noteCapture(self, "pad", "released", button)
-  local btn = self.padBindings[button]
-  if btn then
-    release(self, btn, "pad:" .. button)
-  end
-  if button == "leftshoulder" then
-    release(self, "l", "pad:l")
-  elseif button == "rightshoulder" then
-    release(self, "r", "pad:r")
+  local source = "pad:" .. button
+  for btn, sources in pairs(self.sources) do
+    if sources[source] then release(self, btn, source) end
   end
 end
 
@@ -666,7 +656,9 @@ function Input:reconcile()
       if j.isGamepadDown then
         for button, btn in pairs(self.padBindings) do
           local ok2, down = pcall(j.isGamepadDown, j, button)
-          if ok2 and down then press(self, btn, "pad:" .. button) end
+          if ok2 and down and not self:padAction(button, self.shoulderGameplay) then
+            press(self, btn, "pad:" .. button)
+          end
         end
       end
       if j.getGamepadAxis then

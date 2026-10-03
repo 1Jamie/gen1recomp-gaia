@@ -807,7 +807,7 @@ function SummaryMenu:tickRepeatSfx()
   local pending = self.repeatSfx
   if not pending then return false end
   local WaitPlaySFX = waitPlaySfx()
-  if WaitPlaySFX and WaitPlaySFX.waiting(pending) then return true end
+  if WaitPlaySFX and WaitPlaySFX.waiting(pending, self.game) then return true end
   self.repeatSfx = nil
   self:playSwapSfx()
   return false

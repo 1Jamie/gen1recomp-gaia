@@ -199,18 +199,15 @@ Cutscene.BY_NAME = {
       return false
     end
     if ctx then
-      ctx.museumFossilPic = {
-        species = species,
-        x = varGet(ctx, VAR_0x8005),
-        y = varGet(ctx, VAR_0x8006),
-      }
+      require("src.ui.game3.museum_fossil_pic").show(ctx, species,
+        varGet(ctx, VAR_0x8005), varGet(ctx, VAR_0x8006))
     end
     return false
   end,
 
   -- pokefirered/src/script_menu.c:1184
   CloseMuseumFossilPic = function(ctx)
-    if ctx then ctx.museumFossilPic = nil end
+    if ctx then require("src.ui.game3.museum_fossil_pic").hide(ctx) end
     return false
   end,
   -- pokefirered/src/ss_anne.c:82 DoSSAnneDepartureCutscene

@@ -7,6 +7,7 @@
 -- Pure Lua, no love.* at require time, same as GenSave.
 
 local Gen2Layout = require("src.save_convert.Gen2Layout")
+local Gender = require("src.core.gen2.Gender")
 
 local Gen2Save = {}
 
@@ -1216,9 +1217,7 @@ local function cartDVs(mon, x)
   if mon.shiny ~= true or isShinyDVs(d) then return d end
   local def = x.pokemonDefs[mon.species]
   local ratio = type(def) == "table" and tonumber(def.genderRatio) or nil
-  local function female(a)
-    return ratio ~= nil and ratio ~= 0xFF and a < math.floor(ratio / 16)
-  end
+  local gender = Gender.of(ratio, d)
   local isUnown = mon.species == "UNOWN"
   local atk = d.attack or 0
   local best, bestKey
@@ -1226,7 +1225,7 @@ local function cartDVs(mon, x)
     local out = { attack = a, defense = 10, speed = 10, special = 10 }
     local ok = (not isUnown) or unownLetter(out) == unownLetter(d)
     if ok then
-      local key = (female(a) == female(atk) and 0 or 100) + math.abs(a - atk)
+      local key = (Gender.of(ratio, out) == gender and 0 or 100) + math.abs(a - atk)
       if not bestKey or key < bestKey then best, bestKey = out, key end
     end
   end

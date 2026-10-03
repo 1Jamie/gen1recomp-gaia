@@ -72,7 +72,7 @@ function Game:load(opts)
   require("src.battle.TypeChart").load(Data)
 
   self.input = Input
-  Input:init()
+  Input:init(false)
 
   self.touchControls = TouchControls
   TouchControls:init()
@@ -1068,6 +1068,7 @@ local function isRawStick(joystick)
 end
 
 function Game:joystickpressed(joystick, button)
+  if GamepadMap.ignoreRawForJoystick(joystick) then return end
   if isAccelerometer(joystick) then return end
   TouchControls:noteGamepad()
   local top = self.stack and self.stack:top()

@@ -2125,9 +2125,9 @@ function RomImporter:_startExtractThread(version, prefix, data, displayName)
   local resultName = "rom_import_result"
   love.thread.getChannel(progressName):clear()
   love.thread.getChannel(resultName):clear()
-  local started = pcall(thread.start, thread, version, prefix, data,
+  local started, startResult = pcall(thread.start, thread, version, prefix, data,
     progressName, resultName, self.romSha1)
-  if not started then return false end
+  if not started or startResult == false then return false end
   self._extract = {
     thread = thread, version = version, prefix = prefix,
     displayName = displayName,

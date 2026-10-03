@@ -20,6 +20,7 @@ Features intentionally added to the games themselves, beyond what the original c
 
 ## Gen 2 Specifics
 
+* **Buena points editing** in Crystal's save editor: Trainer and Items / Wallet edit the Blue Card balance from 0 to 30, with numeric validation and Undo/Redo
 * **Battle screen options** on Gold, Silver and Crystal: BATTLE SIZE (fixed or window-filling) and BATTLE BG (white, black or the dimmed map as the surround)
 * **Widescreen battle layout** on Gold, Silver and Crystal: BATTLE LAYOUT -> WIDE spreads the HUDs and bottom windows across a 304-wide screen
 * **Extended battle HUD** on Gold, Silver and Crystal: BATTLE HUD -> EXTENDED docks the WIDE layout's foe panel to the top of the window and the text area and player panel to the bottom
