@@ -75,6 +75,7 @@ function Editor.load(opts)
   local GameVersion = require("src.core.GameVersion")
   local gen = GameVersion.VERSIONS[opts.version]
     and GameVersion.generation(opts.version) or 1
+  local applied
   if gen == 2 then
     local gold = type(optsTbl.gold) == "table" and optsTbl.gold or {}
     local hotbar = gold.hotbar
