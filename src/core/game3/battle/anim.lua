@@ -138,6 +138,7 @@ local function default_present(id)
     displayMaxHp = nil,
     displayExp = nil,
     displayLevel = nil,
+    displayStatus = nil,
     flash = 0,
   }
 end
@@ -504,6 +505,7 @@ function Anim.syncDisplayFromState(st)
       p.displayHp = tonumber(b.mon.hp) or 0
       p.displayMaxHp = tonumber(b.mon.maxHp) or 1
       p.displayLevel = tonumber(b.mon.level) or 1
+      p.displayStatus = b.status or (b.mon and (b.mon.status or b.mon.status1))
       local prog = Experience.progress(b.mon)
       p.displayExp = prog.progressPercent or 0
     end

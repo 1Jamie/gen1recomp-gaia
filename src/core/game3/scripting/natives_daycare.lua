@@ -1,4 +1,3 @@
-local Strings = require("src.core.Strings")
 local Std = require("src.core.game3.scripting.stdscripts")
 local Model = require("src.core.game3.daycare")
 local Breeding = require("src.core.game3.breeding")
@@ -202,7 +201,10 @@ Daycare.BY_NAME = {
       return false, SPECIES_NONE
     end
     setStringVar(ctx, adapters, 1, nicknameOf(mon))
-    return false, Model.take(session, index)
+    local species = Model.take(session, index)
+    local speciesId = tonumber(species) or tonumber(mon.species or mon.speciesId) or 0
+    setResult(ctx, speciesId)
+    return false, speciesId
   end,
   -- pokefirered/src/daycare.c:1588 TakePokemonFromRoute5Daycare
   TakePokemonFromRoute5Daycare = function(ctx, adapters)
@@ -219,7 +221,10 @@ Daycare.BY_NAME = {
       return false, SPECIES_NONE
     end
     setStringVar(ctx, adapters, 1, nicknameOf(mon))
-    return false, Model.takeRoute5(session)
+    local species = Model.takeRoute5(session)
+    local speciesId = tonumber(species) or tonumber(mon.species or mon.speciesId) or 0
+    setResult(ctx, speciesId)
+    return false, speciesId
   end,
   -- pokefirered/src/daycare.c:594 GetDaycareCost
   GetDaycareCost = function(ctx, adapters)

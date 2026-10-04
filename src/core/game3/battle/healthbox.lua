@@ -371,7 +371,9 @@ local function draw_doubles(id, battler, st, opts)
 
   local SummaryChrome = require("src.ui.game3.summary_chrome")
   local SummaryData = require("src.core.game3.summary_data")
-  local stObj = battler.status or (battler.mon and (battler.mon.status or battler.mon.status1))
+  local p = Anim.present and Anim.present(id)
+  local stObj = (p and p.displayStatus ~= nil) and p.displayStatus or (battler.status or (battler.mon and (battler.mon.status or battler.mon.status1)))
+  if stObj == false or stObj == 0 then stObj = nil end
   local ailment = SummaryData.statusAilment({ status = stObj, hp = battler.mon and battler.mon.hp })
   local statused = ailment >= 1 and ailment <= 6
   local hpText = isPlayer and Healthbox.hpTextShown(st, id)
@@ -388,9 +390,7 @@ local function draw_doubles(id, battler, st, opts)
   end
 
   local name = State.displayName(battler)
-  local lv = battler.mon and battler.mon.level or 1
-  local p = Anim.present and Anim.present(id)
-  if p and p.displayLevel then lv = p.displayLevel end
+  local lv = (p and p.displayLevel) or (battler.mon and battler.mon.level) or 1
   local ty = tlY + TEXT_Y
   local gender = healthbox_gender(battler.mon)
   -- pokefirered/src/battle_interface.c:1531
@@ -450,12 +450,21 @@ function Healthbox.draw(side, battler, opts)
     return
   end
 
+  local p = nil
+  do
+    local ok, AnimP = pcall(require, "src.core.game3.battle.anim")
+    if ok and AnimP and AnimP.present then
+      p = AnimP.present(side)
+    end
+  end
+
   local barCx, barCy = hp_bar_center(side, c.x + ox, c.y)
   local bx, by = hp_bar_top_left(barCx, barCy)
   local statusBorder = false
   if not isPlayer then
     local SummaryData = require("src.core.game3.summary_data")
-    local st1 = battler.status or (battler.mon and (battler.mon.status or battler.mon.status1))
+    local st1 = (p and p.displayStatus ~= nil) and p.displayStatus or (battler.status or (battler.mon and (battler.mon.status or battler.mon.status1)))
+    if st1 == false or st1 == 0 then st1 = nil end
     local a = SummaryData.statusAilment({ status = st1, hp = battler.mon and battler.mon.hp })
     -- pokefirered/src/battle_interface.c:1668
     statusBorder = a >= 1 and a <= 6
@@ -464,14 +473,7 @@ function Healthbox.draw(side, battler, opts)
   BattleChrome.drawHpBar(bx, by, hpNow, hpMax, statusBorder)
 
   local name = State.displayName(battler)
-  local lv = battler.mon and battler.mon.level or 1
-  do
-    local ok, AnimP = pcall(require, "src.core.game3.battle.anim")
-    if ok and AnimP and AnimP.present then
-      local p = AnimP.present(side)
-      if p and p.displayLevel then lv = p.displayLevel end
-    end
-  end
+  local lv = (p and p.displayLevel) or (battler.mon and battler.mon.level) or 1
 
   local ty = tlY + TEXT_Y
   local lvlX = isPlayer and PLAYER_LVL_X or ENEMY_LVL_X
@@ -493,7 +495,8 @@ function Healthbox.draw(side, battler, opts)
 
   local SummaryChrome = require("src.ui.game3.summary_chrome")
   local SummaryData = require("src.core.game3.summary_data")
-  local stObj = battler.status or (battler.mon and (battler.mon.status or battler.mon.status1))
+  local stObj = (p and p.displayStatus ~= nil) and p.displayStatus or (battler.status or (battler.mon and (battler.mon.status or battler.mon.status1)))
+  if stObj == false or stObj == 0 then stObj = nil end
   local ailment = SummaryData.statusAilment({ status = stObj, hp = battler.mon and battler.mon.hp })
 
   if isPlayer then

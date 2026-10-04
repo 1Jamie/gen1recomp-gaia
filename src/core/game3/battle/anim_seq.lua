@@ -315,6 +315,10 @@ function AnimSeq.buildSteps(events, meta)
       else
         add("switch_in", d)
       end
+    elseif k == "status_apply" then
+      add("status_apply", { side = ev.side, battler = ev_id(ev, "battler", "side"), status = ev.status })
+    elseif k == "status_clear" then
+      add("status_clear", { side = ev.side, battler = ev_id(ev, "battler", "side") })
     elseif k == "end" then
       add("end", { result = ev.result, reason = ev.reason })
     end
@@ -660,6 +664,7 @@ local function run_switch_in(d)
       p.displayHp = tonumber(d.hp) or tonumber(b.mon.hp) or 0
       p.displayMaxHp = tonumber(b.mon.maxHp) or 1
       p.displayLevel = tonumber(b.mon.level) or 1
+      p.displayStatus = b.status or (b.mon and (b.mon.status or b.mon.status1))
     end
   end
   local SwitchSeq = require("src.core.game3.battle.switch_seq")
@@ -733,12 +738,27 @@ local function run_step(step)
     launch_done()
     return
   end
+  if kind == "status_apply" then
+    local id = ev_id(d, "battler", "side")
+    local p = Anim.present(id)
+    if p then p.displayStatus = d.status end
+    advance()
+    return
+  end
+  if kind == "status_clear" then
+    local id = ev_id(d, "battler", "side")
+    local p = Anim.present(id)
+    if p then p.displayStatus = false end
+    advance()
+    return
+  end
   if kind == "faint" then
     local id = ev_id(d, "battler", "side") or 1
     local p = Anim.present(id)
     if p then
       Anim.setSubstitute(id, false)
       p.blinkHidden = false
+      p.displayStatus = false
     end
     wait_anim()
     Anim.faintMon(id, {

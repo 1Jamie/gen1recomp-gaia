@@ -383,10 +383,10 @@ function BattleBridge.start(mod, game, foe, opts)
   end
   if #battleParty == 0 then return nil, "empty party" end
   local foeHalf
-  if opts.twoOpponents and opts.trainerIdB and not opts.wild then
-    foe, foeHalf = BattleBridge.twoOpponentFoe(foe, opts.trainerIdB)
-  elseif opts.twoOpponents and opts.frontierFoeHalf and not opts.wild then
+  if opts.twoOpponents and opts.frontierFoeHalf and not opts.wild then
     foeHalf = opts.frontierFoeHalf
+  elseif opts.twoOpponents and opts.trainerIdB and not opts.wild then
+    foe, foeHalf = BattleBridge.twoOpponentFoe(foe, opts.trainerIdB)
   end
   local isDouble = (not opts.wild) and (opts.double or foeHalf or (foe and foe.doubleBattle)) and true or false
   if isDouble and Party.monsStateToDoubles(linkParty or session.party) ~= Party.PLAYER_HAS_TWO_USABLE_MONS then

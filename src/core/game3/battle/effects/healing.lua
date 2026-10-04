@@ -78,10 +78,7 @@ function Healing.rest(ctx)
   if hp >= maxHp then return hp_full(ctx, user) end
   local hadStatus = ad:status(user) ~= nil
   ad:clearStatus(user)
-  user.status = "SLP"
-  if user.mon then user.mon.status = "SLP" end
-  -- pokefirered/src/battle_script_commands.c:6480
-  user.sleepTurns = 3
+  ad:applyStatus(user, "SLP", user, { force = true, turns = 3 })
   if hadStatus then
     ad:sayText("STRINGID_PKMNSLEPTHEALTHY", { atk = user })
   else

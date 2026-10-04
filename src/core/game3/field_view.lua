@@ -418,8 +418,8 @@ local function collectNeighborActors(actors, baseIndex, hostMapId, hostDef, camX
             local p = nb.perm[lid]
             local ox = p and p.x or tonumber(obj.x) or 0
             local oy = p and p.y or tonumber(obj.y) or 0
-            local out = bounds and (ox < 0 or oy < 0
-              or ox >= bounds.w or oy >= bounds.h)
+            local out = bounds and (ox < -16 or oy < -16
+              or ox >= bounds.w + 16 or oy >= bounds.h + 16)
             -- src/event_object_movement.c:8014
             if tonumber(obj.movementType) == 0x4C then out = true end
             local gid = obj.graphicsId or obj.graphics

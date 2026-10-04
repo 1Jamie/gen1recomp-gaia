@@ -901,6 +901,14 @@ function Field.interact(game)
   -- 1) EventObject (nurse behind counter uses doubled cell; Cut tree / Rock / Boulder)
   local ox, oy = facing_object_cell(fx, fy, P.facing)
   local eo = Objects.at(ox, oy)
+  if not eo then
+    local under = Objects.at(P.cellX, P.cellY)
+    local Faraway = package.loaded["src.core.game3.faraway_island"]
+    if under and (under.copy or (Faraway and Faraway.isMew and Faraway.isMew(under))) then
+      eo = under
+      ox, oy = P.cellX, P.cellY
+    end
+  end
   if eo and eo.def then
     local gfx = eo.def.graphicsId or eo.def.gfx
     local FP = lazyReq("src.core.game3.profile").forSession(Field._session)

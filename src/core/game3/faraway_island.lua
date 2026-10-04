@@ -34,13 +34,22 @@ local function counter()
 end
 
 local function mewGfx()
-  local Constants = lazyReq("src.core.game3.constants")
-  return Constants.of(Constants.versionOf(session())):require("event_objects", "OBJ_EVENT_GFX_MEW")
+  local ok, res = pcall(function()
+    local Constants = lazyReq("src.core.game3.constants")
+    return Constants.of(Constants.versionOf(session())):require("event_objects", "OBJ_EVENT_GFX_MEW")
+  end)
+  return ok and res or nil
 end
 
 -- pokeemerald/src/faraway_island.c:335
 function FarawayIsland.isMew(eo)
-  return onMap() and eo ~= nil and tonumber(eo.graphicsId) == mewGfx()
+  if not (onMap() and eo) then return false end
+  local mgfx = mewGfx()
+  local gid = tonumber(eo.graphicsId)
+  local dgid = eo.def and tonumber(eo.def.graphicsId or eo.def.gfx)
+  if mgfx and (gid == mgfx or dgid == mgfx) then return true end
+  if eo.graphicsId == "OBJ_EVENT_GFX_MEW" or (eo.def and eo.def.graphicsId == "OBJ_EVENT_GFX_MEW") then return true end
+  return false
 end
 
 -- pokeemerald/src/faraway_island.c:347

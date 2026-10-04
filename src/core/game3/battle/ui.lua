@@ -2291,13 +2291,13 @@ local function draw_action_menu(st)
   local labels = menu_labels((st and st.safari) and "gText_SafariZoneMenu" or "gText_BattleMenu")
   draw_prompt_text(action_prompt(st, ab), 10, 122)
   local positions = {
-    { 136, 122 }, { 184, 122 },
-    { 136, 138 }, { 184, 138 },
+    { 136, 122 }, { 192, 122 },
+    { 136, 138 }, { 192, 138 },
   }
   local c = Ui._menuIndex - 1
   local cursorPos = {
-    { 128, 122 }, { 176, 122 },
-    { 128, 138 }, { 176, 138 },
+    { 128, 122 }, { 184, 122 },
+    { 128, 138 }, { 184, 138 },
   }
   local cp = cursorPos[c + 1] or cursorPos[1]
   Window.cursorPx(cp[1], cp[2], { colors = FrlgFont.COLOR.NORMAL })

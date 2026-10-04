@@ -248,6 +248,12 @@ function Adapter.new(battleState, sayFn)
       local Engine = package.loaded["src.core.game3.battle.engine"]
       if Engine and Engine.cancelMultiTurnMoves then Engine.cancelMultiTurnMoves(battler) end
     end
+    self:pushEvent({
+      kind = "status_apply",
+      battler = id_of(battler),
+      side = side_of(battler),
+      status = status,
+    })
     -- pokefirered/src/battle_script_commands.c:2110
     if ModRuntime.wants("battle.status_inflicted") then
       ModRuntime.emit("battle.status_inflicted", {
@@ -264,6 +270,11 @@ function Adapter.new(battleState, sayFn)
     battler.toxicCounter = nil
     battler.sleepTurns = nil
     if battler.mon then battler.mon.status = nil end
+    self:pushEvent({
+      kind = "status_clear",
+      battler = id_of(battler),
+      side = side_of(battler),
+    })
   end
   function a:stages(battler) return battler and battler.stages end
   function a:changeStages(battler, changes)

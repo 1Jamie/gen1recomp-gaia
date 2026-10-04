@@ -560,14 +560,61 @@ function TrainerSight.engagePair(game, a, b)
   local Sp = Space()
   F.locked = true
   a.eo.frozen, b.eo.frozen = true, true
-  local tidA, tidB = TrainerSight.getTrainerId(a.eo), TrainerSight.getTrainerId(b.eo)
+
+  local okPyr, Pyramid = pcall(require, "src.core.game3.rse.frontier.pyramid")
+  local inPyramid = okPyr and Pyramid and Pyramid.inPyramid and Pyramid.inPyramid()
+
+  local tidA, tidB
+  local sess = nil
+  local D = nil
+  local partyA, partyB = {}, {}
+  local combinedParty = {}
+  local half = 0
+  local foeAInfo, foeBInfo = {}, {}
+  local nameA, nameB = "", ""
+  local defeatTextA, defeatTextB = nil, nil
+
+  if inPyramid then
+    local Rse = require("src.core.game3.rse.init")
+    sess = Rse.session()
+    D = require("src.core.game3.rse.frontier.data")
+    local F_FACILITY = D.FACILITY
+    tidA = Pyramid.localIdToTrainerId(sess, a.eo.localId)
+    tidB = Pyramid.localIdToTrainerId(sess, b.eo.localId)
+    sess.frontierOpponentA = tidA
+    sess.frontierOpponentB = tidB
+    D.fillTrainerParty(sess, tidA, 0, 1, partyA, { facility = F_FACILITY.PYRAMID })
+    D.fillTrainerParty(sess, tidB, 0, 1, partyB, { facility = F_FACILITY.PYRAMID })
+    for _, m in ipairs(partyA) do combinedParty[#combinedParty + 1] = m end
+    half = #combinedParty
+    for _, m in ipairs(partyB) do combinedParty[#combinedParty + 1] = m end
+    foeAInfo = D.trainerClass(sess, tidA, F_FACILITY.PYRAMID) or {}
+    foeBInfo = D.trainerClass(sess, tidB, F_FACILITY.PYRAMID) or {}
+    nameA = D.trainerName(sess, tidA, F_FACILITY.PYRAMID) or ""
+    nameB = D.trainerName(sess, tidB, F_FACILITY.PYRAMID) or ""
+    defeatTextA = Pyramid.speech(sess, tidA, 1)
+    defeatTextB = Pyramid.speech(sess, tidB, 1)
+  else
+    tidA = TrainerSight.getTrainerId(a.eo)
+    tidB = TrainerSight.getTrainerId(b.eo)
+  end
+
   local rowA, rowB = battleRow(a.eo), battleRow(b.eo)
   TrainerSight._pair = { a = tidA, b = tidB }
+
   local function finishBattle(result)
     local store = Sp and Sp.store
     local ctx = Sp and Sp.vm and Sp.vm.ctx
     TrainerSight._pair = nil
     F.locked = false
+    a.eo.frozen, b.eo.frozen = false, false
+    if inPyramid then
+      Pyramid.markBattled(sess, tidA, a.eo.localId)
+      Pyramid.markBattled(sess, tidB, b.eo.localId)
+      local N = require("src.core.game3.scripting.natives")
+      sess.battleOutcome = N.outcome_to_code(result or "win")
+      return
+    end
     if result == "lose" or result == "whiteout" or result == "blackout" then return end
     -- pokeemerald/src/battle_setup.c:1245
     for _, tid in ipairs({ tidB, tidA }) do
@@ -593,41 +640,102 @@ function TrainerSight.engagePair(game, a, b)
       end
     end
   end
+
   local function startBattle()
-    local okT, Trainers = pcall(require, "src.core.game3.scripting.trainers")
-    local foe = okT and Trainers.foeFromId(tidA)
-    local dlgA, dlgB = Trainers.dialogs(tidA) or {}, Trainers.dialogs(tidB) or {}
-    local function text(row, key, dlg)
-      if row and row[key] and Sp and Sp.vm and Sp.vm.getText then
-        local t = Sp.vm:getText(row[key])
-        if t then return t end
-      end
-      return dlg
-    end
     local Runtime = package.loaded["src.core.game3.runtime"] or require("src.core.game3.runtime")
+    local foe
+    local battleOpts
+    if inPyramid then
+      foe = {
+        party = combinedParty,
+        trainerId = tidA,
+        trainerClass = foeAInfo.class,
+        trainerClassName = foeAInfo.className,
+        trainerName = nameA,
+        trainerPicId = foeAInfo.pic,
+      }
+      battleOpts = {
+        wild = false,
+        trainerId = tidA,
+        trainerIdB = tidB,
+        twoOpponents = true,
+        double = true,
+        frontierFoeHalf = half,
+        pyramid = true,
+        frontier = true,
+        frontierTrainer = { class = foeAInfo.class, className = foeAInfo.className, name = nameA, pic = foeAInfo.pic },
+        frontierTrainerB = { class = foeBInfo.class, className = foeBInfo.className, name = nameB, pic = foeBInfo.pic },
+        defeatText = defeatTextA,
+        defeatTextB = defeatTextB,
+        transitionId = D and D.specialTransition(sess, "B_PYRAMID", combinedParty) or nil,
+        done = finishBattle,
+      }
+    else
+      local okT, Trainers = pcall(require, "src.core.game3.scripting.trainers")
+      foe = okT and Trainers.foeFromId(tidA)
+      local dlgA, dlgB = Trainers.dialogs(tidA) or {}, Trainers.dialogs(tidB) or {}
+      local function text(row, key, dlg)
+        if row and row[key] and Sp and Sp.vm and Sp.vm.getText then
+          local t = Sp.vm:getText(row[key])
+          if t then return t end
+        end
+        return dlg
+      end
+      battleOpts = {
+        wild = false,
+        trainerId = tidA,
+        trainerIdB = tidB,
+        twoOpponents = true,
+        double = true,
+        defeatText = text(rowA, "defeatText", dlgA.defeat),
+        defeatTextB = text(rowB, "defeatText", dlgB.defeat),
+        done = finishBattle,
+      }
+    end
     -- pokeemerald/src/battle_setup.c:1272
-    local ok, err = require("src.core.game3.battle_bridge").start(Runtime._mod, game or Runtime._game, foe, {
-      wild = false,
-      trainerId = tidA,
-      trainerIdB = tidB,
-      twoOpponents = true,
-      double = true,
-      defeatText = text(rowA, "defeatText", dlgA.defeat),
-      defeatTextB = text(rowB, "defeatText", dlgB.defeat),
-      done = finishBattle,
-    })
+    local ok, err = require("src.core.game3.battle_bridge").start(Runtime._mod, game or Runtime._game, foe, battleOpts)
     if not ok then
       print("[game3/trainer_sight] two-trainer battle did not start: " .. tostring(err))
       finishBattle("lose")
     end
   end
-  playEncounterMusic(tidA, rowA)
+
+  local function showIntroA(onDone)
+    if inPyramid then
+      local introA = Pyramid.speech(sess, tidA, 0)
+      require("src.ui.game3.hud").openMessage(nil, introA, { done = onDone })
+    else
+      introSpeech(a.eo, tidA, rowA, onDone)
+    end
+  end
+
+  local function showIntroB(onDone)
+    if inPyramid then
+      local introB = Pyramid.speech(sess, tidB, 0)
+      require("src.ui.game3.hud").openMessage(nil, introB, { done = onDone })
+    else
+      introSpeech(b.eo, tidB, rowB, onDone)
+    end
+  end
+
+  if inPyramid then
+    local Audio = require("src.core.game3.audio")
+    Audio.playSong(Pyramid.encounterMusic(sess, tidA))
+  else
+    playEncounterMusic(tidA, rowA)
+  end
+
   approach(a.eo, a.dist, a.facing, function()
-    introSpeech(a.eo, tidA, rowA, function()
+    showIntroA(function()
       -- pokeemerald/src/trainer_see.c:666
-      playEncounterMusic(tidB, rowB)
+      if inPyramid then
+        local Audio = require("src.core.game3.audio")
+        Audio.playSong(Pyramid.encounterMusic(sess, tidB))
+      else
+        playEncounterMusic(tidB, rowB)
+      end
       approach(b.eo, b.dist, b.facing, function()
-        introSpeech(b.eo, tidB, rowB, startBattle)
+        showIntroB(startBattle)
       end)
     end)
   end)

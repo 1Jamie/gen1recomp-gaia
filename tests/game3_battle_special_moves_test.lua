@@ -777,6 +777,33 @@ do
 end
 
 do
+  -- Solarbeam in Sun (e.g. Groudon Drought) fires in 1 turn and uses unleash animation (turn=1)
+  local sbId = Moves.numForName("SOLARBEAM") or Moves.numForName("SOLAR_BEAM")
+  local st = State.new({
+    wild = true,
+    weather = "SUN",
+    playerParty = { { species = 383, level = 50, hp = 200, maxHp = 200, moves = { sbId }, pp = { 10 },
+      attack = 150, defense = 140, spAtk = 100, spDef = 90, speed = 90 } },
+    foeMon = { species = 19, level = 20, hp = 100, maxHp = 100, moves = { 33 }, pp = { 35 },
+      attack = 20, defense = 50, spAtk = 20, spDef = 50, speed = 20 },
+  })
+  local ad = setup_test_battle(st)
+  local out = {}
+  Engine.resolveMove(st.player, st.enemy, sbId, 1, ad, st, out)
+  check(ad:hp(st.enemy) < 100, "Foe takes damage immediately in Sun without a charge turn")
+  check(st.player.twoTurnMove == nil, "No twoTurnMove locked in Sun")
+  local moveEvents = {}
+  for _, ev in ipairs(ad:events()) do
+    if ev.kind == "move" and ev.moveId == sbId then
+      moveEvents[#moveEvents + 1] = ev
+    end
+  end
+  check(#moveEvents == 1, "Exactly one move event generated for instant Solar Beam")
+  check(moveEvents[1] and moveEvents[1].turn == 1,
+    "Solar Beam animation event uses turn=1 (unleash beam), got turn=" .. tostring(moveEvents[1] and moveEvents[1].turn))
+end
+
+do
   -- Skull Bash raises defense on charge turn 1
   local sbashId = Moves.numForName("SKULL_BASH")
   local st = State.new({

@@ -44,6 +44,8 @@ GfxIds.TO_SPRITE = {
   [88] = "SPRITE_MOM",             -- player's PC / mom-adjacent
   [89] = "SPRITE_SUPER_NERD",      -- CELIO
   [92] = "SPRITE_POKE_BALL",
+  [108] = "SPRITE_SAILOR",         -- OBJ_EVENT_GFX_SEAGALLOP fallback
+  [109] = "SPRITE_SAILOR",         -- OBJ_EVENT_GFX_SS_ANNE fallback
 }
 
 local S, N, W, E = "down", "up", "left", "right"
