@@ -191,6 +191,7 @@ public class GameActivity extends SDLActivity {
     private Object audioFocusRequest = null;
     private Object audioDeviceCallback = null;
     private boolean audioFocusHeld = false;
+    private boolean audioContextSuspended = false;
     private boolean audioDeviceCallbackPrimed = false;
     private static final long AUDIO_FOCUS_RECOVERY_DELAY_MS = 2000;
     private final Handler audioFocusHandler = new Handler(Looper.getMainLooper());
@@ -2285,6 +2286,7 @@ public class GameActivity extends SDLActivity {
                     abandonAudioFocus();
                     try {
                         nativeAudioFocusGained();
+                        audioContextSuspended = false;
                     } catch (UnsatisfiedLinkError e) {
                         Log.d("GameActivity", "nativeAudioFocusGained failed in setAudioMixWithSystem", e);
                     }
@@ -2331,6 +2333,19 @@ public class GameActivity extends SDLActivity {
         if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
             audioFocusHeld = true;
             cancelAudioFocusRecovery();
+            resumeSuspendedAudioContext();
+        }
+    }
+
+    private void resumeSuspendedAudioContext() {
+        if (!audioContextSuspended) {
+            return;
+        }
+        try {
+            nativeAudioFocusGained();
+            audioContextSuspended = false;
+        } catch (UnsatisfiedLinkError e) {
+            Log.d("GameActivity", "audio context resume before liblove was ready", e);
         }
     }
 
@@ -2383,6 +2398,7 @@ public class GameActivity extends SDLActivity {
                     audioFocusHeld = false;
                     if (!audioMixWithSystem) {
                         nativeAudioFocusLost();
+                        audioContextSuspended = true;
                     }
                     break;
                 case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
@@ -2394,6 +2410,7 @@ public class GameActivity extends SDLActivity {
                     audioFocusHeld = true;
                     cancelAudioFocusRecovery();
                     nativeAudioFocusGained();
+                    audioContextSuspended = false;
                     break;
                 default:
                     break;
