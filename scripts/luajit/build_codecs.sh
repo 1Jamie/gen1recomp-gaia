@@ -61,6 +61,7 @@ say "building codecs in $RT ($LUAJIT_BUILD_IMAGE, arm64)"
   -e THEORA_TARBALL="$THEORA_TARBALL" -e MPG123_TARBALL="$MPG123_TARBALL" \
   -e CODEC_MAX_GLIBC="$LUAJIT_MAX_GLIBC" \
   -e LUAJIT_APT_SOURCES="$LUAJIT_APT_SOURCES" \
+  -e HOST_OWNER="$(id -u):$(id -g)" \
   -v "$HERE:/luajit-scripts:ro" \
   -v "$CACHE/src:/in:ro" \
   -v "$STAGE/out:/out" \
@@ -72,6 +73,7 @@ say "building codecs in $RT ($LUAJIT_BUILD_IMAGE, arm64)"
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
       build-essential binutils pkg-config autotools-dev bzip2 ca-certificates >/dev/null
     bash /luajit-scripts/compile_codecs.sh /in /out
+    chown -R "$HOST_OWNER" /out
   ' >&2 || fail "codec container build failed"
 
 for soname in $CODEC_LIBS; do
