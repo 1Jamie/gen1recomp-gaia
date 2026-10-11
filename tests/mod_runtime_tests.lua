@@ -56,6 +56,12 @@ check(pcall(function() events:emit("boom") end), "emit survives a throwing liste
 check(reached == 1, "later listeners run after a failure")
 check(logged("[bad_mod]", "boom"), "listener failure logged with mod id")
 
+-- a mod logging nil where the format wants a number gets a line, not a crash
+check(pcall(Logger.info, "[%s] topUp %d/%d", "nil_count", nil, 3),
+  "log call survives arguments that don't fit the format")
+check(logged("[nil_count] topUp nil/3", "bad log format"),
+  "mismatched log arguments still logged")
+
 -- rollback support: removeOwner drops every subscription a mod made
 events:removeOwner("good_mod")
 events:emit("boom")
