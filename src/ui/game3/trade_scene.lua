@@ -285,7 +285,8 @@ function TradeSceneUi.draw()
   if s.crossMonVisible then
     draw_mon(Pokemon.monFrontPic(s.offer, nil, "trade"),
       60, 192 + (s.monY2a or 0), 1)
-    draw_mon(Pokemon.monFrontPic(s.received, nil, "trade"),
+    -- pokefirered/src/trade_scene.c:763
+    draw_mon(Pokemon.monFrontPicDontHandleDeoxys(s.received, nil, "trade"),
       180, -32 + (s.monY2b or 0), 1)
   end
 

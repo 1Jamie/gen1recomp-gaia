@@ -15,10 +15,12 @@ local MB = require("src.core.game3.mb")
 local M = {}
 
 M.SUMMARY = "native/summary.lua"
+M.LAYOUT_FILES = "native/layout_files.lua"
 
 M.REQUIRED = {
   "native/manifest.lua",
   M.SUMMARY,
+  M.LAYOUT_FILES,
   "mid_index.lua",
   "warps.lua",
   "connections.lua",
@@ -189,7 +191,7 @@ function M.run(rom, cache, opts)
     end
   end
 
-  local altAdded, altSkipped = AltLayouts.buildUnreferenced(rom, version, grids, borders, pad_even, census)
+  local altAdded, altSkipped, layoutFiles = AltLayouts.buildUnreferenced(rom, version, grids, borders, pad_even, census)
   for _, key in ipairs(altSkipped) do log("skip layout " .. key .. ": no tileset pair") end
 
   local needed = {}
@@ -220,6 +222,10 @@ function M.run(rom, cache, opts)
       log("drop layout " .. key .. ": tileset pair " .. tostring(grid.pair) .. " failed")
     end
   end
+  for id, key in pairs(layoutFiles) do
+    if not grids[key] then layoutFiles[id] = nil end
+  end
+  cache:write(root .. "/" .. M.LAYOUT_FILES, "return " .. serialize(layoutFiles) .. "\n")
   local mapOrder = {}
   for _, id in ipairs(registered) do
     if grids[id] then mapOrder[#mapOrder + 1] = id end

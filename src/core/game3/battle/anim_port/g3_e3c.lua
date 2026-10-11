@@ -941,10 +941,14 @@ function H.monPicSprite(vm, species, isBack, x, y, z, side)
   local ok, Pokemon = pcall(require, "src.core.game3.pokemon")
   local img
   if ok and species then
-    local picSp, shiny, personality = require("src.core.game3.battle.ui").sidePicArgs(side, species)
+    local Ui = require("src.core.game3.battle.ui")
+    local picSp, shiny, personality = Ui.sidePicArgs(side, species)
+    -- pokefirered/src/battle_anim_mons.c:1956
+    local ignore = Ui.sideIgnoresDeoxysForm(side, species)
     local e
-    if isBack and Pokemon.backPic then e = Pokemon.backPic(picSp, nil, shiny) end
-    if not isBack and Pokemon.frontPic then e = Pokemon.frontPic(picSp, nil, shiny, personality) end
+    if isBack and ignore then e = Pokemon.backPicDontHandleDeoxys(picSp, nil, shiny) end
+    if isBack and not ignore then e = Pokemon.backPic(picSp, nil, shiny) end
+    if not isBack and Pokemon.frontPic then e = Ui.sidePic(false, ignore, picSp, nil, shiny, personality) end
     img = e and e.image
   end
   local okc, pc = pcall(require, "src.core.game3.battle.pic_coords")

@@ -97,7 +97,8 @@ eq(EM.SPECIES_UNOWN_QMARK, 439, "Unown ? species id")
 
 local FR = Versions.forGame("firered")
 check(FR.MON_FRONT_PIC_ANIM == nil, "FR has no animated front pic key")
-check(FR.MON_PIC_DUPLICATE_DEOXYS == nil, "FR keeps its one-frame Deoxys output")
+check(FR.MON_PIC_DUPLICATE_DEOXYS == true, "FR writes the Attack Forme Deoxys pics")
+eq(FR.MON_ICON_DEOXYS_OFFSET, 0x400, "FR Deoxys form icon follows the normal icon")
 check(FR.TYPE_NAMES == nil and FR.SPECIES_TO_HOENN == nil, "FR writes no Hoenn/type packs")
 
 eq(EggExtract.SPECIES_EGG, 412, "SPECIES_EGG on FireRed")

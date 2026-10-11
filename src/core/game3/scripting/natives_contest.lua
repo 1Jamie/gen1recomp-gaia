@@ -476,8 +476,9 @@ NativesContest.BY_NAME = {
   ShowContestEntryMonPic = function(ctx)
     local c = current()
     if not c then return false end
-    local m = c.mons[var(ctx, VAR_0x8006)]
-    if m then uiModule("entryPic", "src.ui.game3.rse.contest_entry_pic").show(m) end
+    local idx = var(ctx, VAR_0x8006)
+    local m = c.mons[idx]
+    if m then uiModule("entryPic", "src.ui.game3.rse.contest_entry_pic").show(m, idx == c.playerIndex) end
     return false
   end,
   -- pokeemerald/src/contest_util.c:2626

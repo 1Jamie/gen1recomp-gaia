@@ -43,7 +43,7 @@ Versions.ROM_SIZE = 16777216
 -- v115: LeafGreen profiles, edition-specific title assets and Deoxys stats.
 -- v121: chrome/fonts/japanese_{normal,small}_* and japanese_widths.lua, the
 --       cart's Japanese fonts, for text a Japanese translation mod prints.
-Versions.CACHE_VERSION = 134
+Versions.CACHE_VERSION = 135
 Versions.NATIVE_VERSION = 6
 Versions.OW_VERSION = 3
 Versions.ANIM_VERSION = 1
@@ -115,6 +115,10 @@ Versions.MON_ICON_PAL_INDICES = 0x3D3E80  -- gMonIconPaletteIndices
 Versions.MON_ICON_PALETTES = 0x3D3740     -- gMonIconPalettes (16 colors × N)
 Versions.MON_ICON_PAL_COUNT = 6
 Versions.MON_ICON_BYTES = 0x400           -- 32×64 4bpp (2 frames)
+-- pokefirered/src/decompress.c:108
+Versions.MON_PIC_DUPLICATE_DEOXYS = true
+-- pokefirered/src/pokemon_icon.c:1112
+Versions.MON_ICON_DEOXYS_OFFSET = 0x400
 Versions.MON_ICON_W = 32
 Versions.MON_ICON_H = 32                  -- first frame only
 -- sSpeciesToNationalPokedexNum[NUM_SPECIES-1]; SpeciesToNational uses [species-1].

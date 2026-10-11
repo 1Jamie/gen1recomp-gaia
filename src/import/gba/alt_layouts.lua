@@ -109,13 +109,20 @@ function AltLayouts.buildUnreferenced(rom, version, grids, borders, padEven, cen
   local count = Versions.NUM_MAP_LAYOUTS or 0
   local referenced, byPret = {}, {}
   for _, entry in ipairs(census and census.maps or {}) do
-    if entry.layout and entry.layout.layoutOff then referenced[entry.layout.layoutOff] = true end
+    local off = entry.layout and entry.layout.layoutOff
+    if off and entry.engineId and grids and grids[entry.engineId] then
+      if type(referenced[off]) ~= "string" then referenced[off] = entry.engineId end
+    elseif off then
+      referenced[off] = referenced[off] or true
+    end
     if entry.pretName and entry.engineId then byPret[entry.pretName] = entry.engineId end
   end
-  local added, skipped = {}, {}
+  local added, skipped, files = {}, {}, {}
   for id = 1, count do
     local layoutOff = rom:ptrOffset(rom:u32(base + (id - 1) * 4))
-    if layoutOff and not referenced[layoutOff] then
+    if layoutOff and type(referenced[layoutOff]) == "string" then
+      files[id] = referenced[layoutOff]
+    elseif layoutOff and not referenced[layoutOff] then
       local layout = MapTree.parseLayout(rom, layoutOff)
       local mapOff = layout and rom:ptrOffset(layout.mapPtr)
       local pair = layout and mapOff and MapCatalog.pairForLayout(rom, layout)
@@ -141,12 +148,13 @@ function AltLayouts.buildUnreferenced(rom, version, grids, borders, padEven, cen
         grids[key] = grid
         if borders then borders[key] = read_border(rom, layout) end
         added[#added + 1] = key
+        files[id] = key
       else
         skipped[#skipped + 1] = key
       end
     end
   end
-  return added, skipped
+  return added, skipped, files
 end
 
 return AltLayouts

@@ -9,7 +9,7 @@ EntryPic._animation = nil
 local function MonPic() return require("src.ui.game3.mon_pic") end
 
 -- pokeemerald/src/contest_util.c:2577
-function EntryPic.show(m)
+function EntryPic.show(m, isPlayerMon)
   if EntryPic.active then return end
   local Pokemon = require("src.core.game3.pokemon")
   local MonAnim = require("src.core.game3.mon_anim")
@@ -18,8 +18,9 @@ function EntryPic.show(m)
   local shiny = Pokemon.isShiny({ personality = personality, otId = (tonumber(m.otId) or 0) % 65536,
     otSecretId = math.floor((tonumber(m.otId) or 0) / 65536) % 65536 })
   local picSpecies = Pokemon.picSpecies(species, personality)
-  local pic = Pokemon.frontPic(Pokemon.picSpecies(species, m.personality), 0,
-    shiny, personality)
+  -- pokeemerald/src/contest_util.c:2597
+  local loadPic = isPlayerMon and Pokemon.frontPic or Pokemon.frontPicDontHandleDeoxys
+  local pic = loadPic(Pokemon.picSpecies(species, m.personality), 0, shiny, personality)
   local mp = MonPic()
   mp.show(species, EntryPic.LEFT, EntryPic.TOP, { noCry = true })
   if pic and pic.image then

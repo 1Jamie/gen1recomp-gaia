@@ -890,7 +890,8 @@ local function draw_back(c)
     for i = 1, 6 do
       local sp = c.monSpecies[i]
       if sp and sp > 0 then
-        local icon = tinted_icon(Pokemon.icon(sp), sp, tint)
+        -- src/trainer_card.c:1434
+        local icon = tinted_icon(Pokemon.iconDontHandleDeoxys(sp), sp, tint)
         local q = icon and icon.quads and icon.quads[0]
         if icon and icon.image and q then
           love.graphics.setColor(1, 1, 1, 1)

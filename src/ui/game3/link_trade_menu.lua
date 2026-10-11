@@ -1041,7 +1041,10 @@ function LinkTradeMenu.draw()
       elseif i == sel.idx and sel.x then
         x, y = sel.x, sel.y
       end
-      local icon = x and pokemon().monIcon(party[i + 1])
+      -- pokefirered/src/trade.c:957, :969
+      local icon
+      if x and side == 0 then icon = pokemon().monIcon(party[i + 1]) end
+      if x and side ~= 0 then icon = pokemon().monIconDontHandleDeoxys(party[i + 1]) end
       if icon and icon.image then
         local a = LinkTradeMenu.icons[side][i + 1]
         local q = icon.quads and (icon.quads[a and a.f or 0] or icon.quads[0])

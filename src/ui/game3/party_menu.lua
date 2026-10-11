@@ -668,7 +668,13 @@ local function ensure_slot_sprites(i, mon, selected)
   local maxHp = tonumber(mon.maxHp) or tonumber(mon.maxhp) or 1
   local hpLevel = get_hp_bar_level(hp, maxHp, mon.isEgg)
 
-  local icon = Pokemon.monIcon(mon)
+  local icon
+  -- pokefirered/src/party_menu.c:2652
+  if PartyMenu._multi and PartyMenu._multi[i] then
+    icon = Pokemon.monIconDontHandleDeoxys(mon)
+  else
+    icon = Pokemon.monIcon(mon)
+  end
   local q0 = icon and icon.quads and icon.quads[0]
   if not slot.mon then
     local id = select(1, Oam.createSprite({

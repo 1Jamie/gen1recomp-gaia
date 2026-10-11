@@ -1075,6 +1075,7 @@ function PokemonExtract.run(rom, cache, opts)
   local palTable = pic_table("MON_PALETTE_TABLE", "mon_palette_table")
   local SPECIES_CASTFORM = species_id("SPECIES_CASTFORM")
   local SPECIES_SPINDA = species_id("SPECIES_SPINDA")
+  local SPECIES_DEOXYS = Versions.MON_PIC_DUPLICATE_DEOXYS and species_id("SPECIES_DEOXYS") or nil
 
   local picsWritten = { icons = 0, front = 0, back = 0 }
   local picsMissing = {}
@@ -1131,6 +1132,13 @@ function PokemonExtract.run(rom, cache, opts)
                 decode_pic_sheet(tiles, shinyBytes, form, form))
             end
           end
+          -- pokefirered/src/decompress.c:108
+          if sp == SPECIES_DEOXYS then
+            if #tiles < 2 * 2048 then error("pokemon_extract: Deoxys " .. kind .. " pic has no second frame") end
+            put(cache, root .. "/" .. kind .. "/" .. sp .. "_handled.rgba", decode_pic_sheet(tiles, palBytes, 1, 0))
+            put(cache, root .. "/" .. kind .. "_shiny/" .. sp .. "_handled.rgba",
+              decode_pic_sheet(tiles, shinyBytes, 1, 0))
+          end
         else
           noteMissing(kind, sp)
         end
@@ -1145,6 +1153,11 @@ function PokemonExtract.run(rom, cache, opts)
     end
     put(cache, root .. "/icons/" .. sp .. ".rgba", icon_rgba(rom, sp, pals))
     picsWritten.icons = picsWritten.icons + 1
+    -- pokefirered/src/pokemon_icon.c:1111
+    if sp == SPECIES_DEOXYS then
+      put(cache, root .. "/icons/" .. sp .. "_handled.rgba",
+        icon_rgba(rom, sp, pals, { byteOffset = need("MON_ICON_DEOXYS_OFFSET") }))
+    end
     write_pics(sp)
   end
 
@@ -1559,13 +1572,16 @@ PokemonExtract.REQUIRED = {
   "pokemon/back/1.rgba", "pokemon/back/411.rgba", "pokemon/back/439.rgba",
   "pokemon/icons/1.rgba", "pokemon/icons/411.rgba", "pokemon/icons/439.rgba",
   "pokemon/footprints/1.rgba",
+  "pokemon/front/410_handled.rgba", "pokemon/front_anim/410_handled.rgba", "pokemon/back/410_handled.rgba",
+  "pokemon/icons/410_handled.rgba",
 }
 
 function PokemonExtract.requiredForPlan(planId)
   if planId ~= "rs" then return PokemonExtract.REQUIRED end
   local required = {}
   for _, path in ipairs(PokemonExtract.REQUIRED) do
-    if not path:match("^pokemon/front_anim/") and not path:match("^pokemon/front_still/") then
+    if not path:match("^pokemon/front_anim/") and not path:match("^pokemon/front_still/")
+        and not path:match("_handled%.rgba$") then
       required[#required + 1] = path
     end
   end
@@ -1637,7 +1653,17 @@ function PokemonExtract.ready(cache, cacheRoot)
     if count and count < (Versions.NUM_SPECIES or 412) then return false end
   end
 
+  local function deoxys_ready()
+    if not Versions.MON_PIC_DUPLICATE_DEOXYS then return true end
+    local sp = species_id("SPECIES_DEOXYS")
+    local pic = 64 * 64 * 4
+    return valid_file(root .. "/front/" .. sp .. "_handled.rgba", pic)
+      and valid_file(root .. "/back/" .. sp .. "_handled.rgba", pic)
+      and valid_file(root .. "/icons/" .. sp .. "_handled.rgba", iconBytes)
+  end
+
   if Versions.MON_FRONT_PIC_ANIM ~= nil then
+    if not deoxys_ready() then return false end
     for _, row in ipairs(RSE_READY) do
       if not valid_file(root .. "/" .. row[1], row[2]) then return false end
     end
@@ -1681,7 +1707,8 @@ function PokemonExtract.ready(cache, cacheRoot)
       and valid_file(root .. "/icons/1.rgba", iconBytes)
       and valid_file(root .. "/front/" .. last .. ".rgba", 64 * 64 * 4)
       and valid_file(root .. "/back/" .. last .. ".rgba", 64 * 64 * 4)
-      and valid_file(root .. "/icons/" .. last .. ".rgba", iconBytes) then
+      and valid_file(root .. "/icons/" .. last .. ".rgba", iconBytes)
+      and deoxys_ready() then
     return true
   end
   return false

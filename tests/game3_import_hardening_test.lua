@@ -322,6 +322,9 @@ local function readyCacheWith(skip, format, numSpecies)
     [ROOT .. "/pokemon/front/" .. last .. ".rgba"] = 64 * 64 * 4,
     [ROOT .. "/pokemon/back/" .. last .. ".rgba"] = 64 * 64 * 4,
     [ROOT .. "/pokemon/icons/" .. last .. ".rgba"] = iconBytes,
+    [ROOT .. "/pokemon/front/410_handled.rgba"] = 64 * 64 * 4,
+    [ROOT .. "/pokemon/back/410_handled.rgba"] = 64 * 64 * 4,
+    [ROOT .. "/pokemon/icons/410_handled.rgba"] = iconBytes,
     [ROOT .. "/chrome/fonts/braille.lua"] = 64,
     [ROOT .. "/seagallop/manifest.lua"] = 64,
     [ROOT .. "/seagallop/wb.rgba"] = 32 * 8 * 32 * 8 * 4,
@@ -350,6 +353,10 @@ check(PokemonExtract.ready(readyCacheWith(ROOT .. "/pokemon/front/" .. last .. "
   "a cache with no last-species front sprite is not ready")
 check(PokemonExtract.ready(readyCacheWith(ROOT .. "/pokemon/icons/" .. last .. ".rgba"), ROOT) == false,
   "a cache with no last-species icon is not ready")
+check(PokemonExtract.ready(readyCacheWith(ROOT .. "/pokemon/front/410_handled.rgba"), ROOT) == false,
+  "a cache with no Deoxys form front pic is not ready")
+check(PokemonExtract.ready(readyCacheWith(ROOT .. "/pokemon/icons/410_handled.rgba"), ROOT) == false,
+  "a cache with no Deoxys form icon is not ready")
 check(PokemonExtract.ready(readyCacheWith(nil, PokemonExtract.FORMAT_VERSION - 1), ROOT) == false,
   "a cache written by an older species format is not ready")
 check(PokemonExtract.ready(readyCacheWith(nil, nil, 1), ROOT) == false,

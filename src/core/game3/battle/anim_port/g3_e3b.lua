@@ -594,10 +594,10 @@ end)
 function H.picImage(species, back, side)
   local ok, Pokemon = pcall(require, "src.core.game3.pokemon")
   if not ok or not species then return nil end
-  local picSp, shiny, personality = require("src.core.game3.battle.ui").sidePicArgs(side, species)
-  local e
-  if back and Pokemon.backPic then e = Pokemon.backPic(picSp, nil, shiny) end
-  if not e and Pokemon.frontPic then e = Pokemon.frontPic(picSp, nil, shiny, personality) end
+  local Ui = require("src.core.game3.battle.ui")
+  local picSp, shiny, personality = Ui.sidePicArgs(side, species)
+  -- pokefirered/src/battle_anim_effects_3.c:3177
+  local e = Ui.sidePic(back, true, picSp, nil, shiny, personality)
   return e and e.image
 end
 

@@ -239,6 +239,15 @@ local function braille_width(ir)
   return best
 end
 
+-- pokeemerald/src/overworld.c:993
+local function layout_file_key(session, root, layoutId)
+  if require("src.core.game3.profile").family(session) ~= "rse" then return "alt_" .. layoutId end
+  local src = require("src.core.game3.dataset").cache():read(root .. "/layout_files.lua")
+  local chunk = src and load(src, "@layout_files.lua", "t", {})
+  local files = chunk and chunk()
+  return type(files) == "table" and files[layoutId] or nil
+end
+
 -- pokefirered/src/overworld.c:978
 local function set_map_layout(layoutId, log)
   layoutId = tonumber(layoutId)
@@ -254,7 +263,8 @@ local function set_map_layout(layoutId, log)
   local Dataset = require("src.core.game3.dataset")
   local root = Extract.NATIVE_ROOT
     or ((Extract.CACHE_ROOT or "data/generated/gba") .. "/native")
-  local blob = Dataset.cache():read(root .. "/layouts/alt_" .. layoutId .. ".mid")
+  local fileKey = layout_file_key(session, root, layoutId)
+  local blob = fileKey and Dataset.cache():read(root .. "/layouts/" .. fileKey .. ".mid")
   if not blob then
     if log then log("[game3] setmaplayoutindex " .. layoutId .. ": no baked layout") end
     return false
@@ -390,7 +400,7 @@ local function dispatch(vm, row)
     local std = row.std or row[1]
     local key = "std:" .. tostring(std)
     if not vm.scripts[key] then
-      a.log("[game3] missing " .. key .. " — skipping")
+      a.log("[game3] missing " .. key .. ": skipping")
       return false
     end
     if #ctx.stack >= 20 then return false end
@@ -404,7 +414,7 @@ local function dispatch(vm, row)
   elseif op == "gotostd" then
     local key = "std:" .. tostring(row.std or row[1])
     if not vm.scripts[key] then
-      a.log("[game3] missing " .. key .. " — skipping")
+      a.log("[game3] missing " .. key .. ": skipping")
       return false
     end
     vm:setPc(key, 1)
@@ -415,7 +425,7 @@ local function dispatch(vm, row)
     if not cond_ok(ctx, row.cond or row[1]) then return false end
     local key = "std:" .. tostring(row.std or row[2])
     if not vm.scripts[key] then
-      a.log("[game3] missing " .. key .. " — skipping")
+      a.log("[game3] missing " .. key .. ": skipping")
       return false
     end
     if op == "callstd_if" then
@@ -454,7 +464,7 @@ local function dispatch(vm, row)
     Flags.setVar(store, ctx, row[1], v)
     return false
   elseif op == "setorcopyvar" then
-    -- if src is var id in special/normal range treat as copy; else set literal — cart uses bit.
+    -- if src is var id in special/normal range treat as copy; else set literal: cart uses bit.
     local src = row[2] or 0
     if src >= 0x4000 then
       Flags.setVar(store, ctx, row[1], Flags.getVar(store, ctx, src))
@@ -524,7 +534,7 @@ local function dispatch(vm, row)
     return false
   elseif op == "release" then
     if ctx.lockKind and ctx.lockKind ~= "single" then
-      a.log("[game3] release after lockall — restoring lockSnapshots only")
+      a.log("[game3] release after lockall: restoring lockSnapshots only")
     end
     for lid, snap in pairs(ctx.lockSnapshots) do
       if a.unfreezeLocal then a.unfreezeLocal(lid, snap) end
@@ -543,7 +553,7 @@ local function dispatch(vm, row)
     return false
   elseif op == "releaseall" then
     if ctx.lockKind and ctx.lockKind ~= "all" then
-      a.log("[game3] releaseall after lock — clearing all snapshots")
+      a.log("[game3] releaseall after lock: clearing all snapshots")
     end
     for lid, snap in pairs(ctx.lockSnapshots) do
       if a.unfreezeLocal then a.unfreezeLocal(lid, snap) end
@@ -1070,7 +1080,7 @@ local function dispatch(vm, row)
     local frames = tonumber(row[1] or row.frames) or 0
     if frames <= 0 then return false end
     -- Soft per-frame wait only. Never call a.delay that completes+tick_vm
-    -- synchronously — that re-enters resume and clears waitmovement polls.
+    -- synchronously: that re-enters resume and clears waitmovement polls.
     ctx.delayLeft = frames
     ctx.mode = "native"
     ctx.status = "waiting"
@@ -1126,7 +1136,7 @@ local function dispatch(vm, row)
     end
     if not objectat_same_map(store, ctx, row, groupIdx) then
       if a.log then
-        a.log("[game3] " .. op .. " targets another map — skipped")
+        a.log("[game3] " .. op .. " targets another map: skipped")
       end
       return false
     end
@@ -1450,7 +1460,7 @@ local function dispatch(vm, row)
       -- pokefirered/src/scrcmd.c:2042-2049
       a.doFieldEffect(var_get(store, ctx, row[1]))
     elseif op == "setfieldeffectargument" then
-      -- pokefirered/src/scrcmd.c:2051 — the value operand is VarGet'd, which
+      -- pokefirered/src/scrcmd.c:2051: the value operand is VarGet'd, which
       -- passes raw constants (< 0x4000) straight through.
       local argNum = tonumber(row[1]) or 0
       local value = var_get(store, ctx, row[2])

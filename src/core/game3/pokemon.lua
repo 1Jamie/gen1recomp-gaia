@@ -1458,10 +1458,51 @@ function Pokemon.monIcon(mon)
   return Pokemon.icon(Pokemon.monPicSpecies(mon))
 end
 
+Pokemon.SPECIES_DEOXYS = 410
+local dontHandleDeoxys = false
+
+-- pokefirered/src/decompress.c:108, src/pokemon_icon.c:1108
+function Pokemon.deoxysFormSuffix(species)
+  if dontHandleDeoxys or tonumber(species) ~= Pokemon.SPECIES_DEOXYS then return "" end
+  if Versions.MON_PIC_DUPLICATE_DEOXYS ~= true then return "" end
+  return "_handled"
+end
+
+local function without_deoxys_form(fn, ...)
+  local prev = dontHandleDeoxys
+  dontHandleDeoxys = true
+  local ok, a, b, c = pcall(fn, ...)
+  dontHandleDeoxys = prev
+  if not ok then error(a, 0) end
+  return a, b, c
+end
+
+-- pokefirered/src/decompress.c:327
+function Pokemon.frontPicDontHandleDeoxys(species, form, shiny, personality, kind)
+  return without_deoxys_form(Pokemon.frontPic, species, form, shiny, personality, kind)
+end
+
+function Pokemon.backPicDontHandleDeoxys(species, form, shiny, kind)
+  return without_deoxys_form(Pokemon.backPic, species, form, shiny, kind)
+end
+
+function Pokemon.monFrontPicDontHandleDeoxys(mon, form, kind)
+  return without_deoxys_form(Pokemon.monFrontPic, mon, form, kind)
+end
+
+-- pokefirered/src/trainer_card.c:1434
+function Pokemon.iconDontHandleDeoxys(species)
+  return without_deoxys_form(Pokemon.icon, species)
+end
+
+function Pokemon.monIconDontHandleDeoxys(mon)
+  return without_deoxys_form(Pokemon.monIcon, mon)
+end
+
 local function read_rgba(species)
   local cache = resolve_cache(Pokemon._cache)
   local root = (CachePaths.CACHE_ROOT or "data/generated/gba") .. "/pokemon"
-  local rel = root .. "/icons/" .. species .. ".rgba"
+  local rel = root .. "/icons/" .. species .. Pokemon.deoxysFormSuffix(species) .. ".rgba"
   local d = cache:read(rel)
   if type(d) == "string" and #d > 0 then return d end
   return nil
@@ -1494,7 +1535,9 @@ end
 function Pokemon.icon(species)
   species = tonumber(species)
   if not species or species < 1 then return nil end
-  if Pokemon._icons[species] then return Pokemon._icons[species] end
+  local iconKey = species .. Pokemon.deoxysFormSuffix(species)
+  if iconKey == tostring(species) then iconKey = species end
+  if Pokemon._icons[iconKey] then return Pokemon._icons[iconKey] end
   local w = (Pokemon._manifest and Pokemon._manifest.iconW) or Versions.MON_ICON_W or 32
   local h = (Pokemon._manifest and Pokemon._manifest.iconH) or Versions.MON_ICON_H or 32
   local rgba = read_rgba(species)
@@ -1508,7 +1551,7 @@ function Pokemon.icon(species)
     quads[f] = love.graphics.newQuad(0, f * h, w, h, w, actualH)
   end
   local entry = { image = image, w = w, h = h, sheetH = actualH, frames = frames, quads = quads }
-  Pokemon._icons[species] = entry
+  Pokemon._icons[iconKey] = entry
   return entry
 end
 
@@ -1527,10 +1570,10 @@ local function form_of(species, form)
   return form
 end
 
-local function pic_rel(kind, species, form)
+local function pic_rel(kind, species, form, suffix)
   local root = (CachePaths.CACHE_ROOT or "data/generated/gba") .. "/pokemon/" .. kind .. "/"
   if form > 0 then return root .. species .. "_" .. form .. ".rgba" end
-  return root .. species .. ".rgba"
+  return root .. species .. (suffix or "") .. ".rgba"
 end
 
 Pokemon.PIC_CAP = 48
@@ -1576,14 +1619,15 @@ local function pic(store, kind, species, form, shiny)
   if not species or species < 1 then return nil end
   form = form_of(species, form)
   if shiny and species ~= Pokemon.SPECIES_EGG then kind = kind .. "_shiny" end
-  local key = form > 0 and (species .. "_" .. form) or species
+  local suffix = Pokemon.deoxysFormSuffix(species)
+  local key = form > 0 and (species .. "_" .. form) or (suffix ~= "" and species .. suffix) or species
   if kind:find("_shiny", 1, true) then key = "shiny:" .. key end
   local hit = store[key]
   if hit then return pic_touch(hit) end
   -- false marks a pic file known to be missing, so draw loops that probe
   -- backPic then frontPic every frame do not re-read the filesystem.
   if hit == false then return nil end
-  local rgba = read_pic(pic_rel(kind, species, form))
+  local rgba = read_pic(pic_rel(kind, species, form, suffix))
   if not rgba then
     store[key] = false
     return nil
