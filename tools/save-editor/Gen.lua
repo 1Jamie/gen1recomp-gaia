@@ -531,6 +531,50 @@ function Gen.setVolcanicAsh(save, amount, version)
   return true
 end
 
+Gen.hasMirageIsland = Gen.hasVolcanicAsh
+
+local function mirageVar(save, version)
+  return require("src.core.game3.scripting.flags").forVersion(versionOf(save, version))
+    .VAR_IDS.VAR_MIRAGE_RND_H
+end
+
+-- pokeemerald/src/time_events.c:12
+function Gen.mirageIslandValue(save, version)
+  if not Gen.hasMirageIsland(save, version) or type(save.vars) ~= "table" then return 0 end
+  return tonumber(require("src.core.game3.scripting.flags").getVar(save, nil, mirageVar(save, version))) or 0
+end
+
+function Gen.setMirageIslandValue(save, value, version)
+  if not Gen.hasMirageIsland(save, version) or type(value) ~= "number" or value ~= value
+      or value < 0 or value > 0xFFFF or value ~= math.floor(value) then return false end
+  if save.vars ~= nil and type(save.vars) ~= "table" then return false end
+  if Gen.mirageIslandValue(save, version) == value then return true end
+  save.vars = save.vars or {}
+  require("src.core.game3.scripting.flags").setVar(save, nil, mirageVar(save, version), value)
+  return true
+end
+
+local function mirageSpecies(mon)
+  return type(mon) == "table" and tonumber(mon.species or mon.speciesId) or 0
+end
+
+function Gen.mirageIslandMon(save)
+  for _, mon in ipairs(type(save) == "table" and type(save.party) == "table" and save.party or {}) do
+    if mirageSpecies(mon) ~= 0 then return mon end
+  end
+end
+
+-- pokeemerald/src/time_events.c:42
+function Gen.mirageIslandVisible(save, version)
+  if not Gen.hasMirageIsland(save, version) then return false end
+  local rnd = Gen.mirageIslandValue(save, version)
+  for i = 1, 6 do
+    local mon = type(save.party) == "table" and save.party[i]
+    if mirageSpecies(mon) ~= 0 and (tonumber(mon.personality) or 0) % 0x10000 == rnd then return true end
+  end
+  return false
+end
+
 function Gen.playerGender(save)
   if type(save) ~= "table" then return "male" end
   if save.gender == 1 or (save.player and (save.player.gender == 1 or save.player.gender == "female")) then

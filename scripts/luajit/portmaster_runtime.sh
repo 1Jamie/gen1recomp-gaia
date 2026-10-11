@@ -20,15 +20,13 @@ PM_RUNTIME_BASE="https://raw.githubusercontent.com/PortsMaster/PortMaster-GUI/$P
 PM_SHA_LOVE="c6c64453ed6163c8aeb14d303bad1e4d9ecc4d628097b3c6420ada2fa6a8690f"
 PM_SHA_LIBLOVE="a50c83729cb0e1c4d8389eaaa827f0a6e7f3362814d0504ca84074dd0e47c379"
 PM_SHA_MODPLUG="026b2287c9d68f920cf541b68b94f1a691168e4bbf301a8793f4114808aa8f95"
-PM_SHA_OGG="66015f344b53895affd3ff153f402097ebaa2add33246bea2d7fca27b682e07a"
 
-# pm_fetch_runtime CACHE_DIR: download + sha256-check the 4 runtime files.
+# pm_fetch_runtime CACHE_DIR: download + sha256-check the 3 runtime files.
 pm_fetch_runtime() {
   local dir="$1"
   download_pinned "$PM_RUNTIME_BASE/love.aarch64" "$dir/love.aarch64" "$PM_SHA_LOVE"
   download_pinned "$PM_RUNTIME_BASE/libs.aarch64/liblove-11.5.so" "$dir/liblove-11.5.so" "$PM_SHA_LIBLOVE"
   download_pinned "$PM_RUNTIME_BASE/libs.aarch64/libmodplug.so.1" "$dir/libmodplug.so.1" "$PM_SHA_MODPLUG"
-  download_pinned "$PM_RUNTIME_BASE/libs.aarch64/libogg.so.0" "$dir/libogg.so.0" "$PM_SHA_OGG"
 }
 
 # pm_select_luajit: a pinned modern build, never PortMaster's beta3. Either
@@ -60,6 +58,34 @@ pm_stage_luajit() {
   cp "$LUAJIT_COPYRIGHT" "$2/LuaJIT-COPYRIGHT"
 }
 
+PM_CODEC_LIBS="libogg.so.0 libvorbis.so.0 libvorbisfile.so.3 libtheoradec.so.1 libmpg123.so.0"
+
+# pm_select_codecs: sets CODEC_DIR from GEN1RECOMP_CODEC_DIR or a container build.
+pm_select_codecs() {
+  if [ -n "${GEN1RECOMP_CODEC_DIR:-}" ]; then
+    CODEC_DIR="$GEN1RECOMP_CODEC_DIR"
+  else
+    say "building pinned codec libraries"
+    CODEC_DIR="$("$ROOT/scripts/luajit/build_codecs.sh")" \
+      || fail "codec build failed (needs an aarch64 host with docker/podman, or set GEN1RECOMP_CODEC_DIR)"
+  fi
+  local soname
+  for soname in $PM_CODEC_LIBS; do
+    [ -s "$CODEC_DIR/$soname" ] || fail "codec library missing: $CODEC_DIR/$soname"
+  done
+  [ -d "$CODEC_DIR/licenses" ] || fail "codec licenses missing: $CODEC_DIR/licenses"
+}
+
+# pm_stage_codecs LIBS_DIR LICENSES_DIR
+pm_stage_codecs() {
+  : "${CODEC_DIR:?call pm_select_codecs before pm_stage_codecs}"
+  local soname
+  for soname in $PM_CODEC_LIBS; do
+    cp "$CODEC_DIR/$soname" "$1/$soname"
+  done
+  cp "$CODEC_DIR"/licenses/* "$2/"
+}
+
 # pm_verify_zip ZIP PORT_DIR_NAME WORK_DIR: verify the LuaJIT that actually
 # landed in the zip, not just the input file.
 pm_verify_zip() {
@@ -70,5 +96,7 @@ pm_verify_zip() {
     || { rm -rf "$vdir"; fail "zip LuaJIT verification failed"; }
   [ -s "$vdir/$port/licenses/LuaJIT-COPYRIGHT" ] \
     || { rm -rf "$vdir"; fail "zip is missing licenses/LuaJIT-COPYRIGHT"; }
+  python3 "$ROOT/scripts/portmaster/check_bundled_libs.py" "$vdir/$port" \
+    || { rm -rf "$vdir"; fail "zip is missing a shared library that a bundled binary needs"; }
   rm -rf "$vdir"
 }

@@ -4,6 +4,24 @@ local PAL = require("Theme").PAL
 local M = {}
 local Motion = require("Motion")
 local Chooser = require("Chooser")
+local BoxSort = require("BoxSort")
+local function sortWidth(Kit, row)
+  return Kit.buttonWidth("Sort", { font = "small", icon = "sliders-horizontal", trailingIcon = "chevron-down" }, row)
+end
+local function sortMenu(S, Kit, x, y, w, row)
+  local options = {}
+  for _, mode in ipairs(BoxSort.MODES) do
+    options[#options + 1] = {
+      id = mode.id,
+      label = mode.label,
+      icon = mode.icon,
+      fn = function(state)
+        Ops.setBoxOrder(state, mode.id)
+      end,
+    }
+  end
+  Chooser.actions(S, Kit, "boxSort", "Sort", options, x, y, w, row)
+end
 local function drawView(S, Kit, x, y, w, h)
   local s, pad, gap, row = Kit.scale, 12 * Kit.scale, 8 * Kit.scale, Kit.controlH()
   Kit.card(x, y, w, h)
@@ -14,10 +32,13 @@ local function drawView(S, Kit, x, y, w, h)
   S.selectedBox = Ops.clamp(S.selectedBox or 1, 1, Ops.boxCount(S))
   local box = boxes[S.selectedBox]
   local views = { { "storage", "Boxes" }, { "party", "Deposit" } }
-  if compact and inner >= 360 * s then
-    local modeW = math.max(row, inner * 0.28)
+  local sortW = sortWidth(Kit, row)
+  local modeW = math.max(row, inner * 0.28)
+  local labelRoom = inner - modeW - sortW - 2 * row - 4 * gap
+  if compact and labelRoom >= Kit.textWidth("small", "Box 00/00") then
     Chooser.navigation(S, Kit, "boxView", "Storage view", views, cx, cy, modeW, row)
-    local left = cx + modeW + gap
+    sortMenu(S, Kit, cx + modeW + gap, cy, sortW, row)
+    local left = cx + modeW + sortW + 2 * gap
     if Kit.stepper(left, cy, row, row, "previous") then
       Ops.stepBox(S, -1)
     end
@@ -29,7 +50,7 @@ local function drawView(S, Kit, x, y, w, h)
       "Box " .. S.selectedBox .. "/" .. Ops.boxCount(S),
       left + row + gap,
       cy + (row - Kit.textHeight("small")) / 2,
-      inner - modeW - 2 * row - 3 * gap,
+      labelRoom,
       PAL.text
     )
     cy = cy + row + gap
@@ -42,9 +63,10 @@ local function drawView(S, Kit, x, y, w, h)
       views,
       cx,
       cy,
-      math.min(inner, 360 * s),
+      math.min(inner - sortW - gap, 360 * s),
       row
     )
+    sortMenu(S, Kit, cx + inner - sortW, cy, sortW, row)
     cy = cy + row + gap
     if Kit.stepper(cx, cy, row, row, "previous") then
       Ops.stepBox(S, -1)

@@ -814,6 +814,11 @@ function CacheContract.requiredFilesFor(version)
   return CacheContract.REQUIRED_FILES, false
 end
 
+function CacheContract.presenceFilesFor(version)
+  if planComposed(version) then return CacheContract.PLAN_CORE_FILES end
+  return (CacheContract.requiredFilesFor(version))
+end
+
 -- A detached, version-specific inventory for read-only consumers. Semantic
 -- consumers additionally require every generated module that backs the public
 -- registry surface; optional semantic roots are discovered lazily.
@@ -1000,8 +1005,17 @@ function CacheContract.sourceTreeHasData(version)
     return false
   end
   local prefix = version == "red" and "" or GameVersion.cachePrefix(version)
-  local required, isOverride = CacheContract.requiredFilesFor(version)
   local source = love.filesystem.getSource()
+  if planComposed(version) then
+    for _, path in ipairs(CacheContract.presenceFilesFor(version)) do
+      local fullPath = prefix .. path
+      if love.filesystem.getInfo(fullPath, "file") == nil
+          or love.filesystem.getRealDirectory(fullPath) ~= source then
+        return false
+      end
+    end
+  end
+  local required, isOverride = CacheContract.requiredFilesFor(version)
   for _, path in ipairs(required) do
     local fullPath = prefix .. path
     if love.filesystem.getInfo(fullPath, "file") == nil

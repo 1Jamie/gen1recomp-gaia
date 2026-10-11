@@ -82,6 +82,12 @@ PID/SID, language, met data, ball, markings, egg and fateful flags; Crystal
 also exposes caught data. Extras exposes Gen 3 contest conditions and ribbons.
 Trainer edits name, IDs, gender and wallet. Items separates Bag, PC, Wallet and
 Badges. Boxes supports storage, deposit, withdraw, clone, inspect and release.
+Its **Sort** popup reorders every box in one undoable edit (`BoxSort.lua`):
+Living Dex order, species then level, level high to low, or remove gaps. Order
+is by National Dex number, so Gen 1 and Gen 3 internal species indices do not
+matter, and eggs go last. Living Dex keeps one of each species first; Gen 3
+puts it in its own dex slot (box 1 slot 1 onward), Gen 1 and Gen 2 pack it
+because their boxes cannot hold gaps.
 Crystal also shows Buena points in Trainer and Items / Wallet. The Blue Card
 balance accepts whole numbers from 0 to 30 through the numeric popup and supports
 Undo/Redo; it preserves the password, daily state and Blue Card inventory.
@@ -89,11 +95,22 @@ FireRed, LeafGreen and Emerald also show Berry Powder in Trainer and Items /
 Wallet. It accepts whole numbers from 0 to 99999 and supports Undo/Redo; the
 .sav export re-encrypts it with the save's key. Ruby and Sapphire have no Berry
 Powder, so the row is hidden there.
+Ruby, Sapphire and Emerald also show the Mirage Island value (`VAR_MIRAGE_RND_H`,
+0 to 65535) in Trainer, whether the island is visible, and **Make Mirage Island
+appear**, which sets it to the low half of the first party Pokémon's PID; Undo/Redo
+and `.sav` export apply. The value re-rolls each in-game day, as on the cart.
 Ruby, Sapphire and Emerald also show Volcanic Ash in Trainer and Items / Wallet.
 It accepts whole numbers from 0 to 9999 and supports Undo/Redo. Edits update
 `VAR_ASH_GATHER_COUNT`, the Soot Sack currency spent at the Glass Workshop;
 Lua saves and cartridge `.sav` export preserve that same variable. Other
 editions do not show the row.
+Ruby, Sapphire and Emerald also add a Pokéblocks view to Items: the 40 Pokéblock
+Case slots (`save.pokeblocks`, pret `struct Pokeblock`). Add block fills the
+first free slot (or Add here on a selected empty one); a filled slot edits its
+color (the 14 game colors), spicy, dry, sweet, bitter, sour and feel (0 to 255
+each) and has a confirm-twice Delete. Edits support Undo/Redo and the `.sav`
+export writes each block's 8 bytes in SaveBlock1. Logic lives in
+`PokeblockOps.lua`, layout in `panels/Pokeblocks.lua`; other editions hide the view.
 Emerald also shows Battle Points in Trainer and Items / Wallet: the Battle
 Frontier balance spent at the Exchange Service Corner. It accepts whole numbers
 from 0 to 9999 and supports Undo/Redo; the `.sav` export writes the Frontier

@@ -15,6 +15,8 @@
 # needs an aarch64 host with docker or podman. Alternatively set
 # GEN1RECOMP_LUAJIT_LIB=/path/libluajit-5.1.so.2 with its COPYRIGHT beside it
 # (or GEN1RECOMP_LUAJIT_COPYRIGHT=/path/to/COPYRIGHT).
+# The ogg/vorbis/theora/mpg123 libraries liblove links are built the same way
+# (scripts/luajit/build_codecs.sh), or taken from GEN1RECOMP_CODEC_DIR.
 #
 # Output:
 #   dist/linux-arm-sbc/gen1recomp-sbc-portmaster.zip
@@ -63,7 +65,7 @@ while [ $# -gt 0 ]; do
     --source) [ $# -ge 2 ] || fail "--source needs a directory"; SOURCE_DIR_OVERRIDE="$2"; shift ;;
     --release-tag) [ $# -ge 2 ] || fail "--release-tag needs a tag"; SOURCE_TAG_OVERRIDE="$2"; shift ;;
     -h|--help)
-      sed -n '2,29p' "$0"
+      sed -n '2,31p' "$0"
       exit 0
       ;;
     *) fail "unknown argument: $1" ;;
@@ -179,11 +181,11 @@ say "fetching LÖVE $LOVE_VERSION aarch64 runtime"
 LOVE_BIN="$CACHE/love.aarch64"
 LOVE_LIB="$CACHE/liblove-11.5.so"
 MODPLUG_LIB="$CACHE/libmodplug.so.1"
-OGG_LIB="$CACHE/libogg.so.0"
 
 pm_fetch_runtime "$CACHE"
 
 pm_select_luajit
+pm_select_codecs
 
 # Sanity: love stub must be an aarch64 ELF.
 file "$LOVE_BIN" | grep -qi 'aarch64\|ARM aarch64' \
@@ -201,9 +203,10 @@ mkdir -p "$PORT_ROOT/$PORT_DIR_NAME/bin" \
 cp -R "$GAME_SRC" "$PORT_ROOT/$PORT_DIR_NAME/lovegame"
 cp "$LOVE_BIN" "$PORT_ROOT/$PORT_DIR_NAME/bin/love.aarch64"
 chmod +x "$PORT_ROOT/$PORT_DIR_NAME/bin/love.aarch64"
-cp "$LOVE_LIB" "$MODPLUG_LIB" "$OGG_LIB" \
+cp "$LOVE_LIB" "$MODPLUG_LIB" \
   "$PORT_ROOT/$PORT_DIR_NAME/libs.aarch64/"
 pm_stage_luajit "$PORT_ROOT/$PORT_DIR_NAME/libs.aarch64" "$PORT_ROOT/$PORT_DIR_NAME/licenses"
+pm_stage_codecs "$PORT_ROOT/$PORT_DIR_NAME/libs.aarch64" "$PORT_ROOT/$PORT_DIR_NAME/licenses"
 
 BRIDGE_LIB="liblibrashader_bridge.so"
 BRIDGE_SRC="${SHADERFX_BRIDGE_LINUX_ARM64:-}"
@@ -228,6 +231,10 @@ except for LuaJIT. LÖVE is zlib-licensed; see https://love2d.org/ for full term
 libs.aarch64/libluajit-5.1.so.2 is LuaJIT, built from source at LuaJIT commit
 $LUAJIT_COMMIT (https://github.com/LuaJIT/LuaJIT, MIT license; see
 LuaJIT-COPYRIGHT). It replaces PortMaster's LuaJIT 2.1.0-beta3.
+
+libs.aarch64/libogg.so.0, libvorbis.so.0, libvorbisfile.so.3, libtheoradec.so.1
+and libmpg123.so.0 are built from upstream ogg, vorbis, theora and mpg123
+releases (BSD-style x3 and LGPL-2.1; see codecs-SOURCE.txt and *-COPYING).
 EOF
 
 # --------------------------------------------------------------- launcher
@@ -364,7 +371,7 @@ export POKEPORT_PORTMASTER=1
 export NINTENDO_LAYOUT=1
 export XDG_DATA_HOME="$CONFDIR"
 export XDG_CONFIG_HOME="$CONFDIR"
-export LD_LIBRARY_PATH="$GAMEDIR/libs.aarch64:$GAMEDIR/libs:/usr/trimui/lib:/mnt/SDCARD/System/lib:/usr/lib64:/usr/lib:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="$GAMEDIR/libs.aarch64:$GAMEDIR/libs:/usr/trimui/lib:/mnt/SDCARD/System/lib:/usr/lib64:/usr/lib:/usr/lib/compat:${LD_LIBRARY_PATH:-}"
 export SDL_GAMECONTROLLERCONFIG="${sdl_controllerconfig:-}"
 export LOVE_GRAPHICS_USE_OPENGLES="${LOVE_GRAPHICS_USE_OPENGLES:-1}"
 

@@ -117,6 +117,30 @@ For scripts that wrap `build-linux-arm-sbc.sh`: the library in
 way to ship PortMaster's stock LuaJIT; a wrapper's "stock LuaJIT" mode should
 be removed, and the wrapper pointed at `scripts/luajit/build_luajit.sh` instead.
 
+## Bundled codec libraries
+
+`liblove-11.5.so` links `libogg`, `libvorbis`/`libvorbisfile`, `libtheoradec`
+and `libmpg123`. PortMaster's runtime ships only `libogg`, so the rest used to
+come from the firmware, and firmware that moves them off the default loader
+path fails at startup (ROCKNIX keeps `libtheoradec.so.1` in `/usr/lib/compat`:
+exit code 127, "libtheoradec.so.1: cannot open shared object file"). The pack
+now ships all five in `libs.aarch64/`, built from the same pinned upstream
+tarballs as the AppImage (`scripts/linux-arm64/common.sh`) in the LuaJIT
+bullseye container by `scripts/luajit/build_codecs.sh`, or taken prebuilt from
+`GEN1RECOMP_CODEC_DIR`. Licenses are in `licenses/*-COPYING` and
+`licenses/codecs-SOURCE.txt`.
+
+The firmware still supplies glibc, `libstdc++`, `libgcc_s`, SDL2, OpenAL,
+FreeType, zlib and the GL/GLES drivers; those are tied to the device's video
+and audio stack. The launcher also appends `/usr/lib/compat` to
+`LD_LIBRARY_PATH` for firmware that relocates any of them there.
+
+Both PortMaster zip builds run `scripts/portmaster/check_bundled_libs.py` on the
+unpacked zip: every `DT_NEEDED` of every ELF under `bin/` and `libs.aarch64/`
+must be shipped next to it or be on that host list, sonames must match file
+names, and no library may carry a build-time RPATH. Its selftest is
+`scripts/portmaster/test_bundled_libs.py`.
+
 ## Building
 
 Release workflows build this automatically. Standalone builds resolve the latest published Gen1Recomp release by default:

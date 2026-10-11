@@ -200,7 +200,7 @@ local function purgeSaveDirCache()
   -- / yellow/ / gold/ prefix) so it cannot shadow the portable game-folder cache.
   for _, version in ipairs(GameVersion.ORDER) do
     local prefix = GameVersion.cachePrefix(version)
-    local required = CacheContract.requiredFilesFor(version)
+    local required = CacheContract.presenceFilesFor(version)
     local hasRequired = false
     for _, path in ipairs(required) do
       if saveDirHas(prefix .. path) then hasRequired = true; break end
@@ -1258,6 +1258,17 @@ local function consumePick(self, name, safName, ok)
   self.pickSkip[name] = true
 end
 
+function RomImporter._pickerGlobs(exts)
+  local globs = {}
+  for _, ext in ipairs(exts) do
+    globs[#globs + 1] = "*." .. ext:lower()
+    if ext:upper() ~= ext:lower() then
+      globs[#globs + 1] = "*." .. ext:upper()
+    end
+  end
+  return globs
+end
+
 local function romPickerExts()
   local exts = { "gb", "gbc", "gba" }
   local ok, RomArchive = pcall(require, "src.import.RomArchive")
@@ -1274,11 +1285,12 @@ local function chooseRom(promptName)
   local prompt = shellSafe("Choose your " .. promptName .. " ROM")
   local platform = love.system.getOS()
   local quoted, globs, semis = {}, {}, {}
-  for _, ext in ipairs(romPickerExts()) do
+  local exts = romPickerExts()
+  for _, ext in ipairs(exts) do
     quoted[#quoted + 1] = ('"%s"'):format(ext)
-    globs[#globs + 1] = "*." .. ext
     semis[#semis + 1] = "*." .. ext
   end
+  globs = RomImporter._pickerGlobs(exts)
   if platform == "OS X" then
     return commandOutput(
       ([[osascript -e 'POSIX path of (choose file with prompt "%s" of type {%s})' 2>/dev/null]])

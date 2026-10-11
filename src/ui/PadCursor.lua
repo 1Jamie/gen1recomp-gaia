@@ -15,6 +15,10 @@ local PAD_DPAD_SPEED = 420
 -- Right stick → Kit wheel notches: ~2 notches/sec at full deflection so lists
 -- scroll at a usable pace without flooding one frame.
 local PAD_WHEEL_RATE = 2.0
+local TRIGGER_NOTCHES = 3
+local TRIGGER_REPEAT_DELAY = 0.35
+local TRIGGER_REPEAT_EVERY = 0.08
+local WHEEL_CAP = 12
 
 local PadCursor = {}
 
@@ -26,6 +30,11 @@ local dir = {}
 local rawHatDirs = {}
 local lastMouseX, lastMouseY
 local wheelAcc = 0
+local triggers = {}
+
+local function addWheel(n)
+  wheelAcc = math.max(-WHEEL_CAP, math.min(WHEEL_CAP, wheelAcc + n))
+end
 
 local function activate()
   if active then return end
@@ -47,7 +56,39 @@ function PadCursor.reset()
   for k in pairs(rawHatDirs) do rawHatDirs[k] = nil end
   lastMouseX, lastMouseY = nil, nil
   wheelAcc = 0
+  for k in pairs(triggers) do triggers[k] = nil end
 end
+
+local function triggerDown(side, src)
+  local t = triggers[side]
+  if t then
+    t.src[src] = true
+    return
+  end
+  activate()
+  triggers[side] = { held = 0, rep = 0, src = { [src] = true } }
+  addWheel(side == "l" and TRIGGER_NOTCHES or -TRIGGER_NOTCHES)
+end
+
+local function triggerUp(side, src)
+  local t = triggers[side]
+  if not t then return end
+  t.src[src] = nil
+  if next(t.src) == nil then triggers[side] = nil end
+end
+
+local function triggerAxis(side, src, value)
+  if value > GamepadMap.TRIGGER_ON then
+    triggerDown(side, src)
+  elseif value < GamepadMap.TRIGGER_OFF then
+    triggerUp(side, src)
+  end
+end
+
+local TRIGGER_SIDE = {
+  triggerleft = "l", lefttrigger = "l", l2 = "l",
+  triggerright = "r", righttrigger = "r", r2 = "r",
+}
 
 -- Touch / mouse press: drop the virtual cursor for this interaction so a tap
 -- is not swallowed by the Joy-Con pointer sitting elsewhere on screen.
@@ -113,7 +154,18 @@ function PadCursor.update(dt)
   if math.abs(ry) > PAD_DEAD then
     activate()
     -- Negative righty (stick up) scrolls lists up = positive wheel notches.
-    wheelAcc = wheelAcc + (-ry) * PAD_WHEEL_RATE * dt
+    addWheel((-ry) * PAD_WHEEL_RATE * dt)
+  end
+
+  for side, t in pairs(triggers) do
+    t.held = t.held + dt
+    if t.held >= TRIGGER_REPEAT_DELAY then
+      t.rep = t.rep + dt
+      while t.rep >= TRIGGER_REPEAT_EVERY do
+        t.rep = t.rep - TRIGGER_REPEAT_EVERY
+        addWheel(side == "l" and 1 or -1)
+      end
+    end
   end
 end
 
@@ -128,6 +180,8 @@ function PadCursor.gamepadpressed(_, button)
     return "tab_prev"
   elseif button == "rightshoulder" then
     return "tab_next"
+  elseif TRIGGER_SIDE[button] then
+    triggerDown(TRIGGER_SIDE[button], "button")
   elseif button == "dpup" or button == "dpdown"
       or button == "dpleft" or button == "dpright" then
     dir[button] = true
@@ -136,7 +190,9 @@ function PadCursor.gamepadpressed(_, button)
 end
 
 function PadCursor.gamepadreleased(_, button)
-  if button == "dpup" or button == "dpdown"
+  if TRIGGER_SIDE[button] then
+    triggerUp(TRIGGER_SIDE[button], "button")
+  elseif button == "dpup" or button == "dpdown"
       or button == "dpleft" or button == "dpright" then
     dir[button] = nil
   end
@@ -146,6 +202,8 @@ function PadCursor.gamepadaxis(_, axisName, value)
   if axisName == "leftx" or axisName == "lefty" or axisName == "righty" then
     axis[axisName] = value
     if math.abs(value) > PAD_DEAD then activate() end
+  elseif TRIGGER_SIDE[axisName] then
+    triggerAxis(TRIGGER_SIDE[axisName], "axis", value)
   end
 end
 
@@ -171,6 +229,10 @@ function PadCursor.joystickaxis(joystick, axisIndex, value)
     PadCursor.gamepadaxis(joystick, "leftx", value)
   elseif axisIndex == 2 then
     PadCursor.gamepadaxis(joystick, "lefty", value)
+  elseif axisIndex == 3 or axisIndex == 5 then
+    triggerAxis("l", "raw", value)
+  elseif axisIndex == 4 or axisIndex == 6 then
+    triggerAxis("r", "raw", value)
   end
 end
 

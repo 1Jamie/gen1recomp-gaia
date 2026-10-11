@@ -27,7 +27,7 @@ expect_fail() { local n="$1"; shift; if ( "$@" ) >/dev/null 2>&1; then bad "$n: 
 
 # Synthetic aarch64 "library" that passes verify_luajit.sh.
 lj_make() {
-  { printf '\177ELF\002\001'; head -c 12 /dev/zero; printf '\xb7\x00'
+  { printf '\177ELF\002\001'; head -c 12 /dev/zero; printf '\xb7\x00'; head -c 44 /dev/zero
     printf '\0%s\0%s\0%s\0' "$LUAJIT_VERSION_STRING" '/usr/share/luajit-2.1/?.lua' GLIBC_2.17
   } > "$1"
 }
@@ -83,6 +83,25 @@ case_stage() {
   cmp "$TMP/good/COPYRIGHT" "$TMP/tree/port/licenses/LuaJIT-COPYRIGHT"
 }
 expect_ok "stage copies both files" case_stage
+
+mkdir -p "$TMP/codecs/licenses" "$TMP/codecs-out/libs" "$TMP/codecs-out/lic"
+for soname in $PM_CODEC_LIBS; do printf '%s' "$soname" > "$TMP/codecs/$soname"; done
+echo license > "$TMP/codecs/licenses/ogg-COPYING"
+case_codecs_stage() {
+  GEN1RECOMP_CODEC_DIR="$TMP/codecs" pm_select_codecs
+  pm_stage_codecs "$TMP/codecs-out/libs" "$TMP/codecs-out/lic"
+  for soname in $PM_CODEC_LIBS; do cmp "$TMP/codecs/$soname" "$TMP/codecs-out/libs/$soname"; done
+  [ -s "$TMP/codecs-out/lic/ogg-COPYING" ]
+}
+expect_ok "codecs stage every library" case_codecs_stage
+case_codecs_missing() {
+  mkdir -p "$TMP/codecs-partial/licenses"
+  cp "$TMP/codecs/libogg.so.0" "$TMP/codecs-partial/"
+  GEN1RECOMP_CODEC_DIR="$TMP/codecs-partial" pm_select_codecs
+}
+expect_fail "codec dir without libtheoradec" case_codecs_missing
+case_codecs_stage_without_select() { unset CODEC_DIR; pm_stage_codecs "$TMP" "$TMP"; }
+expect_fail "codecs stage without select" case_codecs_stage_without_select
 
 command -v zip >/dev/null && command -v unzip >/dev/null || { echo "zip/unzip missing; skipping zip cases" >&2; echo "selftest_portmaster_runtime: ok (zip cases skipped)"; exit 0; }
 

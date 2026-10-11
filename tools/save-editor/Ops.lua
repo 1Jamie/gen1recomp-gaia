@@ -855,6 +855,21 @@ function Ops.setTrainerProperty(S, key, value)
     if Gen.battlePoints(S.save, S.version) == n then return true end
     Gen.setBattlePoints(S.save, n, S.version)
     return Ops.mark(S, "Battle Points updated")
+  elseif key == "mirageIsland" then
+    if not Gen.hasMirageIsland(S.save, S.version) then
+      return Ops.say(S, "Mirage Island is only in Ruby, Sapphire and Emerald")
+    end
+    local n = tonumber(value)
+    if not n or n ~= n or n < 0 or n > 0xFFFF or n ~= math.floor(n) then
+      return Ops.say(S, "Mirage Island value must be a whole number from 0 to 65535")
+    end
+    if S.save.vars ~= nil and type(S.save.vars) ~= "table" then
+      return Ops.say(S, "Invalid Mirage Island variable state")
+    end
+    if Gen.mirageIslandValue(S.save, S.version) == n then return true end
+    Gen.setMirageIslandValue(S.save, n, S.version)
+    return Ops.mark(S, Gen.mirageIslandVisible(S.save, S.version) and "Mirage Island is now visible"
+      or "Mirage Island value updated")
   else
     local max = ({id=65535,secretId=65535,money=999999,coins=9999})[key]
     local n=tonumber(value)
@@ -869,6 +884,18 @@ function Ops.setTrainerProperty(S, key, value)
     elseif key=="coins" then Gen.setCoins(S.save,n) end
   end
   return Ops.mark(S, "Trainer " .. (({ id = "ID", secretId = "secret ID" })[key] or key) .. " updated")
+end
+
+function Ops.setMirageIslandFromParty(S)
+  if not Gen.hasMirageIsland(S.save, S.version) then
+    return Ops.say(S, "Mirage Island is only in Ruby, Sapphire and Emerald")
+  end
+  local mon = Gen.mirageIslandMon(S.save)
+  if not mon then return Ops.say(S, "Add a Pokemon to the party first") end
+  if Gen.mirageIslandVisible(S.save, S.version) then
+    return Ops.say(S, "Mirage Island is already visible", "info")
+  end
+  return Ops.setTrainerProperty(S, "mirageIsland", (tonumber(mon.personality) or 0) % 0x10000)
 end
 
 function Ops.setMonProperty(S, mon, key, value)
@@ -1366,6 +1393,10 @@ function Ops.deposit(S)
   S.selectedBox = boxNum
   if S.editingMon == mon then S.editingMon = nil end
   return Ops.mark(S, ("Deposited %s into box %d"):format(speciesName(S, mon.species), boxNum))
+end
+
+function Ops.setBoxOrder(S, mode)
+  return require("BoxSort").apply(S, Ops, mode)
 end
 
 -- ------------------------------------------------------------------ items

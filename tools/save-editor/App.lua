@@ -24,6 +24,8 @@ local Theme = require("Theme")
 local Ops = require("Ops")
 local Gen = require("Gen")
 local PadInput = require("PadInput")
+local GamepadMap = require("src.core.GamepadMap")
+local VirtualKeyboard = require("src.ui.kit.VirtualKeyboard")
 local Motion = require("Motion")
 local Chooser = require("Chooser")
 local Toast = require("src.ui.kit.Toast")
@@ -351,6 +353,7 @@ function App.unload()
   -- deaf to every click (#541).
   Kit.blur()
   Kit.blockClicks = false
+  VirtualKeyboard.close(false)
   PadInput.reset()
 end
 
@@ -384,6 +387,9 @@ local function handlePadAction(action)
       TouchEditor.close(S, Kit)
     elseif S.navPopup then
       Chooser.close(S)
+    elseif S.speciesPicker or S.movePicker or S.itemPicker or S.itemMenu or S.chromeMenu
+        or Kit.focus or S.editingMon or (S.tab == "map" and S.mapFocused) then
+      App.keypressed("escape")
     else
       App.close()
     end
@@ -601,10 +607,23 @@ function App.touchreleased(id, x, y)
 end
 
 function App.textinput(text)
+  if VirtualKeyboard.textinput(text) then
+    return
+  end
   Kit.textinput(text)
 end
 
+local KEY_SCROLL = { up = 1, down = -1, pageup = 3, pagedown = -3 }
+
+local HAT_DIRS = {
+  u = { "dpup" }, d = { "dpdown" }, l = { "dpleft" }, r = { "dpright" },
+}
+
 function App.gamepadpressed(joystick, button)
+  if VirtualKeyboard.active then
+    VirtualKeyboard.gamepadpressed(GamepadMap.mapLauncherButton(button))
+    return
+  end
   handlePadAction(PadInput.gamepadpressed(joystick, button))
 end
 
@@ -617,6 +636,16 @@ function App.gamepadaxis(joystick, axis, value)
 end
 
 function App.joystickpressed(joystick, button)
+  if VirtualKeyboard.active then
+    if GamepadMap.ignoreRawForJoystick(joystick) or GamepadMap.isAccelerometer(joystick) then
+      return
+    end
+    local padButton = GamepadMap.mapRawToGamepadButton(button)
+    if padButton then
+      VirtualKeyboard.gamepadpressed(GamepadMap.mapLauncherButton(padButton))
+    end
+    return
+  end
   handlePadAction(PadInput.joystickpressed(joystick, button))
 end
 
@@ -629,7 +658,30 @@ function App.joystickaxis(joystick, axis, value)
 end
 
 function App.joystickhat(joystick, hat, direction)
+  if VirtualKeyboard.active then
+    if GamepadMap.ignoreRawForJoystick(joystick) or GamepadMap.isAccelerometer(joystick) then
+      return
+    end
+    for _, d in ipairs(HAT_DIRS[direction] or {}) do
+      VirtualKeyboard.gamepadpressed(d)
+    end
+    return
+  end
   PadInput.joystickhat(joystick, hat, direction)
+end
+
+local function drawVirtualKeyboard(width, height, mx, my, clicked)
+  local LKit = require("src.ui.kit.Kit")
+  if not LKit.fonts or next(LKit.fonts) == nil then
+    LKit.layout(width, height)
+  end
+  local sx, sy, sc, sb, so = LKit.mouseX, LKit.mouseY, LKit.mouseClicked, LKit.blockClicks, LKit._occluders
+  LKit.mouseX, LKit.mouseY, LKit.mouseClicked = mx, my, clicked and true or false
+  LKit.blockClicks, LKit._occluders = false, 0
+  LKit.resetClip()
+  VirtualKeyboard.draw({ s = math.min(Kit.scale, height / 380), W = width, H = height })
+  LKit.mouseX, LKit.mouseY, LKit.mouseClicked = sx, sy, sc
+  LKit.blockClicks, LKit._occluders = sb, so
 end
 
 -- ------------------------------------------------------------------ chrome
@@ -865,6 +917,10 @@ function App.draw()
   elseif padOn then
     mx, my = padX, padY
   end
+  local vkClick = VirtualKeyboard.active and mouseClicked
+  if vkClick then
+    mouseClicked = false
+  end
   if mouseClicked and clickX ~= nil and Toast.hit(S, clickX, clickY) then
     Toast.clear(S)
     mouseClicked = false
@@ -884,6 +940,7 @@ function App.draw()
     or (S.movePicker ~= nil)
     or (S.navPopup ~= nil)
     or (S.editPopup ~= nil)
+    or VirtualKeyboard.active
     or Motion.active()
   if S.tab ~= "map" or Kit.blockClicks then MapBrowser.clearTouches(S) end
 
@@ -1012,6 +1069,9 @@ function App.draw()
     Toast.draw(S, a)
   end
   Kit.endFrame()
+  if VirtualKeyboard.active then
+    drawVirtualKeyboard(width, height, mx, my, vkClick)
+  end
   PadInput.draw()
 
   -- Only now, with the whole frame painted, is it safe to drop the editor.
@@ -1022,6 +1082,9 @@ end
 
 function App.keypressed(key)
   if not S or S.missingCache then
+    return
+  end
+  if VirtualKeyboard.keypressed(key) or VirtualKeyboard.active then
     return
   end
   if TouchEditor.keypressed(S, Kit, key) then
@@ -1133,6 +1196,10 @@ function App.keypressed(key)
     App.save()
   elseif key == "r" and mod then
     App.reload()
+  end
+  local panKey = S.tab == "map" and (key == "up" or key == "down")
+  if KEY_SCROLL[key] and not panKey then
+    App.wheelmoved(0, KEY_SCROLL[key])
   end
   if S.tab == "map" and MapBrowser.keypressed then
     MapBrowser.keypressed(S, key)

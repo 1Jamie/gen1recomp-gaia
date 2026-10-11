@@ -15,6 +15,7 @@ local Theme = require("Theme")
 local PAL = Theme.PAL
 local Button = require("src.ui.kit.Button")
 local Icons = require("src.ui.kit.Icons")
+local VirtualKeyboard = require("src.ui.kit.VirtualKeyboard")
 
 local Kit = {}
 Kit.mouseX, Kit.mouseY = 0, 0
@@ -65,6 +66,21 @@ local function syncSoftKeyboard(id, x, y, w, h)
       love.keyboard.setTextInput(false)
     end
   end
+end
+
+local HANDHELD_ENV = { "HANDHELD", "PORTMASTER", "POKEPORT_HANDHELD", "TRIMUI",
+  "MUOS", "KNULLI", "POKEPORT_SBC", "ANBERNIC" }
+
+function Kit.handheld()
+  if mobile() then
+    return false
+  end
+  for _, name in ipairs(HANDHELD_ENV) do
+    if os.getenv(name) == "1" then
+      return true
+    end
+  end
+  return false
 end
 
 local function canPrintf()
@@ -198,7 +214,9 @@ function Kit.flushText(id, value, sanitize)
   for _, edit in ipairs(edits) do
     if edit.id == id then
       local e = edit.text
-      if e == "\b" then
+      if edit.set then
+        value = edit.set
+      elseif e == "\b" then
         local at = #value
         while at > 1 and value:byte(at) >= 128 and value:byte(at) < 192 do
           at = at - 1
@@ -217,9 +235,20 @@ function Kit.flushText(id, value, sanitize)
   return sanitize and sanitize(value) or value
 end
 
+function Kit.requestKeyboard(id)
+  Kit.focus = id
+  Kit._vkRequest = id
+end
+
 function Kit.blur()
   Kit.focus = nil
+  Kit._vkRequest = nil
   Kit.focusRect = nil
+  local vkFor = Kit._vkFor
+  Kit._vkFor = nil
+  if vkFor and VirtualKeyboard.active and VirtualKeyboard.targetId == vkFor then
+    VirtualKeyboard.close(false)
+  end
   syncSoftKeyboard(nil) -- the soft keyboard follows focus down too (#529)
 end
 
@@ -706,7 +735,8 @@ end
 function Kit.textfield(id, x, y, w, h, value, placeholder, opts)
   audit("control", x, y, w, h, id)
   value = tostring(value or "")
-  if Kit.press(x, y, w, h) then
+  local pressed = Kit.press(x, y, w, h)
+  if pressed then
     Kit.focus = id
     Kit._fieldHit = true
   end
@@ -726,10 +756,26 @@ function Kit.textfield(id, x, y, w, h, value, placeholder, opts)
     Kit.focusRect = focusRect
     -- raise (or hand off) the soft keyboard while this field owns focus (#529)
     syncSoftKeyboard(id, x, y, w, h)
+    if Kit.handheld() and not VirtualKeyboard.active and (pressed or Kit._vkRequest == id) then
+      Kit._vkFor, Kit._vkRequest = id, nil
+      VirtualKeyboard.open({
+        text = value,
+        targetId = id,
+        title = (placeholder and placeholder ~= "") and placeholder or "Enter text",
+        onDone = function(text, confirmed)
+          if confirmed then
+            edits[#edits + 1] = { id = id, set = text }
+          end
+          edits[#edits + 1] = { id = id, text = confirmed and "\r" or "\27" }
+        end,
+      })
+    end
     for _, edit in ipairs(edits) do
       if edit.id == id then
         local e = edit.text
-        if e == "\b" then
+        if edit.set then
+          value = edit.set
+        elseif e == "\b" then
           local i = #value
           while i > 1 and value:byte(i) >= 128 and value:byte(i) < 192 do
             i = i - 1

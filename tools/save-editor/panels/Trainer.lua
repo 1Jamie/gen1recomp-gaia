@@ -33,6 +33,9 @@ function M.draw(S, Kit, x, y, w, h)
   if Gen.hasBattlePoints(S.save, S.version) then
     fields[#fields + 1] = { "battlePoints", "Battle Points", Gen.battlePoints(S.save, S.version) }
   end
+  if Gen.hasMirageIsland(S.save, S.version) then
+    fields[#fields + 1] = { "mirageIsland", "Mirage Island value", Gen.mirageIslandValue(S.save, S.version) }
+  end
   local contentH = S._trainerHeight or 0
   S.trainerScroll = Kit.scrollPixels(x, y, w, h, S.trainerScroll or 0, contentH)
   Kit.pushClip(x, y, w, h)
@@ -42,7 +45,7 @@ function M.draw(S, Kit, x, y, w, h)
     if f[1] ~= "name" then
       local hi = ({ id = 65535, secretId = 65535, money = 999999, coins = 9999, buenaPoints = 30,
         berryPowder = Gen.BERRY_POWDER_MAX, volcanicAsh = Gen.VOLCANIC_ASH_MAX,
-        battlePoints = Gen.BATTLE_POINTS_MAX })[f[1]]
+        battlePoints = Gen.BATTLE_POINTS_MAX, mirageIsland = 65535 })[f[1]]
       cy = cy
         + Touch.value(
           S,
@@ -59,6 +62,7 @@ function M.draw(S, Kit, x, y, w, h)
               or f[1] == "berryPowder" and "Powder from Berry Crush, spent at the Berry Powder shop. Choose 0 to 99999."
               or f[1] == "volcanicAsh" and "Ash collected in the Soot Sack, spent at the Glass Workshop. Choose 0 to 9999."
               or f[1] == "battlePoints" and "Battle Frontier points, spent at the Exchange Service Corner. Choose 0 to 9999."
+              or f[1] == "mirageIsland" and "Mirage Island shows when this matches the low half of a party Pokémon's PID. Choose 0 to 65535."
               or "Part of your trainer identity. Changing it can affect who owns a Pokémon.",
           },
           cx,
@@ -97,6 +101,16 @@ function M.draw(S, Kit, x, y, w, h)
       end
       cy = cy + row + gap
     end
+  end
+  if Gen.hasMirageIsland(S.save, S.version) then
+    local visible = Gen.mirageIslandVisible(S.save, S.version)
+    Kit.text("small", visible and "Mirage Island: visible" or "Mirage Island: hidden", cx, cy, PAL.text)
+    cy = cy + Kit.textHeight("small") + gap
+    if Kit.button(cx, cy, inner, row, "Make Mirage Island appear",
+        { kind = "accent", font = "small", enabled = not visible and Gen.mirageIslandMon(S.save) ~= nil }) then
+      Ops.setMirageIslandFromParty(S)
+    end
+    cy = cy + row + gap
   end
   if Gen.hasPlayerGender(S.save, S.version) then
     local half = (inner - gap) / 2

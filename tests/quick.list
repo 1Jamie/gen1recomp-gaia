@@ -640,8 +640,11 @@ tests/engine/save_confirm_layout_bug1522.lua
 tests/engine/save_convert_extra_flags.lua
 tests/engine/save_convert_toggle_objects.lua
 tests/engine/save_editor_volcanic_ash_2752.lua
+tests/engine/save_editor_pokeblocks_2788.lua
 tests/engine/save_editor_berry_powder_2698.lua
+tests/engine/save_editor_box_sort_2850.lua
 tests/engine/save_editor_battle_points_2773.lua
+tests/engine/save_editor_mirage_island_2811.lua
 tests/engine/save_editor_buena_points_2640.lua
 tests/engine/save_editor_custom_maps.lua
 tests/engine/save_editor_unown_form_2726.lua

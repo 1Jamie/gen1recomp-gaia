@@ -12,6 +12,11 @@ local function drawView(S, Kit, x, y, w, h)
   S.itemView = S.itemView or "bag"
   local compact = Kit.desktop or h < 430 * s
   local views = { { "bag", "Bag" }, { "pc", "PC" }, { "wallet", "Wallet" }, { "badges", "Badges" } }
+  if require("PokeblockOps").has(S.save, S.version) then
+    views[#views + 1] = { "pokeblocks", "Pokéblocks" }
+  elseif S.itemView == "pokeblocks" then
+    S.itemView = "bag"
+  end
   if compact then
     local addW = Kit.desktop and Kit.buttonWidth("Add", { font = "small" }, row)
       or math.max(row, Kit.textWidth("small", "Add") + 20 * s)
@@ -70,6 +75,9 @@ local function drawView(S, Kit, x, y, w, h)
       end
     )
     cy = cy + row + gap
+  end
+  if S.itemView == "pokeblocks" then
+    return require("Pokeblocks").draw(S, Kit, cx, cy, inner, math.max(0, y + h - pad - cy))
   end
   if S.itemView == "wallet" then
     local bodyH = math.max(0, y + h - pad - cy)

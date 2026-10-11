@@ -350,6 +350,20 @@ for _, size in ipairs({
   App.keypressed("return")
   check(S.dexSort == "name" and S.navPopup == nil, "keyboard chooses the full-name sort")
   check(S.dexActions == nil and SD.encode(S.save) == beforeDexMenu, "sort only changes the view")
+  for _, view in ipairs({ "storage", "party" }) do
+    S.tab, S.boxView, S.pageScroll = "boxes", view, {}
+    navigationRects = {}
+    frame("box sort " .. view, W, H)
+    local sortRect = assert(navigationRects.boxSort, "missing box sort menu " .. view)
+    local beforeSort = SD.encode(S.save)
+    App.mousepressed(sortRect.x + sortRect.w / 2, sortRect.y + sortRect.h / 2, 1)
+    App.draw()
+    check(S.navPopup and S.navPopup.mode == "actions" and #S.navPopup.options == 4, "box sort opens its presets")
+    frame("box sort labels " .. view, W, H)
+    App.keypressed("escape")
+    check(S.navPopup == nil and SD.encode(S.save) == beforeSort, "cancelling box sort preserves the boxes")
+  end
+  S.boxView = "storage"
   -- Open the real dropdown controls, rather than setting a menu flag. Each
   -- chooser overlays a stable page and exposes only its own touch targets.
   for _, case in ipairs({

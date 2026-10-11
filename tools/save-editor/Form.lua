@@ -113,7 +113,7 @@ function Form.number(S, Kit, id, value, x, y, w, h, apply, issue, preview)
   local opts = { face = "invert", font = "button", align = "left", id = "value-" .. id, invalid = issue ~= nil }
   if Kit.button(x, y, w, h, tostring(preview or value), opts) then
     S.valueEdit = { id = id, draft = tostring(value) }
-    Kit.focus = key
+    Kit.requestKeyboard(key)
     Kit._fieldHit, Kit._focusDrawn = true, true
   end
 end

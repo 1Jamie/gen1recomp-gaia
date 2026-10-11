@@ -32,6 +32,9 @@ Features intentionally added to the games themselves, beyond what the original c
 * **EXP-to-nature helper** in Box migration, showing how much EXP each nature needs before a Gen 1 or 2 Pokémon moves to Gen 3
 * **Box item stash**: store bag items in Box, send them to another game's bag, give or take held items and change a Gen 3 Pokémon's ball
 * **Unown form picker** in the save editor on Gen 2 and Gen 3, keeping HP DV, nature and shininess where the cart allows
+* **One-click box sort** in the save editor for every game: Living Dex order, species then level, level, or remove gaps, eggs last, with Undo/Redo
+* **Mirage Island control** in the Ruby, Sapphire and Emerald save editor: Trainer shows whether the island is up and makes it appear from the first party Pokémon's PID
+* **Pokéblock Case editor** in the Ruby, Sapphire and Emerald save editor: Items / Pokéblocks lists all 40 slots and adds, recolors, retunes or deletes blocks, with Undo/Redo
 
 ## Gen 2 Specifics
 

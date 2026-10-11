@@ -304,6 +304,8 @@ jobs:
         run: bash scripts/linux-arm64/selftest_build_linux_arm64.sh
       - name: PortMaster LuaJIT helpers offline selftest
         run: bash scripts/luajit/selftest_portmaster_runtime.sh
+      - name: PortMaster bundled library check selftest
+        run: python3 scripts/portmaster/test_bundled_libs.py
 
   linux-arm64-build:
     name: Linux arm64 AppImage build
@@ -498,6 +500,8 @@ jobs:
       # The zip scripts depend on these helpers; fail fast before the build.
       - name: PortMaster LuaJIT helpers offline selftest
         run: bash scripts/luajit/selftest_portmaster_runtime.sh
+      - name: PortMaster bundled library check selftest
+        run: python3 scripts/portmaster/test_bundled_libs.py
       - name: Cache pinned LuaJIT
         uses: actions/cache@v6
         with:
@@ -520,6 +524,24 @@ jobs:
             dist/luajit/COPYRIGHT
           if-no-files-found: error
           retention-days: 7
+      - name: Cache pinned codecs
+        uses: actions/cache@v6
+        with:
+          path: .bazinga/cache/codecs
+          key: codecs-linux-arm64-${{ hashFiles('scripts/luajit/**', 'scripts/linux-arm64/common.sh', 'scripts/lib/fetch.sh') }}
+      - name: Build pinned codecs
+        run: |
+          set -euo pipefail
+          dir="$(scripts/luajit/build_codecs.sh)"
+          mkdir -p dist/codecs
+          cp -R "$dir"/. dist/codecs/
+      - name: Upload codecs
+        uses: actions/upload-artifact@v7
+        with:
+          name: codecs-linux-arm64
+          path: dist/codecs/
+          if-no-files-found: error
+          retention-days: 7
 
   rg34xxsp-build:
     name: RG34XXSP PortMaster build
@@ -532,9 +554,16 @@ jobs:
         with:
           name: luajit-linux-arm64
           path: dist/native/luajit-linux-arm64
+
+      - name: Download pinned codecs
+        uses: actions/download-artifact@v8
+        with:
+          name: codecs-linux-arm64
+          path: dist/native/codecs-linux-arm64
       - name: build RG34XXSP package
         env:
           GEN1RECOMP_LUAJIT_LIB: ${{ github.workspace }}/dist/native/luajit-linux-arm64/libluajit-5.1.so.2
+          GEN1RECOMP_CODEC_DIR: ${{ github.workspace }}/dist/native/codecs-linux-arm64
         run: ./build-rg34xxsp.sh --version 0.0.0
       - name: upload RG34XXSP artifact
         uses: actions/upload-artifact@v7
@@ -555,10 +584,17 @@ jobs:
         with:
           name: luajit-linux-arm64
           path: dist/native/luajit-linux-arm64
+
+      - name: Download pinned codecs
+        uses: actions/download-artifact@v8
+        with:
+          name: codecs-linux-arm64
+          path: dist/native/codecs-linux-arm64
       - name: build Linux ARM SBC package
         env:
           GEN1RECOMP_SOURCE_DIR: ${{ github.workspace }}
           GEN1RECOMP_LUAJIT_LIB: ${{ github.workspace }}/dist/native/luajit-linux-arm64/libluajit-5.1.so.2
+          GEN1RECOMP_CODEC_DIR: ${{ github.workspace }}/dist/native/codecs-linux-arm64
         run: ./build-linux-arm-sbc.sh --version 0.0.0
       - name: upload Linux ARM SBC artifact
         uses: actions/upload-artifact@v7
