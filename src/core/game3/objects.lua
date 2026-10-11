@@ -1172,7 +1172,7 @@ local function tickMotion(eo, game, ctx)
   return false
 end
 
---- Scripted one-cell step (no collision — FRLG applymovement forces).
+--- Scripted one-cell step (no collision, FRLG applymovement forces).
 function Objects.scriptStep(eo, dir, run, slow, fast, frames)
   if not eo then return false end
   local P = Player()
@@ -1252,6 +1252,28 @@ function Objects.scriptFace(eo, dir)
   -- pokefirered/src/event_object_movement.c:2501 SetObjectEventDirection
   if eo.facingLocked then return end
   eo.facing = dir
+end
+
+-- pokefirered/src/event_object_movement.c:7135
+function Objects.removeObstacle(eo, animFrames)
+  local animLen = 4 * animFrames
+  local t = 0
+  eo.customFrame = 0
+  eo.trackWait = function(o)
+    t = t + 1
+    -- pokefirered/src/event_object_movement.c:7142
+    if t < animLen then
+      o.customFrame = math.floor(t / animFrames)
+      return false
+    end
+    -- pokefirered/src/event_object_movement.c:7152
+    if t < animLen + 32 then
+      o.invisible = not o.invisible
+      return false
+    end
+    o.invisible = true
+    return true
+  end
 end
 
 -- pokefirered/src/event_object_movement.c:5208 GetOppositeDirection
@@ -1372,7 +1394,11 @@ local function advanceTrack(lid, tr, game)
       if eo and eo ~= Player() then eo.inanimate = act.inanimate and true or false end
     elseif act.kind == "remove_obstacle" then
       -- pokefirered/src/event_object_movement.c:7135 MovementAction_RockSmashBreak_Step0
-      tr.sleep = act.frames or 32
+      if eo and eo ~= Player() and act.animFrames then
+        Objects.removeObstacle(eo, act.animFrames)
+      else
+        tr.sleep = act.frames or 32
+      end
     elseif act.kind == "face_original" then
       if eo and eo ~= Player() and eo.def then
         -- src/event_object_movement.c:7016
@@ -2380,7 +2406,7 @@ function Objects.setObjectXY(localId, x, y)
   local lid = tonumber(localId) or 0
   local eo = Objects._byId[lid]
   x, y = tonumber(x) or 0, tonumber(y) or 0
-  -- Key perm by script map (Space.mapId) when active — not the previous map's
+  -- Key perm by script map (Space.mapId) when active, not the previous map's
   -- Objects._mapId if enter order ever regresses.
   local Sp = Space()
   local mapKey = (Sp and Sp.mapId) or Objects._mapId

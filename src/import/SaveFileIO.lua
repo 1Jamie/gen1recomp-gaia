@@ -101,7 +101,7 @@ local SAVE_SIZE = SaveConvert.SAVE_SIZE
 --   * a LOVE DroppedFile (a table/userdata with :open/:read/:getSize), read the
 --     way RomImporter reads a dropped ROM;
 --   * a raw 32768-byte string (the tests and the in-memory path) used as-is;
---   * any other string treated as an absolute picker path opened with io.open.
+--   * any other string treated as an absolute picker path opened natively.
 -- A picker path is never 32768 bytes long, so the length test disambiguates it
 -- from a raw image cleanly.  RetroArch RZIP-compressed images are unwrapped
 -- here; size policy stays in importToSlot.  Returns bytes, or nil + an error.
@@ -133,7 +133,7 @@ local function readSource(source)
   if #source == SAVE_SIZE and not SrmDecompress.isCompressed(source) then
     return source
   end
-  local f, openErr = io.open(source, "rb")
+  local f, openErr = SaveData.openNative(source, "rb")
   if f then
     local data = f:read("*a")
     f:close()
@@ -225,6 +225,8 @@ end
 -- this returns false, nil, { needsConfirm = true, size = #bytes } so the
 -- launcher can ask the player before truncating; with force the extra bytes
 -- are dropped and the 32768-byte save imports.
+SaveFileIO._readSource = readSource
+
 function SaveFileIO.importToSlot(source, version, force)
   version = version or GameVersion.get()
   local bytes, readErr = readSource(source)

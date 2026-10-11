@@ -10,7 +10,15 @@ package.loaded["src.core.game3.rom_text"] = { ascii = function(label) return lab
 package.loaded["src.ui.game3.message"] = {}
 package.loaded["src.core.game3.field_modules"] = { enabled = function() return false end }
 package.loaded["src.core.game3.audio"] = { playSe = function() calls.sounds = calls.sounds + 1 end }
-package.loaded["src.core.game3.objects"] = { removeObject = function(id) calls.removed = id end }
+package.loaded["src.core.game3.objects"] = {
+  removeObject = function(id) calls.removed = id end,
+  startTrack = function(id, actions, done)
+    T.eq(actions[1] and actions[1].animFrames, 8, "Rock Smash breaks the rock with its 8-frame remove-obstacle anim")
+    T.eq(id, 42, "the remove-obstacle track runs on the smashed rock")
+    calls.rock = calls.rock + 1
+    done()
+  end,
+}
 package.loaded["src.core.game3.rse.init"] = {
   session = function() return session end,
   flag = function(name, s) return (s or session).puzzleFlags[name] == true end,
@@ -23,7 +31,6 @@ package.loaded["src.core.game3.field_move_show_mon"] = {
   end,
 }
 package.loaded["src.core.game3.field_effects"] = {
-  startRockSmash = function(_, _, _, done) calls.rock = calls.rock + 1; done() end,
   startFlash = function(done) calls.flash = calls.flash + 1; done() end,
 }
 local scriptVm = { ctx = {} }

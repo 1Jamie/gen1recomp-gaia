@@ -34,7 +34,7 @@ local rows = {
   { gs = { "wUnusedReanchorBGMapFlags", "wStatusFlags" }, crystal = { "wMapNameSignFlags", "wStatusFlags" }, mode = "static",
     why = "time of day palette and sign flags, recomputed from the clock and the map on load; Crystal wSecretID has no engine counterpart",
     scan = { "secretId", "timeOfDayPal", "mapNameSign" } },
-  { both = { "wStatusFlags", "wMoney" }, mode = "modeled", keys = { "engineFlags" } },
+  { both = { "wStatusFlags", "wMoney" }, mode = "modeled", keys = { "engineFlags", "flashUsed" } },
   { both = { "wMoney", "wMomsMoney" }, mode = "modeled", keys = { "player.money" } },
   { both = { "wMomsMoney", "wCoins" }, mode = "modeled", keys = { "mom.savedMoney", "mom.active", "mom.savingMoney" } },
   { both = { "wCoins", "wBadges" }, mode = "modeled", keys = { "player.coins" } },

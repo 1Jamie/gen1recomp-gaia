@@ -1004,6 +1004,8 @@ function Game2:snapshotSave()
     -- WRAM on the cart, so a save made on POKECENTER_2F must still know which
     -- centre's stairs lead back down -- World:loadPlayerData reads it back.
     self.save.backupWarp = world.backupWarp or self.save.backupWarp
+    -- engine/events/field_moves.asm:15
+    self.save.flashUsed = world.flashUsed and true or nil
     require("src.world.gen2.UnionSafety").seal(self.save, self.data)
   end
   self.save.options = self.options

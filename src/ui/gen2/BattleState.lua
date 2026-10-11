@@ -168,6 +168,8 @@ local TEXT_USE_NEXT_MON = Strings.source("Use next POKéMON?")
 -- (data/text/battle.asm:315-322).
 local TEXT_NO_PP_LEFT = Strings.source("There's no PP left for this move!")
 local TEXT_MOVE_DISABLED = Strings.source("The move is DISABLED!")
+-- data/text/battle.asm:305
+local TEXT_ITEMS_CANT_BE_USED = Strings.source("Items can't be\nused here.")
 
 -- _MoveAskForgetText, _MoveCantForgetHMText and _StopLearningMoveText
 -- (data/text/common_3.asm:124-134).
@@ -2513,6 +2515,7 @@ function BattleState:whitesOut()
   local battle = self.battle
   return battle ~= nil and battle.outcome == "lose" and not self.link
     and battle.battleType ~= Battle.BATTLETYPE_CANLOSE
+    and not battle.inBattleTowerBattle
 end
 
 function BattleState:finishBattle()
@@ -2657,6 +2660,9 @@ function BattleState:chooseMenu(choice)
       self:openTutorialPack()
     elseif self.contest then
       self:throwParkBall()
+    elseif self.battle and self.battle.inBattleTowerBattle then
+      -- engine/battle/core.asm:4965
+      self:refuseMenu(TEXT_ITEMS_CANT_BE_USED)
     else
       self:openPack()
     end
@@ -3672,6 +3678,8 @@ function BattleState:shiftOfferAllowed()
   if not (battle and battle.player and battle.trainer) then return false end
   if #(battle.party or {}) < 2 then return false end
   if (battle.player.hp or 0) <= 0 then return false end
+  -- engine/events/battle_tower/battle_tower.asm:218
+  if battle.inBattleTowerBattle then return false end
   local options = self.game and self.game.options
   return (options and options.battleStyle or "SHIFT") == "SHIFT"
 end

@@ -140,7 +140,7 @@ do
   battle:volatile(wild).protect = true
   local missed, events = use(battle, player, wild, "SWIFT")
   T.check(missed, "PROTECT still turns SWIFT aside")
-  T.check(findText(events, "MACHOP protected itself!"), "with .Protect's line")
+  T.check(findText(events, "Enemy MACHOP protected itself!"), "with .Protect's line")
   T.eq(wild.hp, wild.maxHp, "and takes nothing")
 end
 

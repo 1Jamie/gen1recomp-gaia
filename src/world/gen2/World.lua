@@ -772,6 +772,8 @@ function World:loadPlayerData(save)
   if type(backup) == "table" and backup.map and backup.warp then
     self.backupWarp = { warp = backup.warp, map = backup.map }
   end
+  -- engine/events/field_moves.asm:15
+  self.flashUsed = type(save) == "table" and save.flashUsed == true
   return self.events
 end
 
@@ -4551,14 +4553,14 @@ function World:tryWildEncounter()
   -- slot on a map whose puzzles are all unsolved is NO ENCOUNTER, not a
   -- different one -- `ld a, [wUnlockedUnowns] / and a / jr z, .nowildbattle`.
   -- That is what keeps the Ruins chambers empty until a wall has been solved.
-  local monOpts = nil
+  local monOpts = { wild = true }
   if roll.species == Unown.SPECIES then
     local flags = self:unownUnlockFlags()
     if not Unown.anyUnlocked(flags) then return false end
     -- LoadEnemyMon's .GenerateDVs loop rerolls until CheckUnownLetter clears
     -- the form, so a chamber only ever produces letters its own puzzle
     -- unlocked.
-    monOpts = { dvs = Unown.wildDVs(flags, Mon.randomDVs) }
+    monOpts.dvs = Unown.wildDVs(flags, Mon.randomDVs)
   end
   -- CheckRepelEffect, the last gate TryWildEncounter runs, and it runs AFTER
   -- the mon has been chosen -- which is why a repel filters on the level that
@@ -4652,7 +4654,7 @@ function World:tryContestEncounter(collision)
   end
   local roll = self:rollEncounter("contest", "grass", nil, rollContestVanilla)
   if not roll then return false end
-  local wild = Mon.new(game.data, roll.species, roll.level)
+  local wild = Mon.new(game.data, roll.species, roll.level, { wild = true })
   if not wild then return false end
   save.pokedex = save.pokedex or { seen = {}, caught = {} }
   save.pokedex.seen[roll.species] = true
@@ -4838,7 +4840,7 @@ function World:rollFishing(rod)
       swarm, tod)
   end
   if not roll or not roll.species then return "nibble" end
-  local wild = Mon.new(game.data, roll.species, roll.level)
+  local wild = Mon.new(game.data, roll.species, roll.level, { wild = true })
   if not wild then return "nibble" end
   local save = game.save
   if save then
@@ -5563,7 +5565,7 @@ function World:tryHeadbutt(cx, cy)
     function(n) return self:treeRandom(n) end,
     { otId = (save and save.player and save.player.id) or 0, engine = engine })
   if not roll or not roll.species then return "nothing" end
-  local wild = Mon.new(game.data, roll.species, roll.level)
+  local wild = Mon.new(game.data, roll.species, roll.level, { wild = true })
   if not wild then return "nothing" end
   -- LoadEnemyMon's .TreeMon arm (../pokecrystal/engine/battle/core.asm:6249)
   if Encounter.treeMonAsleep(roll.species, self.tod or self.daytime or "DAY",
@@ -5708,7 +5710,7 @@ function World:sweetScentEncounter()
   if BugContest.isActive(save) then
     local roll = self:rollEncounter("contest", "grass", nil, rollContestVanilla)
     if not roll then return false end
-    local wild = Mon.new(game.data, roll.species, roll.level)
+    local wild = Mon.new(game.data, roll.species, roll.level, { wild = true })
     if not wild then return false end
     save.pokedex = save.pokedex or { seen = {}, caught = {} }
     save.pokedex.seen[roll.species] = true
@@ -5740,11 +5742,11 @@ function World:sweetScentEncounter()
   if not roll then return false end
   -- ChooseWildEncounter's Unown arm: a chamber with no puzzle solved yet
   -- stays empty for SWEET SCENT too.
-  local monOpts = nil
+  local monOpts = { wild = true }
   if roll.species == Unown.SPECIES then
     local flags = self:unownUnlockFlags()
     if not Unown.anyUnlocked(flags) then return false end
-    monOpts = { dvs = Unown.wildDVs(flags, Mon.randomDVs) }
+    monOpts.dvs = Unown.wildDVs(flags, Mon.randomDVs)
   end
   local wild = Mon.new(game.data, roll.species, roll.level, monOpts)
   if not wild then return false end
@@ -7000,6 +7002,8 @@ function World:startBattle(opts, onDone)
         -- engine/overworld/scripting.asm:1178-1184, engine/events/whiteout.asm:1-21
         local whiteout = outcome == "lose"
           and opts.battleType ~= BATTLETYPE.CANLOSE
+          -- engine/events/battle_tower/battle_tower.asm:232-235
+          and not opts.battleTower
         -- engine/overworld/events.asm:1158-1162, data/maps/setup_scripts.asm:124
         if not whiteout and not self:scriptRunning() then
           self:battleReturnFade()
@@ -7205,26 +7209,18 @@ function World:startScriptedBattle(record, wild, onDone)
     -- battle screen (home/trainers.asm:230) (#1512)
     opts.trainer.winText, opts.trainer.lossText = self:trainerWinLossText()
   elseif wild and wild.species then
-    local id, def = speciesByIndex(data and data.pokemon, wild.species)
+    local id = speciesByIndex(data and data.pokemon, wild.species)
     -- InitEnemyMon `.NotRoaming` / BATTLETYPE.FORCESHINY: the DV pair is
     -- forced to ATKDEFDV_SHINY $EA / SPDSPCDV_SHINY $AA (Attack 14, the
     -- rest 10) before stats are built, which is the whole of what makes the
     -- Red Gyarados red -- and caught, it keeps the DVs and stays shiny.
-    local monOpts
+    -- ../pokecrystal/engine/battle/core.asm:6014-6018
+    local monOpts = { wild = true,
+      forceItem = self:battleType() == BATTLETYPE.FORCEITEM }
     if self:battleType() == BATTLETYPE.FORCESHINY then
-      monOpts = { dvs = { attack = 14, defense = 10, speed = 10,
-        special = 10 } }
+      monOpts.dvs = { attack = 14, defense = 10, speed = 10, special = 10 }
     end
     opts.wild = id and Mon.new(data, id, wild.level or 5, monOpts) or nil
-    -- InitEnemyMon's `.WildItem` / BATTLETYPE.FORCEITEM: Item1 is handed over
-    -- unconditionally, no roll, which is the only wild-item path modeled --
-    -- see Mon.new's own note on why the general 25%/8% roll is not.  Read
-    -- here rather than after startBattle, because scriptVars[VAR.BATTLETYPE]
-    -- is cleared the moment this function hands off to it.
-    if opts.wild and self:battleType() == BATTLETYPE.FORCEITEM then
-      local given = def and def.items and def.items[1]
-      if given then opts.wild.item = given end
-    end
   end
   -- engine/overworld/scripting.asm Script_startbattle
   if not (opts.trainer and #opts.trainer.party > 0) and not opts.wild then
@@ -7241,7 +7237,7 @@ function World:startScriptedBattle(record, wild, onDone)
     return false
   end
   -- wBattleType, which `writevar VAR.BATTLETYPE / loadvar BATTLETYPE_*` armed:
-  -- FORCEITEM 10 (Lugia, Ho-Oh, the Red Gyarados), FORCESHINY 7 (Lake of Rage),
+  -- FORCEITEM 10 (Lugia, Ho-Oh, Snorlax), FORCESHINY 7 (Lake of Rage),
   -- TRAP 9 (the Rocket base), CANLOSE 1 (the Cherrygrove rival).  It is a
   -- ONE-SHOT on the cart -- BattleStart_TrainerBattle / StartWildBattle reset
   -- it -- so the value is taken and cleared here and handed to the battle,
@@ -7267,7 +7263,7 @@ function World:startCatchTutorial(wild, battleType, onDone)
   local mon
   if wild and wild.species then
     local id = speciesByIndex(data and data.pokemon, wild.species)
-    mon = id and Mon.new(data, id, wild.level or 5) or nil
+    mon = id and Mon.new(data, id, wild.level or 5, { wild = true }) or nil
   end
   if not mon then
     -- No wild mon means the script never ran `loadwildmon`, which no reachable

@@ -41,11 +41,12 @@ Gen2Facade.MOVE_ANIMS = { TURN_TRAP = "arg", FUTURE_SIGHT_HIT = 248 }
 Gen2Facade.FIELDS = {
   "player", "enemy", "party", "enemyParty", "trainer", "wild", "over", "outcome", "battleType",
   "random", "participants", "payDay", "amuletCoin", "timeOfDay", "boxFilled", "data",
+  "inBattleTowerBattle",
 }
 
 Gen2Facade.NILABLE = {
   battleType = true, payDay = true, amuletCoin = true, timeOfDay = true, boxFilled = true,
-  outcome = true,
+  outcome = true, inBattleTowerBattle = true,
 }
 
 Gen2Facade.METHODS = {
@@ -73,6 +74,7 @@ local T = {
   illegal = S("The other game sent\na bad move. Draw."),
   broken = S("The battle could\nnot continue."),
   fainted = S("%s fainted!"),
+  enemyFainted = S("Enemy %s fainted!"),
   withdrew = S("%s withdrew %s!"),
   go = S("Go! %s!"),
   usedMove = S("%s\nused %s!"),
@@ -228,8 +230,13 @@ function Facade:nameOf(v)
   return v.nickname or v.name or tostring(v.species or "?")
 end
 
+-- home/text.asm:330-345
 function Facade:N(r)
-  return self:nameOf(self:ref(r))
+  local v = self:ref(r)
+  if not v then return "?" end
+  local foe = (type(r) == "table") and (r.side ~= self.seat) or (r == "enemy")
+  if foe then return Strings("Enemy %s", self:nameOf(v)) end
+  return self:nameOf(v)
 end
 
 local function moveOf(v)
@@ -677,7 +684,9 @@ function Facade:translate(evs)
       local v = self:active(ev.side)
       if v then v.hp = 0 end
       fainted[ev.side] = true
-      out[#out + 1] = { kind = "faint", side = self:sideName(ev.side), text = Strings(T.fainted, self:nameOf(v)) }
+      local side = self:sideName(ev.side)
+      out[#out + 1] = { kind = "faint", side = side,
+        text = Strings(side == "enemy" and T.enemyFainted or T.fainted, self:nameOf(v)) }
     elseif k == "weather" then
       self.weather = Gen2Facade.WEATHER[tostring(ev.weather or ""):upper()]
     elseif k == "msg" then

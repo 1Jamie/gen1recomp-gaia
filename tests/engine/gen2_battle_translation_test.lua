@@ -92,7 +92,7 @@ do
   enemy.moves = { { id = "RAW_MOVE", pp = 5 } }
   enemy.volatile.lastMove = "RAW_MOVE"
   Battle.MOVE_EFFECTS.EFFECT_DISABLE(battle, player, enemy)
-  T.eq(battle.events[#battle.events].text, "CIBLE: JOLI MOUV neutralisee!",
+  T.eq(battle.events[#battle.events].text, "Enemy CIBLE: JOLI MOUV neutralisee!",
     "a multi-argument template receives the move's display name, not its id")
 
   battle.events = {}

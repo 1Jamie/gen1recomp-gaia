@@ -213,8 +213,7 @@ do
   check(findText(events, "ROCKY turned away!"), "the turn opens on the loaf")
   eq(mon.moves[1].pp, 15, "no PP left the disobeyed move")
   eq(wild.hp, hpBefore, "and the enemy was never touched")
-  check(findText(events, "Wild PIDGEY\nused TACKLE!")
-    or findText(events, "PIDGEY\nused TACKLE!"),
+  check(findText(events, "Enemy PIDGEY\nused TACKLE!"),
     "while the enemy's half of the turn still ran")
 
   -- The second half of a charge move is exempt (CheckUserIsCharging): a

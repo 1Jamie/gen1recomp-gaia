@@ -381,6 +381,12 @@ function CacheFs.openWrite(rel)
   return file
 end
 
+local function decodeOrMiss(rel, data)
+  local ok, raw = pcall(CacheBlob.decode, rel, data)
+  if ok then return raw end
+  return nil, raw
+end
+
 -- Read an exact version-qualified path without consulting CacheFs.prefix.
 -- Readiness checks use this to inspect another version without global state.
 function CacheFs.readAt(rel)
@@ -391,12 +397,12 @@ function CacheFs.readAt(rel)
     if not f then return nil end
     local data = f:read("*a")
     f:close()
-    return CacheBlob.decode(rel, data)
+    return decodeOrMiss(rel, data)
   end
   -- headless (plain luajit, e.g. the modkit validate/pack driver): there is
   -- no save directory to read from, so a cache miss is nil, not a crash
   if not (love and love.filesystem and love.filesystem.read) then return nil end
-  return (CacheBlob.readFs(rel))
+  return decodeOrMiss(rel, (love.filesystem.read(rel)))
 end
 
 -- read cache-relative `rel`; returns the bytes or nil

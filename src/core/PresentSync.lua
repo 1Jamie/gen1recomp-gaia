@@ -1,12 +1,12 @@
 -- Cross-platform present sync: layered fail-safe for vsync / frame pacing.
 --
 -- Defense in depth:
---   1. Probe isolation — calibration runs with FrameCap OFF and no FixedStep
+--   1. Probe isolation, calibration runs with FrameCap OFF and no FixedStep
 --      refresh snap.  Cadence between presents is the signal (Wayland often
 --      returns from present() immediately and waits on the next frame).
---   2. Tight classification — stable, panel-aligned cadence only; jitter /
+--   2. Tight classification, stable, panel-aligned cadence only; jitter /
 --      unknown rates fail closed.
---   3. Fallback cascade — ungated / failed / abandoned waits force FrameCap
+--   3. Fallback cascade, ungated / failed / abandoned waits force FrameCap
 --      immediately; logic never snaps to panel Hz unless sync is confirmed.
 
 local PresentSync = {}
@@ -29,7 +29,7 @@ function PresentSync.probingDisplaySync()
   if status.gated ~= nil then return false end
   local FrameCap = require("src.core.FrameCap")
   local VSync = require("src.core.VSync")
-  return FrameCap.current == FrameCap.DISPLAY and VSync.isOn()
+  return FrameCap.selected() == FrameCap.DISPLAY and VSync.isOn()
 end
 
 -- Software FrameCap is required only after sync has failed (or a bound wait
@@ -39,17 +39,23 @@ function PresentSync.needsSoftwareCap()
   return probe().needsSoftwareCap() == true
 end
 
+function PresentSync.displayNeedsSoftwareCap()
+  if not require("src.core.VSync").isOn() then return true end
+  return PresentSync.needsSoftwareCap()
+end
+
 -- Hardware gating is trusted only after a finished probe says gated and the
 -- fallback flag is clear.  Probing or failed → not confirmed.
 function PresentSync.displaySyncConfirmed()
+  if not require("src.core.VSync").isOn() then return false end
   if PresentSync.needsSoftwareCap() then return false end
   local status = probe().status()
   return status.gated == true
 end
 
 -- True when confirmed display sync already gates at or above the numeric
--- cap, so FrameCap sleep adds nothing.  Requires a finished gated probe —
--- never skip the limiter during warmup or on a guessed refresh rate.
+-- cap, so FrameCap sleep adds nothing.  Requires vsync on and a finished
+-- gated probe; never skip the limiter during warmup or on a guessed rate.
 function PresentSync.hardwarePacesCap(cap)
   cap = tonumber(cap)
   if not cap or cap <= 0 then return false end
@@ -95,7 +101,7 @@ function PresentSync.logicRefreshPeriod()
   local FrameCap = require("src.core.FrameCap")
   local VSync = require("src.core.VSync")
   local RefreshRate = require("src.core.RefreshRate")
-  local cap = FrameCap.current
+  local cap = FrameCap.selected()
 
   if cap == FrameCap.DISPLAY then
     if not VSync.isOn() then return nil end
@@ -115,6 +121,7 @@ function PresentSync.logicRefreshPeriod()
 end
 
 function PresentSync.applyFixedStepPeriod()
+  require("src.core.FrameCap").refresh()
   require("src.core.FixedStep").refreshPeriod = PresentSync.logicRefreshPeriod()
 end
 

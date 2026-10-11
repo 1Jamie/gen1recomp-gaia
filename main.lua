@@ -1704,6 +1704,7 @@ function love.filedropped(file)
 end
 
 local function pacingEnabled()
+  if os.getenv("POKEPORT_DRIVER_PACED") == "1" then return true end
   if os.getenv("POKEPORT_AUTOPILOT") then return false end
   if os.getenv("POKEPORT_DRIVER") then return false end
   if os.getenv("POKEPORT_IMPORT_ONLY") == "1" then return false end

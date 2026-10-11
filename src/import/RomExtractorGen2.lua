@@ -5144,6 +5144,78 @@ function RomExtractorGen2:btSampleCeiling(label)
   error("battle tower sample ceiling not found at " .. label)
 end
 
+-- ../pokecrystal/engine/events/battle_tower/trainer_text.asm:29-34, :41-46
+local function btTextRolls(raw)
+  local rolls = {}
+  for index = 1, #raw - 4 do
+    if raw[index] == 0xe6 and raw[index + 2] == 0xfe
+        and raw[index + 4] == 0x38 then
+      rolls[#rolls + 1] = { mask = raw[index + 1], count = raw[index + 3] }
+    end
+  end
+  return rolls
+end
+
+-- ../pokecrystal/engine/events/battle_tower/trainer_text.asm:90-230
+function RomExtractorGen2:readBattleTowerTextSet(label, roll, charmap)
+  local sym = self:symbol(label)
+  local tables = {}
+  for slot = 0, 2 do
+    tables[slot + 1] = self.rom:word(sym.bank, sym.address + slot * 2)
+  end
+  local count = math.floor((tables[2] - tables[1]) / 2)
+  local lists = {}
+  for slot = 1, 3 do
+    local rows = {}
+    for index = 0, count - 1 do
+      local struct = self.rom:word(sym.bank, tables[slot] + index * 2)
+      -- ../pokecrystal/macros/scripts/text.asm:156-160 text_far
+      assert(self.rom:byte(sym.bank, struct) == 0x16,
+        ("battle tower text %s[%d][%d] is not text_far"):format(label, slot, index))
+      local address = self.rom:word(sym.bank, struct + 1)
+      local bank = self.rom:byte(sym.bank, struct + 3)
+      rows[index + 1] = self:decodeGen2Text(bank, address, charmap)
+    end
+    lists[slot] = rows
+  end
+  return {
+    mask = roll.mask,
+    count = roll.count,
+    intro = lists[1],
+    playerLost = lists[2],
+    playerWon = lists[3],
+  }
+end
+
+-- ../pokecrystal/engine/events/battle_tower/trainer_text.asm:1-84
+function RomExtractorGen2:readBattleTowerText(charmap)
+  for _, name in ipairs({ "BattleTowerText", "BTTrainerClassGenders",
+      "BTMaleTrainerTexts", "BTFemaleTrainerTexts", "wBT_OTTrainerClass" }) do
+    if not self.symbols[name] then return nil end
+  end
+  local code = self:symbol("BattleTowerText")
+  local raw = self.rom:bytes(code.bank, code.address, 0x40)
+  -- trainer_text.asm:10-19 `ld hl, nn`
+  local source
+  for index = 1, #raw - 2 do
+    if raw[index] == 0x21 then
+      source = raw[index + 1] + raw[index + 2] * 0x100
+      break
+    end
+  end
+  assert(source, "battle tower text gender source not found")
+  local rolls = btTextRolls(raw)
+  assert(#rolls == 2, "battle tower text rolls not found")
+  local genders = self:symbol("BTTrainerClassGenders")
+  return {
+    genderByName = source ~= self:symbol("wBT_OTTrainerClass").address,
+    classGenders = self.rom:bytes(genders.bank, genders.address, 256),
+    male = self:readBattleTowerTextSet("BTMaleTrainerTexts", rolls[1], charmap),
+    female = self:readBattleTowerTextSet("BTFemaleTrainerTexts", rolls[2],
+      charmap),
+  }
+end
+
 -- One `party_struct` (../pokecrystal/macros/ram.asm party_struct, laid out by
 -- ../pokecrystal/constants/pokemon_data_constants.asm:75-113).  Every word in
 -- it is big-endian, which is what `bigdw` / `bigdt` in parties.asm emit.
@@ -5226,6 +5298,8 @@ function RomExtractorGen2:readBattleTowerRoster(consts, charmap)
     trainers[index + 1] = {
       index = index,
       name = self.rom:decodeText(raw, charmap, 0x50),
+      -- ../pokecrystal/engine/events/battle_tower/trainer_text.asm:18
+      nameRaw = raw,
       class = classId,
       classId = classOrder[classId + 1],
     }
@@ -5268,6 +5342,7 @@ function RomExtractorGen2:readBattleTowerRoster(consts, charmap)
     trainers = trainers,
     groups = groups,
     classSprites = sprites,
+    text = self:readBattleTowerText(charmap),
   }
 end
 

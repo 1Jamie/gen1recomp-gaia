@@ -118,7 +118,7 @@ do
   battle:useMove(player, raikou, "MEAN_LOOK")
   eq(player.volatile.trapsTarget, true,
     "ArenaTrap: CANT_RUN lives on the USER's side")
-  check(findText(battle:takeEvents(), "RAIKOU can't escape now!"),
+  check(findText(battle:takeEvents(), "Enemy RAIKOU can't escape now!"),
     "CantEscapeNowText")
   eq(battle:tryEnemyFlee(), false,
     "TryEnemyFlee reads the player's substatus and stays")
@@ -224,7 +224,7 @@ do
   battle:useMove(player, wild, "ROAR")
   eq(battle.over, true, "a higher-level Roar sends the wild mon off")
   eq(battle.outcome, "fled", "as a draw, not a win")
-  check(findText(battle:takeEvents(), "PIDGEY fled in fear!"),
+  check(findText(battle:takeEvents(), "Enemy PIDGEY fled in fear!"),
     "FledInFearText")
 end
 

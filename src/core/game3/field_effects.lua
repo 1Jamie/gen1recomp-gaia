@@ -21,7 +21,7 @@ FieldEffects._ground = nil -- pokefirered/src/event_object_movement.c:8721
 FieldEffects._surfBob = nil
 FieldEffects._underwaterBob = nil
 FieldEffects._logged = false
--- pokefirered/src/scrcmd.c:2051 — gFieldEffectArguments, written by
+-- pokefirered/src/scrcmd.c:2051: gFieldEffectArguments, written by
 -- setfieldeffectargument and read by the effect that dofieldeffect starts.
 FieldEffects._fieldEffectArguments = {}
 -- waitfieldeffect callers parked until isFieldEffectActive(id) goes false.
@@ -498,21 +498,6 @@ end
 
 -- ---------------------------------------------------------------- Transient Animations
 
---- Cut tree animation: tree slices and collapses (pret EventScript_CutTreeDown / Movement_CutTreeDown)
-function FieldEffects.startCutTree(targetObj, cx, cy, onDone)
-  cx, cy = tonumber(cx) or 0, tonumber(cy) or 0
-  local anim = {
-    kind = "cut_tree",
-    targetObj = targetObj,
-    cx = cx,
-    cy = cy,
-    timer = 0,
-    maxDur = 24, -- 4 frames (0, 1, 2, 3) at 6 ticks per frame
-    onDone = onDone,
-  }
-  table.insert(FieldEffects._anims, anim)
-end
-
 --- Cut grass leaves scattering animation across 3x3 tiles (pret FldEff_CutGrass)
 function FieldEffects.startCutGrass(cx, cy, onDone)
   load_sheet("cut_grass", 8, 8, 1)
@@ -535,39 +520,6 @@ function FieldEffects.startCutGrass(cx, cy, onDone)
 
   local anim = {
     kind = "cut_grass_scatter",
-    cx = cx,
-    cy = cy,
-    timer = 0,
-    maxDur = 24,
-    particles = particles,
-    onDone = onDone,
-  }
-  table.insert(FieldEffects._anims, anim)
-end
-
---- Rock smash rubble exploding animation
-function FieldEffects.startRockSmash(targetObj, cx, cy, onDone)
-  load_sheet("rock_smash", 16, 16, 4)
-  cx, cy = tonumber(cx) or 0, tonumber(cy) or 0
-  local px = cx * CELL
-  local py = cy * CELL
-
-  local particles = {}
-  for i = 1, 8 do
-    local angle = (i - 1) * (math.pi / 4) + (math.random() * 0.3 - 0.15)
-    local spd = 1.2 + math.random() * 1.6
-    particles[#particles + 1] = {
-      x = px + 4,
-      y = py + 4,
-      vx = math.cos(angle) * spd,
-      vy = math.sin(angle) * spd - 1.5,
-      frame = math.random(0, 3),
-    }
-  end
-
-  local anim = {
-    kind = "rock_smash",
-    targetObj = targetObj,
     cx = cx,
     cy = cy,
     timer = 0,
@@ -1110,11 +1062,11 @@ function FieldEffects.startSweetScent(onDone)
   table.insert(FieldEffects._anims, anim)
 end
 
--- pokefirered/src/field_effect.c:3946 — the Deoxys shatter whites the MAP out:
+-- pokefirered/src/field_effect.c:3946: the Deoxys shatter whites the MAP out:
 --   BlendPalettes(PALETTES_BG, 0x10, RGB_WHITE);
 --   BeginNormalPaletteFade(PALETTES_BG, 0, 0x10, 0, RGB_WHITE);
--- PALETTES_BG only, so the four rock fragments — OBJ sprites sharing the
--- meteorite's palette tag 4371 — keep their colours and stay visible against
+-- PALETTES_BG only, so the four rock fragments, OBJ sprites sharing the
+-- meteorite's palette tag 4371, keep their colours and stay visible against
 -- the white map while they fly.  That is why this is a background veil painted
 -- between the map layers and the actors, and not a whole-screen "flash" like
 -- the one FldEff_PhotoFlash uses (that one really is PALETTES_ALL).
@@ -1144,7 +1096,7 @@ end
 
 -- ------------------------------------------------- Birth Island Deoxys effects
 
---- pokefirered/src/field_effect.c:3722 — slide the meteorite object to (x, y).
+--- pokefirered/src/field_effect.c:3722: slide the meteorite object to (x, y).
 --- pret works in object-event coords offset by +7 so the sprite visibly travels
 --- a long way; here the sprite simply lerps from its current pixel position to
 --- the target cell, which reads the same on screen.
@@ -1178,7 +1130,7 @@ function FieldEffects.startMoveDeoxysRock(localId, x, y, frames)
   return anim
 end
 
---- pokefirered/src/field_effect.c:3840 — camera shake, thunder, then the rock
+--- pokefirered/src/field_effect.c:3840: camera shake, thunder, then the rock
 --- shatters into four fragments and is removed from the map.
 function FieldEffects.startDestroyDeoxysRock(localId, graphicsId)
   local Objects = package.loaded["src.core.game3.objects"]
@@ -1743,41 +1695,11 @@ function FieldEffects.step()
     anim.timer = anim.timer + 1
     local finished = false
 
-    if anim.kind == "cut_tree" then
-      -- Animate tree object through frames 0..3 (6 ticks per frame)
-      local frame = math.min(3, math.floor(anim.timer / 6))
-      if anim.targetObj then
-        anim.targetObj.customFrame = frame
-      end
-      -- Update scattering leaf particles with gravity
-      for _, p in ipairs(anim.particles or {}) do
-        p.x = p.x + p.vx
-        p.y = p.y + p.vy
-        p.vy = p.vy + 0.12 -- gravity
-        p.frame = math.floor(anim.timer / 4) % 4
-      end
-      if anim.timer >= anim.maxDur then
-        finished = true
-      end
-    elseif anim.kind == "cut_grass_scatter" then
+    if anim.kind == "cut_grass_scatter" then
       for _, p in ipairs(anim.particles or {}) do
         p.x = p.x + p.vx
         p.y = p.y + p.vy
         p.vy = p.vy + 0.12
-        p.frame = math.floor(anim.timer / 4) % 4
-      end
-      if anim.timer >= anim.maxDur then
-        finished = true
-      end
-    elseif anim.kind == "rock_smash" then
-      local frame = math.min(3, math.floor(anim.timer / 6))
-      if anim.targetObj then
-        anim.targetObj.customFrame = frame
-      end
-      for _, p in ipairs(anim.particles or {}) do
-        p.x = p.x + p.vx
-        p.y = p.y + p.vy
-        p.vy = p.vy + 0.15 -- gravity
         p.frame = math.floor(anim.timer / 4) % 4
       end
       if anim.timer >= anim.maxDur then
@@ -1890,7 +1812,7 @@ function FieldEffects.step()
       local g = FieldEffects._ground
       if not (g and g.inHotSprings) then finished = true end
     elseif anim.kind == "deoxys_rock_move" then
-      -- pokefirered/src/field_effect.c:3745 — linear sprite lerp over maxDur frames.
+      -- pokefirered/src/field_effect.c:3745: linear sprite lerp over maxDur frames.
       local t = math.min(1, anim.timer / anim.maxDur)
       local Objects = package.loaded["src.core.game3.objects"]
       local eo = Objects and Objects.find and Objects.find(anim.localId)
@@ -2252,26 +2174,6 @@ function FieldEffects.collectActors(actors)
           end,
         }
       end
-    elseif anim.kind == "cut_tree" then
-      local sheet = load_sheet("cut_tree", 32, 32, 4)
-      local f = math.min(3, math.floor((anim.timer or 0) / 6))
-      local q = sheet and sheet.quads[f]
-      if q then
-        local tx = anim.cx * CELL - 8
-        local ty = anim.cy * CELL - 16
-        actors[#actors + 1] = {
-          kind = "field_effect_cut_tree",
-          elevation = 3,
-          sortY = anim.cy * CELL,
-          x = tx,
-          y = ty,
-          i = 91000 + idx,
-          draw = function(_, camX, camY)
-            love.graphics.setColor(1, 1, 1, 1)
-            love.graphics.draw(sheet.image, q, tx - camX, ty - camY)
-          end,
-        }
-      end
     elseif anim.kind == "emote" or anim.kind == "exclamation" then
       local sheet = anim.sheet and load_sheet(anim.sheet) or load_sheet("emoticons", 16, 16, 15)
       if sheet and sheet.quads[anim.frame] then
@@ -2323,19 +2225,6 @@ function FieldEffects.drawFront(camX, camY, playerPy)
       if sheet then
         for _, p in ipairs(anim.particles or {}) do
           local q = sheet.quads[0]
-          if q then
-            local sx = p.x - camX
-            local sy = p.y - camY
-            love.graphics.setColor(1, 1, 1, 1)
-            love.graphics.draw(sheet.image, q, sx, sy)
-          end
-        end
-      end
-    elseif anim.kind == "rock_smash" then
-      local sheet = load_sheet("rock_smash", 16, 16, 4)
-      if sheet then
-        for _, p in ipairs(anim.particles or {}) do
-          local q = sheet.quads[p.frame % 4]
           if q then
             local sx = p.x - camX
             local sy = p.y - camY

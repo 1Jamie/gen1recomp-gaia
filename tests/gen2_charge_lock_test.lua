@@ -106,6 +106,7 @@ local function actorStub(vol, status)
     mon = { status = status },
     volatile = function() return vol end,
     monName = function() return "DRAGONITE" end,
+    battlerName = function() return "DRAGONITE" end,
     emit = function(_, ev) said[#said + 1] = ev.text end,
     random = function() return 1 end,
   }

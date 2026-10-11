@@ -20,7 +20,7 @@
 --             DWM.  Same fail-closed rule as BufferQueue: soft-cap alone
 --             while swapinterval stays 1 prevents a clean lock.
 --   x11       GLX swapinterval often blocks in swap, but compositors
---             (Picom, etc.) can defer — cadence still correct.  If ungated,
+--             (Picom, etc.) can defer, cadence still correct.  If ungated,
 --             try OML/SGI wait (native X11 only).
 --   xwayland/gamescope  Never bind GLX waits (WaitForMsc can hard-hang when
 --             the MSC ticks on a soft clock).  Ungated → FrameCap only.
@@ -144,7 +144,7 @@ local COMMON_HZ = { 60, 75, 90, 100, 120, 144, 165, 240 }
 local function resolveExpect(mid)
   local hz = nil
   local okRR, RR = pcall(require, "src.core.RefreshRate")
-  if okRR then hz = RR.hz() end
+  if okRR then hz = (RR.queried or RR.hz)() end
   if hz and hz > 0 then return 1 / hz, hz end
   -- SDL often reports refresh_rate=0 on some paths; infer a panel period
   -- from the cadence itself against common rates so a working desktop is
@@ -296,7 +296,7 @@ local function bindGlxWait(nest)
       local zero = ffi.new("long long", 0)
       local one = ffi.new("long long", 1)
       ust[0], msc[0], sbc[0], target[0] = 0, 0, 0, 0
-      -- Locals only — hot path must not touch ffi.C or string tables.
+      -- Locals only, hot path must not touch ffi.C or string tables.
       local gd, gdrw, gs, wm = getDisplay, getDrawable, getSync, waitMsc
       local fn = function()
         local d = gd()
@@ -348,9 +348,9 @@ local function silenceDriverIfNeeded()
   if okV and VSync.silenceDriver then pcall(VSync.silenceDriver) end
 end
 
-local function pickStrategy()
+local function chooseStrategy()
   -- Always drop any prior wait first.  While gated is nil we are probing
-  -- unassisted present intervals — never re-bind mid-probe or the sample
+  -- unassisted present intervals, never re-bind mid-probe or the sample
   -- measures our own wait instead of the driver's raw behaviour.
   waitFn = nil
   state.needsSoftwareCap = false
@@ -431,7 +431,7 @@ local function pickStrategy()
     -- XWayland (and Gamescope-on-XWayland): GLX OML/SGI MSC can tick on a
     -- soft timer while WaitForMsc / WaitVideoSync block forever on a signal
     -- that never fires (reproduced with vblank_mode=0).  Never bind those
-    -- waits here — FrameCap is the thermal net.
+    -- waits here, FrameCap is the thermal net.
     if nest == "xwayland" then
       state.needsSoftwareCap = true
       state.strategy = "none"
@@ -454,6 +454,12 @@ local function pickStrategy()
 
   if state.gated == false then state.needsSoftwareCap = true end
   state.strategy = "none"
+end
+
+local function pickStrategy()
+  chooseStrategy()
+  local ok, FrameCap = pcall(require, "src.core.FrameCap")
+  if ok then pcall(FrameCap.refresh) end
 end
 
 local function platformNest()

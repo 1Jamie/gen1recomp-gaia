@@ -19,12 +19,14 @@
 -- generations.
 
 local Chrome = require("src.ui.gen2.Chrome")
+local GameVersion = require("src.core.GameVersion")
 local Logger = require("src.core.Logger")
 local Marquee = require("src.ui.Marquee")
 local Palette = require("src.render.Palette")
 local Performance = require("src.core.Performance")
 local Runtime = require("src.mods.Runtime")
 local Save = require("src.core.gen2.Save")
+local Sound = require("src.core.Sound")
 local Strings = require("src.core.Strings")
 
 local OptionsMenu = {}
@@ -770,6 +772,11 @@ function OptionsMenu:cycle(row, delta)
 end
 
 function OptionsMenu:leave_()
+  local data = self.game and self.game.data
+  if not self.sub and data and GameVersion.engine() == "crystal" then
+    -- ../pokecrystal/engine/menus/options_menu.asm:69
+    Sound.play(data, "Sfx_Transaction")
+  end
   if self.onDone then self.onDone(self.options) end
   if self.game and self.game.stack and self.game.stack:top() == self then
     self.game.stack:pop()

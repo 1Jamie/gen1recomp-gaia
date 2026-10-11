@@ -190,13 +190,13 @@ do
   eq(wild.volatile.confuseCount, 3,
     "FinishConfusingTarget: `and %11` plus two turns")
   eq(wild.status, nil, "SUBSTATUS_CONFUSED never touches the status byte")
-  check(findText(battle:takeEvents(), "MACHOP became confused!"),
+  check(findText(battle:takeEvents(), "Enemy MACHOP became confused!"),
     "BecameConfusedText")
 
   -- A second ray answers AlreadyConfusedText and changes nothing.
   battle:useMove(player, wild, "CONFUSE_RAY")
   eq(wild.volatile.confuseCount, 3, "no re-roll on a repeat")
-  check(findText(battle:takeEvents(), "MACHOP's already confused!"),
+  check(findText(battle:takeEvents(), "Enemy MACHOP's already confused!"),
     "AlreadyConfusedText")
 
   -- The 50 percent self-hit: canAct decrements, then a byte under 128 hurts.
@@ -459,7 +459,7 @@ do
   battle, player, wild = newBattle({ random = rolls({}, 1) })
   battle:useMove(wild, player, "REFLECT")
   eq(battle.screens.enemy.reflect, 5, "BattleCommand_Screen: five turns")
-  check(findText(battle:takeEvents(), "MACHOP's DEFENSE rose!"),
+  check(findText(battle:takeEvents(), "Enemy MACHOP's DEFENSE rose!"),
     "ReflectEffectText")
   local screened = wild.hp
   battle:useMove(player, wild, "TACKLE")
@@ -506,7 +506,7 @@ do
     random = rolls({ 0 }, 0) })
   battle:useMove(player, wild, "LEECH_SEED")
   eq(wild.volatile.leechSeed, true, "SUBSTATUS_LEECH_SEED on the target")
-  check(findText(battle:takeEvents(), "MACHOP was seeded!"), "WasSeededText")
+  check(findText(battle:takeEvents(), "Enemy MACHOP was seeded!"), "WasSeededText")
 
   -- ResidualDamage: an eighth crosses to the other active mon.
   player.hp = 10
@@ -515,12 +515,12 @@ do
   local drained = seededBefore - wild.hp
   eq(drained, math.floor(wild.maxHp / 8), "an eighth of max HP drains")
   eq(player.hp, 10 + drained, "and lands on the seeder's side")
-  check(findText(battle:takeEvents(), "LEECH SEED saps MACHOP!"),
+  check(findText(battle:takeEvents(), "LEECH SEED saps Enemy MACHOP!"),
     "LeechSeedSapsText")
 
   -- A second seed "evaded"; a Grass target is immune outright.
   battle:useMove(player, wild, "LEECH_SEED")
-  check(findText(battle:takeEvents(), "MACHOP evaded the attack!"),
+  check(findText(battle:takeEvents(), "Enemy MACHOP evaded the attack!"),
     "a seeded target evades the repeat")
   local battle2, player2, tangela = newBattle({ wildSpecies = "TANGELA",
     playerMoves = { { id = "LEECH_SEED", pp = 10, maxPp = 10 } },
@@ -528,7 +528,7 @@ do
   battle2:useMove(player2, tangela, "LEECH_SEED")
   check(tangela.volatile == nil or tangela.volatile.leechSeed == nil,
     "a Grass target cannot be seeded")
-  check(findText(battle2:takeEvents(), "It doesn't affect TANGELA..."),
+  check(findText(battle2:takeEvents(), "It doesn't affect\nEnemy TANGELA!"),
     "PrintDoesntAffect for Grass")
 end
 
@@ -543,7 +543,7 @@ do
   eq(wild.volatile.flinched, true,
     "BattleCommand_FlinchTarget: the effect chance landed")
   eq(battle:canAct(wild), false, "the flinched mon loses its turn")
-  check(findText(battle:takeEvents(), "MACHOP flinched!"), "FlinchedText")
+  check(findText(battle:takeEvents(), "Enemy MACHOP flinched!"), "FlinchedText")
 
   -- A roll past the chance leaves no flinch.
   battle, player, wild = newBattle({
@@ -564,7 +564,7 @@ do
   eq(wild.volatile.wrapCount, 4,
     "BattleCommand_TrapTarget: `and %11` plus three")
   eq(wild.volatile.wrapMove, "WRAP", "the trapping move is remembered")
-  check(findText(battle:takeEvents(), "MACHOP was WRAPPED by MACHOP!"),
+  check(findText(battle:takeEvents(), "Enemy MACHOP was WRAPPED by MACHOP!"),
     "WrappedByText")
 
   -- HandleWrap: decrement first, then a sixteenth -- and release at zero.
@@ -578,7 +578,7 @@ do
   battle:takeEvents()
   battle:tickWrap(wild)
   eq(wild.volatile.wrapCount, nil, "the last tick releases")
-  check(findText(battle:takeEvents(), "MACHOP was released from WRAP!"),
+  check(findText(battle:takeEvents(), "Enemy MACHOP was released from WRAP!"),
     "UserWasReleasedFromStringBuffer1")
 
   -- No re-trap while one is running.
@@ -678,7 +678,7 @@ do
   battle:volatile(wild).lastMove = "TACKLE"
   battle:useMove(player, wild, "SPITE")
   eq(wild.moves[1].pp, 30, "a roll of 3 takes five PP")
-  check(findText(battle:takeEvents(), "MACHOP's TACKLE was reduced by 5!"),
+  check(findText(battle:takeEvents(), "Enemy MACHOP's TACKLE was reduced by 5!"),
     "SpiteEffectText names the move and the figure")
 
   -- The clamp: never more than the slot still holds.
@@ -695,7 +695,7 @@ do
     playerMoves = { { id = "SPITE", pp = 10, maxPp = 10 } },
     random = rolls({ 0 }, 0) })
   battle:useMove(player, wild, "SPITE")
-  check(findText(battle:takeEvents(), "It didn't affect MACHOP!"),
+  check(findText(battle:takeEvents(), "It didn't affect Enemy MACHOP!"),
     "a target that has not moved yet cannot be spited")
   eq(wild.moves[1].pp, 35, "and nothing was taken")
 end

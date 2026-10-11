@@ -6,6 +6,7 @@ local S = Specials.shared
 
 local Bag = require("src.inventory.Bag")
 local BattleTower = require("src.core.gen2.BattleTower")
+local BattleTowerText = require("src.script.gen2.BattleTowerText")
 local RomText = require("src.core.RomText")
 local Save = require("src.core.gen2.Save")
 local Strings = require("src.core.Strings")
@@ -349,6 +350,9 @@ M.BattleTowerBattle = function(vm)
       attributes = class and class.attributes,
       baseMoney = class and class.baseMoney,
       items = class and class.items,
+      -- ../pokecrystal/engine/battle/core.asm:2401-2407, :2943-2952
+      winText = BattleTowerText.forVm(vm, BattleTowerText.LOSS),
+      lossText = BattleTowerText.forVm(vm, BattleTowerText.WIN),
     }, done)
     if not started then done("lose") end
   end)

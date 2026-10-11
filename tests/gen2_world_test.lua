@@ -679,15 +679,20 @@ eq(ashWorld:useSacredAsh(), "nowhere", "no Sacred Ash from inside a battle")
 ashWorld.battleActive = nil
 end
 
--- Ho-Oh's own end: BATTLETYPE_FORCEITEM (InitEnemyMon's `.WildItem`) is what
--- actually puts a SACRED_ASH on the mon the player catches -- the effect
--- above is reachable only once something stamps the held item on, and until
--- this the port never did.  The general 25%/8% wild-item roll stays
--- unmodeled (Mon.new's own note); only the unconditional FORCEITEM path is.
+-- Ho-Oh's own end: BATTLETYPE_FORCEITEM (InitEnemyMon's `.WildItem`,
+-- ../pokecrystal/engine/battle/core.asm:6014-6018) is what puts a SACRED_ASH
+-- on the mon the player catches.  The scripted-battle arm hands the forced
+-- flag to Mon.new, and the stub below runs the same `.WildItem` roll off it
+-- with a NO_ITEM byte so only the forced path can stamp anything.
 do
 local Mon = require("src.battle.gen2.Mon")
 local realMonNew = Mon.new
-Mon.new = function(_, id, level) return { species = id, level = level } end
+Mon.new = function(data, id, level, opts)
+  local def = data and data.pokemon and data.pokemon[id]
+  return { species = id, level = level,
+    item = opts and opts.wild
+      and Mon.wildItem(def, opts.forceItem, function() return 0 end) or nil }
+end
 
 local forceWorld, forceGame = fakeWorld({}, fakePlayer(5, 5, "down"))
 forceGame.data = { pokemon = {

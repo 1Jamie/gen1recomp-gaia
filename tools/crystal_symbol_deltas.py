@@ -91,6 +91,11 @@ ADD_SYMBOLS = frozenset({
     # of the cart rather than written down.
     "LoadOpponentTrainerAndPokemon.resample",
     "LoadRandomBattleTowerMon.resample",
+    # engine/events/battle_tower/trainer_text.asm:1,88,90,176
+    "BattleTowerText", "BTTrainerClassGenders",
+    "BTMaleTrainerTexts", "BTFemaleTrainerTexts",
+    # ram/wram.asm wBT_OTTrainerClass, trainer_text.asm:11
+    "wBT_OTTrainerClass",
     # data/wild/treemons_asleep.asm:3,17,25
     "AsleepTreeMonsNite", "AsleepTreeMonsDay", "AsleepTreeMonsMorn",
 })

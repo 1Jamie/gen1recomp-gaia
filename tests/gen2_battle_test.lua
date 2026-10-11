@@ -3290,7 +3290,7 @@ end)()
   b:useMove(player, wild, "ATTRACT")
   check("ATTRACT infatuates the opposite sex", b:volatile(wild).attract, true)
   check("with FellInLoveText",
-    said(b:takeEvents(), b:monName(wild) .. "\nfell in love!"), true)
+    said(b:takeEvents(), b:battlerName(wild) .. "\nfell in love!"), true)
   b:useMove(player, wild, "ATTRACT")
   check("a second ATTRACT on the same target fails",
     said(b:takeEvents(), "But it failed!"), true)
@@ -3321,7 +3321,7 @@ end)()
   check("the in-love line opens on the user", said(lostEvents,
     turn:monName(turnPlayer) .. "\nis in love with"), true)
   check("and scrolls onto the target", said(lostEvents,
-    "is in love with\n" .. turn:monName(turnWild) .. "!"), true)
+    "is in love with\n" .. turn:battlerName(turnWild) .. "!"), true)
   check("InfatuationText opens on the user", said(lostEvents,
     turn:monName(turnPlayer) .. "'s\ninfatuation kept"), true)
   check("and scrolls onto the refusal", said(lostEvents,
@@ -3346,7 +3346,7 @@ end)()
   check("but the in-love pair still prints", said(keptEvents,
     turn:monName(turnPlayer) .. "\nis in love with"), true)
   check("both halves of it", said(keptEvents,
-    "is in love with\n" .. turn:monName(turnWild) .. "!"), true)
+    "is in love with\n" .. turn:battlerName(turnWild) .. "!"), true)
   check("and nothing was kept from attacking", said(keptEvents,
     "infatuation kept\nit from attacking!"), false)
 

@@ -1561,6 +1561,11 @@ end
 
 function BattleTransition.tick()
   if not BattleTransition._active then return false end
+  if BattleTransition._frame == 0 then
+    local StepEvents = package.loaded["src.core.game3.step_events"]
+    -- pokeemerald/src/battle_setup.c:358
+    if StepEvents and StepEvents.poisonEffectActive and StepEvents.poisonEffectActive() then return true end
+  end
   BattleTransition._frame = BattleTransition._frame + 1
   local phase = BattleTransition._phase
 

@@ -62,7 +62,7 @@ end
 
 -- Shell commands for one pick, in the order this OS should try them. Windows
 -- copies the pick to a plain-ASCII temp name: the console codepage would
--- mangle a non-ASCII path, and io.open there needs ANSI bytes.
+-- mangle a non-ASCII path; the copy is read back through SaveData.openNative.
 function FilePicker.commands(prompt, kind)
   if not Platform.canSpawnProcess() then return nil end
   local title = shellSafe(prompt)
@@ -106,7 +106,7 @@ function FilePicker.open(prompt, kind)
 end
 
 function FilePicker.read(path)
-  local file, openError = io.open(path, "rb")
+  local file, openError = require("src.core.SaveData").openNative(path, "rb")
   if not file then return nil, openError end
   local data = file:read("*a")
   file:close()

@@ -1617,6 +1617,78 @@ local function drawFlashMask(w, h)
   love.graphics.setColor(1, 1, 1, 1)
 end
 
+local MOSAIC_GLSL = [[
+uniform vec2 size;
+uniform vec2 origin;
+uniform float block;
+vec4 effect(vec4 color, Image tex, vec2 uv, vec2 sc) {
+  vec2 p = floor(uv * size);
+  vec2 q = max(origin + floor((p - origin) / block) * block, vec2(0.0));
+  return Texel(tex, (q + 0.5) / size) * color;
+}
+]]
+local mosaicShader, mosaicCopy, mosaicLayer
+
+local function bgMosaicLevel()
+  local StepEvents = package.loaded["src.core.game3.step_events"]
+  return StepEvents and StepEvents.bgMosaic and StepEvents.bgMosaic() or 0
+end
+FieldView.bgMosaicLevel = bgMosaicLevel
+
+local function scratchCanvas(c, w, h)
+  if c and c:getWidth() == w and c:getHeight() == h then return c end
+  if c and c.release then c:release() end
+  c = love.graphics.newCanvas(w, h, { dpiscale = 1 })
+  c:setFilter("nearest", "nearest")
+  return c
+end
+
+-- pokeemerald/src/overworld.c:1404
+local function blitMosaic(src, level, ox, oy)
+  if not mosaicShader then mosaicShader = love.graphics.newShader(MOSAIC_GLSL) end
+  local w, h = src:getWidth(), src:getHeight()
+  mosaicShader:send("size", { w, h })
+  mosaicShader:send("origin", { ox % (level + 1), oy % (level + 1) })
+  mosaicShader:send("block", level + 1)
+  love.graphics.setShader(mosaicShader)
+  love.graphics.draw(src, 0, 0)
+end
+
+local function mosaicCanvasInPlace(level, ox, oy)
+  local cur = love.graphics.getCanvas()
+  if not cur then return end
+  mosaicCopy = scratchCanvas(mosaicCopy, cur:getWidth(), cur:getHeight())
+  love.graphics.push("all")
+  love.graphics.origin()
+  love.graphics.setScissor()
+  love.graphics.setShader()
+  love.graphics.setCanvas(mosaicCopy)
+  love.graphics.setBlendMode("replace", "premultiplied")
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(cur, 0, 0)
+  love.graphics.setCanvas(cur)
+  blitMosaic(mosaicCopy, level, ox, oy)
+  love.graphics.pop()
+end
+
+local function drawMosaicLayer(level, ox, oy, drawFn)
+  local cur = love.graphics.getCanvas()
+  if not cur then return drawFn() end
+  mosaicLayer = scratchCanvas(mosaicLayer, cur:getWidth(), cur:getHeight())
+  love.graphics.push("all")
+  love.graphics.setCanvas(mosaicLayer)
+  love.graphics.clear(0, 0, 0, 0)
+  drawFn()
+  love.graphics.pop()
+  love.graphics.push("all")
+  love.graphics.origin()
+  love.graphics.setScissor()
+  love.graphics.setBlendMode("alpha", "premultiplied")
+  love.graphics.setColor(1, 1, 1, 1)
+  blitMosaic(mosaicLayer, level, ox, oy)
+  love.graphics.pop()
+end
+
 function FieldView.draw(game, canvasW, canvasH, opts)
   canvasW = canvasW or Display.W
   canvasH = canvasH or Display.H
@@ -1724,6 +1796,8 @@ function FieldView.draw(game, canvasW, canvasH, opts)
       local bySlot = collectTileDraws(mapDef, camX, camY, canvasW, canvasH)
       drawTilesColored(atlas, bySlot, bgSet)
     end
+    local mosaic = bgMosaicLevel()
+    if mosaic > 0 then mosaicCanvasInPlace(mosaic, screenOx, screenOy) end
 
     -- Tall grass under body (pret lower OAM priority).
     do
@@ -1802,7 +1876,12 @@ function FieldView.draw(game, canvasW, canvasH, opts)
 
   -- pret BG1: metatile top layer covers normal OW sprites (roofs, desk counters, trees).
   if usedNative and not opts.actorsOnly then
-    drawNativeOverTiles()
+    local mosaic = bgMosaicLevel()
+    if mosaic > 0 then
+      drawMosaicLayer(mosaic, screenOx, screenOy, drawNativeOverTiles)
+    else
+      drawNativeOverTiles()
+    end
     local W = weatherMask()
     if W then W.writeActorMask(0, drawNativeOverTiles) end
   end

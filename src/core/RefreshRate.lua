@@ -40,6 +40,19 @@ local function sdlHz()
   return hz
 end
 
+local function modeHz()
+  if not (love and love.window and love.window.getMode) then return nil end
+  local ok, _, _, flags = pcall(love.window.getMode)
+  if not ok or type(flags) ~= "table" then return nil end
+  local hz = tonumber(flags.refreshrate)
+  if not hz or hz <= 0 then return nil end
+  return hz
+end
+
+local function queryHz()
+  return modeHz() or sdlHz()
+end
+
 local SAMPLES = 31
 local ring, cursor, filled = {}, 0, 0
 local measured = nil
@@ -84,15 +97,26 @@ local function now()
   return nil
 end
 
-function RefreshRate.hz()
-  local time = now()
-  if queried == nil or not time or not queriedAt or time - queriedAt > 1 then
-    queried = sdlHz() or false
-    queriedAt = time or 0
-  end
-  local hz = quantize(queried or measured)
+local function plausible(hz)
   if not hz or hz <= 20 or hz >= 1000 then return nil end
   return hz
+end
+
+local function refreshQuery()
+  local time = now()
+  if queried == nil or not time or not queriedAt or time - queriedAt > 1 then
+    queried = queryHz() or false
+    queriedAt = time or 0
+  end
+  return queried or nil
+end
+
+function RefreshRate.queried()
+  return plausible(quantize(refreshQuery()))
+end
+
+function RefreshRate.hz()
+  return plausible(quantize(refreshQuery() or measured))
 end
 
 function RefreshRate.period()

@@ -137,6 +137,21 @@ local function rand(a, b)
   return math.random(a, b)
 end
 
+-- ../pokecrystal/macros/data.asm:23
+local function percent(n) return math.floor(n * 255 / 100) end
+Mon.WILD_NO_ITEM_THRESHOLD = percent(75) + 1
+Mon.WILD_ITEM2_THRESHOLD = percent(8)
+
+-- ../pokecrystal/engine/battle/core.asm:6009-6039
+function Mon.wildItem(def, forceItem, random)
+  local items = (def and def.items) or {}
+  if forceItem then return items[1] end
+  random = random or function(n) return rand(0, n - 1) end
+  if random(256) < Mon.WILD_NO_ITEM_THRESHOLD then return nil end
+  if random(256) < Mon.WILD_ITEM2_THRESHOLD then return items[2] end
+  return items[1]
+end
+
 function Mon.randomDVs()
   return {
     hp = nil, -- derived below
@@ -500,6 +515,10 @@ function Mon.new(data, species, level, opts)
   local def = data and data.pokemon and data.pokemon[species]
   if not def then return nil end
   level = math.max(1, math.min(Mon.MAX_LEVEL, level or 5))
+  local item = opts.item
+  if opts.wild then
+    item = Mon.wildItem(def, opts.forceItem, opts.random)
+  end
   local dvs = opts.dvs or Mon.randomDVs()
   dvs.hp = Mon.hpDV(dvs)
   local statExp = opts.statExp or Mon.newStatExp()
@@ -523,9 +542,7 @@ function Mon.new(data, species, level, opts)
     maxHp = stats.hp,
     types = def.types,
     moves = opts.moves or Mon.movesAtLevel(def, level, data.moves),
-    -- Held item; wild mons roll one from BaseData's two item slots on the cart,
-    -- which is not modeled yet, so only scripted gifts carry one.
-    item = opts.item,
+    item = item,
     status = nil,
     -- 70 for a caught mon, 120 for a gift/hatched one.
     happiness = opts.happiness or 70,

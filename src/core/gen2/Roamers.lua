@@ -384,6 +384,7 @@ function Roamers.beginBattle(save, index, data)
   if not Roamers.active(slot) then return nil end
   local fresh = (slot.hp or 0) == 0
   local mon = Mon.new(data, slot.species, slot.level or Roamers.LEVEL, {
+    wild = true,
     dvs = (not fresh) and slot.dvs or nil,
   })
   if not mon then return nil end

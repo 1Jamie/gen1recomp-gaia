@@ -25,6 +25,7 @@ local cartFs = {
   createDirectory = function() return true end,
 }
 package.loaded["src.core.SaveData"] = {
+  openNative = function(path, mode) return io.open(path, mode or "rb") end,
   portableFs = function() return cartFs end,
   load = function() return { meta = {} } end,
   activeSlot = function() return "slot1" end,

@@ -246,7 +246,7 @@ function Field.update(_dt)
     or lazyReq("src.core.game3.runtime")
   local Message = package.loaded["src.ui.game3.message"]
 
-  -- A-button talk / signs / PC — owned here (host pollInput is no-op on Sevii).
+  -- A-button talk / signs / PC, owned here (host pollInput is no-op on Sevii).
   -- START / pause menu is owned by Hud.update (avoids same-frame open+close).
   if input and input.wasPressed and input:wasPressed("a") then
     if not Hud.busy() then
@@ -996,7 +996,7 @@ function Field.interact(game)
     end
   end
 
-  -- 2) Extracted bgEvents (signs) — face cell only, not doubled
+  -- 2) Extracted bgEvents (signs), face cell only, not doubled
   local layout=Collision._mapDef and Collision._mapDef.midLayout
   local elevation=layout and layout:elevAt(P.cellX,P.cellY) or 0
   if elevation==0 then elevation=P.elevation or 0 end
@@ -1203,20 +1203,22 @@ function Field.executeFieldMove(payload)
       pose = opts.pose ~= false, noDuck = opts.noDuck,
     }, fn)
   end
+  local function removeObstacle(target, action, onDone)
+    local lid = target and (target.localId or (target.def and (target.def.localId or target.def.index)))
+    if not lid then return onDone() end
+    local Movement = lazyReq("src.core.game3.scripting.movement")
+    Objects.startTrack(lid, { Movement.decodeAction(action) }, function()
+      Objects.removeObject(lid)
+      onDone()
+    end)
+  end
   if act == "cut_tree" then
     Field.locked = true
     -- pokefirered/src/fldeff_cut.c:183
     showMon(function()
       if payload.se then Audio.playSe(payload.se) end
-      local target = payload.target
-      local tx = target and (target.cellX or target.x or (target.def and target.def.x)) or P.cellX
-      local ty = target and (target.cellY or target.y or (target.def and target.def.y)) or P.cellY
-
-      FieldEffects.startCutTree(target, tx, ty, function()
-        if target then
-          local lid = target.localId or (target.def and (target.def.localId or target.def.index))
-          if lid then Objects.removeObject(lid) end
-        end
+      -- pokefirered/data/scripts/field_moves.inc:27
+      removeObstacle(payload.target, 0x69, function()
         Field.locked = false
       end)
     end)
@@ -1345,15 +1347,8 @@ function Field.executeFieldMove(payload)
     -- pokefirered/src/fldeff_rocksmash.c:123
     showMon(function()
       if payload.se then Audio.playSe(payload.se) end
-      local target = payload.target
-      local tx = target and (target.cellX or target.x or (target.def and target.def.x)) or P.cellX
-      local ty = target and (target.cellY or target.y or (target.def and target.def.y)) or P.cellY
-
-      FieldEffects.startRockSmash(target, tx, ty, function()
-        if target then
-          local lid = target.localId or (target.def and (target.def.localId or target.def.index))
-          if lid then Objects.removeObject(lid) end
-        end
+      -- pokefirered/data/scripts/field_moves.inc:85
+      removeObstacle(payload.target, 0x68, function()
         Field.locked = false
         -- pokefirered/data/scripts/field_moves.inc:88
         Field.tryRockSmashEncounter()

@@ -155,7 +155,7 @@ do
   eq(wild.hp, 1, "a roll under 30 leaves the holder at exactly 1 HP")
   eq(dealt, 9, "the clamp is the False Swipe clamp: hp - 1")
   check(findText(battle:takeEvents(),
-    "PIDGEY hung on with FOCUS BAND!"),
+    "Enemy PIDGEY hung on with FOCUS BAND!"),
     "and HungOnText names the item")
 
   battle, _, wild = newBattle({ wildItem = "FOCUS_BAND",
@@ -182,7 +182,7 @@ do
   eq(battle:volatile(wild).flinched, true,
     "a damaging hit with the rock held sets the flinch, silently")
   eq(battle:canAct(wild), false, "the target's turn is eaten")
-  check(findText(battle:takeEvents(), "PIDGEY flinched!"),
+  check(findText(battle:takeEvents(), "Enemy PIDGEY flinched!"),
     "with FlinchedText at the moment it tries to move")
   eq(battle:volatile(wild).flinched, nil, "and the flag is consumed")
 

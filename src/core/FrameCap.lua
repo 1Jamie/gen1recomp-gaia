@@ -98,8 +98,44 @@ end
 -- touches love.timer, so it is safe headless -- the loop just reads the
 -- number back.  Returns the normalized value it stored.
 function FrameCap.apply(value)
+  local n = tonumber(value)
   FrameCap.current = FrameCap.normalize(value)
+  FrameCap.pendingDisplay = n ~= nil and n <= 0 and not FrameCap.loopSupportsPanelSync()
+  FrameCap.displaySelected = FrameCap.current == FrameCap.DISPLAY
+  FrameCap.resolved = FrameCap.current
+  return FrameCap.refresh()
+end
+
+local function displayActive()
+  if not FrameCap.displaySelected then return false end
+  local cur = FrameCap.current
+  if cur == FrameCap.DISPLAY or cur == FrameCap.resolved then return true end
+  FrameCap.displaySelected = false
+  return false
+end
+
+function FrameCap.selected()
+  if displayActive() then return FrameCap.DISPLAY end
   return FrameCap.current
+end
+
+function FrameCap.displayFallback()
+  local ok, RR = pcall(require, "src.core.RefreshRate")
+  local hz = ok and RR.hz()
+  if hz and hz > 0 then return hz end
+  return FrameCap.DEFAULT
+end
+
+function FrameCap.refresh()
+  if not displayActive() then return FrameCap.current end
+  local live = FrameCap.DISPLAY
+  local ok, PS = pcall(require, "src.core.PresentSync")
+  if ok and PS.displayNeedsSoftwareCap() then
+    live = FrameCap.displayFallback()
+  end
+  FrameCap.resolved = live
+  FrameCap.current = live
+  return live
 end
 
 function FrameCap.applyOptions(opts)
@@ -115,6 +151,10 @@ end
 
 -- Launcher / pre-save boot: same DISPLAY default before any save applies.
 function FrameCap.bootPanelSync()
+  if FrameCap.pendingDisplay and FrameCap.loopSupportsPanelSync()
+      and FrameCap.current == FrameCap.DEFAULT then
+    return FrameCap.apply(FrameCap.DISPLAY)
+  end
   if FrameCap.prefersPanelSync() and FrameCap.current == FrameCap.DEFAULT then
     return FrameCap.apply(FrameCap.DISPLAY)
   end
@@ -129,10 +169,11 @@ FrameCap.bootHandheld = FrameCap.bootPanelSync
 function FrameCap.clampToPerformance(fpsMax)
   fpsMax = tonumber(fpsMax)
   if not fpsMax then return FrameCap.current end
-  if FrameCap.current > fpsMax then
+  local selected = FrameCap.selected()
+  if selected > fpsMax then
     return FrameCap.apply(fpsMax)
   end
-  if FrameCap.current == FrameCap.DISPLAY then
+  if selected == FrameCap.DISPLAY then
     local ok, RR = pcall(require, "src.core.RefreshRate")
     local hz = ok and RR.hz()
     if hz and hz > fpsMax then

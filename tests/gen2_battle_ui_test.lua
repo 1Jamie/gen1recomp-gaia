@@ -205,7 +205,7 @@ do
   local refused = false
   for _, event in ipairs(events) do
     if event.kind == "message"
-        and event.text == "PIDGEY's ATTACK won't drop anymore!" then
+        and event.text == "Enemy PIDGEY's ATTACK won't drop anymore!" then
       refused = true
     end
   end
@@ -1937,7 +1937,7 @@ do
   local shown = table.concat(printed, "\n")
   check(shown:find(battle:monName(battle.player) .. "\nis in love with",
     1, true) ~= nil, "the in-love line opens on the user")
-  check(shown:find("is in love with\n" .. battle:monName(battle.enemy) .. "!",
+  check(shown:find("is in love with\n" .. battle:battlerName(battle.enemy) .. "!",
     1, true) ~= nil, "and scrolls onto the target it never used to reach")
   check(shown:find("infatuation kept", 1, true) ~= nil,
     "InfatuationText prints")

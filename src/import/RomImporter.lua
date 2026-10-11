@@ -165,19 +165,22 @@ local function removeTree(path)
     love.filesystem.remove(path)
     return
   end
+  local SaveData = require("src.core.SaveData")
   local real = love.filesystem.getSaveDirectory() .. "/" .. path
-  local f = io.open(real, "rb")
+  local f = SaveData.openNative(real, "rb")
   if not f then return end
   f:close()
-  local ok, err = os.remove(real)
+  local ok, err = SaveData.removeNative(real)
   if not ok then
     makeWritable(real, 420)
-    ok, err = os.remove(real)
+    ok, err = SaveData.removeNative(real)
   end
   if not ok then
-    error("could not remove stale cache: " .. tostring(err))
+    error("could not remove stale cache " .. real .. ": " .. tostring(err))
   end
 end
+
+RomImporter._removeSaveDirTree = removeTree
 
 -- Portable installs read the cache from the game folder.  Any copy an
 -- earlier non-portable run -- or the pre-#74 build, which always wrote the
@@ -191,7 +194,7 @@ local function purgeSaveDirCache()
   saveDirPurged = true
   local saveDir = love.filesystem.getSaveDirectory()
   local function saveDirHas(rel)
-    local f = io.open(saveDir .. "/" .. rel, "rb")
+    local f = require("src.core.SaveData").openNative(saveDir .. "/" .. rel, "rb")
     if not f then return false end
     f:close()
     return true
@@ -271,7 +274,7 @@ local function readExternalPath(path)
 end
 
 local function externalFileSize(path)
-  local file = io.open(path, "rb")
+  local file = require("src.core.SaveData").openNative(path, "rb")
   if not file then return nil end
   local size = file:seek("end")
   file:close()
@@ -282,7 +285,7 @@ local function openImportSource(path)
   -- Desktop picker paths live outside LÖVE's virtual filesystem. Prefer the
   -- native file handle so a 1.46 GiB disc is never copied to a temp file or
   -- read into one Lua string before validation.
-  local native = io.open(path, "rb")
+  local native = require("src.core.SaveData").openNative(path, "rb")
   if native then
     local size, sizeErr = native:seek("end")
     if size == nil or size == false then

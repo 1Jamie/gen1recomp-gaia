@@ -1,6 +1,7 @@
 -- Gen 2 script VM over import-extracted command lists (data/generated/scripts.lua).
 -- Yields on text / yesorno / movement / waitsfx so the overworld can drive UI.
 
+local BattleTowerText = require("src.script.gen2.BattleTowerText")
 local Movement = require("src.script.gen2.Movement")
 local Opcodes = require("src.script.gen2.Opcodes")
 local Specials = require("src.script.gen2.Specials")
@@ -1692,9 +1693,10 @@ local function runCmd(self, cmd, op)
     if self.checkSaveFn then ok = self.checkSaveFn() and true or false end
     self.scriptVar = ok and 1 or 0
   elseif op == "battletowertext" then
-    -- pokecrystal/engine/overworld/scripting.asm:447-452 BattleTowerText.
-    -- Unported: the table consumes the operand and the verb warns once.
-    self:noteUnknownOp(op)
+    -- pokecrystal/engine/overworld/scripting.asm:447-452
+    local body = BattleTowerText.forVm(self, arg1(cmd) or 0, Specials.random)
+    assert(body, "battletowertext: no Battle Tower text for this opponent")
+    self:showRaw(body)
   -- ---- commands with no engine behind them yet ---------------------------
   elseif op == "deactivatefacing" then
     -- ../pokecrystal/engine/overworld/scripting.asm:2237, :30 WaitScript

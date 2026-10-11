@@ -3,7 +3,7 @@
 -- 1. Lockstep Event Queue: Prevents simultaneous tick collisions; flushes on party white-out.
 -- 2. Happiness Step Counter (128 steps): +1 friendship to all party Pokémon.
 -- 3. VS Seeker Battery (100 steps): Increments while the VS SEEKER is in the bag.
--- 4. Overworld Poison (4 steps RSE, 5 FRLG): 4-frame reddish screen flash, SE_FIELD_POISON, lethal faint at 0 HP.
+-- 4. Overworld Poison (4 steps RSE, 5 FRLG): BG mosaic pulse, SE_FIELD_POISON, lethal faint at 0 HP.
 -- 5. Egg Cycles & Daycare (daycare stepCounter == 255): Decrements egg cycles -> EggHatch; +1 EXP per step in Daycare.
 -- 6. Repel Counter: Decrements steps -> Text_RepelWoreOff on expiration.
 
@@ -16,7 +16,7 @@ local StepEvents = {}
 
 StepEvents._queue = {}
 StepEvents._activeEvent = nil
-StepEvents._poisonFlashTimer = 0
+StepEvents._poisonTask = nil
 StepEvents._totalSteps = 0
 
 local function se(id)
@@ -27,13 +27,52 @@ local function se(id)
 end
 
 function StepEvents.busy()
-  return StepEvents._activeEvent ~= nil or #StepEvents._queue > 0 or StepEvents._poisonFlashTimer > 0
+  return StepEvents._activeEvent ~= nil or #StepEvents._queue > 0
 end
 
 function StepEvents.flush()
   StepEvents._queue = {}
   StepEvents._activeEvent = nil
-  StepEvents._poisonFlashTimer = 0
+  StepEvents._poisonTask = nil
+end
+
+-- pokeemerald/src/fldeff_misc.c:1232
+-- pokefirered/src/fldeff_poison.c:33
+function StepEvents.startPoisonEffect(isRse)
+  se(require("src.core.game3.se_ids").SE_FIELD_POISON)
+  if isRse then
+    StepEvents._poisonTask = { state = 0, mosaic = 0, up = 2, down = 2, peak = 8 }
+  else
+    -- pokefirered/src/fldeff_poison.c:16
+    StepEvents._poisonTask = { state = 0, mosaic = 0, up = 1, down = 1, peak = 4 }
+  end
+end
+
+-- pokeemerald/src/fldeff_misc.c:1206
+local function tickPoisonEffect()
+  local t = StepEvents._poisonTask
+  if not t then return end
+  if t.state == 0 then
+    t.mosaic = t.mosaic + t.up
+    if t.mosaic > t.peak then t.state = 1 end
+  elseif t.state == 1 then
+    t.mosaic = t.mosaic - t.down
+    if t.mosaic == 0 then t.state = 2 end
+  else
+    StepEvents._poisonTask = nil
+  end
+end
+StepEvents.tickPoisonEffect = tickPoisonEffect
+
+-- pokeemerald/src/fldeff_misc.c:1238
+function StepEvents.poisonEffectActive()
+  return StepEvents._poisonTask ~= nil
+end
+
+-- pokeemerald/src/fldeff_misc.c:1226
+function StepEvents.bgMosaic()
+  local t = StepEvents._poisonTask
+  return t and t.mosaic or 0
 end
 
 function StepEvents.queueEvent(event)
@@ -275,9 +314,8 @@ function StepEvents.onStepTaken(session, game)
     end
 
     if anyPoisonDamage then
-      -- Trigger 4-frame reddish screen flash and poison SE
-      StepEvents._poisonFlashTimer = 4 / 60
-      se(require("src.core.game3.se_ids").SE_FIELD_POISON)
+      -- pokeemerald/src/field_poison.c:145
+      StepEvents.startPoisonEffect(isRse)
 
       -- pokefirered/src/field_control_avatar.c:727 FLDPSN_FNT
       poisonFainted = #faintedMons > 0
@@ -427,9 +465,7 @@ end
 
 --- Pump the sequential lockstep queue.
 function StepEvents.update(dt, game)
-  if StepEvents._poisonFlashTimer > 0 then
-    StepEvents._poisonFlashTimer = math.max(0, StepEvents._poisonFlashTimer - (dt or 1 / 60))
-  end
+  tickPoisonEffect()
 
   if StepEvents._activeEvent then
     local active = StepEvents._activeEvent
@@ -443,29 +479,6 @@ function StepEvents.update(dt, game)
   ev.run(function()
     StepEvents._activeEvent = nil
   end)
-end
-
---- Render screen flash if poison triggered.
-function StepEvents.draw()
-  if StepEvents._poisonFlashTimer > 0 then
-    local okR, Renderer = pcall(require, "src.render.Renderer")
-    if okR and Renderer and Renderer.canvas then
-      Renderer.screenVeil = { 0.85, 0.15, 0.15, 0.45 }
-      return
-    end
-    love.graphics.setColor(0.85, 0.15, 0.15, 0.45)
-    local w, h = 240, 160
-    local curCanvas = love.graphics.getCanvas()
-    if curCanvas then
-      local okW, cw, ch = pcall(function() return curCanvas:getWidth(), curCanvas:getHeight() end)
-      if okW and cw and ch then w, h = cw, ch end
-    elseif love and love.graphics and love.graphics.getDimensions then
-      local gw, gh = love.graphics.getDimensions()
-      if gw and gh and gw > 0 and gh > 0 then w, h = gw, gh end
-    end
-    love.graphics.rectangle("fill", 0, 0, w, h)
-    love.graphics.setColor(1, 1, 1, 1)
-  end
 end
 
 StepEvents.onStep = StepEvents.onStepTaken

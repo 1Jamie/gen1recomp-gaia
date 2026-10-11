@@ -778,7 +778,7 @@ local function readArchive(source)
       local data = love.filesystem.read(source)
       if data then return data end
     end
-    local f = io.open(source, "rb")
+    local f = SaveData.openNative(source, "rb")
     if f then
       local data = f:read("*a")
       f:close()
@@ -793,6 +793,7 @@ local function readArchive(source)
   end
   return nil, "unsupported archive source"
 end
+LauncherMods._readArchive = readArchive
 
 -- Local PK\3\4 / empty-file check before mount (corrupt MTP / AppleDouble).
 local function zipLooksValid(data)

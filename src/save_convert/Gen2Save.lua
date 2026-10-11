@@ -982,6 +982,8 @@ local function decodeImpl(bytes, gameVersion, data)
     variableSprites = decodeVariableSprites(t, L.wVariableSprites,
                                             Gen2Save.VARIABLE_SPRITES),
     playerState = PLAYER_STATES[u8(t, L.wPlayerState)],
+    -- constants/ram_constants.asm:235 STATUSFLAGS_FLASH_F
+    flashUsed = (math.floor(u8(t, L.wStatusFlags) / 4) % 2 == 1) or nil,
     options = decodeOptions(t, L),
     -- Save.summary does `save.position.map or save.spawn`.
     position = {
@@ -2111,6 +2113,12 @@ local function encodeImpl(save, gameVersion, template, data)
   local state = PLAYER_STATE_BYTES[save.playerState]
   if state and (PLAYER_STATES[t[L.wPlayerState] or 0] or "normal") ~= save.playerState then
     putU8(t, L.wPlayerState, state)
+  end
+  do
+    local byte = t[L.wStatusFlags] or 0
+    local on = math.floor(byte / 4) % 2 == 1
+    local want = save.flashUsed == true
+    if on ~= want then t[L.wStatusFlags] = want and (byte + 4) or (byte - 4) end
   end
   if type(save.options) == "table" then putOptions(t, L, save.options) end
 

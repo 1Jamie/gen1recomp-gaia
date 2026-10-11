@@ -217,12 +217,14 @@ function Movement.decodeAction(b)
     return { kind = "animate", inanimate = false }
   end
   -- pokefirered/src/event_object_movement.c:7135 MovementAction_RockSmashBreak_Step0
+  -- pokefirered/src/data/object_events/object_event_anims.h:861
   if b == 0x68 then
-    return { kind = "remove_obstacle", frames = 64 }
+    return { kind = "remove_obstacle", frames = 64, animFrames = 8 }
   end
   -- pokefirered/src/event_object_movement.c:7163 MovementAction_CutTree_Step0
+  -- pokefirered/src/data/object_events/object_event_anims.h:869
   if b == 0x69 then
-    return { kind = "remove_obstacle", frames = 56 }
+    return { kind = "remove_obstacle", frames = 56, animFrames = 6 }
   end
   return { kind = "nop" }
 end

@@ -14520,6 +14520,18 @@
       115,
       22385
     ],
+    "BTFemaleTrainerTexts": [
+      71,
+      29646
+    ],
+    "BTMaleTrainerTexts": [
+      71,
+      29490
+    ],
+    "BTTrainerClassGenders": [
+      71,
+      29424
+    ],
     "BTTrainerClassSprites": [
       92,
       19344
@@ -14747,6 +14759,10 @@
     "BattleTowerMons": [
       126,
       17488
+    ],
+    "BattleTowerText": [
+      71,
+      16384
     ],
     "BattleTowerTrainerData": [
       124,
@@ -23663,6 +23679,10 @@
     "_YourMonsHPWasHealedText": [
       111,
       20537
+    ],
+    "wBT_OTTrainerClass": [
+      3,
+      53514
     ],
     "wBaseUnusedBackpic": [
       1,

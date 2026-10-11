@@ -351,7 +351,7 @@ local function readFile(path)
     local ok, data = pcall(love.filesystem.read, path)
     if ok and data then return data end
   end
-  local handle = io.open(path, "rb")
+  local handle = require("src.core.SaveData").openNative(path, "rb")
   if not handle then return nil end
   local data = handle:read("*a")
   handle:close()

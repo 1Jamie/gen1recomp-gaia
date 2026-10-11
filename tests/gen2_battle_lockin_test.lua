@@ -196,7 +196,7 @@ do
     wildSpecies = "GASTLY", random = rolls({}, 0) })
   battle:useMove(player, wild, "TACKLE")
   local events = battle:takeEvents()
-  check(findText(events, "It doesn't affect GASTLY..."), "DoesntAffectText")
+  check(findText(events, "It doesn't affect\nEnemy GASTLY!"), "DoesntAffectText")
   eq(moveEvent(events).missed, true,
     "and wAttackMissed is set, so no attack animation plays")
   eq(wild.hp, wild.maxHp, "an immune hit deals nothing")
@@ -210,7 +210,7 @@ do
     wildSpecies = "TANGELA", random = rolls({}, 0) })
   battle:useMove(player, wild, "LEECH_SEED")
   local events = battle:takeEvents()
-  check(findText(events, "It doesn't affect TANGELA..."), "PrintDoesntAffect")
+  check(findText(events, "It doesn't affect\nEnemy TANGELA!"), "PrintDoesntAffect")
   eq(moveEvent(events).missed, true, "a Grass target plays no animation")
   eq(wild.volatile and wild.volatile.leechSeed, nil, "and nothing is seeded")
 end
@@ -225,7 +225,7 @@ do
     "the seeding arm reaches AnimateCurrentMove")
   battle:useMove(player, wild, "LEECH_SEED")
   local events = battle:takeEvents()
-  check(findText(events, "MACHOP evaded the attack!"), "EvadedText")
+  check(findText(events, "Enemy MACHOP evaded the attack!"), "EvadedText")
   eq(moveEvent(events).missed, true, "and the repeat plays nothing")
 end
 
@@ -238,7 +238,7 @@ do
   battle.stages.enemy.attack = -Effects.MAX_STAGE
   battle:useMove(player, wild, "GROWL")
   local events = battle:takeEvents()
-  check(findText(events, "MACHOP's ATTACK won't drop anymore!"),
+  check(findText(events, "Enemy MACHOP's ATTACK won't drop anymore!"),
     "the refusal line")
   eq(moveEvent(events).missed, true, "a capped drop plays no animation")
 end
