@@ -95,15 +95,8 @@ local function isMatchingFilter(name, isDir, mode)
   if not ext then return (mode == "all") end
   ext = ext:lower()
   if mode == "rom" then
-    if ext == "gb" or ext == "gbc" or ext == "gba" then return true end
-    if ext == "zip" or ext == "7z" then
-      local ok, RomArchive = pcall(require, "src.import.RomArchive")
-      if not ok or type(RomArchive.capabilities) ~= "function" then return false end
-      local okCaps, caps = pcall(RomArchive.capabilities)
-      if not okCaps or type(caps) ~= "table" then return false end
-      return (ext == "zip" and caps.zip) or (ext == "7z" and caps.z7) or false
-    end
-    return false
+    return ext == "gb" or ext == "gbc" or ext == "gba" or ext == "agb"
+      or ext == "bin" or ext == "zip" or ext == "7z"
   elseif mode == "save" then
     return (ext == "sav" or ext == "srm" or ext == "lua")
   elseif mode == "box" then
@@ -176,6 +169,7 @@ function FileBrowser.open(opts)
   FileBrowser.mode = opts.mode or "rom"
   FileBrowser.onSelect = opts.onSelect
   FileBrowser.onCancel = opts.onCancel
+  FileBrowser.hint = opts.hint
   FileBrowser.selectedIdx = 1
   FileBrowser.page = 1
 
@@ -195,6 +189,7 @@ function FileBrowser.close(path)
   FileBrowser.active = false
   FileBrowser.onSelect = nil
   FileBrowser.onCancel = nil
+  FileBrowser.hint = nil
   if path and onSelect then
     onSelect(path)
   elseif not path and onCancel then
@@ -330,6 +325,11 @@ function FileBrowser.draw(m)
   Kit.text("small", pathStr, px + pad + math.floor(6 * s), cy + math.floor(4 * s), PAL.heading)
 
   cy = cy + pathBarH + math.floor(8 * s)
+
+  if FileBrowser.hint then
+    cy = cy + Kit.textWrapped("micro", FileBrowser.hint, px + pad, cy, modalW - 2 * pad,
+      PAL.red, 2) + math.floor(6 * s)
+  end
 
   -- File / Directory List
   local total = #FileBrowser.entries

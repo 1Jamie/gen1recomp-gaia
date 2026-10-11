@@ -577,23 +577,30 @@ function TrainerSight.engagePair(game, a, b)
   if inPyramid then
     local Rse = require("src.core.game3.rse.init")
     sess = Rse.session()
-    D = require("src.core.game3.rse.frontier.data")
-    local F_FACILITY = D.FACILITY
+    D = require("src.core.game3.rse.frontier.trainers")
+    local TextIR = require("src.core.game3.scripting.text_ir")
+    local PYRAMID = D.FACILITY.PYRAMID
     tidA = Pyramid.localIdToTrainerId(sess, a.eo.localId)
     tidB = Pyramid.localIdToTrainerId(sess, b.eo.localId)
     sess.frontierOpponentA = tidA
     sess.frontierOpponentB = tidB
-    D.fillTrainerParty(sess, tidA, 0, 1, partyA, { facility = F_FACILITY.PYRAMID })
-    D.fillTrainerParty(sess, tidB, 0, 1, partyB, { facility = F_FACILITY.PYRAMID })
+    -- pokeemerald/src/battle_tower.c:1620
+    D.fillTrainerParty(sess, tidA, 0, 1, partyA, { facility = PYRAMID })
+    D.fillTrainerParty(sess, tidB, 0, 1, partyB, { facility = PYRAMID, setOwner = tidA })
     for _, m in ipairs(partyA) do combinedParty[#combinedParty + 1] = m end
     half = #combinedParty
     for _, m in ipairs(partyB) do combinedParty[#combinedParty + 1] = m end
-    foeAInfo = D.trainerClass(sess, tidA, F_FACILITY.PYRAMID) or {}
-    foeBInfo = D.trainerClass(sess, tidB, F_FACILITY.PYRAMID) or {}
-    nameA = D.trainerName(sess, tidA, F_FACILITY.PYRAMID) or ""
-    nameB = D.trainerName(sess, tidB, F_FACILITY.PYRAMID) or ""
-    defeatTextA = Pyramid.speech(sess, tidA, 1)
-    defeatTextB = Pyramid.speech(sess, tidB, 1)
+    -- pokeemerald/src/battle_tower.c:1436
+    local function foeInfo(tid)
+      local classId = D.opponentClass(sess, tid, PYRAMID)
+      return { class = classId, className = D.className(sess, classId), pic = D.frontSpriteId(sess, tid, PYRAMID) }
+    end
+    foeAInfo, foeBInfo = foeInfo(tidA), foeInfo(tidB)
+    nameA = D.trainerName(sess, tidA, PYRAMID) or ""
+    nameB = D.trainerName(sess, tidB, PYRAMID) or ""
+    -- pokeemerald/include/constants/frontier_util.h:6
+    defeatTextA = TextIR.toPlain(Pyramid.speech(sess, tidA, 2), {})
+    defeatTextB = TextIR.toPlain(Pyramid.speech(sess, tidB, 2), {})
   else
     tidA = TrainerSight.getTrainerId(a.eo)
     tidB = TrainerSight.getTrainerId(b.eo)

@@ -78,7 +78,7 @@ for _, backend in ipairs({ "shell", "love" }) do
     local picked, calls = nil, 0
     FileBrowser.open({ mode = "rom", initialPath = "/fixture/gba",
       onSelect = function(path) picked, calls = path, calls + 1 end })
-    eq(#FileBrowser.entries, 7, backend .. " ROM list contains all supported suffixes")
+    eq(#FileBrowser.entries, 8, backend .. " ROM list contains all supported suffixes")
     eq(FileBrowser.entries[1].name, "images", backend .. " directories sort first")
     eq(FileBrowser.entries[2].name, "videos", backend .. " second directory remains visible")
     local found = {}
@@ -90,8 +90,8 @@ for _, backend in ipairs({ "shell", "love" }) do
     end
     check(found["notes.txt"] == nil and found["save.sav"] == nil,
       backend .. " excludes unrelated files from ROM mode")
-    check(found["pack.7z"] == nil,
-      backend .. " hides .7z when the platform caps disallow it")
+    check(found["pack.7z"] ~= nil,
+      backend .. " lists .7z even when the platform caps disallow it")
     if found["FireRed.gba"] then
       FileBrowser.selectedIdx = found["FireRed.gba"]
       check(FileBrowser.gamepadpressed(button), backend .. " consumes " .. button)

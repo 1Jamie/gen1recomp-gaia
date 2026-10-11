@@ -500,6 +500,126 @@ local function isRomFilename(name)
   return type(name) == "string" and name:lower():match("%.gb[ac]?$") ~= nil
 end
 
+local ROM_CANDIDATE_EXTS = {
+  gb = true, gbc = true, gba = true, agb = true, bin = true, zip = true, ["7z"] = true,
+}
+
+local function isRomCandidateName(name)
+  if type(name) ~= "string" or name:sub(1, 1) == "." then return false end
+  if name:lower():match("^picked_") and not isRomFilename(name) then return false end
+  local ext = name:match("%.([^.]+)$")
+  return ext ~= nil and ROM_CANDIDATE_EXTS[ext:lower()] == true
+end
+
+local function isRomCandidateSize(n)
+  local mib = 1024 * 1024
+  return n == mib or n == 2 * mib or n == 4 * mib or n == 8 * mib
+    or n == 16 * mib or n == 32 * mib
+end
+
+local GBA_GAME_CODES = {
+  BPR = "FireRed", BPG = "LeafGreen", AXV = "Ruby", AXP = "Sapphire", BPE = "Emerald",
+}
+local GBA_REGIONS = {
+  E = "USA", J = "Japan", P = "Europe", D = "Germany", F = "France", I = "Italy", S = "Spain",
+}
+local GB_TITLES = {
+  { "POKEMON RED", "Red" }, { "POKEMON BLUE", "Blue" }, { "POKEMON YELLOW", "Yellow" },
+  { "POKEMON_GLD", "Gold" }, { "POKEMON_SLV", "Silver" }, { "PM_CRYSTAL", "Crystal" },
+}
+
+local function romHeaderGuess(data)
+  if type(data) ~= "string" then return nil end
+  if #data >= 0xC0 and data:byte(0xB3) == 0x96 then
+    local code = data:sub(0xAD, 0xB0)
+    local game = GBA_GAME_CODES[code:sub(1, 3)]
+    if game then
+      local region = GBA_REGIONS[code:sub(4, 4)] or ("region " .. code:sub(4, 4))
+      return ("%s (%s) rev %d"):format(game, region, data:byte(0xBD) or 0)
+    end
+    if code:match("^[%u%d]+$") then return "game code " .. code end
+    return nil
+  end
+  if #data >= 0x150 then
+    local title = data:sub(0x135, 0x144)
+    for _, entry in ipairs(GB_TITLES) do
+      if title:sub(1, #entry[1]) == entry[1] then return entry[2] end
+    end
+  end
+  return nil
+end
+
+local function romSkipReason(self, name, data)
+  if type(data) ~= "string" then return "the file could not be read" end
+  local RomArchive = require("src.import.RomArchive")
+  local kind = RomArchive.kind(data)
+  if kind then
+    local caps = RomArchive.capabilities()
+    if (kind == "zip" and not caps.zip) or (kind == "7z" and not caps.z7) then
+      return ("a .%s archive this device cannot open; extract the raw .gb/.gbc/.gba next to it")
+        :format(kind)
+    end
+    return ("a .%s archive; pick it from the file browser or extract the raw .gb/.gbc/.gba next to it")
+      :format(kind)
+  end
+  if not isAcceptedRomSize(#data) then
+    return ("wrong size %.2f MiB (%d bytes); a clean cart is exactly 1 MiB (.gb), 2 MiB (.gbc) or 16 MiB (.gba)")
+      :format(math.floor(#data / 1024 / 1024 * 100) / 100, #data)
+  end
+  local hash = sha1(data)
+  if not self:_versionForSha1(hash) then
+    local guess = romHeaderGuess(data)
+    return ("unknown SHA-1 %s%s; only clean US dumps verify, patched or trimmed ones never do")
+      :format(hash, guess and (", header says " .. guess) or "")
+  end
+  if not isRomFilename(name) then
+    local ext = #data == ROM_BYTES_GEN3 and "gba" or (#data == ROM_BYTES_GEN2 and "gbc" or "gb")
+    return ("unrecognized extension .%s; rename it to .%s")
+      :format(name:match("%.([^.]+)$") or "", ext)
+  end
+  return nil
+end
+
+local function scanRomSkips(self)
+  local skips = {}
+  local names = love.filesystem.getDirectoryItems("")
+  table.sort(names)
+  for _, name in ipairs(names) do
+    local info = love.filesystem.getInfo(name, "file")
+    if info and (isRomCandidateName(name)
+        or (name:sub(1, 1) ~= "." and isRomCandidateSize(info.size or -1))) then
+      local reason = romSkipReason(self, name, love.filesystem.read(name))
+      if reason then skips[#skips + 1] = { name = name, reason = reason } end
+    end
+  end
+  return skips
+end
+
+function RomImporter:_reportRomSkips(version)
+  local skips = scanRomSkips(self)
+  self._romSkipLogged = self._romSkipLogged or {}
+  for _, skip in ipairs(skips) do
+    local key = skip.name .. "\0" .. skip.reason
+    if not self._romSkipLogged[key] then
+      self._romSkipLogged[key] = true
+      Logger.warn("skipped ROM candidate %s/%s: %s",
+        love.filesystem.getSaveDirectory(), skip.name, skip.reason)
+    end
+  end
+  if version and skips[1] and self.workState ~= "working" then
+    self.notice = {
+      version = version,
+      status = ("Skipped %s:"):format(skips[1].name),
+      detail = skips[1].reason .. (#skips > 1
+        and (" (%d more skipped files are listed in log.txt)"):format(#skips - 1) or ""),
+    }
+  end
+  return skips
+end
+
+RomImporter._romSkipReason = romSkipReason
+RomImporter._romHeaderGuess = romHeaderGuess
+
 local function cartLabels(generation, imp)
   local out = {}
   for _, id in ipairs(SecretGames.order(imp or {})) do
@@ -1766,6 +1886,11 @@ function RomImporter.new(onComplete, opts)
   elseif self:_inboxImport() and self.launcher then
     self:ensureImportsDir()
     self:_setNxInboxNotice()
+  elseif needRom and self.launcher and (os.getenv("HANDHELD") == "1"
+      or os.getenv("PORTMASTER") == "1" or os.getenv("POKEPORT_HANDHELD") == "1"
+      or os.getenv("TRIMUI") == "1" or os.getenv("MUOS") == "1"
+      or os.getenv("KNULLI") == "1") then
+    self:_reportRomSkips(nil)
   end
 
   -- Mouse-wheel scroll for the save-slot / mods lists.  main.lua (off limits)
@@ -3599,12 +3724,14 @@ function RomImporter:choose(version)
 
   if isHandheld then
     if importPendingRom(self) then return end
+    local skips = self:_reportRomSkips(self.chooseVersion)
     local okKit, Kit = pcall(require, "src.ui.kit.Kit")
     if okKit and Kit.FileBrowser then
       self._padCursorActive = false
       Kit.FileBrowser.open({
         title = "Select " .. (GameVersion.info(self.chooseVersion).displayName or "ROM"),
         mode = "rom",
+        hint = skips[1] and ("Skipped " .. skips[1].name .. ": " .. skips[1].reason) or nil,
         onSelect = function(pickedPath)
           self:startPath(pickedPath)
         end,
@@ -3619,12 +3746,14 @@ function RomImporter:choose(version)
     return
   end
   if importPendingRom(self) then return end
+  local skips = self:_reportRomSkips(self.chooseVersion)
   local okKit, Kit = pcall(require, "src.ui.kit.Kit")
   if okKit and Kit.FileBrowser then
     self._padCursorActive = false
     Kit.FileBrowser.open({
       title = "Select " .. (GameVersion.info(self.chooseVersion).displayName or "ROM"),
       mode = "rom",
+      hint = skips[1] and ("Skipped " .. skips[1].name .. ": " .. skips[1].reason) or nil,
       onSelect = function(pickedPath)
         self:startPath(pickedPath)
       end,
