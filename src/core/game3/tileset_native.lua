@@ -218,11 +218,42 @@ local function retarget(old, new)
   end
 end
 
-local scratch
-local function cellData(data, x, y)
-  if not scratch then scratch = love.image.newImageData(16, 16) end
-  scratch:paste(data, 0, 0, x, y, 16, 16)
-  return scratch
+local BAND_ROWS = 4
+local bands = {}
+local function bandData(data, y, h)
+  local w = data:getWidth()
+  local key = w .. "x" .. h .. data:getFormat()
+  local buf = bands[key]
+  if not buf then
+    buf = love.image.newImageData(w, h, data:getFormat())
+    bands[key] = buf
+  end
+  buf:paste(data, 0, 0, 0, y, w, h)
+  return buf
+end
+
+local rowScratch = {}
+local function uploadRows(ts, image, data, slots)
+  local cols = ts.cols or 16
+  local n = 0
+  for slot in pairs(slots) do
+    n = n + 1
+    rowScratch[n] = math.floor(slot / cols)
+  end
+  for i = #rowScratch, n + 1, -1 do rowScratch[i] = nil end
+  table.sort(rowScratch)
+  local total = math.floor(data:getHeight() / 16)
+  local h = math.min(BAND_ROWS, total)
+  if h < 1 then return image:replacePixels(data) end
+  local covered = -1
+  for i = 1, n do
+    local row = rowScratch[i]
+    if row > covered then
+      local top = math.min(row, total - h)
+      image:replacePixels(bandData(data, top * 16, h * 16), 1, 1, 0, top * 16)
+      covered = top + h - 1
+    end
+  end
 end
 
 local function merge(pend, slots, full)
@@ -238,11 +269,7 @@ local function apply(ts, image, data, pend)
   if pend.full then
     image:replacePixels(data)
   elseif pend.slots then
-    local cols = ts.cols or 16
-    for slot in pairs(pend.slots) do
-      local x, y = (slot % cols) * 16, math.floor(slot / cols) * 16
-      image:replacePixels(cellData(data, x, y), 1, 1, x, y)
-    end
+    uploadRows(ts, image, data, pend.slots)
   end
   pend.full, pend.slots = false, nil
 end
