@@ -284,7 +284,7 @@ end
 local om = OptionsMenu.new(optGame())
 local WANT_IDS = { "textSpeed", "animations", "battleStyle", "battleLayout",
                    "battleFit", "battleHud", "battleBg", "uiLayout",
-                   "ruleset", "musicVol", "sfxVol", "musicFilter",
+                   "ruleset", "musicVol", "sfxVol", "musicFilter", "audioMode",
                    "performance", "colors",
                    "tilt", "uiLetterbox", "shaderfx", "shaderfx2", "zoom", "voidFill",
                    "videoMode", "faithfulRes", "screenPos", "fpsCap", "vsync", "logicClock",

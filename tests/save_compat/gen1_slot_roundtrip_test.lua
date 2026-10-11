@@ -23,6 +23,12 @@ local Diff = require("tests.save_compat._diff")
 local O = GenSave.OFFSETS
 local realFS = love.filesystem
 
+local idSeq = 0
+SaveData.newPlaythroughId = function()
+  idSeq = idSeq + 1
+  return ("%032x"):format(idSeq)
+end
+
 local function memfs(files)
   return {
     files = files,
