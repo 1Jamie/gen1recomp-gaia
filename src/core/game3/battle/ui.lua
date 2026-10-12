@@ -2238,9 +2238,15 @@ local function action_prompt(st, ab)
   return text
 end
 
+local _fontProfile, _fontRow, _fontModule
 local function battle_font()
-  local P = require("src.core.game3.profile").forSession(Ui._session)
-  return require(P.font.module)
+  _fontProfile = _fontProfile or require("src.core.game3.profile")
+  local P = _fontProfile.forSession(Ui._session)
+  if P ~= _fontRow then
+    _fontModule = require(P.font.module)
+    _fontRow = P
+  end
+  return _fontModule
 end
 
 function Ui.drawMenuFrames(panelMode)
@@ -2280,13 +2286,28 @@ local function rse_default_colors()
 end
 
 -- pokeemerald/src/battle_message.c:3033
+-- Memoized per PP state; an entry is reused only while both palette tables
+-- are unchanged and the four raw words it was built from still match.
+-- Callers treat the result as read-only.
+local EMPTY = {}
+local _ppColors = {}
 local function rse_pp_colors(pp, maxPp)
-  local pp2 = BattleChrome.manifest().ppTextPal or {}
+  local manifest = BattleChrome.manifest()
+  local pp2 = manifest.ppTextPal or nil
+  local win = manifest.windowTextPal or nil
   local state = Ui.ppColorState(pp, maxPp)
-  local c = rse_window_colors(13, 15)
-  c.fg = bgr555_rgba(pp2[state * 2 + 1])
-  c.shadow = bgr555_rgba(pp2[state * 2 + 2])
-  return c
+  local fgV, shV = (pp2 or EMPTY)[state * 2 + 1], (pp2 or EMPTY)[state * 2 + 2]
+  local winFg, winSh = (win or EMPTY)[14], (win or EMPTY)[16]
+  local e = _ppColors[state]
+  if not (e and e.pp2 == pp2 and e.win == win and e.fgV == fgV and e.shV == shV
+      and e.winFg == winFg and e.winSh == winSh) then
+    local c = rse_window_colors(13, 15)
+    c.fg = bgr555_rgba(fgV)
+    c.shadow = bgr555_rgba(shV)
+    e = { pp2 = pp2, win = win, fgV = fgV, shV = shV, winFg = winFg, winSh = winSh, colors = c }
+    _ppColors[state] = e
+  end
+  return e.colors
 end
 
 local function rse_text(win, text, dx, opts)
@@ -2300,8 +2321,22 @@ local function rse_text(win, text, dx, opts)
   })
 end
 
+-- Fixed BGR555 constants (no palette input), built once.  Read-only.
+local RS_MENU_COLORS = { fg = bgr555_rgba(0x2529), shadow = bgr555_rgba(0x675a), bg = { 0, 0, 0, 0 } }
 local function rs_menu_colors()
-  return { fg = bgr555_rgba(0x2529), shadow = bgr555_rgba(0x675a), bg = { 0, 0, 0, 0 } }
+  return RS_MENU_COLORS
+end
+
+-- pokeruby/src/battle_controller_player.c:597 (swap highlight), per base colours.
+local _rsSwapHighlight = setmetatable({}, { __mode = "k" })
+local function rs_swap_highlight(colors)
+  local e = _rsSwapHighlight[colors]
+  if not e or e.shadow ~= colors.shadow or e.bg ~= colors.bg then
+    e = { shadow = colors.shadow, bg = colors.bg,
+      colors = { fg = bgr555_rgba(0x7fe0), shadow = colors.shadow, bg = colors.bg } }
+    _rsSwapHighlight[colors] = e
+  end
+  return e.colors
 end
 
 -- pokeruby/src/battle_controller_player.c:2603
@@ -2335,10 +2370,22 @@ local function draw_action_menu_rse(st)
   end
 end
 
+local SWAP_CLEAR = { 0, 0, 0, 0 }
+local _swapCursor = setmetatable({}, { __mode = "k" })
+-- Cached per base colour table + variant; refreshed if base's fields change.
 local function swap_cursor_colors(variant, base)
-  local clear = { 0, 0, 0, 0 }
-  if variant == 27 then return { fg = base.fg, shadow = clear, bg = base.bg } end
-  return { fg = base.shadow, shadow = clear, bg = base.bg }
+  local e = _swapCursor[base]
+  if not e then
+    e = {}
+    _swapCursor[base] = e
+  end
+  local c = e[variant]
+  local fg = variant == 27 and base.fg or base.shadow
+  if not c or c.fg ~= fg or c.bg ~= base.bg then
+    c = { fg = fg, shadow = SWAP_CLEAR, bg = base.bg }
+    e[variant] = c
+  end
+  return c
 end
 
 -- pokeemerald/src/battle_controller_player.c:608
@@ -2355,6 +2402,16 @@ local function draw_move_cursors(pos_of, base)
   Window.cursorPx(q[1], q[2], { colors = swap_cursor_colors(27, base) })
 end
 
+-- Position callback for draw_move_cursors; the result is consumed before the
+-- next call, so one scratch table is reused.
+local _rseCursorCy = 0
+local _rseCursorPos = { 0, 0 }
+local function rse_move_cursor_pos(c)
+  _rseCursorPos[1] = 8 * (9 * (c % 2) + 1)
+  _rseCursorPos[2] = _rseCursorCy + 16 * math.floor(c / 2)
+  return _rseCursorPos
+end
+
 -- pokeruby/src/battle_controller_player.c:1580
 local function draw_move_menu_rs(st)
   local ab = st and (is_double(st) and active_battler(st) or st.player)
@@ -2368,7 +2425,7 @@ local function draw_move_menu_rs(st)
     local labelColors = colors
     -- pokeruby/src/battle_controller_player.c:597
     if Ui._swap and i == Ui._moveIndex then
-      labelColors = { fg = bgr555_rgba(0x7fe0), shadow = colors.shadow, bg = colors.bg }
+      labelColors = rs_swap_highlight(colors)
     end
     F.draw(label, 8 + 80 * ((i - 1) % 2), 120 + 16 * math.floor((i - 1) / 2), { colors = labelColors })
   end
@@ -2395,9 +2452,8 @@ local function draw_move_menu_rse(st)
   local ab = st and (is_double(st) and active_battler(st) or st.player)
   local mon = ab and ab.mon
   local _, cy = BattleChrome.textOrigin(W.MOVE_NAME_1)
-  draw_move_cursors(function(c)
-    return { 8 * (9 * (c % 2) + 1), cy + 16 * math.floor(c / 2) }
-  end, rse_default_colors())
+  _rseCursorCy = cy
+  draw_move_cursors(rse_move_cursor_pos, rse_default_colors())
   for i = 1, 4 do
     local mv = mon and mon.moves and mon.moves[i]
     local label = "-"
@@ -2930,5 +2986,14 @@ end
 function Ui.log()
   return Ui._log
 end
+
+-- Test hook: the cached colour/font helpers (see tests/game3_rs_battle_ui_alloc_test.lua).
+Ui._cacheProbe = {
+  battleFont = battle_font,
+  rsMenuColors = rs_menu_colors,
+  rsSwapHighlight = rs_swap_highlight,
+  rsePpColors = rse_pp_colors,
+  swapCursorColors = swap_cursor_colors,
+}
 
 return Ui
