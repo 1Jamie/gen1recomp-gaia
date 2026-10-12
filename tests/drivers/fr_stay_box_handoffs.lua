@@ -83,7 +83,7 @@ return function(game)
     result(false, "trade: prompt opened")
   end
 
-  load("FR_ROUTE1", 10, 10, "down")
+  load("FR_ROUTE_1", 10, 10, "down")
   local synth = "synthetic_stay_wild"
   Space.vm.scripts[synth] = {
     { op = "lockall" },

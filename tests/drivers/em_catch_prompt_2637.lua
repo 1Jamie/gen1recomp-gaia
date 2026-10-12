@@ -19,7 +19,7 @@ return function(game)
   local Dex = require("src.core.game3.dex")
   local Storage = require("src.core.game3.storage")
   local session = Runtime.getSession()
-  local version = os.getenv("POKEPORT_TEST_VERSION") or "emerald"
+  local version = os.getenv("POKEPORT_TEST_VERSION") or session.version
   if not S.check(session.version == version, "capture driver version " .. version) then return S.finish() end
   local C = require("src.core.game3.constants").of(version)
   local function species(name) return C:require("species", "SPECIES_" .. name) end
@@ -35,7 +35,7 @@ return function(game)
     F.setVar("VAR_ROUTE101_STATE", 3)
     F.setFlag("FLAG_RESCUED_BIRCH", true)
   end
-  S.check(F.goTo(game, version == "emerald" and "EM_ROUTE101" or "FR_ROUTE1", 10, 10, "down"),
+  S.check(F.goTo(game, version == "emerald" and "EM_ROUTE101" or "FR_ROUTE_1", 10, 10, "down"),
     "capture approach map loaded")
 
   local function throw()

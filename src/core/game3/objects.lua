@@ -1038,14 +1038,28 @@ function Objects.playerBlocks(tx, ty, elevation)
   return false
 end
 
+-- pokeemerald/src/data/object_events/movement_action_func_tables.h:605 sDirectionAnimFuncsBySpeed
+local function stepAnimCycle(frames)
+  if frames == RUN_SLOW_FRAMES then
+    -- pokefirered/src/event_object_movement.c:6529 InitRunSlow
+    return 5, 3
+  elseif frames < 6 then
+    local stride = math.max(1, math.floor(frames / 2))
+    return stride, stride
+  elseif frames < WALK_FRAMES then
+    return 4, 4
+  end
+  return 8, 8
+end
+
 local function walkPhaseOf(eo)
   if not eo.moving then return 0 end
+  eo.animDrawn = true
   -- pokefirered/src/event_object_movement.c:7040 MovementAction_DisableAnimation_Step0
   if eo.inanimate then return 0 end
-  local frames = eo.stepFrames or WALK_FRAMES
-  local p = eo.animClock % frames
-  local mid = math.floor(frames / 2)
-  return (p >= math.floor(frames / 4) and p < mid + math.floor(frames / 4)) and 1 or 0
+  local stride, stand = stepAnimCycle(eo.stepFrames or WALK_FRAMES)
+  -- pokeemerald/src/event_object_movement.c:4582 SetStepAnimHandleAlternation
+  return (eo.animClock or 0) % (stride + stand) < stride and 1 or 0
 end
 
 function Objects.walkPhase(eo)
@@ -1085,6 +1099,7 @@ local function beginStep(eo, tx, ty)
   Objects.updateElevation(eo)
   eo.stepFrames = WALK_FRAMES
   eo.animClock = 0
+  eo.animDrawn = false
 end
 
 local function finishStep(eo, game, ctx)
@@ -1147,8 +1162,17 @@ local function tickMotion(eo, game, ctx)
   Objects.updateElevation(eo)
   if not eo.moving then return false end
   eo.progress = eo.progress + 1
-  eo.animClock = eo.animClock + 1
+  if eo.animDrawn == false then
+    eo.animDrawn = true
+  else
+    eo.animClock = eo.animClock + 1
+  end
   local frames = eo.stepFrames or WALK_FRAMES
+  local stride, stand = stepAnimCycle(frames)
+  -- pokeemerald/src/data/object_events/object_event_anims.h:202 sAnim_GoSouth
+  if eo.animClock > 0 and eo.progress < frames and eo.animClock % (stride + stand) == 0 then
+    eo.stepFlip = not eo.stepFlip
+  end
   local dx = eo.targetX - eo.cellX
   local dy = eo.targetY - eo.cellY
   local off = stepOffset(frames, eo.progress, math.max(math.abs(dx), math.abs(dy)))

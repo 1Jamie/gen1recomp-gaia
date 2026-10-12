@@ -839,6 +839,7 @@ function Collision.tryConnection(game, fromX, fromY, dir, run)
   local Runtime = package.loaded["src.core.game3.runtime"]
   local mod = Runtime and Runtime._mod
   local g = game or (Runtime and Runtime._game)
+  local animCmd = Player.animCmd
 
   Map.load(mod, g, destMap, {
     x = lx,
@@ -858,6 +859,7 @@ function Collision.tryConnection(game, fromX, fromY, dir, run)
   Player.moving = true
   Player.progress = 0
   Player.animClock = 0
+  Player.startStepAnim(animCmd)
   Player.running = run and true or false
   Player.jumping = false
   Player.dismounting = Player.surfing and not landingWater or false

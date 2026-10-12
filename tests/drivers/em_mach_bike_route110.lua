@@ -11,12 +11,20 @@ return function(game)
 
   F.noTrainerSight()
   S.check(F.goTo(game, "EM_ROUTE110", 27, 20, "up"), "Route 110 loads (" .. tostring(F.map()) .. ")")
+  local DECK = 4
+  local FieldView = require("src.core.game3.field_view")
+  local function drawnOverDeck()
+    local actor = { kind = "player", elevation = Player.elevation, y = Player.py }
+    local _, over = FieldView.applyDrawOrder({ actor }, {}, {}, 0)
+    return over[1] == actor
+  end
   local runX, runY
   for y = 29, 12, -1 do
     for x = 26, 28 do
-      local free = true
+      local free = Collision.elevationAt(x, y) == DECK
       for i = 0, 10 do
-        if not Collision.canEnter(game, x, y - i, {}) then free = false break end
+        if not free then break end
+        if not Collision.canEnter(game, x, y - i, { elevation = DECK }) then free = false end
       end
       if free then runX, runY = x, y break end
     end
@@ -26,24 +34,29 @@ return function(game)
     return S.finish()
   end
   F.goTo(game, "EM_ROUTE110", runX, runY, "up")
+  S.check(Player.elevation == DECK, "spawned on the deck at elevation " .. DECK .. " (" .. tostring(Player.elevation) .. ")")
   local mach = F.give("ITEM_MACH_BIKE")
   local mapSong = F.songId()
   F.useRegistered(game, mach)
   S.check(Player.biking and Player.bikeType == "mach", "SELECT on the registered Mach Bike mounts it")
   S.check(F.songId() == C:require("songs", "MUS_CYCLING"),
     "MUS_CYCLING plays (" .. tostring(F.songId()) .. ", map song " .. tostring(mapSong) .. ")")
+  S.check(drawnOverDeck(), "mounted player sprite draws over the deck's BG1 layer")
   S.still(game, "01_mach_mounted.png")
 
   local frames = {}
   local lastY = Player.cellY
+  local fullSpeedDrawn
   F.holdKeys(game, { "up" }, 90, function()
     if Player.moving and Player.progress == 1 then frames[#frames + 1] = Player.stepFrames end
     if #frames == 4 and Player.progress == 2 then
+      fullSpeedDrawn = drawnOverDeck()
       U.still(game, S.dir .. "/02_mach_full_speed.png")
     end
     return #frames >= 6
   end)
   S.note("Mach step frames: " .. table.concat(frames, ","))
+  S.check(fullSpeedDrawn == true, "full-speed player sprite draws over the deck's BG1 layer")
   S.check(frames[1] == 16 and frames[2] == 8 and frames[3] == 4, "speed tiers 16/8/4 frames (sMachBikeSpeeds)")
   S.check(frames[5] == 4 and frames[6] == 4, "full speed holds 4 frames a cell")
   S.check(Player.cellY < lastY - 3, "rode north (" .. lastY .. " -> " .. Player.cellY .. ")")

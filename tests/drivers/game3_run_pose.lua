@@ -49,7 +49,7 @@ return function(game)
         table.insert(game.input.pressQueue, dir)
         coroutine.yield()
         if Player.moving and Player.running and Player.facing == dir
-            and Player.animClock == 5 and Player.runPose() == 0 then
+            and Player.animClock == 4 and Player.runPose() == 0 then
           ready = true
           break
         end

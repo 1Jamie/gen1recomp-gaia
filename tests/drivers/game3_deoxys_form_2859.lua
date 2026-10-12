@@ -36,7 +36,7 @@ return function(game)
     F.setVar("VAR_ROUTE101_STATE", 3)
     F.setFlag("FLAG_RESCUED_BIRCH", true)
   end
-  S.check(F.goTo(game, version == "emerald" and "EM_ROUTE101" or "FR_ROUTE1", 10, 10, "down"), tag .. " map loaded")
+  S.check(F.goTo(game, version == "emerald" and "EM_ROUTE101" or "FR_ROUTE_1", 10, 10, "down"), tag .. " map loaded")
 
   local function settle()
     for _ = 1, 120 do

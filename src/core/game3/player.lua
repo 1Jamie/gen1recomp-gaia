@@ -24,6 +24,17 @@ local RUN_SLOW_FRAMES = 11
 local BIKE_FRAMES = 4
 -- pokeemerald/src/event_object_movement.c:5780 MovementAction_WalkInPlaceFastDown_Step0
 local TURN_FRAMES = 8
+-- pokeemerald/src/data/object_events/object_event_anims.h:202 sAnim_GoSouth
+local ANIM_WALK = { 8, 8, 8, 8 }
+-- pokeemerald/src/data/object_events/object_event_anims.h:238 sAnim_GoFastSouth
+local ANIM_FAST = { 4, 4, 4, 4 }
+-- pokeemerald/src/data/object_events/object_event_anims.h:274 sAnim_GoFasterSouth
+local ANIM_FASTER = { 2, 2, 2, 2 }
+-- pokeemerald/src/data/object_events/object_event_anims.h:310 sAnim_GoFastestSouth
+local ANIM_FASTEST = { 1, 1, 1, 1 }
+-- pokeemerald/src/data/object_events/object_event_anims.h:346 sAnim_RunSouth
+-- pokefirered/src/data/object_events/object_event_anims.h:601 sAnim_RunSouth
+local ANIM_RUN = { 5, 3, 5, 3 }
 -- pokefirered/include/constants/metatile_behaviors.h:128
 local MB_CYCLING_ROAD_PULL_DOWN = 0xD0
 local MB_CYCLING_ROAD_PULL_DOWN_GRASS = 0xD1
@@ -60,8 +71,16 @@ Player.targetX = 0
 Player.targetY = 0
 Player.turnTimer = 0
 Player.turnArmed = true
-Player.stepFlip = false
 Player.animClock = 0
+-- pokeemerald/src/event_object_movement.c:4582 SetStepAnimHandleAlternation
+Player.animCmd = 1
+Player.animDelay = 0
+Player.animDurs = ANIM_WALK
+Player.animPaused = true
+Player.animPending = false
+Player.animDrawn = false
+Player.animInPlace = nil
+Player.animSlow = false
 Player.running = false
 Player.jumping = false
 Player.surfHopping = false
@@ -184,8 +203,15 @@ function Player.reset(x, y, facing)
   Player.targetY = Player.cellY
   Player.turnTimer = 0
   Player.turnArmed = true
-  Player.stepFlip = false
   Player.animClock = 0
+  Player.animCmd = 1
+  Player.animDelay = 0
+  Player.animDurs = ANIM_WALK
+  Player.animPaused = true
+  Player.animPending = false
+  Player.animDrawn = false
+  Player.animInPlace = nil
+  Player.animSlow = false
   Player.running = false
   Player.jumping = false
   Player.spriteXOffset = 0
@@ -304,7 +330,7 @@ function Player.syncToHost(game)
   p.py = Player.py
   p.facing = Player.facing
   p.moving = Player.moving
-  p.stepFlip = Player.stepFlip
+  p.stepFlip = Player.drawFlip()
   p.animClock = Player.animClock
   p.turnTimer = Player.turnTimer
   if p.stepFrames ~= nil then p.stepFrames = Player.stepFrames end
@@ -331,35 +357,120 @@ local function warp_owns_sprite()
   return (Warp and Warp.isBusy and Warp.isBusy()) == true
 end
 
+-- pokeemerald/src/sprite.c:943 ContinueAnim
+local function animFrame()
+  if Player.animDelay > 0 then
+    if not Player.animPaused then Player.animDelay = Player.animDelay - 1 end
+  elseif not Player.animPaused then
+    Player.animCmd = (Player.animCmd + 1) % 4
+    Player.animDelay = Player.animDurs[Player.animCmd + 1] - 1
+  end
+end
+
+-- pokeemerald/src/sprite.c:1359 SeekSpriteAnim
+local function seekAnim(cmd)
+  Player.animCmd = cmd
+  local d = Player.animDurs[cmd + 1] - 1
+  Player.animDelay = d > 0 and d + 1 or 0
+end
+
+-- pokeemerald/src/event_object_movement.c:4582 SetStepAnimHandleAlternation
+local function alternateStepAnim()
+  if Player.animCmd == 1 then
+    Player.animCmd = 2
+  elseif Player.animCmd == 3 then
+    Player.animCmd = 0
+  end
+end
+
+-- pokeemerald/src/event_object_movement.c:4601 SetStepAnim
+local function setStepAnim()
+  Player.animDurs = ANIM_WALK
+  seekAnim(Player.animCmd <= 1 and 1 or 3)
+  Player.animPaused = true
+  Player.animPending = false
+  Player.animInPlace = nil
+end
+
+-- pokeemerald/src/event_object_movement.c:5713 MovementAction_WalkInPlace_Step1
+local function stepInPlace()
+  local n = Player.animInPlace
+  -- pokeemerald/src/event_object_movement.c:5724 MovementAction_WalkInPlaceSlow_Step1
+  if Player.animSlow and n % 2 == 1 then Player.animDelay = Player.animDelay + 1 end
+  n = n - 1
+  if n <= 0 then
+    Player.animInPlace = nil
+    Player.animPaused = true
+  else
+    Player.animInPlace = n
+  end
+  animFrame()
+end
+
+-- pokeemerald/src/event_object_movement.c:5704 InitMoveInPlace
+local function startInPlace(durs, frames, slow)
+  alternateStepAnim()
+  Player.animDurs = durs
+  seekAnim(Player.animCmd)
+  Player.animPaused = false
+  Player.animPending = false
+  Player.animInPlace = frames
+  Player.animSlow = slow and true or false
+  stepInPlace()
+end
+
+-- pokeemerald/src/data/object_events/movement_action_func_tables.h:605 sDirectionAnimFuncsBySpeed
+local function stepAnimDurs()
+  if Player.running and not Player.biking and not Player.jumping then return ANIM_RUN end
+  local f = Player.stepFrames or WALK_FRAMES
+  if f >= WALK_FRAMES then return ANIM_WALK end
+  if f >= 6 then return ANIM_FAST end
+  if f >= FASTER_FRAMES then return ANIM_FASTER end
+  return ANIM_FASTEST
+end
+
+-- pokeemerald/src/event_object_movement.c:5101 InitMovementNormal
+function Player.startStepAnim(cmd)
+  if cmd then Player.animCmd = cmd end
+  alternateStepAnim()
+  Player.animInPlace = nil
+  Player.animSlow = false
+  Player.animPending = true
+  Player.animDrawn = false
+end
+
+local function resolveStepAnim()
+  Player.animPending = false
+  Player.animDurs = stepAnimDurs()
+  seekAnim(Player.animCmd)
+  Player.animPaused = false
+  if Player.animDrawn then animFrame() end
+  Player.animDrawn = false
+end
+
+local function noteDraw()
+  if Player.animPending then Player.animDrawn = true end
+end
+
 function Player.walkPhase()
+  noteDraw()
   -- pokefirered/src/field_player_avatar.c:325
   if Player.animDisabled then return 0 end
-  if Player.turnTimer > 0 then return 1 end
-  if not Player.moving then
-    if not Player.walkInPlace then return 0 end
-    local wf = walkInPlaceFrames()
-    local wp = Player.animClock % wf
-    local wmid = math.floor(wf / 2)
-    return (wp >= math.floor(wf / 4) and wp < wmid + math.floor(wf / 4)) and 1 or 0
-  end
-  local frames = Player.stepFrames or WALK_FRAMES
-  local p = Player.animClock % frames
-  local mid = math.floor(frames / 2)
-  return (p >= math.floor(frames / 4) and p < mid + math.floor(frames / 4)) and 1 or 0
+  return Player.animCmd % 2 == 0 and 1 or 0
 end
 
 -- src/event_object_movement.c:5333
 function Player.runPose()
+  noteDraw()
   if not (Player.moving and Player.running) or Player.biking or Player.jumping
       or Player.surfing or Player.animDisabled then
     return nil
   end
-  -- src/data/object_events/object_event_anims.h:601
-  return ((Player.animClock or 0) - 1) % 8 >= 5 and 1 or 0
+  return Player.animCmd % 2
 end
 
 function Player.drawFlip()
-  return Player.stepFlip and true or false
+  return Player.animCmd <= 1
 end
 
 --- pret DoJumpSpriteMovement y2 for JUMP_DISTANCE_FAR + JUMP_TYPE_HIGH.
@@ -420,6 +531,7 @@ local function beginStep(tx, ty, run, ledge)
     Player.stepFrames = run and RUN_FRAMES or WALK_FRAMES
   end
   Player.animClock = 0
+  Player.startStepAnim()
 
   -- pret GroundEffect_StepOnTallGrass when entering a grass cell.
   local okFx, FieldEffects = pcall(lazyReq, "src.core.game3.field_effects")
@@ -573,6 +685,7 @@ local function playerCollide(dir)
   Player.startAction({
     frames = Player.biking and WALK_FRAMES or WALK_IN_PLACE_SLOW_FRAMES,
     walk = "normal",
+    slow = not Player.biking,
     interruptible = not Player.biking,
   })
 end
@@ -583,6 +696,8 @@ function Player.cancelAction()
   Player.spriteYOffset = 0
   Player.walkInPlace = false
   Player.walkInPlaceFast = false
+  Player.animInPlace = nil
+  Player.animPaused = true
 end
 
 -- pokeemerald/src/field_player_avatar.c:353 TryInterruptObjectEventSpecialAnim
@@ -624,6 +739,8 @@ function Player.tryMove(dir, game, run)
     -- pokeemerald/src/field_player_avatar.c:593
     if Player.turnArmed then
       Player.turnTimer = TURN_FRAMES
+      -- pokeemerald/src/event_object_movement.c:5780 MovementAction_WalkInPlaceFastDown_Step0
+      startInPlace(ANIM_FAST, TURN_FRAMES)
       return "turned"
     end
   end
@@ -687,6 +804,7 @@ function Player.tryMove(dir, game, run)
             Player.walkInPlace = true
             Player.walkInPlaceFast = false
             Player.animClock = 0
+            startInPlace(ANIM_WALK, WALK_FRAMES)
             Objects.pushStep(obj, dir, WALK_FRAMES * 2)
             local FieldEffects = lazyReq("src.core.game3.field_effects")
             FieldEffects.startDust(tx, ty)
@@ -944,8 +1062,10 @@ function Player.scriptJump(dir, distance)
   return true
 end
 
+-- pokeemerald/src/event_object_movement.c:5048 FaceDirection
 function Player.scriptFace(dir)
   if DELTA[dir] then Player.facing = dir end
+  setStepAnim()
 end
 
 -- pokeemerald/src/field_player_avatar.c:966 PlayerSetAnimId
@@ -980,6 +1100,7 @@ function Player.startAction(opts)
     Player.walkInPlace = true
     Player.walkInPlaceFast = opts.walk == "fast"
     Player.animClock = 0
+    startInPlace(opts.walk == "fast" and ANIM_FAST or ANIM_WALK, Player.action.frames, opts.slow)
   end
   return true
 end
@@ -1065,7 +1186,6 @@ local function finishStep(game)
   Player.py = Player.cellY * CELL
   Player.moving = false
   Player.progress = 0
-  Player.stepFlip = not Player.stepFlip
   Player.running = false
   Player.jumping = false
   Player.jumpType = nil
@@ -1219,12 +1339,14 @@ function Player.tick(game)
     Player.turnTimer = Player.turnTimer - 1
   end
   if not Player.moving then
-    -- pokefirered/src/field_fadetransition.c:846
+    if Player.animInPlace then
+      stepInPlace()
+    elseif Player.walkInPlace and not Player.action and not Player.boulderPush then
+      -- pokefirered/src/field_fadetransition.c:857
+      startInPlace(Player.walkInPlaceFast and ANIM_FAST or ANIM_WALK, walkInPlaceFrames())
+    end
     if Player.walkInPlace then
       Player.animClock = Player.animClock + 1
-      if Player.animClock % walkInPlaceFrames() == 0 then
-        Player.stepFlip = not Player.stepFlip
-      end
     end
     if Player.action then return tickAction() end
     local bobY = (not Player.jumping) and surfBobY() or nil
@@ -1238,6 +1360,13 @@ function Player.tick(game)
   Player.progress = Player.progress + 1
   Player.animClock = Player.animClock + 1
   local frames = Player.stepFrames or WALK_FRAMES
+  if Player.animPending then resolveStepAnim() end
+  if Player.progress >= frames then
+    -- pokeemerald/src/event_object_movement.c:5116 UpdateMovementNormal
+    Player.animPaused = true
+  else
+    animFrame()
+  end
   local dx = Player.targetX - Player.cellX
   local dy = Player.targetY - Player.cellY
   -- pret Step1: 1px/frame along the move. Ledge Jump2 is 32px over 32 frames.
@@ -1365,6 +1494,8 @@ function Player.update(game, input)
   if Player.cyclingRoadPull(game, input, dir) then return end
   if not dir then
     Player.turnArmed = true
+    -- pokeemerald/src/field_player_avatar.c:1022 PlayerFaceDirection
+    if Player.turnTimer == 0 then setStepAnim() end
     return
   end
   local wantRun = input and input.isDown and input:isDown("b")

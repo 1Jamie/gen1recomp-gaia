@@ -122,6 +122,8 @@ tests/engine/game3_em_bike_doors_2637.lua
 tests/engine/game3_em_catch_prompt_2637.lua
 tests/engine/game3_frontier_obedience_2638.lua
 tests/engine/game3_match_call_step_consumed_2826.lua
+tests/engine/game3_npc_pose_2879.lua
+tests/engine/game3_pose_timeline_2879.lua
 tests/engine/game3_post_dex_background_2637.lua
 tests/engine/game3_rs_anim_names_test.lua
 tests/engine/game3_rs_bag_cursor_width_2709.lua

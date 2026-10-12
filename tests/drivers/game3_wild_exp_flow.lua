@@ -44,7 +44,7 @@ return function(game)
   if C.game == "emerald" then
     Map.load(nil, game, "EM_ROUTE101", { x = 7, y = 13, facing = "down" })
   else
-    Map.load(nil, game, "FR_ROUTE1", { x = 10, y = 20, facing = "down" })
+    Map.load(nil, game, "FR_ROUTE_1", { x = 10, y = 20, facing = "down" })
   end
   U.wait(40)
 
