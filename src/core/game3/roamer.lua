@@ -395,6 +395,19 @@ function Roamer.tryEncounter(session, mapId, terrain)
     end
   end
 
+  -- Battle code reads short IV keys (atk/def/spe/spa/spd); the saved roamer
+  -- block may use long names, so translate without touching the save.
+  local rIvs = roamer.ivs or {}
+  local function ivOf(short, long) return rIvs[short] or rIvs[long] end
+  local battleIvs = roamer.ivs and {
+    hp = ivOf("hp", "HP"),
+    atk = ivOf("atk", "attack"),
+    def = ivOf("def", "defense"),
+    spe = ivOf("spe", "speed"),
+    spa = ivOf("spa", "spAtk"),
+    spd = ivOf("spd", "spDef"),
+  } or nil
+
   -- Construct wild foe encounter descriptor
   local foe = {
     species = roamer.species,
@@ -405,7 +418,8 @@ function Roamer.tryEncounter(session, mapId, terrain)
     status = roamer.status,
     statusNum = roamer.statusNum,
     pid = roamer.pid,
-    ivs = roamer.ivs,
+    personality = roamer.pid,
+    ivs = battleIvs,
     moves = roamer.moves,
     pp = roamer.pp,
     roamer = true,

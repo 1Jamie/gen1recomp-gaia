@@ -119,6 +119,37 @@ check(encB == nil, "Lead Slot 1 Lv 51 triggers Repel and repels roamer")
 -- Reset lead level to 50
 session.party[1].level = 50
 
+-- Scenario C2: PID and IVs stay fixed across encounters (issue 2882)
+session.vars[0x4020] = 0
+local fixedPid, fixedIvs = session.roamer.pid, session.roamer.ivs
+session.roamer.moves, session.roamer.pp = { 33, 45 }, { 35, 40 } -- species pack is absent in tests
+for n = 1, 2 do
+  local enc = Roamer.tryEncounter(session, "FR_ROUTE2", "grass")
+  local f = enc and enc.foe
+  check(f and f.personality == fixedPid, "Encounter " .. n .. " keeps roamer PID")
+  local same = f and f.ivs ~= nil
+  if same then
+    local map = { hp = "hp", atk = "attack", def = "defense", spe = "speed", spa = "spAtk", spd = "spDef" }
+    for short, long in pairs(map) do
+      if f.ivs[short] ~= fixedIvs[long] then same = false end
+    end
+  end
+  check(same, "Encounter " .. n .. " keeps roamer IVs under battle key names")
+  local Battle = require("src.core.game3.battle")
+  local ok, st = pcall(Battle.start, {
+    wild = true, foe = f,
+    playerParty = { { species = 6, level = 50, hp = 100, maxHp = 100, moves = { 33 }, pp = { 35 } } },
+  })
+  local mon = ok and Battle._st and Battle._st.foeMon
+  if mon then
+    check(mon.personality == fixedPid and mon.ivs.atk == fixedIvs.attack
+      and mon.ivs.spd == fixedIvs.spDef, "Battle foe mon " .. n .. " uses roamer PID and IVs")
+  else
+    print("[skip] Battle.start unavailable without battle data: " .. tostring(st))
+  end
+  if Battle._active then Battle._active = false; Battle._st = nil end
+end
+
 -- Scenario C: Wrong map
 local encC = Roamer.tryEncounter(session, "FR_ROUTE3", "grass")
 check(encC == nil, "Different map returns no encounter")
