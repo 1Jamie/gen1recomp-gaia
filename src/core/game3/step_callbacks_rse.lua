@@ -376,11 +376,34 @@ local SLOPE_ANIM_STEP_TIME = SLOPE_ANIM_TIME / #SLOPE_FRAMES
 
 Steps._slope = { mapId = nil, prevX = nil, prevY = nil, slots = {} }
 
+-- metatile ids per constants object: Ruby/Sapphire and Emerald differ, and
+-- the game can be switched in-process, so the cache follows constants().
+local slopeIds = setmetatable({}, { __mode = "k" })
+
 -- pokeemerald/src/field_tasks.c:880 SetMuddySlopeMetatile
 local function setMuddySlopeMetatile(slot)
   slot.time = slot.time - 1
   local name = slot.time == 0 and "Frame0" or SLOPE_FRAMES[math.floor(slot.time / SLOPE_ANIM_STEP_TIME) + 1]
-  Steps.setMetatile(slot.x, slot.y, metatile("General_MuddySlope_" .. name))
+  local c = constants()
+  local ids = slopeIds[c]
+  if not ids then
+    ids = {}
+    slopeIds[c] = ids
+  end
+  local id = ids[name]
+  if not id then
+    id = c:require("metatile_labels", "METATILE_General_MuddySlope_" .. name)
+    ids[name] = id
+  end
+  -- pret writes every frame, but the frame only changes every 8; skip a
+  -- write that would leave the cell as it is (the layout revision bump and
+  -- view invalidation are the cost)
+  local Field = package.loaded["src.core.game3.field"]
+  local mapId = Field and Field._session and Field._session.map
+  local bucket = mapId and Field.metatileOverrides[mapId]
+  local cur = bucket and bucket[slot.y * 1024 + slot.x]
+  if cur and cur.metatile == id and not cur.impassable then return end
+  Steps.setMetatile(slot.x, slot.y, id)
 end
 
 -- pokeemerald/src/field_tasks.c:893 Task_MuddySlope

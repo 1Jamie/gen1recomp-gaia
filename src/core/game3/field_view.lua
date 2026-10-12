@@ -758,7 +758,7 @@ local function collectGame3Actors(game, mapDef, camX, camY, px, py, facing, walk
 
   local FieldEffects = modFieldEffects()
   if FieldEffects and FieldEffects.collectActors then
-    FieldEffects.collectActors(actors)
+    FieldEffects.collectActors(actors, camX, camY)
   end
 
   return applyDrawOrder(actors, frameUnder, frameOver, camY)
@@ -1399,8 +1399,8 @@ end
 -- pokeemerald/src/field_screen_effect.c:53
 local function flashRadii()
   if not rseFamily() then return FLASH_LEVEL_RADIUS end
-  local ok, FxRse = pcall(require, "src.core.game3.field_effects_rse")
-  local m = ok and FxRse and FxRse.fc()
+  local FxRse = getMod("fxRse", "src.core.game3.field_effects_rse")
+  local m = FxRse and FxRse.fc()
   return m and m.flashRadii or FLASH_LEVEL_RADIUS
 end
 FieldView.flashRadii = flashRadii

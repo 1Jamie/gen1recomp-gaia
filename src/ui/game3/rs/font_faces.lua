@@ -5,6 +5,44 @@ local function read(path)
   return Cache.readActive(path)
 end
 
+-- Stack the fg, shadow and embedded-colour sheets in one texture so a
+-- string's glyphs share it and LOVE's autobatcher keeps the run in one draw
+-- call, as frlg_font's pack_atlas does for the FRLG sheets.  `of` maps each
+-- source quad to its { fg, sh, fixed } quads in the atlas; pixels are copied
+-- verbatim.  nil (draw from the separate sheets) when the data is missing.
+local ATLAS_GAP = 16
+function Faces.pack(fgData, shData, fixedData, quads, boundaryQuads)
+  if not (fgData and shData and love and love.image and love.graphics) then return nil end
+  local ok, atlas = pcall(function()
+    local w, h = fgData:getDimensions()
+    local sw, shh = shData:getDimensions()
+    if sw ~= w or shh ~= h then return nil end
+    local fmt = fgData:getFormat()
+    if shData:getFormat() ~= fmt or (fixedData and fixedData:getFormat() ~= fmt) then return nil end
+    local off = h + ATLAS_GAP
+    local data = love.image.newImageData(w, (fixedData and 3 or 2) * off - ATLAS_GAP, fmt)
+    data:paste(fgData, 0, 0, 0, 0, w, h)
+    data:paste(shData, 0, off, 0, 0, w, h)
+    if fixedData then data:paste(fixedData, 0, 2 * off, 0, 0, w, h) end
+    local img = love.graphics.newImage(data)
+    img:setFilter("nearest", "nearest")
+    local aw, ah = img:getDimensions()
+    local of = {}
+    local function add(q)
+      local qx, qy, qw, qh = q:getViewport()
+      of[q] = {
+        fg = love.graphics.newQuad(qx, qy, qw, qh, aw, ah),
+        sh = love.graphics.newQuad(qx, qy + off, qw, qh, aw, ah),
+        fixed = fixedData and love.graphics.newQuad(qx, qy + 2 * off, qw, qh, aw, ah) or nil,
+      }
+    end
+    for _, q in pairs(quads) do add(q) end
+    for _, q in pairs(boundaryQuads) do add(q) end
+    return { image = img, of = of }
+  end)
+  return ok and atlas or nil
+end
+
 -- pokeruby/src/text.c:2676
 function Faces.load(spec, name, language, loadImage, loadTable, palette, textMode)
   local id = assert(spec.faces[name], "unknown RS font face").id
@@ -33,9 +71,10 @@ function Faces.load(spec, name, language, loadImage, loadTable, palette, textMod
       fixed[p] = "\0\0\0\0"
     end
   end
-  local fixedImage
+  local fixedImage, fixedData
   if present then
-    fixedImage = love.graphics.newImage(love.image.newImageData(info.width, info.height, "rgba8", table.concat(fixed)))
+    fixedData = love.image.newImageData(info.width, info.height, "rgba8", table.concat(fixed))
+    fixedImage = love.graphics.newImage(fixedData)
     fixedImage:setFilter("nearest", "nearest")
   end
   local quads, boundaryQuads = {}, {}
@@ -53,6 +92,7 @@ function Faces.load(spec, name, language, loadImage, loadTable, palette, textMod
     fg = fg, sh = sh, fixed = fixedImage, quads = quads, boundaryQuads = boundaryQuads, widths = widths,
     height = 16, pitch = 16, letterSpacing = 0, glyphs = info.glyphs,
     fgData = fgData, shData = shData,
+    atlas = Faces.pack(fgData, shData, fixedData, quads, boundaryQuads),
   }
 end
 

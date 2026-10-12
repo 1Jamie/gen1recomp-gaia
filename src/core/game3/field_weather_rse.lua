@@ -1887,19 +1887,47 @@ local function spriteSheetFor(A, s)
   return A.sheets[s.kind], s.frame
 end
 
+-- These shaders are private to this module, so a record of what each one
+-- was last sent lets a frame skip the sends whose value has not changed
+-- (most of them: the colour map moves only on weather fades), as
+-- PaletteFX.sendColors does for the palette shaders.
+local lastSent = setmetatable({}, { __mode = "k" })
+
+local function send(shader, name, value)
+  local rec = lastSent[shader]
+  if not rec then
+    rec = {}
+    lastSent[shader] = rec
+  end
+  if rec[name] == value then return end
+  shader:send(name, value)
+  rec[name] = value
+end
+
+local maskSize = { 0, 0 }
+local function sendMaskSize(shader, w, h)
+  local rec = lastSent[shader]
+  if rec and rec.maskW == w and rec.maskH == h then return end
+  maskSize[1], maskSize[2] = w, h
+  shader:send("maskSize", maskSize)
+  rec = lastSent[shader] or {}
+  lastSent[shader] = rec
+  rec.maskW, rec.maskH = w, h
+end
+
 local function colorMapUniforms(shader, kind)
-  shader:send("useMask", 0)
+  send(shader, "useMask", 0)
   local idx = S.colorMapIndex
   if idx > 0 then
-    shader:send("mode", 1)
-    shader:send("row", (kind == COLOR_MAP_CONTRAST and NUM_WEATHER_COLOR_MAPS or 0) + idx - 1)
+    send(shader, "mode", 1)
+    send(shader, "row", (kind == COLOR_MAP_CONTRAST and NUM_WEATHER_COLOR_MAPS or 0) + idx - 1)
     return true
   elseif idx < 0 then
-    shader:send("mode", 2)
-    shader:send("dtable", -idx - 1)
+    send(shader, "mode", 2)
+    send(shader, "dtable", -idx - 1)
     return true
   end
-  shader:send("mode", 0)
+  send(shader, "mode", 0)
   return false
 end
 
@@ -1913,7 +1941,7 @@ local function withBlend(A, eva, evb, drawFn)
   local k = math.min(evb, 16) / 16
   if k < 1 then
     love.graphics.setShader(A.mask)
-    A.mask:send("k", k)
+    send(A.mask, "k", k)
     love.graphics.setBlendMode("multiply", "premultiplied")
     drawFn()
   end
@@ -1974,11 +2002,13 @@ local function drawTiled(sheet, frame, baseX, baseY, ox, oy, cw, ch)
     local r, g, b, a = love.graphics.getColor()
     local bucket = r == 1 and g == 1 and b == 1 and a == 1 and "tiledBase" or "tiledTint"
     local store = sheet[bucket] or {}; sheet[bucket] = store
-    local key = table.concat({ frame, sx, sy, cw, ch, r, g, b, a }, ":")
-    if store.key ~= key then
+    -- The batch is laid out from 0,0 and drawn at sx,sy, so scrolling only
+    -- moves it; it is rebuilt when the frame, tile count or colour changes.
+    local nx, ny = math.floor((cw - sx) / 64) + 1, math.floor((ch - sy) / 64) + 1
+    if store.frame ~= frame or store.nx ~= nx or store.ny ~= ny
+        or store.r ~= r or store.g ~= g or store.b ~= b or store.a ~= a then
       local q = sheetQuad(sheet, frame, 8, 8)
-      local count = (math.floor((cw - sx) / 64) + 1) * (math.floor((ch - sy) / 64) + 1)
-      count = count * (type(q) == "table" and #q or 1)
+      local count = nx * ny * (type(q) == "table" and #q or 1)
       if not store.batch or store.capacity < count then
         store.batch = love.graphics.newSpriteBatch(sheet.image, count, "dynamic")
         store.capacity = count
@@ -1989,17 +2019,20 @@ local function drawTiled(sheet, frame, baseX, baseY, ox, oy, cw, ch)
       -- the same byte conversion here, including fractional EVA/16, instead
       -- of applying a float constant colour to the finished SpriteBatch.
       batch:setColor(r, g, b, a)
-      for y = sy, ch, 64 do
-        for x = sx, cw, 64 do
+      for j = 0, ny - 1 do
+        local y = j * 64
+        for i = 0, nx - 1 do
+          local x = i * 64
           if type(q) == "table" then
             for _, part in ipairs(q) do batch:add(part[1], x + part[2], y + part[3]) end
           else batch:add(q, x, y) end
         end
       end
-      store.key = key
+      store.frame, store.nx, store.ny = frame, nx, ny
+      store.r, store.g, store.b, store.a = r, g, b, a
     end
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(store.batch)
+    love.graphics.draw(store.batch, sx, sy)
     love.graphics.setColor(r, g, b, a)
     return
   end
@@ -2009,6 +2042,8 @@ local function drawTiled(sheet, frame, baseX, baseY, ox, oy, cw, ch)
     end
   end
 end
+
+R._drawTiled, R._colorMapUniforms = drawTiled, colorMapUniforms
 
 local function drawCloudSprites(A, camX, camY, ox, oy)
   local sheet = A.sheets.cloud
@@ -2095,9 +2130,9 @@ end
 local function useActorMask(A, cw, ch)
   local m = R._maskCanvas
   if not (R._maskOn and m and m:getWidth() == cw and m:getHeight() == ch) then return end
-  A.shader:send("amask", m)
-  A.shader:send("maskSize", { cw, ch })
-  A.shader:send("useMask", 1)
+  send(A.shader, "amask", m)
+  sendMaskSize(A.shader, cw, ch)
+  send(A.shader, "useMask", 1)
 end
 
 -- pokeruby/src/field_weather.c:580
@@ -2117,7 +2152,7 @@ function R.writeActorMask(code, drawFn)
   love.graphics.push("all")
   love.graphics.setCanvas(R._maskCanvas)
   love.graphics.setShader(A.maskWrite)
-  A.maskWrite:send("code", code)
+  send(A.maskWrite, "code", code)
   love.graphics.setBlendMode("replace", "premultiplied")
   love.graphics.setColor(1, 1, 1, 1)
   drawFn()
