@@ -973,11 +973,7 @@ local function compareCart(s, save, bytes)
     local function u32(o) return u16(o) + u16(o + 2) * 65536 end
     local ivs = ro.ivs
     local ivw = 0
-    if EMERALD then
-      for i, k in ipairs({ "hp", "atk", "def", "spe", "spa", "spd" }) do ivw = ivw + (ivs[k] or 0) * 2 ^ ((i - 1) * 5) end
-    else
-      for i, k in ipairs({ "hp", "attack", "defense", "speed", "spAtk", "spDef" }) do ivw = ivw + (ivs[k] or 0) * 2 ^ ((i - 1) * 5) end
-    end
+    for i, k in ipairs({ "hp", "atk", "def", "spe", "spa", "spd" }) do ivw = ivw + (ivs[k] or 0) * 2 ^ ((i - 1) * 5) end
     same(st, "roamer.ivs", ivw, u32(0) % 2 ^ 30)
     same(st, "roamer.personality", (ro.personality or ro.pid) % U32, u32(4))
     same(st, "roamer.species", ro.species, u16(8))

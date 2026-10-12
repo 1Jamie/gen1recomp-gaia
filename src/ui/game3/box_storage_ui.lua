@@ -184,6 +184,8 @@ function BoxStorageUI.show(opts)
   if is_rs() and BoxStorageUI.subMode == "move_items" then BoxStorageUI.subMode = "move" end
   BoxStorageUI._markings = nil
   BoxStorageUI._pendingDeposit, BoxStorageUI._pickBox = nil, nil
+  -- pokefirered/src/pokemon_storage_system_tasks.c:481
+  BoxStorageUI._depositBox = 1
   BoxStorageUI.cursorSlot = 1
   BoxStorageUI._prevPartySlot = nil
   BoxStorageUI.holdingMon = nil
@@ -311,6 +313,9 @@ function BoxStorageUI.update(dt)
   end
 
   if BoxStorageUI._presentation then BoxStorageUI._presentation:update(Presentation.capture(BoxStorageUI)) end
+  if BoxStorageUI.mode == "pick_box" or BoxStorageUI.mode == "deposit_box_full" then
+    BoxStorageUI._pickFrames = (BoxStorageUI._pickFrames or 0) + 1
+  end
 
   -- Hover Bounce animation: toggles frame 0 and frame 1 every 0.14s
   BoxStorageUI.hoverTimer = BoxStorageUI.hoverTimer + (dt or (1 / 60))
@@ -419,7 +424,10 @@ local function handle_input(input)
     return
   end
   if BoxStorageUI.mode == "deposit_box_full" then
-    if input:wasPressed("a") or input:wasPressed("b") then BoxStorageUI.mode = "pick_box" end
+    local dpad = not is_rs() and (input:wasPressed("up") or input:wasPressed("down")
+      or input:wasPressed("left") or input:wasPressed("right"))
+    -- pokefirered/src/pokemon_storage_system_tasks.c:1246
+    if input:wasPressed("a") or input:wasPressed("b") or dpad then BoxStorageUI.mode = "pick_box" end
     return
   end
 
@@ -557,7 +565,8 @@ local function handle_input(input)
           if is_rs() and reject_native(RsStorage.depositError(BoxStorageUI._session, sId)) then return end
           if is_rs() then
             BoxStorageUI._pendingDeposit = {slot = sId, returnMode = returnMode}
-            BoxStorageUI._pickBox = Storage.ensure(BoxStorageUI._session).currentBox or 1
+            -- pokeruby/src/pokemon_storage_system_2.c:896
+            BoxStorageUI._pickBox = BoxStorageUI._depositBox or 1
             BoxStorageUI.mode = "pick_box"
             se(se_id("SE_SELECT"))
             return
@@ -567,23 +576,12 @@ local function handle_input(input)
             BoxStorageUI.mode = "message"
             se(se_id("SE_FAILURE")) -- pokefirered/src/pokemon_storage_system_tasks.c:1052
           else
-            local ok, b, s = Storage.deposit(BoxStorageUI._session, sId)
-            if ok then
-              local newParty = (BoxStorageUI._session and BoxStorageUI._session.party) or {}
-              if #newParty == 0 then
-                BoxStorageUI.drawerOpen = false
-                BoxStorageUI.mode = "browse"
-                BoxStorageUI.cursorSlot = 1
-              else
-                BoxStorageUI.partyCursor = math.min(#newParty, BoxStorageUI.partyCursor or 1)
-                BoxStorageUI.mode = returnMode
-              end
-              se(se_id("SE_BAG_POCKET"))
-            else
-              BoxStorageUI._status = storage_text("BoxIsFull", "gText_BoxIsFull2")
-              BoxStorageUI.mode = "message"
-              se(5) -- pokefirered/src/pokemon_storage_system_tasks.c:1225
-            end
+            -- pokefirered/src/pokemon_storage_system_tasks.c:1196
+            BoxStorageUI._pendingDeposit = {slot = sId, returnMode = returnMode}
+            BoxStorageUI._pickBox = BoxStorageUI._depositBox or 1
+            BoxStorageUI._pickFrames = 0
+            BoxStorageUI.mode = "pick_box"
+            se(se_id("SE_SELECT"))
           end
         end
       elseif choice == "MOVE" then
@@ -684,7 +682,9 @@ local function handle_input(input)
         se(5)
       elseif choice == "SWITCH BOX" then
         BoxStorageUI.mode = "pick_box"
-        if is_rs() then BoxStorageUI._pendingDeposit, BoxStorageUI._pickBox = nil, Storage.ensure(BoxStorageUI._session).currentBox or 1 end
+        -- pokefirered/src/pokemon_storage_system_tasks.c:1833
+        BoxStorageUI._pendingDeposit, BoxStorageUI._pickBox = nil, Storage.ensure(BoxStorageUI._session).currentBox or 1
+        BoxStorageUI._pickFrames = 0
         se(5)
       elseif choice == "WALLPAPER" then
         BoxStorageUI.mode = is_rs() and "pick_wallpaper_group" or "pick_wallpaper"
@@ -742,35 +742,33 @@ local function handle_input(input)
   -- Pick Box
   if BoxStorageUI.mode == "pick_box" then
     local storage = Storage.ensure(BoxStorageUI._session)
-    if is_rs() then
-      if input:wasPressed("left") then BoxStorageUI._pickBox = (BoxStorageUI._pickBox - 2) % 14 + 1; se(se_id("SE_SELECT"))
-      elseif input:wasPressed("right") then BoxStorageUI._pickBox = BoxStorageUI._pickBox % 14 + 1; se(se_id("SE_SELECT"))
-      elseif input:wasPressed("b") then
-        BoxStorageUI.mode = BoxStorageUI._pendingDeposit and BoxStorageUI._pendingDeposit.returnMode or "browse"
-        BoxStorageUI._pendingDeposit = nil; se(se_id("SE_SELECT"))
-      elseif input:wasPressed("a") then
-        if BoxStorageUI._pendingDeposit then
-          local pending = BoxStorageUI._pendingDeposit
-          if reject_native(RsStorage.depositError(BoxStorageUI._session, pending.slot)) then BoxStorageUI._pendingDeposit = nil; return end
-          local ok = Storage.deposit(BoxStorageUI._session, pending.slot, BoxStorageUI._pickBox)
-          if ok then
-            BoxStorageUI.mode, BoxStorageUI._pendingDeposit = pending.returnMode, nil
-            BoxStorageUI.partyCursor = math.max(1, math.min(pending.slot, #BoxStorageUI._session.party))
-            se(se_id("SE_SELECT"))
-          else BoxStorageUI.mode = "deposit_box_full"; se(se_id("SE_SELECT")) end
-        else storage.currentBox, BoxStorageUI.mode = BoxStorageUI._pickBox, "browse"; se(se_id("SE_SELECT")) end
-      end
-      return
-    end
-    if input:wasPressed("up") then
-      storage.currentBox = ((storage.currentBox - 2) % Storage.TOTAL_BOXES_COUNT) + 1
-      se(5)
-    elseif input:wasPressed("down") then
-      storage.currentBox = (storage.currentBox % Storage.TOTAL_BOXES_COUNT) + 1
-      se(5)
-    elseif input:wasPressed("a") or input:wasPressed("b") then
-      BoxStorageUI.mode = "browse"
-      se(5)
+    local total = Storage.TOTAL_BOXES_COUNT
+    -- pokefirered/src/pokemon_storage_system_menu.c:463
+    if input:wasPressed("left") then BoxStorageUI._pickBox = (BoxStorageUI._pickBox - 2) % total + 1; se(se_id("SE_SELECT"))
+    elseif input:wasPressed("right") then BoxStorageUI._pickBox = BoxStorageUI._pickBox % total + 1; se(se_id("SE_SELECT"))
+    elseif input:wasPressed("b") then
+      BoxStorageUI.mode = BoxStorageUI._pendingDeposit and BoxStorageUI._pendingDeposit.returnMode or "browse"
+      BoxStorageUI._pendingDeposit = nil; se(se_id("SE_SELECT"))
+    elseif input:wasPressed("a") then
+      if BoxStorageUI._pendingDeposit then
+        local pending = BoxStorageUI._pendingDeposit
+        if is_rs() and reject_native(RsStorage.depositError(BoxStorageUI._session, pending.slot)) then BoxStorageUI._pendingDeposit = nil; return end
+        local ok = Storage.deposit(BoxStorageUI._session, pending.slot, BoxStorageUI._pickBox)
+        se(se_id("SE_SELECT"))
+        -- pokeruby/src/pokemon_storage_system_2.c:923
+        if is_rs() then BoxStorageUI._depositBox = BoxStorageUI._pickBox end
+        if ok then
+          -- pokefirered/src/pokemon_storage_system_tasks.c:1216
+          BoxStorageUI._depositBox = BoxStorageUI._pickBox
+          BoxStorageUI.mode, BoxStorageUI._pendingDeposit = pending.returnMode, nil
+          local party = BoxStorageUI._session.party or {}
+          if #party == 0 then
+            BoxStorageUI.drawerOpen, BoxStorageUI.mode, BoxStorageUI.cursorSlot = false, "browse", 1
+          else
+            BoxStorageUI.partyCursor = math.max(1, math.min(pending.slot, #party))
+          end
+        else BoxStorageUI.mode = "deposit_box_full" end
+      else storage.currentBox, BoxStorageUI.mode = BoxStorageUI._pickBox, "browse"; se(se_id("SE_SELECT")) end
     end
     return
   end
@@ -1130,6 +1128,13 @@ function BoxStorageUI.draw()
     require("src.ui.game3.rs.storage_popup").draw(storage, BoxStorageUI._pickBox)
     native_message(RsStorage.text(BoxStorageUI.mode == "deposit_box_full" and "BoxIsFull"
       or BoxStorageUI._pendingDeposit and "DepositInWhichBox" or "JumpToWhichBox"))
+  elseif BoxStorageUI.mode == "pick_box" or BoxStorageUI.mode == "deposit_box_full" then
+    require("src.ui.game3.storage_choose_box").draw(storage, BoxStorageUI._pickBox, BoxStorageUI._pickFrames,
+      require("src.core.game3.profile").family(BoxStorageUI._session))
+    Window.dialogueFrame()
+    -- pokefirered/src/pokemon_storage_system_tasks.c:281-284
+    Window.printPx(RomText.plain(BoxStorageUI.mode == "deposit_box_full" and "gText_BoxIsFull2"
+      or BoxStorageUI._pendingDeposit and "gText_DepositInWhichBox" or "gText_JumpToWhichBox"), 16, 120)
   end
   if BoxStorageUI.mode == "pick_wallpaper_group" then
     local rows = {}; for _, name in ipairs({"Scenery1", "Scenery2", "Scenery3", "Etc"}) do rows[#rows + 1] = RsStorage.text(name) end

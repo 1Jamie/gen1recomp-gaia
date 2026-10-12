@@ -153,6 +153,8 @@ function PcChrome.ensure()
   PcChrome._waveformImg = load_texture("waveform.png")
   PcChrome._waveformQuads = nil
   PcChrome._markingsImg = load_texture("markings.png")
+  PcChrome._chooseBoxCenterImg = not rs and load_texture("choose_box_center.png") or nil
+  PcChrome._chooseBoxSidesImg = not rs and load_texture("choose_box_sides.png") or nil
 
   for id, name in ipairs(PcChrome.wallpaperNames()) do
     PcChrome._wallpapers[id] = load_texture("wallpapers/" .. name .. ".png")

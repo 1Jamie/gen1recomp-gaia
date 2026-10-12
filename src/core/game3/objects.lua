@@ -2512,12 +2512,15 @@ function Objects.facePlayer(localId, game)
   local eo = Objects._byId[tonumber(localId) or 0]
   local P = Player()
   if not eo or not P then return end
-  local dx = P.cellX - eo.cellX
-  local dy = P.cellY - eo.cellY
-  if math.abs(dx) > math.abs(dy) then
-    eo.facing = dx > 0 and "right" or "left"
+  -- pokefirered/src/event_object_movement.c:4789 GetDirectionToFace
+  if eo.cellX > P.cellX then
+    eo.facing = "left"
+  elseif eo.cellX < P.cellX then
+    eo.facing = "right"
+  elseif eo.cellY > P.cellY then
+    eo.facing = "up"
   else
-    eo.facing = dy > 0 and "down" or "up"
+    eo.facing = "down"
   end
 end
 

@@ -358,6 +358,11 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/gba/pokemon/summary/progress_moves_info_select.rgba",
     "data/generated/gba/pokemon/summary/markings.rgba",
     "data/generated/gba/pokemon/storage/manifest.lua",
+    -- src/pokemon_storage_system_menu.c:659-660
+    "data/generated/gba/pokemon/storage/choose_box_center.png",
+    "data/generated/gba/pokemon/storage/choose_box_sides.png",
+    -- src/roamer.c:36
+    "data/generated/gba/roamer/locations.lua",
     "data/generated/gba/pokedex/manifest.lua",
     "data/generated/gba/chrome/manifest.lua",
     "data/generated/gba/chrome/menu_message_rgba.rgba",

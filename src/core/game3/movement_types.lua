@@ -19,6 +19,9 @@ MovementTypes.ALIASES = {
   MOVEMENT_TYPE_RUN_IN_PLACE_UP = "MOVEMENT_TYPE_JOG_IN_PLACE_UP",
   MOVEMENT_TYPE_RUN_IN_PLACE_LEFT = "MOVEMENT_TYPE_JOG_IN_PLACE_LEFT",
   MOVEMENT_TYPE_RUN_IN_PLACE_RIGHT = "MOVEMENT_TYPE_JOG_IN_PLACE_RIGHT",
+  -- pokeruby/src/event_object_movement.c:4224
+  -- pokeemerald/src/event_object_movement.c:4390
+  MOVEMENT_TYPE_HIDDEN = "MOVEMENT_TYPE_BURIED",
 }
 
 local tables = {}

@@ -1107,8 +1107,7 @@ end
 
 local function ashEffect(name, cx, cy)
   local FieldEffects = require("src.core.game3.field_effects")
-  local fn = FieldEffects[name]
-  if type(fn) == "function" then pcall(fn, cx, cy) end
+  return assert(FieldEffects[name](cx, cy), name .. " field effect sheet missing")
 end
 
 local function camPan(y)
@@ -1139,6 +1138,7 @@ function Warp.startLavaridge1F(mod, game, destMap, destX, destY, srcX, srcY)
         return false
       end
       -- pokeemerald/src/field_effect.c:2163
+      -- pokeruby/src/field_effect.c:1778
       if t.count > 3 then
         ashEffect("startAshPuff", Player.cellX, Player.cellY)
         t.state = "disappear"
@@ -1191,6 +1191,7 @@ function Warp.startLavaridgeB1F(mod, game, destMap, destX, destY, srcX, srcY)
       Field.lock()
       if e.state == "wait" then return false end
       if e.state == "puff" then
+        -- pokeruby/src/field_effect.c:1693
         ashEffect("startAshPuff", Player.cellX, Player.cellY)
         e.state = "popping"
         return false
@@ -1226,6 +1227,7 @@ function Warp.startLavaridgeB1F(mod, game, destMap, destX, destY, srcX, srcY)
       return false
     elseif d.state == "launch" then
       -- pokeemerald/src/field_effect.c:1983
+      -- pokeruby/src/field_effect.c:1590
       Player.spriteYOffset = 0
       d.d3 = 1
       ashEffect("startAshLaunch", Player.cellX, Player.cellY)

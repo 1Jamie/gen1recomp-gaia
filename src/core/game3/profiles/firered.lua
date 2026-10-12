@@ -199,5 +199,6 @@ return {
     "map_preview_extract",
     "credits_extract",
     "league_extract",
+    "roamer_extract",
   },
 }

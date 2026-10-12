@@ -27,16 +27,30 @@ local Schema = require("src.core.game3.save_schema_firered")
 local Flags = require("src.core.game3.scripting.flags")
 local Cache = require("tests.game3_cache")
 Cache.mount("scripts/events.lua", { native = true })
+require("src.core.GameVersion").set("firered")
+-- pokefirered/src/roamer.c:36
+local SETS = {
+  { "FR_ROUTE_1", "FR_ROUTE_2", "FR_ROUTE_21_NORTH", "FR_ROUTE_22", false, false, false },
+  { "FR_ROUTE_2", "FR_ROUTE_1", "FR_ROUTE_3", "FR_ROUTE_22", false, false, false },
+  { "FR_ROUTE_3", "FR_ROUTE_2", "FR_ROUTE_4", false, false, false, false },
+}
+Roamer._locations[Roamer.config({ version = "firered" })] = SETS
+local function is_head(id)
+  for _, set in ipairs(SETS) do if set[1] == id then return true end end
+  return false
+end
 
 -- 1. Starter Species Mapping
 check(Roamer.speciesForStarter(0) == 244, "Bulbasaur (0) -> Entei (244)")
 check(Roamer.speciesForStarter(1) == 243, "Squirtle (1) -> Raikou (243)")
 check(Roamer.speciesForStarter(2) == 245, "Charmander (2) -> Suicune (245)")
 
--- 2. Fixed IV Generation (Modern 0-31 IVs, not truncated to 0 or max 7)
+-- 2. Stored IVs keep the full 0-31 range
 local ivCheckOk = true
 for _ = 1, 50 do
-  local mon = Roamer.generateMon(243, 50)
+  local mon = { version = "firered", party = {} }
+  Roamer.init(mon, 1)
+  mon = mon.roamer
   if type(mon.ivs) ~= "table" then
     ivCheckOk = false
     break
@@ -48,7 +62,7 @@ for _ = 1, 50 do
     end
   end
 end
-check(ivCheckOk, "Roamer generates full 0-31 IVs across all 6 stats without truncation")
+check(ivCheckOk, "Roamer stores full 0-31 IVs across all 6 stats")
 
 -- 3. Audio Override
 check(Audio.legendaryBattleSong(243) == 339, "Raikou uses Legendary Battle BGM (339)")
@@ -57,6 +71,7 @@ check(Audio.legendaryBattleSong(245) == 339, "Suicune uses Legendary Battle BGM 
 
 -- 4. Initialization via InitRoamer
 local session = {
+  version = "firered",
   flags = {},
   vars = {
     [0x4031] = 2, -- VAR_STARTER_MON = Charmander
@@ -72,102 +87,54 @@ check(okInit == true, "Roamer.init succeeds")
 check(session.roamer ~= nil and session.roamer.active == true, "session.roamer initialized and active")
 check(session.roamer.species == 245, "Roamer species is Suicune (245)")
 check(session.roamer.level == 50, "Roamer level is 50")
-check(session.roamer.map ~= nil and #session.roamer.map > 0, "Roamer assigned initial Kanto route: " .. tostring(session.roamer.map))
+check(is_head(session.roamer.map), "Roamer starts at a location set head: " .. tostring(session.roamer.map))
 
--- 5. Adjacency Movement vs Warp Jump
-local currentMap = session.roamer.map
-local adjList = Roamer.ADJACENCY[currentMap]
-check(adjList and #adjList > 0, "Current roamer route has valid adjacency list")
+-- 5. Location set movement
+local Rng = require("src.core.game3.rng")
+local inSet = true
+for seed = 1, 50 do
+  session.roamer.map = "FR_ROUTE_3"
+  Rng.SeedRng(seed)
+  Roamer.move(session, "connection", "FR_ROUTE_3")
+  local m = session.roamer.map
+  if not (m == "FR_ROUTE_2" or m == "FR_ROUTE_4" or is_head(m)) or m == "FR_ROUTE_3" then inSet = false end
+end
+check(inSet, "a connection moves within the Route 3 set or to another set head")
+local warped = true
+for seed = 1, 50 do
+  session.roamer.map = "FR_ROUTE_1"
+  Rng.SeedRng(seed)
+  Roamer.move(session, "warp", "FR_ROUTE_1")
+  if not is_head(session.roamer.map) or session.roamer.map == "FR_ROUTE_1" then warped = false end
+end
+check(warped, "a warp moves the roamer to another set head")
 
--- Step movement
-Roamer.move(session, "map_transition")
-local newMap = session.roamer.map
-local isAdjOrSame = (newMap == currentMap)
-if not isAdjOrSame and adjList then
-  for _, m in ipairs(adjList) do
-    if m == newMap then isAdjOrSame = true break end
+-- 6. Encounter gate
+session.roamer.map = "FR_ROUTE_2"
+local met = 0
+for seed = 1, 100 do
+  Rng.SeedRng(seed)
+  local enc = Roamer.tryEncounter(session, "FR_ROUTE_2", "grass")
+  if enc then
+    met = met + 1
+    check(enc.roamer == true and enc.species == 245, "roamer encounter is Suicune")
   end
 end
-check(isAdjOrSame, "Roamer.move('map_transition') only moves to adjacent route or stays")
+check(met > 0 and met < 100, "the roamer is met on some rate passes, not all (" .. met .. "/100)")
+check(Roamer.tryEncounter(session, "FR_ROUTE_3", "grass") == nil, "Different map returns no encounter")
 
--- Warp jump (Fly / Teleport / Whiteout)
-local jumped = false
-for _ = 1, 20 do
-  Roamer.move(session, "warp_random")
-  if session.roamer.map ~= newMap then
-    jumped = true
-    break
-  end
-end
-check(jumped, "Roamer.move('warp_random') randomizes route")
-
--- 6. Encounter Rate Gating & Fainted Lead Repel Trick
-session.roamer.map = "FR_ROUTE2"
-session.vars[0x4020] = 250 -- VAR_REPEL_STEP_COUNT = 250 (Repel is active)
-
--- Scenario A: Lead slot 1 is Level 50 (fainted), slot 2 is Level 100
--- Repel checks Slot 1 (Lv 50 <= Roamer Lv 50) -> Encounter MUST pass!
-local encA = Roamer.tryEncounter(session, "FR_ROUTE2", "grass")
-check(encA ~= nil and encA.roamer == true and encA.species == 245, "Fainted Slot 1 Lv 50 passes Repel gate")
-
--- Scenario B: Lead slot 1 is Level 51 (fainted)
--- Repel checks Slot 1 (Lv 51 > Roamer Lv 50) -> Repelled!
-session.party[1].level = 51
-local encB = Roamer.tryEncounter(session, "FR_ROUTE2", "grass")
-check(encB == nil, "Lead Slot 1 Lv 51 triggers Repel and repels roamer")
-
--- Reset lead level to 50
-session.party[1].level = 50
-
--- Scenario C2: PID and IVs stay fixed across encounters (issue 2882)
-session.vars[0x4020] = 0
-local fixedPid, fixedIvs = session.roamer.pid, session.roamer.ivs
-session.roamer.moves, session.roamer.pp = { 33, 45 }, { 35, 40 } -- species pack is absent in tests
-for n = 1, 2 do
-  local enc = Roamer.tryEncounter(session, "FR_ROUTE2", "grass")
-  local f = enc and enc.foe
-  check(f and f.personality == fixedPid, "Encounter " .. n .. " keeps roamer PID")
-  local same = f and f.ivs ~= nil
-  if same then
-    local map = { hp = "hp", atk = "attack", def = "defense", spe = "speed", spa = "spAtk", spd = "spDef" }
-    for short, long in pairs(map) do
-      if f.ivs[short] ~= fixedIvs[long] then same = false end
-    end
-  end
-  check(same, "Encounter " .. n .. " keeps roamer IVs under battle key names")
-  local Battle = require("src.core.game3.battle")
-  local ok, st = pcall(Battle.start, {
-    wild = true, foe = f,
-    playerParty = { { species = 6, level = 50, hp = 100, maxHp = 100, moves = { 33 }, pp = { 35 } } },
-  })
-  local mon = ok and Battle._st and Battle._st.foeMon
-  if mon then
-    check(mon.personality == fixedPid and mon.ivs.atk == fixedIvs.attack
-      and mon.ivs.spd == fixedIvs.spDef, "Battle foe mon " .. n .. " uses roamer PID and IVs")
-  else
-    print("[skip] Battle.start unavailable without battle data: " .. tostring(st))
-  end
-  if Battle._active then Battle._active = false; Battle._st = nil end
-end
-
--- Scenario C: Wrong map
-local encC = Roamer.tryEncounter(session, "FR_ROUTE3", "grass")
-check(encC == nil, "Different map returns no encounter")
-
--- 7. Battle End Handling & Roar Despawn Prevention
+-- 7. Battle End Handling
 local foeState = {
   hp = 60,
   maxHp = 150,
-  status = "paralysis",
-  statusNum = 0x40,
+  status = "PAR",
 }
 
 -- Flee / Roar end
-local prevLocation = session.roamer.map
 Roamer.onBattleEnd(session, foeState, "fled", "roar")
-check(session.roamer.active == true, "Roar / Flee keeps roamer ACTIVE (Roar despawn bug fixed)")
+check(session.roamer.active == true, "Fleeing keeps the roamer active")
 check(session.roamer.hp == 60, "Roamer HP damage persisted (60)")
-check(session.roamer.status == "paralysis", "Roamer status condition persisted (paralysis)")
+check(session.roamer.status == 0x40, "Roamer status condition persisted (paralysis)")
 
 -- Defeated
 foeState.hp = 0

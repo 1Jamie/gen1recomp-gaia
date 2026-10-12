@@ -196,7 +196,8 @@ for _ = 1, 65 do
   FieldEffects.step()
 end
 check(scriptFired == true, "Battle script fired instantly without walk hang")
-check(Player.facing == "up", "Player turned to face trainer (up)")
+-- pokefirered/src/trainer_see.c:359
+check(Player.facing == "left", "FRLG player keeps facing left, cart does not turn the player")
 
 print("[test] 5. Simultaneous Spot Prioritization")
 -- Place two trainers both spotting the player on the same frame:

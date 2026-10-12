@@ -210,7 +210,7 @@ do
   end)
   local s = import("firered", cart)
   eq(s.roamer and s.roamer.species, 245, "FRLG roamer species imports")
-  eq(s.roamer.ivs.attack, 7, "roamer IVs use the engine's key names")
+  eq(s.roamer.ivs.atk, 7, "roamer IVs use the engine's key names")
   eq(s.roamer.active, true, "roamer active")
   eq(s.linkBattleRecords[1].name, "RIVAL", "FRLG link battle record imports")
   eq(s.linkBattleRecords[1].wins, 3, "link record wins")

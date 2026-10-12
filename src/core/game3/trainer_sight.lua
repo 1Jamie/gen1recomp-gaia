@@ -270,9 +270,8 @@ function TrainerSight.revealBuried(eo, done, facing)
   if facing then
     eo.facing = facing
   elseif P then
-    local dx, dy = P.cellX - eo.cellX, P.cellY - eo.cellY
-    if math.abs(dx) > math.abs(dy) then eo.facing = dx > 0 and "right" or "left"
-    else eo.facing = dy > 0 and "down" or "up" end
+    -- pokeemerald/src/event_object_movement.c:4622 GetDirectionToFace
+    Objs.facePlayer(eo.localId)
   end
   local FxRse = require("src.core.game3.field_effects_rse")
   local shown, puffDone = false, false
@@ -285,22 +284,18 @@ function TrainerSight.revealBuried(eo, done, facing)
     if done then done() end
     return true
   end
-  local puff = FxRse.startAshPuff(eo.cellX, eo.cellY, function() puffDone = true end)
-  if puff then
-    local prev = puff.onStep
-    puff.onStep = function(e)
-      -- pokeemerald/src/trainer_see.c:593
-      if not shown and (e.a.index or 0) >= 2 then
-        shown = true
-        eo.invisible = false
-        eo.buried = nil
-        Objs.scriptJump(eo, eo.facing, 0, { type = "high" })
-      end
-      if prev then return prev(e) end
+  local puff = assert(FxRse.startAshPuff(eo.cellX, eo.cellY, function() puffDone = true end),
+    "pop out of ash field effect sheet missing")
+  local prev = puff.onStep
+  puff.onStep = function(e)
+    -- pokeemerald/src/trainer_see.c:593
+    if not shown and (e.a.index or 0) >= 2 then
+      shown = true
+      eo.invisible = false
+      eo.buried = nil
+      Objs.scriptJump(eo, eo.facing, 0, { type = "high" })
     end
-  else
-    shown, puffDone = true, true
-    eo.invisible, eo.buried = false, nil
+    if prev then return prev(e) end
   end
   local Task = require("src.core.game3.task")
   Task.spawn(function() return finish() end)
@@ -367,9 +362,6 @@ function TrainerSight.engage(game, eo, dist, facing)
   eo.frozen = true
   eo.scriptBusy = true
 
-  -- 2. Turn trainer to face player directly
-  local playerFacing = OPPOSITE_FACING[eo.facing] or "up"
-
   -- 3. Play encounter music immediately when trainer spots player (pret PlayTrainerEncounterMusic / EventScript_DoTrainerBattleFromApproach)
   local tid = TrainerSight.getTrainerId(eo)
   local okT, Trainers = pcall(require, "src.core.game3.scripting.trainers")
@@ -399,7 +391,10 @@ function TrainerSight.engage(game, eo, dist, facing)
     local scriptKey = eo.scriptKey or (eo.def and eo.def.scriptKey)
 
     local function finishEngagement()
-      P.facing = playerFacing
+      -- pokeemerald/src/trainer_see.c:501
+      Objs.facePlayer(eo.localId)
+      -- pokeruby/src/trainer_see.c:327, pokeemerald/src/trainer_see.c:526, pokefirered/src/trainer_see.c:359
+      if isRse() then P.facing = OPPOSITE_FACING[eo.facing] or P.facing end
       -- pokefirered/src/trainer_see.c:349-351 SetTrainerMovementType, OverrideMovementTypeForObjectEvent, OverrideTemplateCoordsForObjectEvent
       local faceMt = ({ down = 0x08, up = 0x07, left = 0x09, right = 0x0A })[eo.facing] or 0x08
       if Objs.setTrainerMovementType then
@@ -449,7 +444,6 @@ function TrainerSight.engage(game, eo, dist, facing)
 
     -- Walk-up Approach Tracking: walk dist - 1 steps toward player, or skip if adjacent (dist == 1)
     TrainerSight.revealThen(eo, facing, function()
-      playerFacing = OPPOSITE_FACING[eo.facing] or playerFacing
       local walkSteps = dist - 1
       if walkSteps <= 0 then
         finishEngagement()
@@ -512,6 +506,8 @@ local function approach(eo, dist, facing, done)
   eo.scriptBusy = true
   FieldEffects().startExclamation(eo, function()
     local function arrive()
+      -- pokeemerald/src/trainer_see.c:501
+      Objs.facePlayer(eo.localId)
       -- pokeemerald/src/trainer_see.c:509
       local faceMt = ({ down = 0x08, up = 0x07, left = 0x09, right = 0x0A })[eo.facing] or 0x08
       if Objs.setTrainerMovementType then Objs.setTrainerMovementType(eo, faceMt) end
@@ -526,7 +522,8 @@ local function approach(eo, dist, facing, done)
       if Objs.rememberPerm and Objs._mapId then
         Objs.rememberPerm(Objs._mapId, eo.localId, { x = eo.cellX, y = eo.cellY, movementType = faceMt, facing = eo.facing })
       end
-      P.facing = OPPOSITE_FACING[eo.facing] or P.facing
+      -- pokeruby/src/trainer_see.c:327, pokeemerald/src/trainer_see.c:526, pokefirered/src/trainer_see.c:359
+      if isRse() then P.facing = OPPOSITE_FACING[eo.facing] or P.facing end
       eo.frozen = false
       eo.scriptBusy = false
       done()
@@ -789,9 +786,9 @@ function TrainerSight.check(game, specificTrainer)
       local sight = tonumber(eo.sight or (eo.def and (eo.def.sight or eo.def.trainerRange))) or 0
       if sight > 0 and TrainerSight.isTrainerType(eo)
         and not TrainerSight.isDefeated(eo, store, ctx) then
-        local spotted, dist = TrainerSight.checkLineOfSight(eo, P, game)
+        local spotted, dist, dir = TrainerSight.checkLineOfSight(eo, P, game)
         if spotted and not TrainerSight.blockedByDoubles(eo) then
-          TrainerSight.engage(game, eo, dist)
+          TrainerSight.engage(game, eo, dist, dir)
           return true
         end
       end
@@ -838,10 +835,10 @@ function TrainerSight.check(game, specificTrainer)
       local sight = tonumber(eo.sight or (eo.def and (eo.def.sight or eo.def.trainerRange))) or 0
       if sight > 0 and TrainerSight.isTrainerType(eo)
         and not TrainerSight.isDefeated(eo, store, ctx) then
-        local spotted, dist = TrainerSight.checkLineOfSight(eo, P, game)
+        local spotted, dist, dir = TrainerSight.checkLineOfSight(eo, P, game)
         if spotted and not TrainerSight.blockedByDoubles(eo) then
           -- Immediately engage and break iterator to suppress any other simultaneous spots
-          TrainerSight.engage(game, eo, dist)
+          TrainerSight.engage(game, eo, dist, dir)
           return true
         end
       end

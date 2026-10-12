@@ -516,16 +516,9 @@ function Map.load(mod, game, mapId, opts)
       local session = okRt and Runtime and Runtime.getSession and Runtime.getSession()
       if session and session.roamer and session.roamer.active then
         local fromMapId = Map._announced
-        if require("src.core.game3.profile").family(session) == "rse" then
-          if fromMapId ~= nil then
-            -- pokeemerald/src/overworld.c:816
-            Roamer.move(session, opts.seamless and "connection" or "warp", mapId)
-          end
-        elseif fromMapId ~= nil and fromMapId ~= mapId then
-          local moveReason = (opts.teleport or opts.fly or opts.whiteout) and "warp_random" or "map_transition"
-          Roamer.move(session, moveReason)
-        elseif opts.teleport or opts.fly or opts.whiteout then
-          Roamer.move(session, "warp_random")
+        if fromMapId ~= nil then
+          -- pokefirered/src/overworld.c:778
+          Roamer.move(session, opts.seamless and "connection" or "warp", mapId)
         end
       end
     end

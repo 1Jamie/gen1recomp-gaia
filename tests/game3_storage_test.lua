@@ -554,6 +554,11 @@ ui_input(make_input({ a = true }))
 assert_eq(BoxStorageUI.mode, "action_menu", "Action menu re-opened")
 BoxStorageUI.actionCursor = 1 -- STORE
 ui_input(make_input({ a = true }))
+-- pokefirered/src/pokemon_storage_system_tasks.c:1196
+assert_eq(BoxStorageUI.mode, "pick_box", "STORE asks Deposit in which BOX?")
+assert_eq(BoxStorageUI._pickBox, 1, "the chooser opens on BOX 1")
+assert_eq(#partyActionSession.party, 2, "nothing is stored before a box is chosen")
+ui_input(make_input({ a = true }))
 assert_eq(BoxStorageUI.mode, "party_drawer", "STORE completed and returned to party_drawer")
 assert_eq(#partyActionSession.party, 1, "Party now has 1 mon")
 assert_eq(partyActionSession.party[1].nickname, "RATTATA", "Remaining mon is Rattata")
@@ -650,8 +655,8 @@ for _, wpName in ipairs(PcChrome.WALLPAPER_NAMES) do
   assert_png(chromeDir .. "/wallpapers/" .. wpName .. ".png", "Wallpaper " .. wpName .. ".png")
   assetCount = assetCount + 1
 end
-assert_eq(assetCount, 31, "15 UI textures + 16 box wallpapers (total 31 assets)")
-print("[ok] All 15 UI textures and 16 wallpapers validated in manifest and file system")
+assert_eq(assetCount, 33, "17 UI textures + 16 box wallpapers (total 33 assets)")
+print("[ok] All 17 UI textures and 16 wallpapers validated in manifest and file system")
 end
 
 print("=== [TEST 16] Party-to-Box Move Compacts a Holed Party ===")

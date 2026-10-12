@@ -242,6 +242,7 @@ local function foe_mon_from(foe, link, trainerPolicy)
     moves = foe.moves,
     pp = foe.pp,
     status = foe.status,
+    sleep = foe.sleep,
     attack = foe.attack or foe.atk,
     defense = foe.defense or foe.def,
     spAtk = foe.spAtk or foe.spa,

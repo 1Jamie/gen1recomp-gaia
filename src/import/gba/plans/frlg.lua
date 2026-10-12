@@ -22,7 +22,7 @@ return {
     "src.import.gba.union_room_classes_extract",
   },
 
-  auxSteps = 20,
+  auxSteps = 21,
   aux = {
     { name = "region_map_extract", key = "regionMap", label = "Town Map", mode = "raise" },
     { name = "map_sections_extract", key = "mapSections", label = "Map Sections", mode = "sections" },
@@ -48,6 +48,7 @@ return {
       tag = "map_preview" },
     { name = "credits_extract", key = "credits", label = "Staff Credits", mode = "raise" },
     { name = "league_extract", key = "league", label = "League Lighting & Diploma", mode = "raise" },
+    { name = "roamer_extract", key = "roamer", label = "Roamer Locations", mode = "raise" },
   },
 
   dirs = {
@@ -78,5 +79,6 @@ return {
     "/native",
     "/rse",
     "/rse/trainer_card",
+    "/roamer",
   },
 }

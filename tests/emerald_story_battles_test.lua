@@ -215,9 +215,9 @@ if not haveB2 then
 end
 
 -- pokeemerald/src/roamer.c:35
-check(Roamer.rseConfig(sess) ~= nil, "Emerald has a roamer profile row")
-eq(Roamer.rseConfig({ version = "firered" }), nil, "FireRed keeps the hand roamer (D8)")
-local sets = Roamer.locationSets(Roamer.rseConfig(sess))
+check(Roamer.config(sess) ~= nil, "Emerald has a roamer profile row")
+check(Roamer.config(sess) ~= Roamer.config({ version = "firered" }), "FireRed has its own roamer row")
+local sets = Roamer.locationSets(Roamer.config(sess))
 eq(#sets, 20, "20 roamer location sets extracted (roamer.c:35)")
 eq(sets[1][1], "EM_ROUTE110", "first set starts on Route 110")
 eq(sets[20][3], "EM_ROUTE110", "Route 134 links back to Route 110")

@@ -47,6 +47,7 @@ local function run(game)
   local Message = require("src.ui.game3.message")
   local StepEvents = require("src.core.game3.step_events")
   local RomText = require("src.core.game3.rom_text")
+  local Sem = require("src.core.game3.field_semantics")
 
   local session = Runtime.getSession()
   if not result(session ~= nil, "new game reached the field") then return end
@@ -180,8 +181,7 @@ local function run(game)
   end
   result(not BagMenu.isOpen(), "bag closed back to the field")
 
-  session.repelSteps = 1
-  session.vars[0x4021] = 1
+  Sem.setVar(session, "repelSteps", 1)
   StepEvents.onRepelStep(session, game)
   local page
   for _ = 1, 240 do

@@ -564,14 +564,29 @@ function FxRse.startAsh(cx, cy, metatileId, delay)
   })
 end
 
+-- pokeemerald/include/constants/field_effects.h:104
+local function objectNameAt(index, name)
+  local fe = FE()
+  local m = fe.manifest and fe.manifest()
+  for _, o in ipairs(m and m.objects or {}) do
+    if type(o) == "table" and o.index == index and o.name then return o.name end
+  end
+  return name
+end
+FxRse.objectNameAt = objectNameAt
+
 -- pokeemerald/src/trainer_see.c:584
+-- pokeruby/src/trainer_see.c:380
 function FxRse.startAshPuff(cx, cy, onDone)
-  return FxRse.spawnAt("ash_puff", cx, cy, 8, 8, { layer = "front", effectName = "FLDEFF_ASH_PUFF", onDone = onDone })
+  return FxRse.spawnAt(objectNameAt(32, "ash_puff"), cx, cy, 8, 8,
+    { layer = "front", effectName = "FLDEFF_ASH_PUFF", onDone = onDone })
 end
 
 -- pokeemerald/src/field_effect.c:2127
+-- pokeruby/src/field_effect.c:1728
 function FxRse.startAshLaunch(cx, cy, onDone)
-  return FxRse.spawnAt("ash_launch", cx, cy, 8, 8, { layer = "front", effectName = "FLDEFF_ASH_LAUNCH", onDone = onDone })
+  return FxRse.spawnAt(objectNameAt(33, "ash_launch"), cx, cy, 8, 8,
+    { layer = "front", effectName = "FLDEFF_ASH_LAUNCH", onDone = onDone })
 end
 
 -- pokeemerald/src/fldeff_misc.c:1033

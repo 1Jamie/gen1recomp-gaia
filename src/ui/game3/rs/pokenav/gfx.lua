@@ -53,15 +53,18 @@ end
 function M.frame(entry, frame, x, y)
   return M.draw(entry, x, y, entry.w, entry.h, 0, frame * entry.h)
 end
+-- pokeruby/src/pokenav.c:2502
+function M.headerPieces(key, scroll, zoomed)
+  local y = 33 - (scroll or 0)
+  if key == "hoenn_map" then
+    return {{x = 120, y = y, w = 64, h = 32, qy = 0}, {x = 184, y = y, w = 64, h = 32, qy = zoomed and 64 or 32}}
+  end
+  -- pokeruby/src/pokenav.c:2561
+  return {{x = 0, y = y, w = 64, h = 32, qy = 0}, {x = 64, y = y, w = 32, h = 32, qy = 32}}
+end
 function M.header(man, key, scroll, zoomed)
   local entry = assert(man.leftHeaders[key], "native PokeNav header")
-  if key == "hoenn_map" then
-    M.draw(entry, 120, 33 - scroll, 64, 32, 0, 0)
-    M.draw(entry, 184, 33 - scroll, 64, 32, 0, zoomed and 64 or 32)
-  else
-    M.draw(entry, 0, 33 - scroll, 64, 32, 0, 0)
-    M.draw(entry, 80, 33 - scroll, 32, 32, 0, 32)
-  end
+  for _, p in ipairs(M.headerPieces(key, scroll, zoomed)) do M.draw(entry, p.x, p.y, p.w, p.h, 0, p.qy) end
 end
 function M.shell(shell, frame, scroll, help)
   M.draw(shell.layers.header, 0, -scroll)

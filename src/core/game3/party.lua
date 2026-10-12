@@ -47,7 +47,7 @@ function Party.applyBattleFields(opaqueMon, fields)
   for _, key in ipairs({
     "hp", "maxHp", "status", "sleep", "level", "exp",
     "happiness", "friendship", "evs", "pokerus", "item", "heldItem",
-    "species", "speciesId", "name", "nickname", "growthRate",
+    "species", "speciesId", "speciesNumbering", "name", "nickname", "growthRate",
     "attack", "defense", "speed", "spAtk", "spDef",
     "atk", "def", "spe", "spa", "spd", "ppBonusesPacked",
     "ability", "abilityId",

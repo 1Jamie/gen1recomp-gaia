@@ -89,6 +89,8 @@ function Game3:_enterField(session, reason, opts)
       -- On GBA FRLG, continuing from title screen seeds/perturbs gRngValue with timer TM0
       if perturbField then Rng.perturb() end
     end
+    -- pokefirered/src/overworld.c:350
+    lazyReq("src.core.game3.roamer").onContinue(session, session.map)
   elseif session.rng then
     Rng.restoreFromSession(session)
     if perturbField then Rng.perturb() end
@@ -876,11 +878,7 @@ function Game3:_hotkey(key)
   elseif key == "f2" then
     local okLoad, saved = pcall(SaveData.load)
     if self.phase == "field" and okLoad and saved and saved.engine == "game3" then
-      pcall(function() lazyReq("src.ui.game3.stack").clear() end)
-      pcall(function()
-        local R = lazyReq("src.core.game3.runtime")
-        if R.stop then R.stop(nil, self) end
-      end)
+      self:_tearDownField()
       pcall(function() lazyReq("src.core.game3.ghosts").clear() end)
       self:_handleBootAction({ action = "continue" })
     end
@@ -1425,11 +1423,11 @@ local function clearFieldScreens()
   FieldView.setCameraPanning(0, 0)
 end
 
-function Game3:returnToTitle(opts)
-  opts = opts or {}
+function Game3:_tearDownField()
   self.questPlayback=nil
   Help.reset()
   Audio.stopAll()
+  Audio.clearSavedSong()
   local Stack = lazyReq("src.ui.game3.stack")
   Stack.clear()
   clearFieldScreens()
@@ -1440,6 +1438,11 @@ function Game3:returnToTitle(opts)
   if Objects and Objects.reset then pcall(Objects.reset) end
   local Field = package.loaded["src.core.game3.field"]
   if Field and Field.clearMetatiles then pcall(Field.clearMetatiles) end
+end
+
+function Game3:returnToTitle(opts)
+  opts = opts or {}
+  self:_tearDownField()
   self.phase = "boot"
   self.session = nil
 

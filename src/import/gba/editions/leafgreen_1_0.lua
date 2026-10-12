@@ -1681,6 +1681,8 @@ return {
   [0x3CD3A0] = 0x3CD1DC, -- trainer_card.o:sHoennTrainerCardBadges_Gfx + 0
   [0x3CD5E8] = 0x3CD424, -- trainer_card.o:sKantoTrainerCardBadges_Gfx + 0
   [0x3CD944] = 0x3CD780, -- trainer_card.o:sLinkTrainerCardRecordStrings + 0
+  [0x3CDAB8] = 0x3CD8F4, -- pokemon_storage_system_menu.o:sChooseBoxMenuCenter_Gfx + 0
+  [0x3CE2B8] = 0x3CE0F4, -- pokemon_storage_system_menu.o:sChooseBoxMenuCorners_Gfx + 0
   [0x3CE438] = 0x3CE274, -- pokemon_storage_system_tasks.o:sScrollingBg_Gfx + 0
   [0x3CE5DC] = 0x3CE418, -- pokemon_storage_system_tasks.o:sMenu_Pal + 0
   [0x3CE5FC] = 0x3CE438, -- pokemon_storage_system_tasks.o:sMenu_Tilemap + 0
@@ -4365,6 +4367,7 @@ return {
   [0x466620] = 0x465F00, -- slot_machine.o:sCombosWindow_Tiles + 0
   [0x466998] = 0x466278, -- slot_machine.o:sCombosWindow_Tilemap + 0
   [0x466C40] = 0x46651C, -- slot_machine.o:sReelButtonMapTileIdxs + 0
+  [0x466C58] = 0x466534, -- roamer.o:sRoamerLocations + 0
   [0x466D10] = 0x4665EC, -- mystery_gift_menu.o:sTextboxBorder_Pal + 0
   [0x466D30] = 0x46660C, -- mystery_gift_menu.o:sTextboxBorder_Gfx + 0
   [0x466DD0] = 0x4666AC, -- mystery_gift_menu.o:sListMenuItems_CardsOrNews + 0

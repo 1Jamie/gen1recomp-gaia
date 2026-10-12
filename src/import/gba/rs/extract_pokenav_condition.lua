@@ -1,7 +1,9 @@
 local K = require("src.import.gba.rse.boot_gfx")
 local A = require("src.import.gba.rs.assets")
-local M = {SUB = "rse/pokenav_condition", FILES = {"party.png", "search.png", "graph.png", "portrait.png", "portrait_ribbons.png", "search_list.png", "ribbons_list.png"}}
-for _, n in ipairs({"cool", "beauty", "cute", "smart", "tough", "party", "search"}) do M.FILES[#M.FILES + 1] = "header_" .. n .. ".png" end
+local M = {SUB = "rse/pokenav_condition", packVersion = 1, FILES = {"party.png", "search.png", "graph.png", "portrait.png", "portrait_ribbons.png", "search_list.png", "ribbons_list.png"}}
+-- pokeruby/src/pokenav.c:2443
+M.HEADERS = {"search", "party", "beauty", "cute", "smart", "tough", "cool"}
+for _, n in ipairs(M.HEADERS) do M.FILES[#M.FILES + 1] = "header_" .. n .. ".png" end
 for _, n in ipairs({"pokeball", "empty", "cancel_selected", "cancel_inactive", "sparkles"}) do M.FILES[#M.FILES + 1] = n .. ".png" end
 M.REQUIRED = K.required(M.SUB, M.FILES)
 local function replace(map, patch, x, y, w, h)
@@ -15,7 +17,7 @@ local function replace(map, patch, x, y, w, h)
 end
 function M.run(rom, cache, opts)
   local c = A.context(rom, cache, opts, M.SUB)
-  local man = {screen = "pokenav_condition", layers = {}, palettes = {}, graph = {}, strings = {}}
+  local man = {screen = "pokenav_condition", packVersion = M.packVersion, layers = {}, palettes = {}, graph = {}, strings = {}}
   local gfx = string.rep("\0", 0x5000) .. c:lz("gPokenavConditionView_Gfx")
   local map, pal = c:lz("gUnknown_08E9AC4C"), {}
   local cp = c:pal("gPokenavConditionMenu2_Pal", 32)
@@ -51,7 +53,7 @@ function M.run(rom, cache, opts)
   man.headers, man.sprites = {}, {}
   local options = {c:lz("gPokenavConditionMenuOptions_Gfx"), c:lz("gPokenavConditionMenuOptions2_Gfx")}
   local headerPals = {c:pal("gPokenavMenuOptions3_Pal", 16), c:pal("gPokenavCondition5_Pal", 16)}
-  for i, name in ipairs({"cool", "beauty", "cute", "smart", "tough", "party", "search"}) do
+  for i, name in ipairs(M.HEADERS) do
     local group, chunk = i <= 4 and 1 or 2, i <= 4 and i - 1 or i - 5
     local atlas = K.blank(64, 16)
     for piece = 0, 1 do
@@ -86,5 +88,9 @@ function M.run(rom, cache, opts)
     portraitSlideStep = 16, list = {104, 8, 8, 16}, listCursor = {91, 8}}
   return A.finish(c, man)
 end
-function M.ready(cache, root) return A.ready(M.SUB, cache, root) end
+function M.ready(cache, root)
+  if not A.ready(M.SUB, cache, root) then return false end
+  local body = cache:read((root or "data/generated/gba") .. "/" .. M.SUB .. "/manifest.lua")
+  return body:find("packVersion = " .. M.packVersion, 1, true) ~= nil
+end
 return M

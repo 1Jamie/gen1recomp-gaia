@@ -97,7 +97,9 @@ function Battle.new(game)
     kyogreGroudon = { transition = game == "sapphire" and "B_TRANSITION_RIPPLE" or "B_TRANSITION_SHARDS", song = "MUS_VS_KYOGRE_GROUDON" },
     -- pokeruby/include/constants/species.h:1282
     roamer = { fixedSpecies = game == "sapphire" and "SPECIES_LATIAS" or "SPECIES_LATIOS",
-      level = 40, encounterOdds = 4, moveOdds = 16, locations = "data/generated/gba/roamer/locations.lua" },
+      level = 40, encounterOdds = 4, moveOdds = 16, locations = "data/generated/gba/roamer/locations.lua",
+      -- pokeruby/src/pokemon_2.c:938
+      truncateIvs = true },
     -- pokeruby/src/safari_zone.c:57
     safari = { kind = "pokeblock_gonear", actions = { "ball", "pokeblock", "go_near", "run" },
       balls = 30, steps = 500, flag = "FLAG_SYS_SAFARI_MODE", escapeFactor = 3,

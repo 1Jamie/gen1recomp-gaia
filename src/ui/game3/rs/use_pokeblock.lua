@@ -64,7 +64,7 @@ function UI.draw(st, host)
   for i, t in ipairs(st.titles) do
     local r = title.rects[i]
     local q = love.graphics.newQuad(r.x, r.y, r.w, r.h, iw, ih)
-    love.graphics.draw(image, q, t.x - r.w / 2, 17 - r.h / 2)
+    love.graphics.draw(image, q, t.x - 32, 17 - r.h / 2) -- pokeruby/src/pokenav.c:2561
   end
   local function colors(fg, shadow)
     return {fg = Gfx.color(m.palettes.condition_text[fg + 1]),

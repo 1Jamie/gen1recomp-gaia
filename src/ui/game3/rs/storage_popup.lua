@@ -1,16 +1,25 @@
 local Kit = require("src.ui.game3.rse.scene_kit")
 local Font = require("src.ui.game3.frlg_font")
 local M = {}
+function M.sidePlacements(man)
+  local rects, out = man.sprites.box_popup_sides.rects, {}
+  -- pokeruby/src/pokemon_storage_system.c:664-675
+  local base = rects[1]
+  for _, pos in ipairs(man.boxPopup.sides) do
+    out[#out + 1] = {rect = rects[pos.frame + 1], x = pos.x - base.w / 2, y = pos.y - base.h / 2}
+  end
+  return out
+end
 function M.draw(storage, boxId)
   local man = assert(Kit.manifest("pokemon/storage"))
   local center, sides = man.sprites.box_popup_center, man.sprites.box_popup_sides
   local centerImg, sideImg = assert(Kit.image(center.png)), assert(Kit.image(sides.png))
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.draw(centerImg, man.boxPopup.center.x - 32, man.boxPopup.center.y - 32)
-  for i, pos in ipairs(man.boxPopup.sides) do
-    local rect = sides.rects[pos.frame + 1]
+  for _, p in ipairs(M.sidePlacements(man)) do
+    local rect = p.rect
     local q = love.graphics.newQuad(rect.x, rect.y, rect.w, rect.h, sideImg:getDimensions())
-    love.graphics.draw(sideImg, q, pos.x - rect.w / 2, pos.y - rect.h / 2)
+    love.graphics.draw(sideImg, q, p.x, p.y)
   end
   local arrow = man.sprites.box_scroll_arrow
   local arrowImg = assert(Kit.image(arrow.png))

@@ -22,6 +22,9 @@ return function(V)
     waveform = { off = sym(PSS .. "sWaveform_Gfx"), size = size(PSS .. "sWaveform_Gfx") },
     scrollingBg = { off = sym(PSS .. "sScrollingBg_Gfx"), lz = true },
     menu = { off = sym("gStorageSystemMenu_Gfx"), lz = true },
+    -- pokeemerald/src/pokemon_storage_system.c:950-951
+    chooseBoxCenter = { off = sym(PSS .. "sChooseBoxMenuCenter_Gfx"), size = size(PSS .. "sChooseBoxMenuCenter_Gfx") },
+    chooseBoxSides = { off = sym(PSS .. "sChooseBoxMenuSides_Gfx"), size = size(PSS .. "sChooseBoxMenuSides_Gfx") },
   }
   V.STORAGE_TILEMAPS = {
     menu = { off = sym(PSS .. "sDisplayMenu_Tilemap"), lz = true, w = 32, h = 20 },

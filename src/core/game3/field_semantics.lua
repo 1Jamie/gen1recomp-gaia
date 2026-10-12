@@ -7,7 +7,8 @@ Sem.FRLG_VARS = {
   happinessSteps = 0x4021,
   -- pokefirered/include/constants/vars.h:75
   massageSteps = 0x4025,
-  poisonSteps = 0x4040,
+  -- pokefirered/include/constants/vars.h:60
+  poisonSteps = 0x4022,
   -- pokefirered/include/constants/vars.h:47
   repelSteps = 0x4020,
 }

@@ -43,7 +43,7 @@ Versions.ROM_SIZE = 16777216
 -- v115: LeafGreen profiles, edition-specific title assets and Deoxys stats.
 -- v121: chrome/fonts/japanese_{normal,small}_* and japanese_widths.lua, the
 --       cart's Japanese fonts, for text a Japanese translation mod prints.
-Versions.CACHE_VERSION = 135
+Versions.CACHE_VERSION = 136
 Versions.NATIVE_VERSION = 6
 Versions.OW_VERSION = 3
 Versions.ANIM_VERSION = 1
@@ -254,7 +254,12 @@ Versions.STORAGE_SHEETS = {
   waveform = { off = 0x3CE810, size = 448 },
   scrollingBg = { off = 0x3CE438, lz = true },
   menu = { off = 0xE9C438, lz = true },
+  -- src/pokemon_storage_system_menu.c:659-660
+  chooseBoxCenter = { off = 0x3CDAB8, size = 2048 },
+  chooseBoxSides = { off = 0x3CE2B8, size = 384 },
 }
+-- src/roamer.c:36
+Versions.ROAMER_LOCATIONS = { off = 0x466C58, size = 182, stride = 7, mapGroup = 3 }
 Versions.STORAGE_TILEMAPS = {
   menu = { off = 0x3CE5FC, lz = true, w = 32, h = 20 },
   pkmnData = { off = 0x3CE6F8, w = 8, h = 4 },

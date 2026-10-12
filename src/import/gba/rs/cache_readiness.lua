@@ -21,7 +21,7 @@ local PACKS = {
   {"rse/trendy_phrase"}, {"rse/easy_chat_editor", {editorVersion = 2}}, {"rse/rs_egg_hatch"},
   {"pokemon/storage", {version = 6}}, {"rse/pokedex", {packVersion = 1}}, {"rse/pokedex_detail"}, {"rse/diploma"},
   {"rse/trainer_card"}, {"rse/trade"}, {"rse/pokenav"}, {"rse/pokenav_detail"},
-  {"rse/pokenav_shell"}, {"rse/pokenav_condition"}, {"rse/pokenav_ribbons"}, {"rs/assets"},
+  {"rse/pokenav_shell"}, {"rse/pokenav_condition", {packVersion = 1}}, {"rse/pokenav_ribbons"}, {"rs/assets"},
 }
 
 local MODULES = {

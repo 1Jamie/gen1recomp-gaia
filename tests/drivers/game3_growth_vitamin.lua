@@ -129,10 +129,10 @@ return function(game)
 
   -- pokefirered/src/field_control_avatar.c:699 UpdateHappinessStepCounter
   local before = Pokemon.friendshipOf(pika)
-  session.vars = session.vars or {}
+  local Sem = require("src.core.game3.field_semantics")
   local moved = 0
   for _ = 1, 40 do
-    session.vars[0x403F] = 127
+    Sem.setVar(session, "happinessSteps", 127)
     StepEvents.onStepTaken(session, game)
     if Pokemon.friendshipOf(pika) ~= before then moved = moved + 1 end
     before = Pokemon.friendshipOf(pika)

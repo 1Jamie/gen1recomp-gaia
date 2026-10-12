@@ -57,6 +57,17 @@ BattleProfile.DEFAULTS = {
   badgeFlags = nil,
   music = nil,
   animCacheFallback = "firered/",
+  -- pokefirered/src/roamer.c:99
+  roamer = {
+    level = 50,
+    -- pokefirered/src/roamer.c:230
+    encounterOdds = 4,
+    -- pokefirered/src/roamer.c:165
+    moveOdds = 16,
+    -- pokefirered/src/pokemon.c:3660
+    truncateIvs = true,
+    locations = "data/generated/gba/roamer/locations.lua",
+  },
 }
 
 local merged = setmetatable({}, { __mode = "k" })

@@ -174,6 +174,8 @@ function State:drawMenu()
     Gfx.text(text, 24 + math.floor((192 - Gfx.measure(text)) / 2), 136, colors, "native_" .. win.fontNum, 192)
   end
   Gfx.header(nav, self.menu == "main" and "main_menu" or "condition", self.headerScroll)
+  -- pokeruby/src/pokenav_before.c:2052
+  if self.menu == "search" then Gfx.draw(Gfx.manifest("pokenav_condition").headers.search, 0, 60 - self.headerScroll) end
 end
 function State:draw()
   love.graphics.push("all")

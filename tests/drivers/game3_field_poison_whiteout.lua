@@ -48,7 +48,8 @@ return function(game)
   session.money = 3000
   Field.setRespawn(2)
   local loss = math.min(BattleBridge.calcMoneyLossFrlg(session, game.save), 3000)
-  session.vars[0x4040] = 4 -- pokefirered/src/field_control_avatar.c:718
+  -- pokefirered/src/field_control_avatar.c:718
+  require("src.core.game3.field_semantics").setVar(session, "poisonSteps", 4)
 
   local startX, startY = Player.cellX, Player.cellY
   for _, dir in ipairs({ "left", "right", "down", "up" }) do

@@ -108,6 +108,11 @@ function M.positionWithin(man, sec, x, y)
   end
   return pos
 end
+-- pokeruby/src/new_game.c:171
+function M.savedWarp(warp)
+  if type(warp) == "table" and (warp.map or warp.mapGroup) then return warp end
+  return {mapGroup = 0, mapNum = 0, warpId = 0, x = 0, y = 0}
+end
 -- pokeruby/src/region_map.c:514
 function M.playerPosition(man, session, game)
   local maps, sec = M.maps(game), man.mapsecs
@@ -119,7 +124,10 @@ function M.playerPosition(man, session, game)
     local C = M.constants(session)
     for _, name in ipairs({"MAP_SS_TIDAL_CORRIDOR", "MAP_SS_TIDAL_LOWER_DECK", "MAP_SS_TIDAL_ROOMS"}) do
       local row = C.map_groups.byName[name]
-      if row and row.num == num then return require("src.ui.game3.rs.pokenav.tidal").position(man, session, game) end
+      if row and row.num == num then
+        local pos = require("src.ui.game3.rs.pokenav.tidal").position(man, session, game)
+        if pos then return pos end
+      end
     end
   end
   local P = package.loaded["src.core.game3.player"]
@@ -127,15 +135,17 @@ function M.playerPosition(man, session, game)
   local x, y, width, height, id, cave = px, py, def.width, def.height, tonumber(def.regionMapSectionId), false
   local t = tonumber(def.mapType)
   local warp
-  if t == 4 or t == 7 then warp, cave = session.escapeWarp, true
-  elseif t == 9 then warp, cave = session.dynamicWarp, true
-  elseif t == 8 then warp = id == sec.DYNAMIC and session.dynamicWarp or session.escapeWarp end
+  if t == 4 or t == 7 then warp, cave = M.savedWarp(session.escapeWarp), true
+  elseif t == 9 then warp, cave = M.savedWarp(session.dynamicWarp), true
+  elseif t == 8 then
+    if id == sec.DYNAMIC then warp = M.savedWarp(session.dynamicWarp) else warp = M.savedWarp(session.escapeWarp) end
+  end
   if warp then
     local other = maps[warp.map] or M.mapAt(game, session, warp.mapGroup, warp.mapNum)
     if not other then return nil, "native region-map warp header unavailable" end
     if t ~= 8 or id == sec.DYNAMIC then id = tonumber(other.regionMapSectionId) end
     width, height, x, y = other.width, other.height, tonumber(warp.x) or 0, tonumber(warp.y) or 0
-  elseif t == 4 or t == 7 or t == 8 or t == 9 then return nil, "native region-map warp unavailable" end
+  end
   if id == sec.UNDERWATER_128 then cave = true end
   local entry = man.sections[id]
   if not entry or entry.width < 1 or entry.height < 1 then return nil, "native region-map section geometry unavailable" end

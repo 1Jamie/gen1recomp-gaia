@@ -9,7 +9,7 @@ for _, name in ipairs({ "linkBattleRecords", "trainerNameRecords" }) do
 end
 Frlg.finishImport = Rse.finishImport
 
-local IV_NAMES = { "hp", "attack", "defense", "speed", "spAtk", "spDef" }
+local IV_NAMES = { "hp", "atk", "def", "spe", "spa", "spd" }
 
 -- include/global.h:417
 function Frlg.portRoamer(r)

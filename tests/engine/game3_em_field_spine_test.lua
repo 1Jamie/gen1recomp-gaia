@@ -26,7 +26,7 @@ check(not pcall(FieldModules.enabled, "noSuchModule", FR), "an unknown field mod
 local Sem = require("src.core.game3.field_semantics")
 eq(Sem.var(FR, "happinessSteps"), 0x4021, "FR happiness step var unchanged")
 eq(Sem.var(FR, "massageSteps"), 0x4025, "FR massage var unchanged")
-eq(Sem.var(FR, "poisonSteps"), 0x4040, "FR poison step var unchanged")
+eq(Sem.var(FR, "poisonSteps"), 0x4022, "FR VAR_POISON_STEP_COUNTER")
 eq(Sem.var(FR, "repelSteps"), 0x4020, "FR repel var unchanged")
 eq(Sem.flag(FR, "flashActive"), 0x806, "FR flash flag unchanged")
 eq(Sem.var(EM, "happinessSteps"), 0x402A, "EM VAR_FRIENDSHIP_STEP_COUNTER")

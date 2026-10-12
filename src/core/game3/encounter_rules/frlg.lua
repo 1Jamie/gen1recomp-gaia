@@ -221,13 +221,15 @@ local function roll_area(mapId, areaKey, weights, enterFromOther, fallbackRate)
     return nil
   end
 
-  -- pokefirered/src/wild_encounter.c:645 TryStartRoamerEncounter
+  -- pokefirered/src/wild_encounter.c:378
   local okR, Roamer = pcall(require, "src.core.game3.roamer")
   if okR and Roamer and Roamer.tryEncounter then
     local okRt, Runtime = pcall(require, "src.core.game3.runtime")
     local session = okRt and Runtime and Runtime.getSession and Runtime.getSession()
     local roamerEnc = Roamer.tryEncounter(session, mapId, areaKey)
     if roamerEnc then
+      -- pokefirered/src/wild_encounter.c:381
+      if not wild_level_allowed_by_repel(roamerEnc.level) then return false end
       return roamerEnc
     end
   end
@@ -254,13 +256,14 @@ end
 
 function Encounters.rollLand(mapId, rate, enterFromOther)
   Encounters.ensureLoaded()
-  return roll_area(mapId, "land", LAND_WEIGHTS, enterFromOther, rate)
-    or roll_area(mapId, "grass", LAND_WEIGHTS, enterFromOther, rate)
+  local enc = roll_area(mapId, "land", LAND_WEIGHTS, enterFromOther, rate)
+  if enc == false then return nil end
+  return enc or roll_area(mapId, "grass", LAND_WEIGHTS, enterFromOther, rate) or nil
 end
 
 function Encounters.rollWater(mapId, enterFromOther)
   Encounters.ensureLoaded()
-  return roll_area(mapId, "water", WATER_WEIGHTS, enterFromOther, 15)
+  return roll_area(mapId, "water", WATER_WEIGHTS, enterFromOther, 15) or nil
 end
 
 -- pokefirered/src/wild_encounter.c:464

@@ -8,7 +8,7 @@ local BattleAnimExtract = require("src.import.gba.battle_anim_extract")
 local StorageChromeExtract = {}
 
 StorageChromeExtract.CACHE_SUB = "pokemon/storage"
-StorageChromeExtract.FORMAT_VERSION = 4
+StorageChromeExtract.FORMAT_VERSION = 5
 
 StorageChromeExtract.WALLPAPER_NAMES = {
   "forest", "city", "desert", "savanna",
@@ -39,6 +39,8 @@ StorageChromeExtract.TEXTURE_FILES = {
   { key = "party_slot_filled", file = "party_slot_filled.png" },
   { key = "party_slot_empty", file = "party_slot_empty.png" },
   { key = "markings", file = "markings.png" },
+  { key = "choose_box_center", file = "choose_box_center.png" },
+  { key = "choose_box_sides", file = "choose_box_sides.png" },
 }
 
 local function default_cache_root()
@@ -268,6 +270,7 @@ function StorageChromeExtract.ready(cache, root)
   local v = tonumber(manifestData:match("version%s*=%s*(%d+)"))
   if v ~= StorageChromeExtract.FORMAT_VERSION then return false end
   if not manifestData:find("palettes = { scrollingBg = {", 1, true) then return false end
+  if not manifestData:find("misc1 = {", 1, true) then return false end
 
   for _, tex in ipairs(StorageChromeExtract.TEXTURE_FILES) do
     if not valid_file(outDir .. "/" .. tex.file, 30) then return false end
@@ -339,6 +342,11 @@ function StorageChromeExtract.extract(rom, opts)
     (StorageChromeExtract.bakeSheet(sheet.menu, sheetLen.menu, pal.interface, 16)))
   emit("menu_pal0", "menu_pal0.png",
     (StorageChromeExtract.bakeSheet(sheet.menu, sheetLen.menu, pal.menu, 16)))
+  -- pokefirered/src/pokemon_storage_system_menu.c:423
+  emit("choose_box_center", "choose_box_center.png",
+    (StorageChromeExtract.bakeSheet(sheet.chooseBoxCenter, sheetLen.chooseBoxCenter, pal.misc1, 8)))
+  emit("choose_box_sides", "choose_box_sides.png",
+    (StorageChromeExtract.bakeSheet(sheet.chooseBoxSides, sheetLen.chooseBoxSides, pal.misc1, 1)))
   local mk = Versions.STORAGE_MARKINGS
   if mk then
     -- src/mon_markings.c:601
@@ -454,7 +462,13 @@ function StorageChromeExtract.extract(rom, opts)
       local c = pal.scrollingBg[i]
       row[#row + 1] = string.format("[%d] = {%d,%d,%d}", i, c[1], c[2], c[3])
     end
-    lines[#lines + 1] = "  palettes = { scrollingBg = { " .. table.concat(row, ", ") .. " } },"
+    local misc1 = {}
+    for i = 0, 15 do
+      local c = pal.misc1[i]
+      misc1[#misc1 + 1] = string.format("[%d] = {%d,%d,%d}", i, c[1], c[2], c[3])
+    end
+    lines[#lines + 1] = "  palettes = { scrollingBg = { " .. table.concat(row, ", ") .. " }, misc1 = { "
+      .. table.concat(misc1, ", ") .. " } },"
   end
   if Versions.STORAGE_FRIENDS then
     written = written + StorageChromeExtract.extractFriends(rom, cache, outDir)
@@ -521,6 +535,10 @@ function StorageChromeExtract.extractFriends(rom, cache, outDir)
   return written + 1
 end
 
-StorageChromeExtract.REQUIRED = { StorageChromeExtract.CACHE_SUB .. "/manifest.lua" }
+StorageChromeExtract.REQUIRED = {
+  StorageChromeExtract.CACHE_SUB .. "/manifest.lua",
+  StorageChromeExtract.CACHE_SUB .. "/choose_box_center.png",
+  StorageChromeExtract.CACHE_SUB .. "/choose_box_sides.png",
+}
 
 return StorageChromeExtract

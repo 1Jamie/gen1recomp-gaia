@@ -174,8 +174,86 @@ local function playerCell(s)
   return tonumber(s.session and s.session.x) or 0, tonumber(s.session and s.session.y) or 0
 end
 
+-- pokeemerald/src/load_save.c:66
+function RegionMap.savedWarp(warp)
+  if type(warp) == "table" and type(warp.map) == "string" then return warp end
+  local MapCatalog = require("src.import.gba.map_catalog")
+  return { map = MapCatalog.mapIdFor(0, 0), warpId = 0, x = 0, y = 0 }
+end
+
+local function currentMapGroupNum(session)
+  local Rse = require("src.core.game3.rse.init")
+  return Rse.mapGroupNum(session.map, session)
+end
+
+-- pokeemerald/src/field_specials.c:296
+function RegionMap.ssTidalLocation(s)
+  local C = constants(s.session)
+  local rs = RegionMap.manifest().assetLayout == "rs"
+  local state = varGet(s, rs and "VAR_PORTHOLE_STATE" or "VAR_SS_TIDAL_STATE")
+  local count = varGet(s, "VAR_CRUISE_STEP_COUNT")
+  if state == 1 or state == 8 then return "SLATEPORT_CITY" end
+  if state == 3 or state == 9 then return "ROUTE_131" end
+  if state == 4 or state == 5 then return "LILYCOVE_CITY" end
+  if state == 6 or state == 10 then return "ROUTE_124" end
+  local route, cell
+  if state == 2 then
+    if count < 60 then route, cell = "MAP_ROUTE134", count + 19
+    elseif count < 140 then route, cell = "MAP_ROUTE133", count - 60
+    else route, cell = "MAP_ROUTE132", count - 140 end
+  elseif state == 7 then
+    if count < 66 then route, cell = "MAP_ROUTE132", 65 - count
+    elseif count < 146 then route, cell = "MAP_ROUTE133", 145 - count
+    else route, cell = "MAP_ROUTE134", 224 - count end
+  else
+    return nil
+  end
+  local row = assert(C.map_groups.byName[route], route)
+  return nil, require("src.import.gba.map_catalog").mapIdFor(row.group, row.num), cell, 20
+end
+
+-- pokeemerald/src/region_map.c:1123
+local function initFromSSTidal(s)
+  local named, mapId, xOnMap, yOnMap = RegionMap.ssTidalLocation(s)
+  if not named and not mapId then return false end
+  local x, y = 0, 0
+  if named then
+    s.mapSecId = sec(named)
+  else
+    local header = assert(mapDefOf(mapId), mapId)
+    s.mapSecId = tonumber(header.regionMapSectionId) or 0
+    local e = Mapsec.entry(s.mapSecId)
+    local scale = math.floor(header.width / e.width)
+    if scale == 0 then scale = 1 end
+    x = math.floor((xOnMap % 65536) / scale)
+    if x >= e.width then x = e.width - 1 end
+    scale = math.floor(header.height / e.height)
+    if scale == 0 then scale = 1 end
+    y = math.floor(yOnMap / scale)
+    if y >= e.height then y = e.height - 1 end
+  end
+  local e = Mapsec.entry(s.mapSecId)
+  s.playerIsInCave = false
+  s.cursorX = e.x + x + RegionMap.CURSOR_X_MIN
+  s.cursorY = e.y + y + RegionMap.CURSOR_Y_MIN
+  return true
+end
+
+local function onSSTidal(s)
+  local session = s.session or {}
+  local group, num = currentMapGroupNum(session)
+  if not group then return false end
+  local C = constants(session)
+  for _, name in ipairs({ "MAP_SS_TIDAL_CORRIDOR", "MAP_SS_TIDAL_LOWER_DECK", "MAP_SS_TIDAL_ROOMS" }) do
+    local row = C.map_groups.byName[name]
+    if row and row.group == group and row.num == num then return true end
+  end
+  return false
+end
+
 -- pokeemerald/src/region_map.c:968
 function RegionMap.initFromPlayer(s)
+  if onSSTidal(s) and initFromSSTidal(s) then return end
   local Map = package.loaded["src.core.game3.map"]
   local def = s.mapDef or (Map and Map.currentDef()) or {}
   local T = require("src.core.game3.field_moves").MAP_TYPES
@@ -183,10 +261,13 @@ function RegionMap.initFromPlayer(s)
   local width, height, x, y
   local px, py = playerCell(s)
   local session = s.session or {}
+  local rs = RegionMap.manifest().assetLayout == "rs"
   if mapType == T.UNDERGROUND or mapType == T.UNKNOWN then
-    local esc = session.escapeWarp
-    local escDef = def.allowEscaping == 1 and esc and mapDefOf(esc.map) or nil
-    if escDef then
+    local escaping = def.allowEscaping == true or (tonumber(def.allowEscaping) or 0) ~= 0
+    -- pokeruby/src/region_map.c:548
+    if rs or escaping then
+      local esc = RegionMap.savedWarp(session.escapeWarp)
+      local escDef = mapDefOf(esc.map) or def
       s.mapSecId = tonumber(escDef.regionMapSectionId) or 0
       width, height, x, y = escDef.width, escDef.height, tonumber(esc.x) or 0, tonumber(esc.y) or 0
     else
@@ -195,7 +276,7 @@ function RegionMap.initFromPlayer(s)
     end
     s.playerIsInCave = true
   elseif mapType == T.SECRET_BASE then
-    local dw = session.dynamicWarp or {}
+    local dw = RegionMap.savedWarp(session.dynamicWarp)
     local dDef = mapDefOf(dw.map) or def
     s.mapSecId = tonumber(dDef.regionMapSectionId) or 0
     s.playerIsInCave = true
@@ -204,9 +285,9 @@ function RegionMap.initFromPlayer(s)
     s.mapSecId = tonumber(def.regionMapSectionId) or 0
     local warp
     if s.mapSecId ~= sec("DYNAMIC") then
-      warp = session.escapeWarp or {}
+      warp = RegionMap.savedWarp(session.escapeWarp)
     else
-      warp = session.dynamicWarp or {}
+      warp = RegionMap.savedWarp(session.dynamicWarp)
     end
     local wDef = mapDefOf(warp.map) or def
     if s.mapSecId == sec("DYNAMIC") then s.mapSecId = tonumber(wDef.regionMapSectionId) or 0 end

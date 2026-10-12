@@ -70,7 +70,10 @@ local function run(game)
   local ShowMon = require("src.core.game3.field_move_show_mon")
   local PokecenterHeal = require("src.core.game3.pokecenter_heal")
   local StepEvents = require("src.core.game3.step_events")
+  local Sem = require("src.core.game3.field_semantics")
   if not result(Runtime.getSession() ~= nil, "reached the field") then return end
+  local FRLG = require("src.core.game3.profile").family(Runtime.getSession()) == "frlg"
+  print("[s2] family=" .. tostring(require("src.core.game3.profile").family(Runtime.getSession())))
   local function giveParty()
     local session = Runtime.getSession()
     session.party = {}
@@ -94,15 +97,15 @@ local function run(game)
         CaveTransition.start("enter", function() fired.cb = true end)
         U.wait(8)
       end, active = function() return CaveTransition.isActive() end },
-    { name = "cave_preview", setup = function(fired)
+    { name = "cave_preview", frlg = true, setup = function(fired)
         MapPreviewScreen.runCave(sec("MAPSEC_MT_MOON"), function() fired.cb = true end)
         U.wait(30)
       end, active = function() return MapPreviewScreen.isActive() end },
-    { name = "forest_preview", setup = function()
+    { name = "forest_preview", frlg = true, setup = function()
         MapPreviewScreen.show(sec("MAPSEC_VIRIDIAN_FOREST"))
         U.wait(20)
       end, active = function() return MapPreviewScreen.isActive() end },
-    { name = "seagallop", setup = function(fired)
+    { name = "seagallop", frlg = true, setup = function(fired)
         Sea.start(0, 1, function() fired.cb = true end, function() fired.cb = true end)
         U.wait(30)
       end, active = function() return Sea.isActive() end },
@@ -121,8 +124,7 @@ local function run(game)
       end },
     { name = "step_event_message", setup = function()
         local session = Runtime.getSession()
-        session.repelSteps = 1
-        session.vars[0x4020] = 1
+        Sem.setVar(session, "repelSteps", 1)
         StepEvents.onRepelStep(session, game)
         U.wait(20)
       end, active = function() return StepEvents.busy() end },
@@ -186,6 +188,10 @@ local function run(game)
   }
 
   for _, sc in ipairs(scenarios) do
+    if sc.frlg and not FRLG then
+      print("[s2] " .. sc.name .. " skipped: FRLG-only overlay")
+      goto continue
+    end
     local fired = {}
     sc.setup(fired)
     local was = sc.active()
@@ -220,6 +226,7 @@ local function run(game)
     Task.clear()
     StepEvents.flush()
     U.wait(30)
+    ::continue::
   end
 end
 
