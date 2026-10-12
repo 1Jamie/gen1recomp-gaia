@@ -510,18 +510,6 @@ function Map.load(mod, game, mapId, opts)
     if okE and Encounters and Encounters.resetRateModifiers then
       Encounters.resetRateModifiers()
     end
-    local okR, Roamer = pcall(require, "src.core.game3.roamer")
-    if okR and Roamer and Roamer.move then
-      local okRt, Runtime = pcall(require, "src.core.game3.runtime")
-      local session = okRt and Runtime and Runtime.getSession and Runtime.getSession()
-      if session and session.roamer and session.roamer.active then
-        local fromMapId = Map._announced
-        if fromMapId ~= nil then
-          -- pokefirered/src/overworld.c:778
-          Roamer.move(session, opts.seamless and "connection" or "warp", mapId)
-        end
-      end
-    end
   end
   local Ghosts = require("src.core.game3.ghosts")
   local fromMapId = Map._announced
@@ -730,6 +718,17 @@ function Map.load(mod, game, mapId, opts)
   -- pokeemerald/src/overworld.c:802
   if session and require("src.core.game3.rtc").enabled(session) then
     require("src.core.game3.time_events").run(session)
+  end
+  local AmbientCry = require("src.core.game3.ambient_cry")
+  if session and (opts.enterVia or Map._nextEnterVia) ~= "continue" then
+    -- pokeemerald/src/overworld.c:804
+    AmbientCry.choose(session, mapId)
+  end
+  -- pokeemerald/src/overworld.c:819
+  AmbientCry.resetTask()
+  if session and session.roamer and session.roamer.active and fromMapId ~= nil then
+    -- pokefirered/src/overworld.c:778
+    require("src.core.game3.roamer").move(session, opts.seamless and "connection" or "warp", mapId)
   end
 
   -- pokefirered/src/overworld.c:805

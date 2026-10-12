@@ -464,6 +464,8 @@ function BattleBridge.start(mod, game, foe, opts)
         Roamer.onBattleEnd(session, enemyMon, result, st and st.endReason, st and st.enemy)
       end
     end
+    -- pokeemerald/src/overworld.c:2149
+    require("src.core.game3.ambient_cry").resetTask()
     -- pokefirered/src/battle_main.c:3861
     if ModRuntime.wants("battle.ended") then
       local B = package.loaded["src.core.game3.battle"]

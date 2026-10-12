@@ -89,6 +89,8 @@ function Game3:_enterField(session, reason, opts)
       -- On GBA FRLG, continuing from title screen seeds/perturbs gRngValue with timer TM0
       if perturbField then Rng.perturb() end
     end
+    -- pokefirered/src/overworld.c:348
+    lazyReq("src.core.game3.ambient_cry").choose(session, session.map)
     -- pokefirered/src/overworld.c:350
     lazyReq("src.core.game3.roamer").onContinue(session, session.map)
   elseif session.rng then

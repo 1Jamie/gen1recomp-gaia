@@ -123,6 +123,32 @@ for _, version in ipairs({ "firered", "emerald", "ruby" }) do
   Roamer._locations[Roamer.config(fresh)] = FIXTURE[version]
   fake_game():_enterField(fresh, "new_game")
   eq(fresh.roamer.map, roamerMap, version .. " new game entry leaves the roamer alone")
+
+  local Encounters = require("src.core.game3.encounters")
+  local savedTables, savedLoaded = Encounters._tables, Encounters._loaded
+  local landSlots = {}
+  for i = 1, 12 do landSlots[i] = { species = 100 + i, minLevel = 5, maxLevel = 5 } end
+  Encounters._tables, Encounters._loaded = { [saveMap] = { land = { rate = 20, slots = landSlots } } }, true
+  local roamer = { saveMap = saveMap, active = true, map = roamerMap, h1 = h1, h2 = sets[1][1], h3 = sets[2][1] }
+  local wantAmbientOk, wantRoamerOk = true, true
+  for seed = 1, 60 do
+    local save = save_for(version, seed, roamer)
+    Rng.setState(save.rng)
+    if Schema.rulesFor(version).PERTURB_FIELD_RNG ~= false then realPerturb(0x55) end
+    local r1 = Rng.Random()
+    local wantRoamer = sets[(Rng.Random() % #sets) + 1][1]
+    local acc, wantIdx, LAND_W = 0, 12, { 20, 20, 10, 10, 10, 10, 5, 5, 4, 4, 1, 1 }
+    for i = 1, 12 do
+      acc = acc + LAND_W[i]
+      if r1 % 100 < acc then wantIdx = i break end
+    end
+    local s = run(version, seed, roamer)
+    if require("src.core.game3.ambient_cry").species ~= 100 + wantIdx then wantAmbientOk = false end
+    if s.roamer.map ~= wantRoamer then wantRoamerOk = false end
+  end
+  check(wantAmbientOk, version .. " continue picks the ambient cry species first")
+  check(wantRoamerOk, version .. " the roamer re-roll draws after the ambient cry pick")
+  Encounters._tables, Encounters._loaded = savedTables, savedLoaded
 end
 
 Runtime.start, Rng.perturb, Space.runOnReturnToField = realStart, realPerturb, realReturn

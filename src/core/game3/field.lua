@@ -208,6 +208,7 @@ function Field.update(_dt)
   local PcAnim = package.loaded["src.core.game3.pc_anim"]
   if PcAnim then PcAnim.update() end
   Field.runFrameTasks()
+  lazyReq("src.core.game3.ambient_cry").tick(Field, Space, Field._session)
 
   -- Game3 owns locomotion + EventObjects (host World:step is paused).
   local Objects = lazyReq("src.core.game3.objects")
