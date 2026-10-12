@@ -527,6 +527,8 @@ local function bgr555(v)
   return { c5to8(v % 32), c5to8(math.floor(v / 32) % 32), c5to8(math.floor(v / 1024) % 32), 1 }
 end
 
+local _textboxColorCache = setmetatable({}, { __mode = "k" })
+
 -- pokeemerald/src/battle_message.c:1480
 function BattleChrome.textboxColors(fg, shadow)
   local pal = (BattleChrome._manifest or {}).textboxPal
@@ -534,7 +536,23 @@ function BattleChrome.textboxColors(fg, shadow)
     local FrlgFont = require("src.ui.game3.frlg_font")
     return FrlgFont.COLOR.WHITE
   end
-  return { fg = bgr555(pal[fg + 1]), shadow = bgr555(pal[shadow + 1]), bg = { 0, 0, 0, 0 } }
+  -- Memoized per (pal, fg, shadow); an entry is reused only while the palette
+  -- table is the same and its two raw words are unchanged.  Callers treat the
+  -- returned table as read-only (FrlgFont copies colours into its scratch).
+  local byPal = _textboxColorCache[pal]
+  if not byPal then
+    byPal = {}
+    _textboxColorCache[pal] = byPal
+  end
+  local key = fg * 64 + shadow
+  local e = byPal[key]
+  local fgV, shV = pal[fg + 1], pal[shadow + 1]
+  if not e or e.fgV ~= fgV or e.shV ~= shV then
+    e = { fgV = fgV, shV = shV,
+      colors = { fg = bgr555(fgV), shadow = bgr555(shV), bg = { 0, 0, 0, 0 } } }
+    byPal[key] = e
+  end
+  return e.colors
 end
 
 -- pokeemerald/graphics/battle_interface/textbox_map.bin

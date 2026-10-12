@@ -13,9 +13,19 @@ local RomText = require("src.core.game3.rom_text")
 
 local Healthbox = {}
 
+local Profile
+local _rsRow, _rsLayout
+-- Resolved per profile row (forSession follows game switches); the layout is
+-- re-derived only when the row table changes.
 local function rs_layout()
-  local ui = require("src.core.game3.profile").forSession().ui
-  return ui and ui.healthbox and ui.healthbox.layout == "rs" and ui.healthbox or nil
+  Profile = Profile or require("src.core.game3.profile")
+  local row = Profile.forSession()
+  if row ~= _rsRow then
+    _rsRow = row
+    local ui = row.ui
+    _rsLayout = ui and ui.healthbox and ui.healthbox.layout == "rs" and ui.healthbox or nil
+  end
+  return _rsLayout
 end
 
 -- pret InitBattlerHealthboxCoords (singles) — sprite CENTER of left half
@@ -182,6 +192,25 @@ local function rs_text_colors(gender)
   return rsColors[gender] or rsColors
 end
 
+-- One read-only native_4 opts table per colour set (FrlgFont never writes
+-- to opts). Weak-keyed so replaced palettes drop their entries.
+local _rsRowOpts = setmetatable({}, { __mode = "k" })
+local RS_MEASURE_OPTS = { font = "native_4", textMode = 0 }
+local function rs_row_opts(colors)
+  local o = _rsRowOpts[colors]
+  if not o then
+    o = { font = "native_4", textMode = 0,
+      colors = { fg = colors.fg, shadow = colors.shadow, bg = { 0, 0, 0, 0 } } }
+    _rsRowOpts[colors] = o
+  end
+  return o
+end
+
+local function rs_aligned(value, width)
+  local text = tostring(math.max(0, math.floor(value or 0)))
+  return string.char(0xFC, 0x13, math.max(0, width - FrlgFont.measure(text, RS_MEASURE_OPTS))) .. text
+end
+
 -- pokeruby/src/text.c:2372
 local function draw_rs_row(text, x, y, width, colors, fill)
   local sx, sy, sw, sh = love.graphics.getScissor()
@@ -196,8 +225,7 @@ local function draw_rs_row(text, x, y, width, colors, fill)
     love.graphics.setColor(colors.bg)
     love.graphics.rectangle("fill", x, y, width, 8)
   end
-  FrlgFont.draw(text, x, y - 8, { font = "native_4", textMode = 0,
-    colors = { fg = colors.fg, shadow = colors.shadow, bg = { 0, 0, 0, 0 } } })
+  FrlgFont.draw(text, x, y - 8, rs_row_opts(colors))
   if sx then love.graphics.setScissor(sx, sy, sw, sh) else love.graphics.setScissor() end
   love.graphics.setColor(1, 1, 1, 1)
 end
@@ -235,8 +263,7 @@ local function draw_name_gender(name, gender, x, y)
     local colors = rs_text_colors()
     draw_rs_row(name, x, top + 8, 56, colors, true)
     if gender then
-      local opts = { font = "native_4", textMode = 0 }
-      local offset = FrlgFont.measure(name, opts)
+      local offset = FrlgFont.measure(name, RS_MEASURE_OPTS)
       local symbol = gender == "M" and "♂" or "♀"
       if offset < 56 then draw_rs_row(symbol, x + offset, top + 8, 56 - offset, rs_text_colors(gender)) end
     end
@@ -317,14 +344,9 @@ local function draw_hp_nums(cur, maxHp, boxX, boxY)
   if rs_layout() then
     -- pokeruby/src/battle_interface.c:835
     -- text.c:2382
-    local opts = { font = "native_4", textMode = 0 }
-    local function aligned(value, width)
-      local text = tostring(math.max(0, math.floor(value or 0)))
-      return string.char(0xFC, 0x13, math.max(0, width - FrlgFont.measure(text, opts))) .. text
-    end
     local colors = rs_text_colors()
-    draw_rs_row(aligned(cur, 19) .. "/", boxX + 56, boxY + 24, 24, colors, true)
-    draw_rs_row(aligned(maxHp, 15), boxX + 80, boxY + 24, 16, colors, true)
+    draw_rs_row(rs_aligned(cur, 19) .. "/", boxX + 56, boxY + 24, 24, colors, true)
+    draw_rs_row(rs_aligned(maxHp, 15), boxX + 80, boxY + 24, 16, colors, true)
     return
   end
   FrlgFont.draw(string.format("%3d/", cur or 0), boxX + HP_CUR_X, boxY + HP_TEXT_Y, small_opts(HB_TEXT))
@@ -407,23 +429,27 @@ local BAR_FG = { c5(7), c5(7), c5(7), 1 }
 local BAR_SHADOW = { c5(26), c5(25), c5(23), 1 }
 local BOTTOM_RIGHT_CORNER_HP_AS_TEXT = 116
 
--- pokefirered/src/battle_interface.c:864
-local function draw_hp_text_doubles(bx, by, cur, maxHp)
-  if rs_layout() then
-    -- pokeruby/src/battle_interface.c:892
-    local pal = BattleChrome.manifest().healthbarPal
+local rsBarPalette, rsBarColors
+local function rs_bar_text_colors()
+  local pal = BattleChrome.manifest().healthbarPal
+  if rsBarPalette ~= pal then
     local function color(i)
       local value = assert(pal[i + 1], "RS healthbar palette missing")
       return { c5(value % 32), c5(math.floor(value / 32) % 32), c5(math.floor(value / 1024) % 32), 1 }
     end
-    local colors = { fg = color(1), shadow = color(3), bg = { 0, 0, 0, 0 } }
-    local opts = { font = "native_4", textMode = 0 }
-    local function aligned(value, width)
-      local text = tostring(math.max(0, math.floor(value or 0)))
-      return string.char(0xFC, 0x13, math.max(0, width - FrlgFont.measure(text, opts))) .. text
-    end
-    draw_rs_row(aligned(cur, 43) .. "/", bx, by, 48, colors)
-    draw_rs_row(aligned(maxHp, 15), bx + 48, by, 16, colors)
+    rsBarColors = { fg = color(1), shadow = color(3), bg = { 0, 0, 0, 0 } }
+    rsBarPalette = pal
+  end
+  return rsBarColors
+end
+
+-- pokefirered/src/battle_interface.c:864
+local function draw_hp_text_doubles(bx, by, cur, maxHp)
+  if rs_layout() then
+    -- pokeruby/src/battle_interface.c:892
+    local colors = rs_bar_text_colors()
+    draw_rs_row(rs_aligned(cur, 43) .. "/", bx, by, 48, colors)
+    draw_rs_row(rs_aligned(maxHp, 15), bx + 48, by, 16, colors)
     return
   end
   local opts = { small = true, colors = { fg = BAR_FG, shadow = BAR_SHADOW } }

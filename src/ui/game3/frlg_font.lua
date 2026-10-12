@@ -1448,12 +1448,17 @@ function FrlgFont.draw(text, x, y, opts)
             set_col(curCol.bg)
             love.graphics.rectangle("fill", dx, dy, adv, pitch)
           end
-          local aq = gat and gat.fg[aid]
+          local aq, ash = gat and gat.fg[aid], gat and gat.sh[aid]
+          -- R/S native faces pack fg, shadow and embedded colours into one
+          -- texture (rs/font_faces.lua), keyed by the source quad
+          local nq = nativeFace and nativeFace.atlas and nativeFace.atlas.of[q]
+          local aimg = gat and gat.image
+          if nq then aq, ash, aimg = nq.fg, nq.sh, nativeFace.atlas.image end
           -- Draw shadow
           if gsh and curCol.shadow and (not curCol.shadow[4] or curCol.shadow[4] > 0) then
             set_col(curCol.shadow)
             if aq then
-              love.graphics.draw(gat.image, gat.sh[aid], dx, dy)
+              love.graphics.draw(aimg, ash, dx, dy)
             else
               love.graphics.draw(gsh, q, dx, dy)
             end
@@ -1462,14 +1467,18 @@ function FrlgFont.draw(text, x, y, opts)
           if curCol.fg and (not curCol.fg[4] or curCol.fg[4] > 0) then
             set_col(curCol.fg)
             if aq then
-              love.graphics.draw(gat.image, aq, dx, dy)
+              love.graphics.draw(aimg, aq, dx, dy)
             else
               love.graphics.draw(gfg, q, dx, dy)
             end
           end
           if nativeFace and nativeFace.fixed then
             love.graphics.setColor(1, 1, 1, 1)
-            love.graphics.draw(nativeFace.fixed, q, dx, dy)
+            if nq and nq.fixed then
+              love.graphics.draw(aimg, nq.fixed, dx, dy)
+            else
+              love.graphics.draw(nativeFace.fixed, q, dx, dy)
+            end
           end
         end
         penX = penX + japanese_step(id, adv, minW, jpn, activeOpts, useSmall)
