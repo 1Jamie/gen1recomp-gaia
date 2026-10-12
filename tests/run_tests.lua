@@ -3841,6 +3841,7 @@ runSuites(orderedGlob(
   "tests/gen2_dex_gift_test.lua",
   "tests/gen2_ledge_hop_test.lua",
   "tests/gen2_ow_bounce_test.lua",
+  "tests/sprite_renderer_imagedata_test.lua",
   "tests/gen2_pack_rows_test.lua",
   "tests/gen2_sleep_counter_test.lua",
   "tests/gen2_timed_heal_test.lua",
