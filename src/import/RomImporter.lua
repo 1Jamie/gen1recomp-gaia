@@ -1645,13 +1645,20 @@ local function updaterAllowed()
   local isHandheld = os.getenv("HANDHELD") == "1" or os.getenv("PORTMASTER") == "1"
     or os.getenv("POKEPORT_HANDHELD") == "1" or os.getenv("TRIMUI") == "1"
     or os.getenv("MUOS") == "1" or os.getenv("KNULLI") == "1"
-  if not (love.filesystem.isFused and love.filesystem.isFused()) and not isHandheld then
+  local okb, Boot = pcall(require, "src.update.Boot")
+  local canUpdate = (okb and type(Boot) == "table" and type(Boot.canUpdateInPlace) == "function"
+      and Boot.canUpdateInPlace())
+    or (love and love.filesystem and love.filesystem.isFused and love.filesystem.isFused())
+    or isHandheld
+  if not canUpdate then
     return false
   end
   if os.getenv("POKEPORT_AUTOPILOT") or os.getenv("POKEPORT_DRIVER") then return false end
   if os.getenv("POKEPORT_IMPORT_ONLY") == "1" then return false end
   return true
 end
+
+RomImporter._updaterAllowed = updaterAllowed
 
 -- #835: which column the launcher opens on.  `tab` starts at the --game
 -- shortcut's version (LaunchOptions.pendingTab) or Red; this then prefers the

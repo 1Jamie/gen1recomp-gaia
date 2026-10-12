@@ -25,8 +25,29 @@ Curl is bundled at `/app/bin/curl` so the game does not need host curl.
 
 ## Updates
 
-Lua/engine payloads still use the in-app `.love` updater. A native shell bump
-points at the new `.flatpak` asset (`Download Flatpak update`).
+Lua/engine payloads use the in-app `.love` updater via the "Check for updates"
+footer button in the launcher. Downloaded payloads are stored in the user data
+directory (`~/.var/app/com.theboisclub.gen1recomp/data/love/pokemon-love2d/updates/`)
+and mounted over the base source on boot.
+
+If a new full Flatpak bundle is installed, `Boot.select` compares the base
+engine version against any downloaded payload and purges older or equal
+overlays so stale user-data files never shadow the newer base package.
+
+A native shell bump points at the new `.flatpak` asset (`Download Flatpak update`).
+When upgrading via a `.flatpak` bundle over an existing installation, use:
+
+```sh
+flatpak --user install --reinstall ./gen1recomp-<version>-linux.flatpak
+```
+
+If Flatpak reports that it cannot connect to the disabled `gen1recomp-origin` remote,
+remove the stale bundle remote and retry:
+
+```sh
+flatpak remote-delete gen1recomp-origin
+flatpak --user install ./gen1recomp-<version>-linux.flatpak
+```
 
 After a `.love` payload download, restart uses `love.event.quit("restart")`
 (`execv` of `/proc/self/exe` inside bwrap). If a restart hangs after an

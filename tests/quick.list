@@ -776,6 +776,7 @@ tests/engine/update_check_tests.lua
 tests/engine/update_signed_mount.lua
 tests/engine/update_tests.lua
 tests/engine/update_worker_probe_gate.lua
+tests/engine/updater_allowed_test.lua
 tests/engine/uwp_native_picker_test.lua
 tests/engine/vending_machine_bug1876.lua
 tests/engine/viridian_fisher_pre_bug775.lua
