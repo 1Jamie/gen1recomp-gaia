@@ -122,6 +122,8 @@ local function resolvePhysfs()
   local libs = {
     function() return ffi.C end,
     function() return ffi.load("love") end,
+    function() return ffi.load("liblove-11.5.so") end,
+    function() return ffi.load("love-11.5") end,
   }
   for _, getlib in ipairs(libs) do
     local okl, lib = pcall(getlib)

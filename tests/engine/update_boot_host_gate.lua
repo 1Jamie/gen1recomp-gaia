@@ -103,4 +103,25 @@ withLove(love_stub.filesystem, function()
   end)
 end)
 
+-- overlay shadowing protection: when a base package is upgraded, an older or
+-- equal payload in updates/ must never be chosen and must be queued for deletion
+do
+  local candidates = {
+    { name = "gen1recomp-0.2.57.love", engine = "0.2.57", minShell = 1, payloadHost = "love" },
+    { name = "gen1recomp-0.3.0.love", engine = "0.3.0", minShell = 1, payloadHost = "love" },
+  }
+  local chosen, toDelete = Boot.select(candidates, "0.3.0", 3, "love")
+  eq(chosen, nil, "newer base build 0.3.0 rejects older or equal overlays")
+  eq(#toDelete, 2, "both older (0.2.57) and equal (0.3.0) overlays are marked for deletion")
+
+  local newerCandidates = {
+    { name = "gen1recomp-0.2.57.love", engine = "0.2.57", minShell = 1, payloadHost = "love" },
+    { name = "gen1recomp-0.3.1.love", engine = "0.3.1", minShell = 1, payloadHost = "love" },
+  }
+  local chosenNewer, toDeleteNewer = Boot.select(newerCandidates, "0.3.0", 3, "love")
+  eq(chosenNewer, "gen1recomp-0.3.1.love", "strictly newer overlay 0.3.1 is selected")
+  eq(#toDeleteNewer, 1, "older overlay 0.2.57 is marked for deletion when 0.3.1 is chosen")
+  eq(toDeleteNewer[1], "gen1recomp-0.2.57.love", "older overlay is the victim")
+end
+
 T.finish("update_boot_host_gate")
