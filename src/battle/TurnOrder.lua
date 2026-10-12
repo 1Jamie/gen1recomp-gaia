@@ -4,14 +4,12 @@
 -- imported caches (Gen 1 has only QUICK_ATTACK first and COUNTER last).
 
 local Damage = require("src.battle.Damage")
-local Stats = require("src.pokemon.Stats")
 local Status = require("src.battle.Status")
 
 local TurnOrder = {}
 
 local function effectiveSpeed(battler)
-  local spd = Stats.applyStage(battler.curStats.speed,
-                               battler.stages and battler.stages.speed or 0)
+  local spd = Damage.stagedStat(battler, "speed")
   -- ApplyBadgeStatBoosts: the SOULBADGE boosts speed; the rows come from
   -- the battler's merged badgeBoosts with the vanilla list as fallback
   spd = Damage.applyBadgeBoost(battler, "speed", spd)

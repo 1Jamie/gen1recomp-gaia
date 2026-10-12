@@ -411,6 +411,27 @@ local function release_cry_mode(mon)
 end
 IntroSeq.releaseCryMode = release_cry_mode
 
+-- pokefirered/src/pokeball.c:794
+local function quiet_bgm_for_double_release(st)
+  if not (st and st.double) then return end
+  if st.multi then
+    if not Audio.isBgmStopped() then Audio.pauseBgm() end
+  else
+    Audio.setBgmVolume(128)
+  end
+end
+IntroSeq.quietBgmForDoubleRelease = quiet_bgm_for_double_release
+
+-- pokefirered/src/battle_controller_player.c:906
+local function restore_bgm_after_double_release(st)
+  if st and st.multi then
+    Audio.resumeBgm()
+  else
+    Audio.setBgmVolume(256)
+  end
+end
+IntroSeq.restoreBgmAfterDoubleRelease = restore_bgm_after_double_release
+
 function IntroSeq.introText(st)
   return BattleText.get(BattleText.INTROMSG, Adapter.fill(st, { opponentMon1 = st.enemy,
     opponentMon2 = st.double and State.battler(st, 3) or nil }))
@@ -1030,6 +1051,7 @@ local function run_step(step)
           if not openedSe then
             openedSe = true
             pcall(function() Audio.playSe(SE.SE_BALL_OPEN) end)
+            if d.ids then quiet_bgm_for_double_release(st) end
           end
           local p = present_of(m.key)
           if p then
@@ -1150,6 +1172,7 @@ local function run_step(step)
         openedSe = true
         pcall(function() Audio.playSe(SE.SE_BALL_OPEN) end)
       end
+      if d.ids then quiet_bgm_for_double_release(st) end
       for _, m in ipairs(mons) do
         m.ball.frame = 1
         m.ball.rot = 0
@@ -1311,18 +1334,23 @@ local function run_cry_queue()
   if q.waiting and Audio.isCryFinished and not Audio.isCryFinished() then return false end
   q.i = (q.i or 0) + 1
   local id = q.ids[q.i]
+  local Battle = package.loaded["src.core.game3.battle"]
+  local st = Battle and Battle._st
   if id == nil then
     IntroSeq._cryQueue = nil
+    if st and st.double then restore_bgm_after_double_release(st) end
     return true
   end
-  local Battle = package.loaded["src.core.game3.battle"]
-  local b = Battle and Battle._st and State.battler(Battle._st, id)
+  local b = st and State.battler(st, id)
   local species = b and (b.species or (b.mon and (b.mon.species or b.mon.speciesId)))
   if species then
     local weak = release_cry_mode(b.mon) ~= 0
     local mode
     if #q.ids > 1 and q.i == 1 then mode = weak and 12 or 1 else mode = weak and 11 or 0 end
-    pcall(function() Audio.playCry(species, mode, (State.sideOf(id) == "player") and -25 or 25) end)
+    local pan = (State.sideOf(id) == "player") and -25 or 25
+    -- pokefirered/src/pokeball.c:754
+    local cry = { mode = mode, pan = pan, release = #q.ids > 1, multi = st.multi == true }
+    pcall(function() Audio.playCry(species, cry) end)
   end
   q.waiting = true
   return false

@@ -1277,6 +1277,9 @@ function Model:input(key)
     for _, it in ipairs(pg.items) do
       if it.id == "back" or it.id == "unready" then return self:choose(it) end
     end
+    for _, it in ipairs(pg.items) do
+      if it.id == "cancel" then return self:choose(it) end
+    end
   end
 end
 

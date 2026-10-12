@@ -208,6 +208,9 @@ and the vanilla path is the cache `.rgba`. Return a PNG path to swap the icon:
 a 32x64 sheet gives both animation frames, a 32x32 image is one frame shown on
 both. Returning `nil` or `false` draws a blank icon. `ctx.mon` is `nil` where a
 screen asks by species alone (Pokedex, trainer card, a remote online party).
+For an Unown both hooks give `species = "UNOWN"`, `gen3Species` as the letter's
+own index (413 and up past A) and `letter` as 1 (A) to 28 (`?`), with the path
+pointing at that letter's art.
 
 `docs/mod-api-gen2-compat.md` is the compatibility matrix: what works on Gold,
 Silver and Crystal today (40 of the 46 registries, 40 event and 44 hook names

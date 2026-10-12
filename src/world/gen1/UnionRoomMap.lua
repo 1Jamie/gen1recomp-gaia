@@ -10,6 +10,10 @@ UnionRoomMap.HEIGHT = 13
 UnionRoomMap.CAP = Plaza.CAP
 UnionRoomMap.EXIT_X, UnionRoomMap.EXIT_Y = 12, 25
 UnionRoomMap.EXITS = { { x = 12, y = 25 }, { x = 13, y = 25 } }
+UnionRoomMap.TEXT_ATTENDANT = "TEXT_UNION_ROOM_ATTENDANT"
+UnionRoomMap.TEXT_BOARD = "TEXT_UNION_ROOM_TRADING_BOARD"
+UnionRoomMap.ATTENDANT = { x = 3, y = 2 }
+UnionRoomMap.BOARD = { x = 2, y = 1 }
 
 local WALL_LEFT, WALL, POSTER, WALL_RIGHT = 27, 3, 19, 23
 local FLOOR, CARPET = 10, 1
@@ -34,7 +38,7 @@ function UnionRoomMap.blocks()
       local b = FLOOR
       if by == 0 then
         b = (bx == 0 and WALL_LEFT) or (bx == w - 1 and WALL_RIGHT)
-            or (bx == 6 and POSTER) or WALL
+            or ((bx == 6 or bx == math.floor(UnionRoomMap.BOARD.x / 2)) and POSTER) or WALL
       elseif by == h - 1 and bx == 6 then
         b = CARPET
       end
@@ -55,7 +59,14 @@ function UnionRoomMap.build(borderBlock, floor2Id, floor2DoorWarp)
     width = UnionRoomMap.WIDTH, height = UnionRoomMap.HEIGHT,
     borderBlock = borderBlock,
     blocks = UnionRoomMap.blocks(),
-    warps = warps, objects = {}, signs = {}, connections = {},
+    warps = warps,
+    objects = {
+      { index = 1, movement = "STAY", range = "DOWN", sprite = "SPRITE_NURSE",
+        x = UnionRoomMap.ATTENDANT.x, y = UnionRoomMap.ATTENDANT.y,
+        name = "UNION_ROOM_ATTENDANT", text = UnionRoomMap.TEXT_ATTENDANT },
+    },
+    signs = { { x = UnionRoomMap.BOARD.x, y = UnionRoomMap.BOARD.y, text = UnionRoomMap.TEXT_BOARD } },
+    connections = {},
   }
 end
 

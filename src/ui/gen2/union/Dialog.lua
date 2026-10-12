@@ -43,10 +43,15 @@ end
 
 function Dialog.menuHeader(labels)
   local items = {}
-  for i, label in ipairs(labels) do items[i] = Strings(label) end
+  local widest = 0
+  for i, label in ipairs(labels) do
+    items[i] = Strings(label)
+    widest = math.max(widest, require("src.render.Font").width(items[i]) / 8)
+  end
   local top = Dialog.MENU_BOTTOM - (#items * 2 + 1)
+  local left = math.min(Dialog.MENU_LEFT, Dialog.MENU_RIGHT - 2 - math.ceil(widest))
   return {
-    left = Dialog.MENU_LEFT, right = Dialog.MENU_RIGHT,
+    left = left, right = Dialog.MENU_RIGHT,
     top = top, bottom = Dialog.MENU_BOTTOM,
     items = items, dataFlags = STATICMENU_CURSOR, cursor = 1,
   }

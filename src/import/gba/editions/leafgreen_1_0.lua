@@ -1385,6 +1385,7 @@ return {
   [0x1C6787] = 0x1C6763, -- :Pokedude_Text_CantDoubleUpOnStatus + 0
   [0x1C684B] = 0x1C6827, -- :Pokedude_Text_LetMeThrowBall + 0
   [0x1C686C] = 0x1C6848, -- :Pokedude_Text_PickBestKindOfBall + 0
+  [0x1C68EC] = 0x1C68C8, -- :gMovesWithQuietBGM + 0
   [0x1C68F4] = 0x1C68D0, -- :gBattleAnims_Moves + 0
   [0x1C6E84] = 0x1C6E60, -- :gBattleAnims_StatusConditions + 0
   [0x1C6EA8] = 0x1C6E84, -- :gBattleAnims_General + 0

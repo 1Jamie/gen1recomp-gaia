@@ -295,6 +295,7 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/gba/pokemon/learnsets.lua",
     "data/generated/gba/pokemon/move_names.lua",
     "data/generated/gba/pokemon/battle_moves.lua",
+    "data/generated/gba/pokemon/battle_anims/pack.lua",
     "data/generated/gba/pokemon/battle/manifest.lua",
     "data/generated/gba/pokemon/battle/healthbox_player.rgba",
     "data/generated/gba/pokemon/battle/healthbox_doubles_player.rgba",

@@ -4847,7 +4847,8 @@ function BattleState:awardExp()
         if mon == self.player.mon then
           -- engine/battle/experience.asm:236-239
           self.player.badgeExtraBoosts = nil
-          require("src.battle.Status").bakeOnInflict(self, self.player)
+          self.player.rawStats, self.player.hazeStatReset = nil, nil
+          require("src.battle.Status").bakeOnRecalc(self, self.player)
           self.player.shownHP = mon.hp
           self.player.shownPx = Timing.hpBarPixels(mon.hp,
                                                    math.max(1, mon.stats.hp))

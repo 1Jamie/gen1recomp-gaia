@@ -1,3 +1,4 @@
+local Caps = require("src.online.union.Caps")
 local Strings = require("src.core.Strings")
 local Setting = require("src.online.union.Setting")
 local Origin = require("src.online.union.Origin")
@@ -12,7 +13,8 @@ M.LEFT_KEY = "union:2f_left_room"
 
 local KEY = {
   closed = "union:2f_closed",
-  noMon = "union:2f_no_mon",
+  needTwo = "union:2f_need_two",
+  mods = "union:2f_mods",
   decline = "union:2f_decline",
 }
 
@@ -26,7 +28,8 @@ local MOVE = {
 
 local TEXT = {
   closed = Strings.source("I'm sorry, the\nUNION ROOM isn't\vopen to you yet."),
-  noMon = Strings.source("You'll need at\nleast one POKéMON\vto go in."),
+  -- pokefirered/data/scripts/cable_club.inc:1492
+  needTwo = Strings.source("To enter the UNION\nROOM, you must\vhave at least two\vPOKéMON."),
   intro = Strings.source(
     "Welcome to the\nUNION ROOM.\fTrainers from\nevery generation\vgather here.\f"
     .. "Would you like\nto go in?"),
@@ -46,8 +49,8 @@ local STEP = 0x0c
 local STEP_END = 0x47
 -- constants/ram_constants.asm:82
 local DOWN, UP, LEFT, RIGHT = 0, 1, 2, 3
--- constants/script_constants.asm:49
-local VAR_PARTYCOUNT = 0x01
+M.VAR_PARTY_NON_EGGS = "PARTY_NON_EGGS"
+M.VAR_LINK_MODS = "LINK_MODS"
 
 local function moves(...)
   local out = {}
@@ -162,18 +165,29 @@ local function addScripts(data, def, room, plan, rcptConst, leaveScene)
   mv[MOVE.playerOut] = moves(STEP + DOWN, STEP + DOWN, STEP + DOWN)
   mv[MOVE.back] = moves(SLOW_STEP + RIGHT, SLOW_STEP + DOWN)
   scripts[KEY.closed] = says(TEXT.closed)
-  scripts[KEY.noMon] = says(TEXT.noMon)
   scripts[KEY.decline] = says(TEXT.decline)
+  scripts[KEY.mods] = {
+    { op = "rawtext", text = Caps.MODS_TEXT }, { op = "waitbutton" },
+    { op = "sjump", script = KEY.decline },
+  }
+  scripts[KEY.needTwo] = {
+    { op = "rawtext", text = TEXT.needTwo }, { op = "waitbutton" },
+    { op = "sjump", script = KEY.decline },
+  }
   scripts[M.RECEPTIONIST_KEY] = {
     { op = "faceplayer" },
     { op = "opentext" },
     { op = "checkevent", event = gateEvent(scripts, plan.receptionist) },
     { op = "iffalse", script = KEY.closed },
-    { op = "readvar", var = VAR_PARTYCOUNT },
-    { op = "iffalse", script = KEY.noMon },
+    -- pokefirered/data/scripts/cable_club.inc:747
+    { op = "readvar", var = M.VAR_LINK_MODS },
+    { op = "iftrue", script = KEY.mods },
     { op = "rawtext", text = TEXT.intro },
     { op = "yesorno" },
     { op = "iffalse", script = KEY.decline },
+    -- pokefirered/data/scripts/cable_club.inc:804
+    { op = "readvar", var = M.VAR_PARTY_NON_EGGS },
+    { op = "ifless", value = 2, script = KEY.needTwo },
     { op = "rawtext", text = TEXT.save },
     { op = "yesorno" },
     { op = "iffalse", script = KEY.decline },

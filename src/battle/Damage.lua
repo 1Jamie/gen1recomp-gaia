@@ -53,13 +53,20 @@ function Damage.applyBadgeBoost(battler, stat, value)
   return value
 end
 
+-- engine/items/item_effects.asm:907
+function Damage.stagedStat(battler, stat)
+  local value = battler.curStats[stat]
+  if battler.rawStats and battler.rawStats[stat] then return value end
+  return Stats.applyStage(value, battler.stages and battler.stages[stat] or 0)
+end
+
 -- pokered/engine/battle/effects.asm:405
 function Damage.statAtCap(battle, battler, stat)
   if battle.ruleset and battle.ruleset.statCapRollbackBug == false then return false end
   if stat ~= "attack" and stat ~= "defense" and stat ~= "speed" and stat ~= "special" then return false end
   local value = battler.curStats and battler.curStats[stat]
   if type(value) ~= "number" then return false end
-  value = Stats.applyStage(value, battler.stages[stat] or 0)
+  value = Damage.stagedStat(battler, stat)
   value = Damage.applyBadgeBoost(battler, stat, value)
   return Status.applyPenalty(battler, stat, value) == 999
 end
@@ -96,7 +103,8 @@ function Damage.critRoll(ruleset, attacker, moveId, rng, highCrit)
     speed = Stats.applyStage(attacker.curStats.speed,
               attacker.stages and attacker.stages.speed or 0)
   else
-    speed = attacker.def.baseStats.speed
+    -- engine/battle/core.asm:4483
+    speed = attacker.critBaseSpeed or attacker.def.baseStats.speed
   end
   local b = math.floor(speed / 2)
   if attacker.focusEnergy then
@@ -205,10 +213,8 @@ function Damage.compute(ruleset, attacker, defender, move, opts)
     atk = attacker.curStats[atkStat]
     dfn = defender.curStats[defStat]
   else
-    atk = Stats.applyStage(attacker.curStats[atkStat],
-                           attacker.stages and attacker.stages[atkStat] or 0)
-    dfn = Stats.applyStage(defender.curStats[defStat],
-                           defender.stages and defender.stages[defStat] or 0)
+    atk = Damage.stagedStat(attacker, atkStat)
+    dfn = Damage.stagedStat(defender, defStat)
     -- badge boosts (x9/8), engine/battle/core.asm ApplyBadgeStatBoosts:
     -- Boulder -> attack, Thunder -> defense, Soul -> speed (TurnOrder),
     -- Volcano -> special

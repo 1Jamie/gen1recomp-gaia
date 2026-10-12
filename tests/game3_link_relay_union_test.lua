@@ -670,6 +670,32 @@ else
   run(1)
 end
 eq(Union.state, "main", "back from the board")
+if romBundle then
+  local blue = member("bbbb0003", 3, "BLUE", 3, 0)
+  blue.avatar.version, blue.avatar.gen = "blue", 1
+  blue.board = { species = 7, level = 5, wantType = 12 }
+  table.insert(Client._plaza.members, blue)
+  Client._plaza.rev = Client._plaza.rev + 1
+  run(1)
+  local blueOffer
+  for _, o in ipairs(Union.boardOffers()) do
+    if o.name == "BLUE" then blueOffer = o end
+  end
+  check(blueOffer ~= nil, "a Gen 1 board offer is listed")
+  Client.calls = {}
+  Union.boardPick(blueOffer)
+  check(settle(), "asked whether to ask BLUE")
+  answer(true)
+  drain()
+  local xinv = Client.last("invite")
+  eq(xinv and xinv[1], "bbbb0003", "the Gen 1 offer goes to BLUE")
+  eq(xinv and xinv[2], "xg_trade", "as a cross-gen trade")
+  Union.toMain()
+  Message.reset()
+  table.remove(Client._plaza.members)
+  Client._plaza.rev = Client._plaza.rev + 1
+  run(1)
+end
 Player.cellX, Player.cellY, Player.facing = 7, 11, "down"
 
 print("[test] 7b. the board lists every offer in the room and scrolls; EXIT never collides")

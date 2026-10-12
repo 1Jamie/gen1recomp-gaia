@@ -1428,6 +1428,16 @@ function Pokemon.picSpecies(species, personality)
   return SPECIES_UNOWN_B + letter - 1
 end
 
+-- pokefirered/include/constants/species.h:425
+function Pokemon.picBaseSpecies(species)
+  species = tonumber(species)
+  if species == SPECIES_UNOWN then return SPECIES_UNOWN, 0 end
+  if species and species >= SPECIES_UNOWN_B and species < SPECIES_UNOWN_B + 27 then
+    return SPECIES_UNOWN, species - SPECIES_UNOWN_B + 1
+  end
+  return species, nil
+end
+
 -- pokefirered/src/pokemon.c:6062
 function Pokemon.isShiny(mon)
   if not mon then return false end

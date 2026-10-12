@@ -1312,6 +1312,11 @@ function Union.boardPick(entry)
     Union.stayStep(RomText.ascii("gText_UR_AskTrainerToMakeTrade", ctx)),
     Union.yesNoStep(function(yes)
       if not yes then return Union.toMain() end
+      if p and (tonumber(p.sourceGen) or 3) ~= 3 then
+        for i, item in ipairs(Union.XG_ITEMS) do
+          if item.wire == "xg_trade" then return Union.chooseXg(i) end
+        end
+      end
       Union.boardOffer(entry)
     end),
   }, "trade_prompt")

@@ -1,9 +1,12 @@
 local GameVersion = require("src.core.GameVersion")
 local Policy = require("src.online.xgen.Policy")
+local Strings = require("src.core.Strings")
 
 local Caps = {}
 
 local NO_MODS = {}
+
+Caps.MODS_TEXT = Strings.source("Mods that change link play are on, so this game can't go online.")
 
 function Caps.gameplayMods(game)
   if type(game) ~= "table" or not game.mods then return false end

@@ -339,6 +339,11 @@ function Room:setStatus(status)
   return self.client.setStatus(status)
 end
 
+function Room:setBoard(board)
+  if board ~= false and type(board) ~= "table" then return false end
+  return self.client.setPresence({ board = board })
+end
+
 function Room:busy(p)
   return Participant.busy(p or self.me)
 end

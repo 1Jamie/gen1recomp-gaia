@@ -23,7 +23,8 @@ return function(game)
   if not ok(maps[Room.ID] ~= nil, "union room map present") then love.event.quit(1) return end
   local base = game.stack:top()
   local save = game.save
-  save.party = { Mon.new(game.data, "CYNDAQUIL", 12) }
+  save.party = { Mon.new(game.data, "CYNDAQUIL", 12), Mon.new(game.data, "SENTRET", 6) }
+  require("src.online.union.Caps").gameplayMods = function() return false end
   local gate = game.data.gen2Scripts[Center.RECEPTIONIST_KEY][3].event
   world.events:set(gate, true)
 

@@ -142,6 +142,7 @@ end
 function Convert.toGen2(mon, gen1Data, gen2Data)
   if type(mon) ~= "table" then return nil, "not_a_mon" end
   local def1 = speciesDefinition(gen1Data, mon.species)
+  if not def1 then return nil, "species_unknown" end
   local def2, species2 = destinationSpecies(def1, mon.species, gen2Data)
   if not def2 then return nil, "species_unknown" end
 
@@ -153,8 +154,7 @@ function Convert.toGen2(mon, gen1Data, gen2Data)
 
   local oldStats = mon.stats
   if not (oldStats and oldStats.hp) then
-    oldStats = Stats.calc(def1 or { baseStats = baseStatsOf(def2) }, level,
-      dvs, statExp)
+    oldStats = Stats.calc(def1, level, dvs, statExp)
   end
   local oldSpecial = oldStats.special
   if oldSpecial and (oldSpecial ~= stats.specialAttack
@@ -250,6 +250,9 @@ function Convert.refusalFor(mon, gen2Data, gen1Data)
   if type(mon) ~= "table" then return "not_a_mon", {} end
   if mon.isEgg then return "is_egg", {} end
   local species2 = speciesDefinition(gen2Data, mon.species)
+  if not species2 then
+    return "species_unknown", { species = mon.species }
+  end
   local species1 = destinationSpecies(species2, mon.species, gen1Data)
   if not species1 then
     return "species_too_new", { species = mon.species }
@@ -399,8 +402,9 @@ end
 
 function Convert.validateArrival(mon, destData, sourceData)
   if type(mon) ~= "table" then return false, "not_a_mon" end
-  local def, species = destinationSpecies(speciesDefinition(sourceData, mon.species),
-    mon.species, destData)
+  local sourceDef = speciesDefinition(sourceData, mon.species)
+  if sourceData and not sourceDef then return false, "species_unknown" end
+  local def, species = destinationSpecies(sourceDef, mon.species, destData)
   if not def then return false, "species_unknown" end
   -- engine/link/time_capsule.asm:27
   local level = tonumber(mon.level)

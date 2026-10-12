@@ -141,6 +141,7 @@ function Gen3Compat.speciesName(sp)
   sp = tonumber(sp)
   if not sp then return nil end
   local P = g3("pokemon")
+  if P and P.picBaseSpecies then sp = P.picBaseSpecies(sp) or sp end
   if P and P.keyName then
     local key = P.keyName(sp)
     if key then return key end
@@ -2084,15 +2085,21 @@ Gen3Compat.centredSprite = centredEntry
 
 local function samePath(path) return path end
 
+local function unownLetterIndex(species)
+  local P = g3("pokemon")
+  if not (P and P.picBaseSpecies) then return nil end
+  local _, letter = P.picBaseSpecies(species)
+  return letter and letter + 1 or nil
+end
+
 local function hookedEntry(side, species, form, vanilla, kind, shiny)
   if not Runtime.wantsHook("pokemon.sprite") then return vanilla end
-  local P = g3("pokemon")
   local path = spriteOverrides[side][species]
     or ("data/generated/gba/pokemon/" .. side .. "/" .. species .. ".rgba")
   local g = live()
   local ctx = { data = g and dataProxy(g.data), species = Gen3Compat.speciesName(species),
                 gen3Species = species, form = form, side = side, kind = kind or "battle",
-                trueColor = true, path = path,
+                trueColor = true, path = path, letter = unownLetterIndex(species),
                 shiny = shiny }
   local hooked = Runtime.call("pokemon.sprite", samePath, path, ctx)
   if type(hooked) ~= "string" or hooked == path or isVanillaPic(hooked) then
@@ -2164,7 +2171,7 @@ local function hookedIcon(species, mon, vanilla)
   local g = live()
   local ctx = { data = g and dataProxy(g.data), species = Gen3Compat.speciesName(species),
                 gen3Species = species, mon = mon, kind = "icon", trueColor = true,
-                path = path
+                path = path, letter = unownLetterIndex(species)
                }
   local hooked = Runtime.call("pokemon.icon", samePath, path, ctx)
   if hooked == nil or hooked == false then return blankIcon(vanilla) end

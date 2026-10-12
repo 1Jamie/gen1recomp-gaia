@@ -22,7 +22,10 @@ check(chunk ~= nil, "pack.lua loads without syntax errors: " .. tostring(err))
 
 local pack = chunk and chunk() or {}
 check(type(pack) == "table", "pack is a table")
-check(pack.version == 5, "pack version is 5 (ROM-native, indexed sheets)")
+check(pack.version == 6, "pack version is 6 (ROM-native, indexed sheets, quiet BGM moves)")
+local q = pack.quietBgmMoves or {}
+check(q[1] == 47 and q[2] == 195 and q[3] == 320 and q[4] == nil,
+  "quietBgmMoves is SING, PERISH_SONG, GRASS_WHISTLE")
 check(type(pack.moves) == "table", "pack.moves is a table")
 check(type(pack.labels) == "table", "pack.labels is a table")
 check(type(pack.tags) == "table", "pack.tags is a table")

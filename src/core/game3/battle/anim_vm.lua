@@ -120,6 +120,11 @@ local function se12_panpot(pan)
 end
 AnimVm.se12PanpotControl = se12_panpot
 
+local function bgm_volume(volume)
+  local ok, Audio = pcall(require, "src.core.game3.audio")
+  if ok and Audio and Audio.setBgmVolume then pcall(Audio.setBgmVolume, volume) end
+end
+
 
 local function default_pal()
   local p = {}
@@ -492,6 +497,8 @@ local function begin(self, script, opts)
   self.ctx = opts.ctx or {}
   self.animArg = tonumber(opts.animArg or self.ctx.animArg) or 0
   if self.ctx.animArg == nil then self.ctx.animArg = self.animArg end
+  -- pokefirered/src/battle_anim.c:238
+  if opts.quietBgm then bgm_volume(128) end
   return true
 end
 
@@ -1486,6 +1493,8 @@ OPS["end"] = function(vm)
   end
   if capped then print("[battle.anim] end wait cap") end
   vm._endWait = 0
+  -- pokefirered/src/battle_anim.c:508
+  bgm_volume(256)
   finish(vm)
   return "end"
 end

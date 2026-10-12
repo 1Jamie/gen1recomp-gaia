@@ -178,6 +178,40 @@ local function suite(label, makeData)
   eq(gateCmd.op, "checkevent", label .. ": receptionist gates on an event")
   eq(gateCmd.event, data.gen2Scripts[vanilla.objects[2].scriptKey][1].event,
     label .. ": the gate is the cable club's own event")
+  local function talk(party, mods)
+    local shown = {}
+    local function run(key)
+      local var = 0
+      for _, c in ipairs(data.gen2Scripts[key]) do
+        if c.op == "checkevent" or c.op == "yesorno" then var = 1
+        elseif c.op == "readvar" and c.var == World.VAR_LINK_MODS then var = mods and 1 or 0
+        elseif c.op == "readvar" then var = party
+        elseif c.op == "iftrue" and var ~= 0 then return run(c.script)
+        elseif c.op == "rawtext" then shown[#shown + 1] = c.text
+        elseif c.op == "iffalse" and var == 0 then return run(c.script)
+        elseif c.op == "ifless" and var < c.value then return run(c.script)
+        elseif c.op == "sjump" then return run(c.script)
+        elseif c.op == "special" then return end
+      end
+    end
+    run(Center.RECEPTIONIST_KEY)
+    return shown
+  end
+  local one, two = talk(1), talk(2)
+  check(one[1] == Center.TEXT.intro and one[2] == Center.TEXT.needTwo and one[3] == Center.TEXT.decline,
+    label .. ": one POKEMON gets the welcome, then the need-two refusal")
+  eq(#one, 3, label .. ": the one-POKEMON refusal ends there")
+  check(two[1] == Center.TEXT.intro and two[2] == Center.TEXT.save,
+    label .. ": two POKEMON go on to the save prompt")
+  local countVar
+  for _, c in ipairs(data.gen2Scripts[Center.RECEPTIONIST_KEY]) do
+    if c.op == "readvar" then countVar = c.var end
+  end
+  eq(countVar, World.VAR_PARTY_NON_EGGS, label .. ": the party check counts non-egg POKEMON")
+  local modded = talk(2, true)
+  check(modded[1] == require("src.online.union.Caps").MODS_TEXT and modded[2] == Center.TEXT.decline,
+    label .. ": link-play mods are refused at the desk before the welcome")
+  eq(#modded, 2, label .. ": the mods refusal ends there")
 
   local roomMap = Map.new(room, tilesets[room.tileset])
   eq(room.width * 2, Room.WIDTH, label .. ": room width")
@@ -318,6 +352,19 @@ local function suite(label, makeData)
 end
 
 suite("fixture", fixture)
+
+do
+  local w = World.new({ data = { audio = { sfxOrder = {} } },
+    save = { player = {}, version = "gold", party = { { species = "PIDGEY" }, { species = "TOGEPI", isEgg = true } } } })
+  eq(w:readVar(World.VAR_PARTY_NON_EGGS), 1, "a POKEMON and an EGG count as one for the union room")
+  eq(w:readVar(0x01), 2, "VAR_PARTYCOUNT still counts the EGG")
+  eq(w:readVar(World.VAR_LINK_MODS), 0, "no mod loader reads as no link-play mods")
+  local Caps = require("src.online.union.Caps")
+  local saved = Caps.gameplayMods
+  Caps.gameplayMods = function(g) return g == w.game end
+  eq(w:readVar(World.VAR_LINK_MODS), 1, "the desk reads the same link-play mods predicate as FireRed")
+  Caps.gameplayMods = saved
+end
 
 local ok, Plaza = pcall(require, "src.core.game3.link.union_plaza_map")
 if ok and Plaza and Plaza.cellFor then

@@ -132,10 +132,12 @@ function TrainerAI.useItem(battle, item)
   local msgs = { romText(battle.data, "_AIBattleUseItemText",
     "%s\nused %s!", trainerName, itemName, enemy.name) }
   if item == "FULL_HEAL" then
+    Status.keepPenaltyOnCure(battle, enemy)
     enemy.mon.status = nil
     enemy.toxicCounter = nil
   elseif item == "FULL_RESTORE" then
     enemy.mon.hp = enemy.mon.stats.hp
+    Status.keepPenaltyOnCure(battle, enemy)
     enemy.mon.status = nil
     enemy.toxicCounter = nil
   elseif HEAL_AMOUNT[item] then

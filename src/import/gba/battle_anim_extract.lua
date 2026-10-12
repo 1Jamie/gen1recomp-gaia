@@ -10,7 +10,7 @@ local CacheBlob = require("src.import.CacheBlob")
 
 local BattleAnimExtract = {}
 
-BattleAnimExtract.FORMAT_VERSION = 5
+BattleAnimExtract.FORMAT_VERSION = 6
 BattleAnimExtract.CACHE_SUB      = "pokemon/battle_anims"
 BattleAnimExtract.REQUIRED       = { "pokemon/battle_anims/pack.lua" }
 BattleAnimExtract.LEVEL_UP_VERTICAL_VERSION = 1
@@ -1153,6 +1153,17 @@ function BattleAnimExtract.run(rom, cache, opts)
     end
   end
 
+  -- pokefirered/src/battle_anim.c:234
+  local quietBgmMoves = {}
+  if anim.quiet_bgm_moves then
+    for i = 0, 15 do
+      local id = rom:u16(anim.quiet_bgm_moves + i * 2)
+      if id == 0xFFFF then break end
+      quietBgmMoves[#quietBgmMoves + 1] = id
+    end
+  end
+  if #quietBgmMoves == 0 then error("battle_anim_extract: quiet BGM move list did not decode") end
+
   local tag_count = 0
   local function decode_table(base, count, names)
     local out, outNames = {}, {}
@@ -1325,6 +1336,7 @@ function BattleAnimExtract.run(rom, cache, opts)
     bgPals       = bgPals,
     statMask     = statMask,
     levelUpVertical = levelUpVertical,
+    quietBgmMoves = quietBgmMoves,
   }
 
   local lua = "return " .. serialize(pack) .. "\n"

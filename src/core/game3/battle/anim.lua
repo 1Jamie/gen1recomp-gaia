@@ -889,6 +889,22 @@ function Anim.scriptForMove(moveId)
   return GENERIC_HIT
 end
 
+-- pokefirered/src/battle_anim.c:234
+function Anim.isQuietBgmMove(moveId)
+  local pack = load_pack()
+  local list = pack and pack.quietBgmMoves
+  if type(list) ~= "table" then return false end
+  local numId = tonumber(moveId)
+  if not numId then
+    local okM, Moves = pcall(require, "src.core.game3.battle.moves")
+    if okM and Moves and Moves.numForName then numId = Moves.numForName(moveId) end
+  end
+  for _, id in ipairs(list) do
+    if id == numId then return true end
+  end
+  return false
+end
+
 function Anim.scriptForStatus(statusId)
   local pack = load_pack()
   if pack and pack.status and pack.status[statusId] then
@@ -905,6 +921,12 @@ function Anim.launchMove(moveId, opts)
     return Anim._vm:launch(GENERIC_MISS, opts)
   end
   local script = Anim.scriptForMove(moveId)
+  if Anim.isQuietBgmMove(moveId) then
+    local o = {}
+    for k, v in pairs(opts) do o[k] = v end
+    o.quietBgm = true
+    opts = o
+  end
   return Anim._vm:launch(script, opts)
 end
 

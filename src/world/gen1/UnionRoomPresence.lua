@@ -556,6 +556,10 @@ function Presence:leave()
   if self.activity then self.activity:abort("left") end
   self:unbind()
   self:clearMembers()
+  if self.boardEntry then
+    self.boardEntry = nil
+    self.room:setBoard(false)
+  end
   if self.room.state ~= "idle" and self.room.state ~= "left" then
     self.room:setStatus("busy")
     self.room:leave()
@@ -592,5 +596,19 @@ function Presence.talk(game, ow, npc, done)
   end
   ui("Talk").begin(game, self, npc, done)
 end
+
+local function boardTalk(fn)
+  return function(game, _, _, done)
+    local self = Presence.current(game)
+    if not self then
+      if done then done() end
+      return
+    end
+    ui("Board")[fn](game, self, done)
+  end
+end
+
+Presence.attendant = boardTalk("attendant")
+Presence.board = boardTalk("check")
 
 return Presence

@@ -13,6 +13,7 @@
 local Flags = require("src.script.Flags")
 local Strings = require("src.core.Strings")
 local romText = require("src.core.RomText")
+local Status = require("src.battle.Status")
 
 local ItemEffects = {}
 
@@ -142,6 +143,12 @@ local function cureActiveToxic(battle, target)
   if not battle then return end
   for _, b in ipairs({ battle.player, battle.enemy }) do
     if b and b.mon == target then b.toxicCounter = nil end
+  end
+end
+
+local function activeBattler(battle, target)
+  if battle and battle.player and battle.player.mon == target then
+    return battle.player
   end
 end
 
@@ -422,6 +429,7 @@ function ItemEffects.use(data, save, itemId, target, battle, moveIndex, ow)
        and target.hp >= target.stats.hp and target.status then
       target.status = nil
       cureActiveToxic(battle, target)
+      Status.dropPenaltyOnCure(battle, activeBattler(battle, target))
       require("src.core.Sound").play(data, "Heal_Ailment")
       return "consumed", { romText(data, CURE_TEXT.FULL_HEAL,
         "%s's\nstatus returned\nto normal!", monName(data, target)) }
@@ -444,8 +452,10 @@ function ItemEffects.use(data, save, itemId, target, battle, moveIndex, ow)
     local msgs = { romText(data, "_PotionText", "%s's HP\nwas restored!",
                      monName(data, target), target.hp - before) }
     if itemId == "FULL_RESTORE" then
+      -- engine/items/item_effects.asm:1172
+      Status.keepPenaltyOnCure(battle, activeBattler(battle, target))
       target.status = nil
-      cureActiveToxic(battle, target)
+      if not Status.toxicSurvivesCure(battle) then cureActiveToxic(battle, target) end
     end
     local Sound = require("src.core.Sound")
     if battle then Sound.stopLoop("Low_Health_Alarm") end
@@ -460,6 +470,7 @@ function ItemEffects.use(data, save, itemId, target, battle, moveIndex, ow)
     end
     target.status = nil
     cureActiveToxic(battle, target)
+    Status.dropPenaltyOnCure(battle, activeBattler(battle, target))
     require("src.core.Sound").play(data, "Heal_Ailment")
     return "consumed", { romText(data, CURE_TEXT[itemId],
       "%s's\nstatus returned\nto normal!", monName(data, target)) }

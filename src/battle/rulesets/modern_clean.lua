@@ -22,4 +22,8 @@ return {
   zeroDamageMiss = false,
   -- engine/battle/core.asm:6283,6326 and effects.asm:414-415
   statusPenaltyIsBaked = false,
+  -- engine/battle/move_effects/heal.asm:13
+  healHpLowByteBug = false,
+  -- engine/battle/move_effects/heal.asm:29
+  toxicFlagSurvivesCure = false,
 }

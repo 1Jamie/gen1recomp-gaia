@@ -1,3 +1,4 @@
+local Caps = require("src.online.union.Caps")
 local UnionCenters = require("src.world.gen1.UnionCenters")
 local UnionRoomMap = require("src.world.gen1.UnionRoomMap")
 local Origin = require("src.online.union.Origin")
@@ -10,6 +11,8 @@ local STAIRS = UnionCenters.STAIRS_2F
 
 local WELCOME = Strings("This is the UNION\nROOM. TRAINERS\vfrom near and far\vmeet up inside.\fWould you like to\ngo in?")
 local ENJOY = Strings("Step right in!\nHave fun!")
+-- pokefirered/data/scripts/cable_club.inc:1492
+local NEED_TWO = Strings("To enter the UNION\nROOM, you must\vhave at least two\vPOKéMON.")
 
 local function say(game, text, after, opts)
   game.stack:push(TextBox.new(game, text, after, opts))
@@ -53,8 +56,18 @@ local function unionReceptionist(game, ow, npc, done)
     return
   end
   local function decline() say(game, t._CableClubNPCPleaseComeAgainText, done) end
+  -- pokefirered/data/scripts/cable_club.inc:747
+  if Caps.gameplayMods(game) then
+    say(game, Strings(Caps.MODS_TEXT), decline)
+    return
+  end
   say(game, WELCOME, nil, { choice = function(yes)
     if not yes then decline() return end
+    -- pokefirered/data/scripts/cable_club.inc:803
+    if #(game.save.party or {}) < 2 then
+      say(game, NEED_TWO, decline)
+      return
+    end
     say(game, t._WouldYouLikeToSaveText, nil, { choice = function(save)
       if not save then decline() return end
       game:writeSave()
@@ -118,6 +131,8 @@ return {
     onEnter = function(game, ow) Presence.enter(game, ow) end,
     talk = {
       [Presence.TEXT] = Presence.talk,
+      [UnionRoomMap.TEXT_ATTENDANT] = Presence.attendant,
+      [UnionRoomMap.TEXT_BOARD] = Presence.board,
     },
   },
 }

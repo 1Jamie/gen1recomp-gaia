@@ -6,14 +6,14 @@ local Rs = {}
 local function tables(game, revision)
   local V = VersionsRse.new(game, revision.build)
   local sym, count = V.sym, V.count
-  V.CACHE_VERSION = 7
+  V.CACHE_VERSION = 8
   V.NATIVE_VERSION = 2
   V.OW_VERSION = 1
   V.ANIM_VERSION = 1
   V.AUDIO_VERSION = 1
   V.POKEMON_VERSION = 1
   V.BATTLE_MOVES_VERSION = 1
-  V.BATTLE_ANIMS_VERSION = 1
+  V.BATTLE_ANIMS_VERSION = 2
   V.NATIVE_RENDER, V.OW_RENDER, V.TILESET_ANIM = true, true, true
 
   V.AUDIO = {

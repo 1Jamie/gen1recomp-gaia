@@ -177,19 +177,40 @@ end
 
 local MAX_PENALTY_STACKS = 32
 
-function Status.penaltyStacks(battler, stat)
+local function penaltyDiv(battler, stat)
   local p = penaltyOf(battler)
-  if not p or p.stat ~= stat then return 0 end
+  if p and p.stat == stat then return p.div or 1 end
+  local divs = battler.statusPenaltyStacks and battler.statusPenaltyDivs
+  return divs and divs[stat]
+end
+
+local function addStack(battler, p, n)
   local t = battler.statusPenaltyStacks
-  local n = t and (t[stat] or 0) or (battler.hazeStatReset and 0 or 1)
+  t[p.stat] = n or ((t[p.stat] or 0) + 1)
+  local divs = battler.statusPenaltyDivs
+  if not divs then divs = {} battler.statusPenaltyDivs = divs end
+  divs[p.stat] = p.div or 1
+end
+
+function Status.penaltyStacks(battler, stat)
+  local t = battler.statusPenaltyStacks
+  local n
+  if t then
+    if not penaltyDiv(battler, stat) then return 0 end
+    n = t[stat] or 0
+  else
+    local p = penaltyOf(battler)
+    if not p or p.stat ~= stat then return 0 end
+    n = battler.hazeStatReset and 0 or 1
+  end
   if type(n) ~= "number" or n ~= n or n < 0 then return 0 end
   return math.min(n, MAX_PENALTY_STACKS)
 end
 
 function Status.applyPenalty(battler, stat, value)
-  local p = penaltyOf(battler)
-  if not p or p.stat ~= stat then return value end
-  local div = math.max(1, p.div or 1)
+  local div = penaltyDiv(battler, stat)
+  if not div then return value end
+  div = math.max(1, div)
   for _ = 1, Status.penaltyStacks(battler, stat) do
     value = math.max(1, math.floor(value / div))
   end
@@ -199,10 +220,10 @@ end
 -- core.asm:1658
 -- experience.asm:237
 function Status.bakePenalty(battler)
-  local t = {}
-  battler.statusPenaltyStacks = t
+  battler.statusPenaltyStacks = {}
+  battler.statusPenaltyDivs = nil
   local p = penaltyOf(battler)
-  if p then t[p.stat] = 1 end
+  if p then addStack(battler, p, 1) end
 end
 
 -- engine/battle/effects.asm:414-415
@@ -213,10 +234,9 @@ end
 
 -- engine/battle/effects.asm:505-506
 function Status.stackPenalty(battler)
-  local t = battler.statusPenaltyStacks
-  if not t then return end
+  if not battler.statusPenaltyStacks then return end
   local p = penaltyOf(battler)
-  if p then t[p.stat] = (t[p.stat] or 0) + 1 end
+  if p then addStack(battler, p) end
 end
 
 -- pokered engine/battle/core.asm:6283
@@ -228,21 +248,60 @@ local function ensureStacks(battle, battler)
   if battler.statusPenaltyStacks then return true end
   if not Status.rulesetBakes(battle and battle.ruleset) then return false end
   Status.bakePenalty(battler)
-  if battler.hazeStatReset then battler.statusPenaltyStacks = {} end
+  if battler.hazeStatReset then
+    battler.statusPenaltyStacks, battler.statusPenaltyDivs = {}, nil
+  end
   return true
+end
+
+local function bakes(battle, battler)
+  return battler.statusPenaltyStacks ~= nil
+    or Status.rulesetBakes(battle and battle.ruleset)
 end
 
 -- move_effects/paralyze.asm:35
 function Status.bakeOnInflict(battle, battler)
-  if not (battler.statusPenaltyStacks
-          or Status.rulesetBakes(battle and battle.ruleset)) then
-    return
-  end
+  if not bakes(battle, battler) then return end
+  if not battler.statusPenaltyStacks then return Status.bakePenalty(battler) end
+  local p = penaltyOf(battler)
+  if p then addStack(battler, p) end
+end
+
+-- engine/battle/experience.asm:236
+function Status.bakeOnRecalc(battle, battler)
+  if not bakes(battle, battler) then return end
   Status.bakePenalty(battler)
+end
+
+-- engine/battle/move_effects/heal.asm:35
+-- engine/battle/trainer_ai.asm:625
+function Status.keepPenaltyOnCure(battle, battler)
+  if battler then ensureStacks(battle, battler) end
+end
+
+-- engine/items/item_effects.asm:907
+function Status.dropPenaltyOnCure(battle, battler)
+  if not battler then return end
+  if battler.statusPenaltyStacks then
+    battler.statusPenaltyStacks, battler.statusPenaltyDivs = {}, nil
+  end
+  if not Status.rulesetBakes(battle and battle.ruleset) then return end
+  battler.curStats = battler.mon.stats
+  battler.rawStats = { attack = true, defense = true, speed = true, special = true }
+  battler.hazeStatReset = true
+  battler.badgeExtraBoosts = nil
+end
+
+-- engine/battle/move_effects/heal.asm:29
+-- engine/items/item_effects.asm:1172
+function Status.toxicSurvivesCure(battle)
+  local ruleset = battle and battle.ruleset
+  return not ruleset or ruleset.toxicFlagSurvivesCure ~= false
 end
 
 -- effects.asm:414-415
 function Status.afterStatChange(battle, who, stat, nonUser)
+  if who.rawStats then who.rawStats[stat] = nil end
   if not ensureStacks(battle, who) then return end
   if stat ~= "accuracy" and stat ~= "evasion" then
     Status.clearPenalty(who, stat)

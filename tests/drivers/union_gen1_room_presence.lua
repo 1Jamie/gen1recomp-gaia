@@ -201,13 +201,15 @@ return function(game)
   shot("06_waiting")
   relay:handle(seats.BLUE.seat, { type = "invite_reply", id = inv.id, accept = true })
   ok(waitFor(function() return s.activity ~= nil end, 600), "BLUE accepting begins the activity")
-  ok(waitFor(function() return s.activity and s.activity.state == "ready" and top() and top().tick ~= nil end, 900),
-    "the getting-ready line is up")
+  local PrepScreen = require("src.ui.union.prep.Gen1BattlePrep")
+  ok(waitFor(function() return s.activity and s.activity.state == "ready" and getmetatable(top()) == PrepScreen end, 900),
+    "the battle prep screen is up")
   local prep = s.activity and s.activity.prep
   ok(prep and prep.rules and prep.rules.ruleset == "native", "Gen 1 vs Gen 1 resolves the native ruleset")
-  shot("07_getting_ready")
+  shot("07_battle_prep")
   tap("b")
-  ok(waitFor(function() local t = top() return t and t.pages ~= nil end, 120), "cancel shows a line")
+  ok(waitFor(function() local t = top() return getmetatable(t) == PrepScreen and t.model.step == "closed" end, 120),
+    "B cancels and the prep screen shows the cancelled line")
   shot("08_cancelled")
   ok(mash("a", function() return s.activity == nil and not s.busy and atWorld() end, 120),
     "the activity closes cleanly")

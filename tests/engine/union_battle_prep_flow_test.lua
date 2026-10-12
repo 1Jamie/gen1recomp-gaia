@@ -312,6 +312,8 @@ do
   local pg = m:page()
   T.check(joined(pg.lines):find("Gameplay mods are on", 1, true) ~= nil, "gameplay mods refuse g3u with an explanation")
   T.eq(#pg.items, 1, "only cancel is offered")
+  m:input("b")
+  T.eq(m.step, "closed", "B on a cancel-only page cancels")
   local n = Model.new({ version = "emerald", gen = 3, data = emerald, owned = source(), gameplayMods = true,
     rules = { ruleset = "native", gen = 3, gens = { 3, 3 } } })
   T.check(joined(n:page().lines):find("Gameplay mods are on", 1, true) ~= nil, "gameplay mods refuse native battles too")

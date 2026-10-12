@@ -93,7 +93,6 @@ Audio._bgmVolume = 1
 Audio._sfxVolume = 1
 Audio._duck = 1
 Audio._duckHold = 0
-Audio._seDuck = 1
 Audio._mono = false
 Audio._warned = {}
 
@@ -307,7 +306,7 @@ end
 
 local function bgm_gain(volume)
   return (volume or Audio._bgmVolume or 1)
-    * math.min(Audio._duck or 1, Audio._seDuck or 1)
+    * (Audio._duck or 1)
     * (Audio._helpActive and 0.5 or 1)
 end
 
@@ -392,22 +391,10 @@ function Audio.applyGain()
   apply_bgm_gain()
 end
 
--- Baked effects cannot steal a voice from already queued music. Until the
--- players share a live mixer, give one-shot effects headroom at playback time.
--- Looping alarms do not hold the music down; cry ducking takes precedence.
-local function update_se_duck(startingSource)
-  local active = false
-  for _, src in ipairs(Audio._seSources) do
-    local meta = Audio._seMeta[src]
-    if meta and meta.duckBgm and (src == startingSource or src:isPlaying()) then
-      active = true
-      break
-    end
-  end
-  local target = active and 0.6 or 1
-  local old = Audio._seDuck or 1
-  Audio._seDuck = target
-  if target ~= old then apply_bgm_gain() end
+-- pokefirered/src/m4a.c:1245
+function Audio.setBgmVolume(volume)
+  Audio._duck = math.max(0, math.min(256, tonumber(volume) or 256)) / 256
+  apply_bgm_gain()
 end
 
 -- Help lowers BGM without changing the user's volume or cry ducking state.
@@ -1020,13 +1007,9 @@ function Audio.playSe(id, opts)
     Audio._seSources[#Audio._seSources + 1] = src
     Audio._seByPlayer[mplay] = src
     Audio._seMeta[src] = { id = id, player = mplay,
-      duckBgm = not loop and id ~= SE.SE_SELECT
-        and (Audio._sfxVolume or 1) * (opts.volume or 1) > 0,
       rawL = rawL, rawR = rawR, master = master, pan = pan,
       mono = Audio._mono, loop = loop and true or false, body = body }
-    update_se_duck(src)
     src:play()
-    update_se_duck()
     while #Audio._seSources > 8 do
       local idx = 1
       if Audio._seSources[idx] == Audio._fanfareSource then idx = 2 end
@@ -1188,7 +1171,6 @@ function Audio._forgetSeSource(src)
     Audio._seByPlayer[meta.player] = nil
   end
   Audio._seMeta[src] = nil
-  update_se_duck()
 end
 
 function Audio._stopSePlayer(mplay)
@@ -1454,13 +1436,15 @@ end
 -- pokefirered/src/sound.c:333
 function Audio.playCry(species, mode, pan)
   species = tonumber(species) or species
-  local volume, noDuck
+  local volume, noDuck, release, multi
   if type(mode) == "table" then
     local o = mode
     mode = o.mode
     if pan == nil then pan = o.pan end
     volume = o.volume
     noDuck = o.noDuck == true
+    release = o.release == true
+    multi = o.multi == true
   end
   mode = tonumber(mode) or 0
   local params, npan = cry_inputs(mode, pan, volume)
@@ -1479,9 +1463,13 @@ function Audio.playCry(species, mode, pan)
   Audio._crySlot = slot
   if cry_meta(slot) then
     Audio._crySource = nil
-    if not doubles then
+    if release then
+      -- pokefirered/src/sound.c:358
+      if params.mode ~= 1 and not multi then Audio.setBgmVolume(85) end
+    elseif not doubles then
       Audio._duck = 85 / 256
       Audio._duckHold = 2
+      Audio._duckRestore = true
       apply_bgm_gain()
     end
     local sd, info = cry_render(slot, params, npan, mode, volume)
@@ -1518,6 +1506,7 @@ function Audio.stopCry()
   Audio._cryUntil = nil
   Audio._duck = 1
   Audio._duckHold = 0
+  Audio._duckRestore = false
   apply_bgm_gain()
 end
 
@@ -1529,7 +1518,6 @@ function Audio.stopAll()
   stop_bgm_source()
   Audio.stopSe()
   Audio.stopCry()
-  Audio._seDuck = 1
   Audio._currentSong = nil
   Audio._fanfareActive = false
 end
@@ -1538,7 +1526,6 @@ function Audio.update(dt)
   dt = dt or 1 / 60
   Audio.tickCry(dt)
   Audio._pumpSeLoops()
-  update_se_duck()
 
   Audio.pumpFanfares()
 
@@ -1566,10 +1553,11 @@ function Audio.update(dt)
     end
   end
 
-  -- Cry duck restore
+  -- pokefirered/src/sound.c:557
   if Audio._duckHold and Audio._duckHold > 0 then
     Audio._duckHold = Audio._duckHold - dt * 60
-  elseif Audio._duck and Audio._duck < 1 and Audio.isCryFinished() then
+  elseif Audio._duckRestore and Audio.isCryFinished() then
+    Audio._duckRestore = false
     Audio._duck = 1
     apply_bgm_gain()
   end
@@ -1828,7 +1816,7 @@ function Audio.endSession()
   Audio._bgmLocal = nil
   Audio._duck = 1
   Audio._duckHold = 0
-  Audio._seDuck = 1
+  Audio._duckRestore = false
 end
 
 function Audio.shutdown()

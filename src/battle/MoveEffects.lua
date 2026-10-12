@@ -144,6 +144,17 @@ local function statusMove(status)
   end
 end
 
+-- engine/battle/move_effects/heal.asm:13
+local function healFails(battle, mon)
+  local cur, max = mon.hp, mon.stats.hp
+  if cur == max then return true end
+  if battle and battle.ruleset and battle.ruleset.healHpLowByteBug == false then
+    return false
+  end
+  local carry = math.floor(cur / 256) % 256 < math.floor(max / 256) % 256 and 1 or 0
+  return (cur % 256 - max % 256 - carry) % 256 == 0
+end
+
 local function statusSide(status, chance)
   return function(battle, user, target, move)
     -- CheckDefrost: a burn-chance Fire move that lands thaws a frozen
@@ -242,15 +253,22 @@ MoveEffects.primary = {
   HEAL_EFFECT = function(battle, user, target, move)
     local mon = user.mon
     if move.id == "REST" then
-      if mon.hp == mon.stats.hp then return butItFailed(battle) end
+      if healFails(battle, mon) then return butItFailed(battle) end
       mon.hp = mon.stats.hp
+      Status.keepPenaltyOnCure(battle, user)
+      local hadStatus = mon.status ~= nil
       mon.status = "SLP"
       user.sleepTurns = 2
       mon.sleepTurns = 2
-      user.toxicCounter = nil
+      if not Status.toxicSurvivesCure(battle) then user.toxicCounter = nil end
+      -- engine/battle/move_effects/heal.asm:35
+      if hadStatus then
+        return { romText(battle.data, "_FellAsleepBecameHealthyText",
+          "%s\nfell asleep and\nbecame healthy!", displayName(user)) }
+      end
       return { romText(battle.data, "_StartedSleepingEffect", "%s\nstarted sleeping!", displayName(user)) }
     end
-    if mon.hp == mon.stats.hp then return butItFailed(battle) end
+    if healFails(battle, mon) then return butItFailed(battle) end
     mon.hp = math.min(mon.stats.hp, mon.hp + math.floor(mon.stats.hp / 2))
     return { romText(battle.data, "_RegainedHealthText", "%s\nregained health!", displayName(user)) }
   end,
@@ -386,6 +404,9 @@ MoveEffects.primary = {
       speed = target.curStats.speed, special = target.curStats.special,
     }
     user.curTypes = { target.curTypes[1], target.curTypes[2] }
+    -- engine/battle/move_effects/transform.asm:57
+    user.critBaseSpeed = target.critBaseSpeed
+      or (target.def and target.def.baseStats and target.def.baseStats.speed)
     -- transform.asm:130-132 copies the target's stat MODS into the user
     -- (wEnemyMonStatMods -> wPlayerMonStatMods), it does NOT clear them;
     -- deep copy so later stage changes on either mon stay independent
@@ -689,6 +710,8 @@ MoveEffects.full = {
       ctx.battle:selfDestruct(ctx.user)
     end,
     afterDamage = function(ctx)
+      -- engine/battle/core.asm:4899
+      if ctx.brokeSub then return end
       ctx.battle:selfDestruct(ctx.user)
     end,
   },

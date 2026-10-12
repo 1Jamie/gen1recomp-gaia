@@ -3,6 +3,7 @@ return function(V)
   local S, sym = V.SYMS, V.sym
   local pals = {}; for i = 1, 8 do pals[i] = sym("gBattleStatMask" .. i .. "_Pal") end
   V.BATTLE_ANIMS = {moves_table = sym("gBattleAnims_Moves"), move_count = S.count("gBattleAnims_Moves", 4),
+    quiet_bgm_moves = sym("gSingingMoves"),
     status_table = sym("gBattleAnims_StatusConditions"), status_count = S.count("gBattleAnims_StatusConditions", 4),
     general_table = sym("gBattleAnims_General"), general_count = S.count("gBattleAnims_General", 4),
     special_table = sym("gBattleAnims_Special"), special_count = S.count("gBattleAnims_Special", 4),

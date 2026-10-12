@@ -226,6 +226,8 @@ local MAPSETUP_MUSIC_FADE_IN = {
 }
 -- home/audio.asm:319
 World.MAP_MUSIC_FADE = 8
+World.VAR_PARTY_NON_EGGS = require("src.world.gen2.UnionCenter2F").VAR_PARTY_NON_EGGS
+World.VAR_LINK_MODS = require("src.world.gen2.UnionCenter2F").VAR_LINK_MODS
 
 -- MapSetupCommands $26 UpdateRoamMons and $27 JumpRoamMons, read off the same
 -- eleven scripts with the same fallthroughs honoured.  This is the ONLY thing
@@ -1676,6 +1678,16 @@ function World:readVar(varId)
   local save = self.game and self.game.save
   if varId == VAR.PARTYCOUNT then
     return save and #(save.party or {}) or 0
+  end
+  if varId == World.VAR_LINK_MODS then
+    return require("src.online.union.Caps").gameplayMods(self.game) and 1 or 0
+  end
+  if varId == World.VAR_PARTY_NON_EGGS then
+    local n = 0
+    for _, mon in ipairs(save and save.party or {}) do
+      if not Breeding.isEgg(mon) then n = n + 1 end
+    end
+    return n
   end
   if varId == VAR.BATTLERESULT then
     -- wBattleResult masked with ~BATTLERESULT_BITMASK (the box-full flag);
@@ -8682,6 +8694,7 @@ function World:interactBody()
   local fx, fy = p.cellX + d[1], p.cellY + d[2]
   local npc = self:npcAt(self:facingObjectCell())
   if npc and npc.onTalk then return npc:onTalk(self) end
+  if npc and npc.def and npc.def.onTalk then return npc.def.onTalk(self, npc) end
   -- TryObjectEvent writes hLastTalked for EVERY A-press dispatch; scripts
   -- then use LAST_TALKED (`disappear`, `applymovementlasttalked`) without any
   -- setlasttalked of their own.  The port only wrote it from the explicit
@@ -8746,6 +8759,11 @@ function World:interactBody()
     return true
   end
   local sign = self:bgEventAt(fx, fy)
+  if sign and sign.onTalk then
+    self.talkNpc = nil
+    interacted(self, fx, fy, "sign", sign)
+    return sign.onTalk(self, sign)
+  end
   if sign and sign.scriptKey then
     self.talkNpc = nil
     interacted(self, fx, fy, "sign", sign)

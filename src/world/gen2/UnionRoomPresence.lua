@@ -445,6 +445,10 @@ function Session:close()
   if self.activity and self.activity.abort then self.activity:abort("left") end
   self.activity = nil
   self:clear()
+  if self.boardEntry then
+    self.boardEntry = nil
+    self.room:setBoard(false)
+  end
   if self.room.state ~= "idle" and self.room.state ~= "left" then self.room:leave() end
   self.state = "closed"
 end
@@ -465,6 +469,13 @@ end
 
 function P.active()
   return current
+end
+
+function P.talkBoard(world, kind)
+  local s = current
+  if not (s and s.world == world) or s.ui or s.activity then return true end
+  lazy("src.ui.gen2.union.Board")[kind](s)
+  return true
 end
 
 function P.reset()

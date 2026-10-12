@@ -86,6 +86,16 @@ local gen2Data = {
   },
 }
 
+local split1Data = { pokemon = {}, moves = gen1Data.moves }
+for k, v in pairs(gen1Data.pokemon) do split1Data.pokemon[k] = v end
+split1Data.pokemon.SPLITMON = {
+  id = "SPLITMON", name = "SPLITMON", index = 3, dex = 3,
+  types = { "WATER" },
+  baseStats = { hp = 60, attack = 60, defense = 60, speed = 60,
+                special = 65 },
+  catchRate = 45, growthRate = "MEDIUM_FAST",
+}
+
 local DVS = { attack = 15, defense = 14, speed = 13, special = 12 }
 local ZERO_EXP = { hp = 0, attack = 0, defense = 0, speed = 0, special = 0 }
 
@@ -245,7 +255,7 @@ do
     { baseStats = { hp = 60, attack = 60, defense = 60, speed = 60,
                     special = 65 } }, 50, src.dvs, ZERO_EXP)
   src.hp = src.stats.hp
-  local out, report = Convert.toGen2(src, gen1Data, gen2Data)
+  local out, report = Convert.toGen2(src, split1Data, gen2Data)
   T.check(out.stats.specialAttack ~= out.stats.specialDefense,
     "1->2 splits Special apart when the Gen 2 bases differ")
   local row = kinds(report.changed).special_split
@@ -480,6 +490,10 @@ do
     "arrival refuses an unknown species")
   T.check(Convert.validateArrival({ species = "TESTMON", level = 30 },
     gen1Data), "arrival accepts a record that claims no types")
+  local noSrc, noSrcWhy = Convert.validateArrival(
+    { species = "TESTMON", level = 30 }, gen1Data, { pokemon = {} })
+  T.check(not noSrc, "arrival refuses a species the source dataset does not know")
+  T.eq(noSrcWhy, "species_unknown", "arrival names the missing source species")
 end
 
 --------------------------------------------------------------------------
@@ -521,9 +535,32 @@ do
     { baseStats = { hp = 60, attack = 60, defense = 60, speed = 60,
                     special = 65 } }, 50, splitSrc.dvs, ZERO_EXP)
   splitSrc.hp = splitSrc.stats.hp
-  local up, upOk = Convert.preview(splitSrc, 1, 2, gen1Data, gen2Data)
+  local up, upOk = Convert.preview(splitSrc, 1, 2, split1Data, gen2Data)
   T.check(upOk, "preview of a 1->2 mon is ok")
   T.check(has(up, "SPECIAL SPLIT "), "preview shows the Special split")
+end
+
+do
+  local wire = gen1Mon("TESTMON", 5)
+  wire.species, wire.stats = "JOHTOMON", nil
+  local out, why = Convert.toGen2(wire, gen1Data, gen2Data)
+  T.check(out == nil, "1->2 refuses a species the Gen 1 dataset does not know")
+  T.eq(why, "species_unknown", "1->2 unknown source species is species_unknown")
+  local lines, ok = Convert.preview(wire, 1, 2, gen1Data, gen2Data)
+  T.eq(ok, false, "preview refuses a Gen 1 species missing from the Gen 1 dataset")
+  T.eq(lines[1], "SPECIES UNKNOWN: JOHTOMON",
+    "preview names the species missing from the Gen 1 dataset")
+  local _, results = Convert.partyToGen2({ wire }, gen1Data, gen2Data)
+  T.eq(results[1] and results[1].ok, false,
+    "party conversion refuses a Gen 1 species missing from the Gen 1 dataset")
+
+  local back = gen2Mon("TESTMON", 5)
+  back.species = "MAGNETIC"
+  local down, downWhy = Convert.toGen1(back,
+    { pokemon = { TESTMON = gen2Data.pokemon.TESTMON }, moves = gen2Data.moves },
+    gen1Data)
+  T.check(down == nil, "2->1 refuses a species the Gen 2 dataset does not know")
+  T.eq(downWhy, "species_unknown", "2->1 unknown source species is species_unknown")
 end
 
 --------------------------------------------------------------------------

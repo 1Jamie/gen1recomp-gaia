@@ -33,7 +33,7 @@ local MODULES = {
   {"easy_chat/words.lua", {assetLayout = "rs", format_version = 1}},
   {"wild_extra.lua", {assetLayout = "rs"}},
   {"region_map/map_sections.lua", {layout = "rs", format_version = 1}},
-  {"pokemon/battle_anims/pack.lua", {assetLayout = "rs", version = 5}},
+  {"pokemon/battle_anims/pack.lua", {assetLayout = "rs", version = 6}},
   {"pokemon/battle_transition/manifest.lua", {assetLayout = "rs", gameLayout = "rs", format = 1}},
   {"intro/rs/manifest.lua", {layout = "rs", format = 1}, true},
   {"intro/rs/scenery/manifest.lua", {layout = "rs", format = 1}, true},

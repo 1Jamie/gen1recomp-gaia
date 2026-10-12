@@ -161,9 +161,14 @@ return function(game)
   print(("prep state %s blocked %s caps %s"):format(tostring(prep and prep.state), tostring(prep and prep.blocked),
     tostring(s.room.caps and next(s.room.caps.gens))))
   ok(prep and prep.rules and prep.rules.ruleset == "g3u", "Gen 2 vs Gen 1 resolves the g3u ruleset")
-  shot("06_getting_ready")
+  local PrepScreen = require("src.ui.union.prep.Gen2BattlePrep")
+  ok(waitFor(function() return getmetatable(game.stack:top()) == PrepScreen end, 600), "the battle prep screen is up")
+  shot("06_battle_prep")
   tap("b")
-  ok(waitFor(function() local t = game.stack:top() return t and t.pages ~= nil end, 120), "cancel shows a line")
+  ok(waitFor(function()
+    local t = game.stack:top()
+    return getmetatable(t) == PrepScreen and t.model.step == "closed"
+  end, 120), "B cancels and the prep screen shows the cancelled line")
   shot("07_cancelled")
   ok(mash("a", function() return s.activity == nil and s.ui == nil and game.stack:top() == nil end, 120),
     "the activity closes cleanly")

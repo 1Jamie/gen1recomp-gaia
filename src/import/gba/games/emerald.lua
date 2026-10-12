@@ -3,14 +3,14 @@ local VersionsRse = require("src.import.gba.versions_rse")
 local V = VersionsRse.new("emerald")
 local sym, count = V.sym, V.count
 
-V.CACHE_VERSION = 21
+V.CACHE_VERSION = 22
 V.NATIVE_VERSION = 2
 V.OW_VERSION = 1
 V.ANIM_VERSION = 1
 V.AUDIO_VERSION = 1
 V.POKEMON_VERSION = 1
 V.BATTLE_MOVES_VERSION = 1
-V.BATTLE_ANIMS_VERSION = 1
+V.BATTLE_ANIMS_VERSION = 2
 
 V.NATIVE_RENDER = true
 V.OW_RENDER = true

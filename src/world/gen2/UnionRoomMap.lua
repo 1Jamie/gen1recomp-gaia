@@ -10,6 +10,9 @@ UnionRoomMap.HEIGHT = UnionRoomMap.HEIGHT_BLOCKS * 2
 UnionRoomMap.EXIT_X, UnionRoomMap.EXIT_Y = 12, 25
 UnionRoomMap.EXITS = { { x = 12, y = 25 }, { x = 13, y = 25 } }
 UnionRoomMap.SETUP_KEY = "union:room_setup"
+UnionRoomMap.ATTENDANT = { x = 3, y = 2 }
+UnionRoomMap.BOARD = { x = 2, y = 1 }
+UnionRoomMap.ATTENDANT_INDEX = 1
 
 local CELL_XS = { 3, 6, 9, 12, 15, 18, 21 }
 local CELL_YS = { 5, 8, 11, 14, 17, 20 }
@@ -86,6 +89,26 @@ function UnionRoomMap.compose(tileset, top, bottom)
   return UnionRoomMap.block(tileset, tiles, { tc[1], tc[2], bc[3], bc[4] })
 end
 
+function UnionRoomMap.talkAttendant(world)
+  return require("src.world.gen2.UnionRoomPresence").talkBoard(world, "attendant")
+end
+
+function UnionRoomMap.talkBoard(world)
+  return require("src.world.gen2.UnionRoomPresence").talkBoard(world, "check")
+end
+
+local function nurseTemplate(maps)
+  local ids = {}
+  for id in pairs(maps) do ids[#ids + 1] = id end
+  table.sort(ids)
+  for _, id in ipairs(ids) do
+    for _, o in ipairs(type(maps[id]) == "table" and maps[id].objects or {}) do
+      if o.sprite == "SPRITE_NURSE" then return o end
+    end
+  end
+  error("gen2 cache has no SPRITE_NURSE object")
+end
+
 local function blockAt(def, bx, by)
   return def.blocks[by * def.width + bx + 1]
 end
@@ -138,8 +161,16 @@ function UnionRoomMap.build(maps, tilesets, link)
       destGroup = link.group, destMapNum = link.mapNum,
     }
   end
-  def.objects = {}
-  def.bgEvents = {}
+  local nurse = {}
+  for k, v in pairs(nurseTemplate(maps)) do nurse[k] = v end
+  nurse.index = UnionRoomMap.ATTENDANT_INDEX
+  nurse.x, nurse.y = UnionRoomMap.ATTENDANT.x, UnionRoomMap.ATTENDANT.y
+  nurse.scriptKey, nurse.script = nil, nil
+  nurse.eventFlag = 65535
+  nurse.onTalk = UnionRoomMap.talkAttendant
+  def.objects = { nurse }
+  def.bgEvents = { { kind = 0, x = UnionRoomMap.BOARD.x, y = UnionRoomMap.BOARD.y,
+                     onTalk = UnionRoomMap.talkBoard } }
   def.coordEvents = {}
   def.callbacks = {}
   def.connections = {}

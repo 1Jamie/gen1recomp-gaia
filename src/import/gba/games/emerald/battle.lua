@@ -16,6 +16,7 @@ return function(V)
 
   -- pokeemerald/data/battle_anim_scripts.s:18
   V.BATTLE_ANIMS = {
+    quiet_bgm_moves = sym("gMovesWithQuietBGM"),
     moves_table = sym("gBattleAnims_Moves"),
     move_count = Names.moveCount,
     status_table = sym("gBattleAnims_StatusConditions"),

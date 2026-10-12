@@ -43,7 +43,7 @@ Versions.ROM_SIZE = 16777216
 -- v115: LeafGreen profiles, edition-specific title assets and Deoxys stats.
 -- v121: chrome/fonts/japanese_{normal,small}_* and japanese_widths.lua, the
 --       cart's Japanese fonts, for text a Japanese translation mod prints.
-Versions.CACHE_VERSION = 137
+Versions.CACHE_VERSION = 138
 Versions.NATIVE_VERSION = 6
 Versions.OW_VERSION = 3
 Versions.ANIM_VERSION = 1
@@ -397,8 +397,9 @@ Versions.MOVES_COUNT = 355 -- MOVE_NONE .. last Gen3 move id inclusive span
 
 -- Battle anim IR pack: ROM-native bytecode extraction (FireRed USA 1.0).
 -- Addresses verified by structural scan of the ROM.
-Versions.BATTLE_ANIMS_VERSION = 5
+Versions.BATTLE_ANIMS_VERSION = 6
 Versions.BATTLE_ANIMS = {
+  quiet_bgm_moves = 0x1C68EC,
   -- gBattleAnims_Moves: 355 GBA pointers to bytecode scripts (one per move id 0..354).
   moves_table   = 0x1C68F4,
   move_count    = 355,

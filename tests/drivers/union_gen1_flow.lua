@@ -78,6 +78,7 @@ return function(game)
 
   U.wait(10)
   game.save.flags.EVENT_GOT_POKEDEX = true
+  require("src.online.union.Caps").gameplayMods = function() return false end
   game.save.party = { Pokemon.new(game.data, "PIDGEY", 5), Pokemon.new(game.data, "RATTATA", 5) }
 
   home("VIRIDIAN_CITY")

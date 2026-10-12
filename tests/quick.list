@@ -99,6 +99,7 @@ tests/engine/evolution_double_after_battle_bug2664.lua
 tests/engine/evolution_hold_b_bug968_test.lua
 tests/engine/evolution_timing_bug2033.lua
 tests/engine/exp_traded_ot_survives_reload_bug1265.lua
+tests/engine/explode_substitute_bug2900.lua
 tests/engine/faithful_res_mobile.lua
 tests/engine/faithful_res_nx.lua
 tests/engine/faithful_res.lua
@@ -403,6 +404,7 @@ tests/engine/gen3_pokemon_icon_hook_bug2693.lua
 tests/engine/gen3_pokemon_sprite_kind_bug2772.lua
 tests/engine/gen3_save_rs_tv_test.lua
 tests/engine/gen3_shim_engine_require.lua
+tests/engine/gen3_unown_form_hooks_bug2904.lua
 tests/engine/generated_data_decoder_test.lua
 tests/engine/ghost_unveil_bug492.lua
 tests/engine/gift_gotmon_rows_2243.lua
@@ -577,6 +579,7 @@ tests/engine/overworld_slot_seat_over_hidden_coin.lua
 tests/engine/overworld_world_palette_seam_bug2152.lua
 tests/engine/pad_hints_bug2452_test.lua
 tests/engine/palette_test.lua
+tests/engine/paralysis_cure_speed_bug2901.lua
 tests/engine/party_battle_prompt_bug1901.lua
 tests/engine/party_fieldmove_order_bug792.lua
 tests/engine/party_icon_anim_freeze_bug2682.lua
@@ -760,6 +763,7 @@ tests/engine/trainer_sendout_auto_bug1472.lua
 tests/engine/trainer_shift_prompt_bug565.lua
 tests/engine/trainer_talk_sting_bug764.lua
 tests/engine/trainer_true_color.lua
+tests/engine/transform_crit_species_bug2899.lua
 tests/engine/transition_identity_pop_bug1663.lua
 tests/engine/ttf_font_mode.lua
 tests/engine/turn_in_place_bug415.lua
@@ -794,6 +798,7 @@ tests/engine/yellow_viridian_old_man_bug2122.lua
 tests/engine/zero_damage_miss_ruleset_bug2153.lua
 tests/game3_back_pic_anims_2702_test.lua
 tests/game3_battle_action_cursor_2766_test.lua
+tests/game3_battle_anim_pack_test.lua
 tests/game3_battle_anims_phase1_test.lua
 tests/game3_battle_catch_ball_open_test.lua
 tests/game3_battle_evolution_rename_test.lua
@@ -866,6 +871,7 @@ tests/game3_save_legacy_pc_migration_test.lua
 tests/game3_save_menu_layout_test.lua
 tests/game3_save_pokeball_test.lua
 tests/game3_scenario_menu_test.lua
+tests/game3_se_bgm_volume_test.lua
 tests/game3_se_source_cache_test.lua
 tests/game3_seagallop_anim_test.lua
 tests/game3_seam_warm_budget_test.lua
@@ -890,6 +896,7 @@ tests/gen2_fly_map_test.lua
 tests/gen2_menus_test.lua
 tests/modkit/cases/bag_capacity.lua
 tests/modkit/cases/mod_map_outdoor_encounters.lua
+tests/online_convert.lua
 tests/parity_F.lua
 tests/parity_J.lua
 tests/parity_ball_shake_anim.lua

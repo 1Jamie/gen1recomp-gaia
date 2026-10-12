@@ -691,7 +691,7 @@ end
 function Link.reasonText(why)
   local Strings = lazyReq("src.core.Strings")
   if why == "mods" then
-    return Strings("Mods that change link play are on, so this game can't go online.")
+    return Strings(lazyReq("src.online.union.Caps").MODS_TEXT)
   end
   if why == "unavailable" then
     return Strings("Online play isn't available in this build.")
