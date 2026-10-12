@@ -57,7 +57,7 @@ local function rseAction(b)
   if type(name) ~= "string" then return { kind = "nop" } end
   name = name:gsub("^MOVEMENT_ACTION_", "")
   -- pokeemerald/src/event_object_movement.c:6495
-  if name == "EMOTE_HEART" then return { kind = "emote", emoteType = "heart", frames = 60 } end
+  if name == "EMOTE_HEART" then return { kind = "emote", emoteType = "heart" } end
   -- pokeemerald/src/event_object_movement.c:6617
   if name == "HIDE_REFLECTION" then return { kind = "reflection", hidden = true } end
   if name == "SHOW_REFLECTION" then return { kind = "reflection", hidden = false } end
@@ -106,9 +106,9 @@ function Movement.decodeAction(b)
     return { kind = "jump", dir = DIR[b - 0x14], distance = 2 }
   end
   -- pokeemerald/src/event_object_movement.c:5609
+  -- pokefirered/src/event_object_movement.c:5884
   if b >= 0x18 and b <= 0x1C then
-    local frames = 2 ^ (b - 0x18)
-    return { kind = "sleep", frames = rseFamily and frames or frames * 2 }
+    return { kind = "sleep", frames = 2 ^ (b - 0x18) }
   end
   -- Walk fast / in-place / faster walks → step or turn-in-place.
   if b >= 0x1D and b <= 0x20 then
@@ -198,12 +198,12 @@ function Movement.decodeAction(b)
   end
   if b == 0x60 then return { kind = "hide" } end
   if b == 0x61 then return { kind = "show" } end
-  -- Emotes: 60 frames animation in pokefirered (sAnimCmd_ExclamationMark1 etc.)
-  if b == 0x62 then return { kind = "emote", emoteType = "exclamation", frames = 60 } end
-  if b == 0x63 then return { kind = "emote", emoteType = "question", frames = 60 } end
-  if b == 0x64 then return { kind = "emote", emoteType = "x", frames = 60 } end
-  if b == 0x65 then return { kind = "emote", emoteType = "double_exclamation", frames = 60 } end
-  if b == 0x66 then return { kind = "emote", emoteType = "smile", frames = 60 } end
+  -- pokefirered/src/event_object_movement.c:7068
+  if b == 0x62 then return { kind = "emote", emoteType = "exclamation" } end
+  if b == 0x63 then return { kind = "emote", emoteType = "question" } end
+  if b == 0x64 then return { kind = "emote", emoteType = "x" } end
+  if b == 0x65 then return { kind = "emote", emoteType = "double_exclamation" } end
+  if b == 0x66 then return { kind = "emote", emoteType = "smile" } end
   -- MOVEMENT_ACTION_NURSE_JOY_BOW_DOWN (0x5B): ANIM_NURSE_BOW ≈ 48 frames.
   if b == 0x5B then
     return { kind = "bow", frames = 48 }

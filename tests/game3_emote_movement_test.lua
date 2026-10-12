@@ -19,19 +19,22 @@ print("=== Game 3 Fanfare & Emote Parity Tests ===")
 -- -----------------------------------------------------------------------------
 print("[test] 1. Movement.decodeAction for emote actions")
 local a62 = Movement.decodeAction(0x62)
-assert(a62.kind == "emote" and a62.emoteType == "exclamation" and a62.frames == 60, "0x62 decodes to exclamation emote with 60 frames")
+assert(a62.kind == "emote" and a62.emoteType == "exclamation" and a62.frames == nil, "0x62 decodes to a non-blocking exclamation emote")
 
 local a63 = Movement.decodeAction(0x63)
-assert(a63.kind == "emote" and a63.emoteType == "question" and a63.frames == 60, "0x63 decodes to question emote with 60 frames")
+assert(a63.kind == "emote" and a63.emoteType == "question" and a63.frames == nil, "0x63 decodes to a non-blocking question emote")
 
 local a64 = Movement.decodeAction(0x64)
-assert(a64.kind == "emote" and a64.emoteType == "x" and a64.frames == 60, "0x64 decodes to x emote with 60 frames")
+assert(a64.kind == "emote" and a64.emoteType == "x" and a64.frames == nil, "0x64 decodes to a non-blocking x emote")
 
 local a65 = Movement.decodeAction(0x65)
-assert(a65.kind == "emote" and a65.emoteType == "double_exclamation" and a65.frames == 60, "0x65 decodes to double exclamation emote with 60 frames")
+assert(a65.kind == "emote" and a65.emoteType == "double_exclamation" and a65.frames == nil, "0x65 decodes to a non-blocking double exclamation emote")
 
 local a66 = Movement.decodeAction(0x66)
-assert(a66.kind == "emote" and a66.emoteType == "smile" and a66.frames == 60, "0x66 decodes to smile emote with 60 frames")
+assert(a66.kind == "emote" and a66.emoteType == "smile" and a66.frames == nil, "0x66 decodes to a non-blocking smile emote")
+
+local d16 = Movement.decodeAction(0x1C)
+assert(d16.kind == "sleep" and d16.frames == 16, "0x1C delay_16 sleeps 16 frames")
 
 local actions = Movement.actionsFromBytes({ 0x62, 0xFE })
 assert(#actions == 1 and actions[1].kind == "emote", "Common_Movement_ExclamationMark contains 1 emote action")
@@ -40,7 +43,7 @@ print("[ok] Movement decoding for emotes passed")
 -- -----------------------------------------------------------------------------
 -- 2. Objects.applyMovement with Emotes & 60-frame blocking (waitmovement)
 -- -----------------------------------------------------------------------------
-print("[test] 2. Objects.applyMovement with Emote action blocks for 60 frames")
+print("[test] 2. Objects.applyMovement with Emote action finishes at once while the icon stays up")
 local oakDef = {
   localId = 3,
   index = 3,
@@ -63,23 +66,25 @@ assert(#FieldEffects._anims == 1, "FieldEffects animation spawned on emote movem
 local anim = FieldEffects._anims[1]
 assert(anim.kind == "emote" and anim.targetObj == oak, "Emote targetObj is Oak")
 assert(anim.baseFrame == 0, "Exclamation base frame is 0")
-assert(Objects.pollMovement(3) == false, "Objects.pollMovement(3) is false while emote is playing")
-assert(doneCalled == false, "onDone not called immediately")
 
--- Step 59 frames -> should still be active
-for f = 1, 59 do
-  Objects.update(nil)
-  FieldEffects.step()
-  assert(Objects.pollMovement(3) == false, "Movement still pending at frame " .. f)
-  assert(doneCalled == false, "onDone not called at frame " .. f)
-end
-
--- Step 60th frame -> movement finishes
 Objects.update(nil)
 FieldEffects.step()
-assert(Objects.pollMovement(3) == true, "Movement reports finished after 60 frames")
-assert(doneCalled == true, "onDone invoked after 60 frames")
-print("[ok] Emote movement blocks for 60 frames exactly")
+assert(Objects.pollMovement(3) == true, "emote_exclamation_mark movement finishes on the next frame")
+assert(doneCalled == true, "onDone invoked on the next frame")
+assert(#FieldEffects._anims == 1, "exclamation icon still shown after the movement finished")
+
+FieldEffects._anims = {}
+doneCalled = false
+Objects.applyMovement(3, { 0x1C, 0x1C, 0x1C, 0xFE }, function()
+  doneCalled = true
+end)
+local delayFrames = 0
+while not doneCalled and delayFrames < 200 do
+  Objects.update(nil)
+  delayFrames = delayFrames + 1
+end
+assert(delayFrames >= 48 and delayFrames <= 52, "Common_Movement_Delay48 takes 48 frames (got " .. delayFrames .. ")")
+print("[ok] Emote movement is non-blocking and Delay48 takes 48 frames")
 
 -- -----------------------------------------------------------------------------
 -- 3. FieldEffects animation progression across emote types

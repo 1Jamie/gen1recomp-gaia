@@ -25,7 +25,7 @@ MapNamePopup.STATE = {
 }
 
 MapNamePopup._state = STATE_IDLE
-MapNamePopup._tPos = 0 -- 0..24 pixels (Love2D Y = _tPos - 24)
+MapNamePopup._tPos = 0
 MapNamePopup._timer = 0 -- frame counter for hold state
 MapNamePopup._reshow = false
 MapNamePopup._pendingName = nil
@@ -441,30 +441,21 @@ function MapNamePopup.draw()
     return
   end
 
-  local tPos = MapNamePopup._tPos
-  -- Love2D coordinate translation: base Y sits at tPos - 24
-  -- When tPos = 0: py = -24 (offscreen above viewport)
-  -- When tPos = 24: py = 0 (flush against top bezel [0, 0])
-  local px = 0
-  local py = tPos - 24
   local widthTiles = MapNamePopup._widthTiles or 14
   local contentW = MapNamePopup._contentWidth or (widthTiles * 8)
-
-  -- 1. Draw 9-slice standard text window border and white interior
-  Chrome.mapPopupFrame(px, py, widthTiles)
-
-  -- 2. Map Name Text (Centered vertically and horizontally in enclosed window)
-  -- Uses FONT_NORMAL with dark gray (#626262) fg and light gray (#D5D5CD) shadow
+  love.graphics.push()
+  -- pokefirered/src/map_name_popup.c:126
+  love.graphics.translate(0, math.floor(MapNamePopup._tPos * 4 / 3) - 32)
+  -- pokefirered/src/map_name_popup.c:154
+  Chrome.fixedStdFrame(1, 1, widthTiles, 2)
   local name = MapNamePopup._name or ""
-  local textW = (FrlgFont.measure and FrlgFont.measure(name)) or (6 * #name)
-  local textX = px + 8 + math.floor((contentW - textW) / 2)
-  local textY = py + 5
-
-  FrlgFont.draw(name, textX, textY, {
+  local textW = FrlgFont.measure(name) or 0
+  -- pokefirered/src/map_name_popup.c:202
+  FrlgFont.draw(name, 8 + math.floor((contentW - textW) / 2), 8 + 2, {
     colors = FrlgFont.COLOR.NORMAL,
     maxWidth = contentW,
   })
-
+  love.graphics.pop()
   love.graphics.setColor(1, 1, 1, 1)
 end
 

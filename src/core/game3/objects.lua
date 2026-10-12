@@ -1437,6 +1437,7 @@ local function advanceTrack(lid, tr, game)
       end
       tr.sleep = act.frames or 48
     elseif act.kind == "emote" then
+      -- pokefirered/src/event_object_movement.c:7068
       if eo then
         local okFx, FieldEffects = pcall(lazyReq, "src.core.game3.field_effects")
         if okFx and FieldEffects then
@@ -1447,7 +1448,7 @@ local function advanceTrack(lid, tr, game)
           end
         end
       end
-      tr.sleep = act.frames or 60
+      if act.frames then tr.sleep = act.frames end
     elseif act.kind == "sleep" then
       tr.sleep = act.frames or 1
     elseif act.kind == "hide" then

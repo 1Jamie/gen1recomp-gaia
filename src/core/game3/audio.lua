@@ -701,14 +701,8 @@ function Audio.clearSavedSong()
 end
 
 -- pokefirered/src/overworld.c:1089
-function Audio.fadeDefaultBgm(speed)
-  if rse_policy() then return Audio.changeMusicToDefault() end
-  local id = Audio._mapSong
-  if id and Audio.currentMapMusic() == id then return true end
-  if Audio._fanfareActive then return play_policy_song(id) end
-  Audio.fadeOutBgm(speed)
-  if id then return Audio.playSong(id) end
-  return true
+function Audio.fadeDefaultBgm()
+  return Audio.changeMusicToDefault()
 end
 
 function Audio.fadeOutBgm(speed)

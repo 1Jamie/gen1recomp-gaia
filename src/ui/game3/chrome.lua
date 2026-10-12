@@ -195,7 +195,7 @@ local function ensureDlg()
   local img, path = loadImage(PATHS.dlg)
   if not img then
     if not Chrome._logged then
-      log("menu_message atlas missing — dialogue frame fallback")
+      log("menu_message atlas missing: dialogue frame fallback")
       Chrome._logged = true
     end
     return nil
@@ -372,7 +372,7 @@ local function ensureArrow()
   return Chrome._arrow
 end
 
---- pret WindowFunc_DrawSignpostFrame — same geometry as dialogue, signpost tiles.
+--- pret WindowFunc_DrawSignpostFrame: same geometry as dialogue, signpost tiles.
 function Chrome.signFrame()
   local spec = frames()
   if spec and spec.sign == false then return Chrome.dialogueFrame() end
@@ -562,48 +562,6 @@ drawNineSlice = function(atlas, tx, ty, tw, th)
   cell(6, L - 1, Top + H)
   hspan(7, L, Top + H, W)
   cell(8, L + W, Top + H)
-end
-
---- pret MapNamePopupCreateWindow 9-slice banner at pixel coordinates (px, py).
--- Content size is (widthTiles * 8) wide by 16 high.
--- Outer border spans: x in [px, px + (widthTiles + 2)*8], y in [py, py + 24].
-function Chrome.mapPopupFrame(px, py, widthTiles)
-  widthTiles = tonumber(widthTiles) or 14
-  local contentW = widthTiles * 8
-  local atlas = ensureStd()
-
-  if atlas then
-    love.graphics.setColor(1, 1, 1, 1)
-    local function cell(tile, cx, cy, vflip)
-      blitTile(atlas, tile, cx, cy, vflip)
-    end
-    local function hspan(tile, cx, cy, n, vflip)
-      for i = 0, n - 1 do cell(tile, cx + i * 8, cy, vflip) end
-    end
-
-    -- 1. Content background: pure white PIXEL_FILL(1)
-    fillRect(px + 8, py + 4, contentW, 16, 1, 1, 1, 1)
-
-    -- 2. Top edge (row 0, y = py) — mirrored from bottom edge (tiles 6, 7, 8 vflipped)
-    cell(6, px, py, true)
-    hspan(7, px + 8, py, widthTiles, true)
-    cell(8, px + 8 + contentW, py, true)
-
-    -- 3. Left & Right borders (height = 1 tile / 8px middle row, y = py + 8)
-    cell(3, px, py + 8)
-    cell(5, px + 8 + contentW, py + 8)
-
-    -- 4. Bottom edge (row 2, y = py + 16)
-    cell(6, px, py + 16, false)
-    hspan(7, px + 8, py + 16, widthTiles, false)
-    cell(8, px + 8 + contentW, py + 16, false)
-    return
-  end
-
-  -- Fallback if atlas missing
-  fillRect(px, py, contentW + 16, 24, 98 / 255, 115 / 255, 123 / 255, 1)
-  fillRect(px + 2, py + 2, contentW + 12, 20, 205 / 255, 213 / 255, 213 / 255, 1)
-  fillRect(px + 8, py + 4, contentW, 16, 1, 1, 1, 1)
 end
 
 function Chrome.invalidate()

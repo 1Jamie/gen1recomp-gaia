@@ -165,8 +165,19 @@ for _, version in ipairs({ "emerald", "firered", "leafgreen" }) do
     a, b = setup(version)
     Audio.fadeOutAndPlay(b, 1)
     Audio.fadeDefaultBgm(1)
-    Audio.update(1)
+    Audio.update(3)
     eq(Audio._currentSong and Audio._currentSong.id, a, version .. " fadeDefaultBgm replaces pending B with map A")
+
+    a, b = setup(version)
+    Audio._currentSong, Audio._bgmGen = { id = b }, b
+    Audio.fadeDefaultBgm()
+    eq(Audio._currentSong and Audio._currentSong.id, b, version .. " fadeDefaultBgm keeps B playing while it fades")
+    check(Audio._fadeOut ~= nil and Audio._fadeOut.nextSong == a, version .. " fadeDefaultBgm queues map A behind the fade")
+    eq(Audio.currentMapMusic(), a, version .. " fadeDefaultBgm reports map A as current map music")
+    Audio.update(1)
+    eq(Audio._currentSong and Audio._currentSong.id, b, version .. " fadeDefaultBgm fade still running after 60 frames")
+    Audio.update(2)
+    eq(Audio._currentSong and Audio._currentSong.id, a, version .. " fadeDefaultBgm plays map A after the speed 8 fade")
 
     a, b = setup(version)
     fanfare(a)

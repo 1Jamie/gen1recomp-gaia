@@ -75,12 +75,13 @@ function TrainerCard.new(game, opts)
     game.data, "front", { kind = "trainer_card" })
   self.pic          = tryImage(picPath)
   self.picTrueColor = self.pic and picTrueColor or false
-  -- engine/menus/start_sub_menus.asm:480-487
+  -- engine/menus/start_sub_menus.asm:488
   if self.pic then
     local pw, ph = self.pic:getDimensions()
-    self.picW = math.max(0, math.min(40, pw))
-    self.picH = math.min(56, ph)
-    self.picQuad = love.graphics.newQuad(0, 0, self.picW, self.picH, pw, ph)
+    self.picW = math.max(0, math.min(32, pw - 8))
+    -- engine/menus/start_sub_menus.asm:599
+    self.picH = math.min(48, ph)
+    self.picQuad = love.graphics.newQuad(8, 0, self.picW, self.picH, pw, ph)
   end
 
   return self

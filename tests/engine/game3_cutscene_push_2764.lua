@@ -58,7 +58,7 @@ end
 for _, version in ipairs({ "firered", "leafgreen" }) do
   GameVersion.set(version)
   game.session.version = version
-  T.eq(Movement.decodeAction(0x1C).frames, 32, version .. " delay behavior retained")
+  T.eq(Movement.decodeAction(0x1C).frames, 16, version .. " delay_16 sleeps 16 frames")
   T.eq(Movement.decodeAction(0x32).kind, "nop", version .. " current behavior retained")
   T.eq(Movement.decodeAction(0x39).frames, nil, version .. " slide behavior retained")
 end
