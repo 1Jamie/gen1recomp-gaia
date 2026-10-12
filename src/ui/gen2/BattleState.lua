@@ -705,6 +705,15 @@ function BattleState.new(game, opts)
   if okNames then
     for _, name in ipairs(names) do pcall(Sound.prewarmSfx, data, name) end
   end
+  local battle = self.battle
+  for _, party in ipairs({ battle and battle.enemyParty or {},
+                           battle and battle.party or {} }) do
+    for _, mon in ipairs(party) do
+      if type(mon) == "table" and mon.species then
+        pcall(Sound.prewarmCry, data, mon.species)
+      end
+    end
+  end
   return self
 end
 

@@ -25,6 +25,9 @@ local function scenario(osName, state, options)
   local env = setmetatable({ processEnded = false, quitToLauncher = false,
     launchedIntoGame = options.shortcut or false, editorMode = state == "editor",
     RELAUNCH_MARKER = "marker" }, { __index = _G })
+  -- main.lua's profiler teardown (local FrameProfiler upvalue)
+  env.FrameProfiler = { finish = function() end,
+    benchRequested = function() return false end }
   env.os = setmetatable({ getenv = function() return nil end }, { __index = os })
   env.Game = state == "game" and {} or nil
   env.Importer = state ~= "game" and { _themeVideo = {

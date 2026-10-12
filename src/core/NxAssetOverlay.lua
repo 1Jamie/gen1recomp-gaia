@@ -16,6 +16,8 @@
 -- must keep targeting the versioned tree explicitly.
 --
 -- Two intentional exceptions stay outside this module:
+--   * background workers (atlas_worker decode / bake srcPath): the main
+--     thread maps the path with NxAssetOverlay.mapPath before sending it.
 --   * the chip-audio worker (src/core/chip_worker.lua) is a separate Lua
 --     state without these wrappers; ChipAudio.slimAudio hands it the prefix
 --     explicitly as audio.programPrefix.
@@ -84,6 +86,16 @@ local WRAP_SPEC = {
   { "sound", "newSoundData" },
   { "font", "newFontData" },
 }
+
+-- The path the wrapped loaders would actually open for `path` (the versioned
+-- copy when the overlay is installed and one exists, else `path` itself).  A
+-- background worker is a fresh Lua state without the wrappers, so a caller
+-- that hands it a path must map it here first (like ChipAudio.slimAudio's
+-- programPrefix).
+function NxAssetOverlay.mapPath(path)
+  if not originals then return path end
+  return versioned(path) or path
+end
 
 function NxAssetOverlay.isInstalled()
   return originals ~= nil

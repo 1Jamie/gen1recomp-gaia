@@ -343,6 +343,8 @@ function OverworldState.computeNeighbors(maps, rootId, hops, reachW, reachH)
   return out
 end
 
+function OverworldState._setGameForTest(g) Game = g end
+
 function OverworldState:exit()
   self.map = nil
   self.neighbors = nil
@@ -704,6 +706,7 @@ function OverworldState:setMap(mapId, x, y, facing, opts)
   end
 
   self:rebuildNeighbors()
+  self:prefetchAtlases(mapId, false)
   Logger.info("map: %s at (%d,%d)", mapId, x, y)
   -- Route22Gate_Script rewrites wLastMap from the player's Y on entry
   -- too (not only on step), so a save/load mid-gate keeps exits correct
@@ -759,6 +762,125 @@ function OverworldState:rebuildNeighbors()
   self:rebuildGhosts()
   Runtime.emit("world.live_maps_updated",
     { mapId = mapId, maps = self:liveMaps() })
+end
+
+-- Map ids whose RED++ atlas bake is worth starting early, in priority order:
+-- the neighbors of each map in `ids`, minus the root, the maps in `ids` and
+-- anything in `skip`.  Pure (maps registry in, ids out) so tests can drive it.
+function OverworldState.prefetchTargets(maps, ids, hops, reachW, reachH, skip)
+  local out, seen = {}, {}
+  for _, id in ipairs(ids) do seen[id] = true end
+  for id in pairs(skip or {}) do seen[id] = true end
+  for _, id in ipairs(ids) do
+    for _, n in ipairs(OverworldState.computeNeighbors(maps, id, hops,
+                                                       reachW, reachH)) do
+      if not seen[n.id] then
+        seen[n.id] = true
+        out[#out + 1] = n.id
+      end
+    end
+  end
+  return out
+end
+
+-- Per-setMap budget of low-priority hints (atlas bakes / image decodes), kept
+-- below the ready stores' caps so a full survey zoom-out does not decode
+-- hints only to evict them unused (handheld battery).
+local ATLAS_HINT_CAP = 16
+local DECODE_HINT_CAP = 32
+
+-- Queue the image file decodes a map's build will need: its tileset sheet and
+-- the sprite sheets of the objects rebuildGhosts / a real entry would spawn
+-- (same objectVisible filter).  Returns how many new requests were queued.
+local function prefetchMapImages(mapId, front, budget, seen)
+  local data, Assets = Game.data, require("src.render.Assets")
+  local def = data.maps[mapId]
+  if not def then return 0 end
+  local NPC = require("src.world.NPC")
+  local queued = 0
+  local SpriteRenderer = require("src.render.SpriteRenderer")
+  -- Under RED++ tileset hints stay even when cached (atlas bakes reuse the
+  -- decode); otherwise a cached tileset is skipped (see want).
+  -- Outside RED++ a sheet has one OBJ palette, so once its Image and OBJ bake
+  -- exist the pixels are never read again and it is skipped.  RED++ colours
+  -- the same sheet per sprite/instance, so a new group may still need them.
+  local skipDone = not PaletteFX.usesGbcPack()
+  local ts = data.tilesets and data.tilesets[def.tileset]
+  local function want(path, sprite)
+    if not path or seen[path] or (not front and queued >= budget) then return end
+    seen[path] = true -- many objects share a sheet: queue each path once
+    if sprite and skipDone and SpriteRenderer.isBaked(path) then return end
+    -- outside RED++ a tileset's pixels are read once, by its Image upload,
+    -- unless animated-tile variants (shifted tiles, spinner clone) still
+    -- have to be built from them
+    if not sprite and skipDone then
+      local TileRenderer = require("src.render.TileRenderer")
+      if TileRenderer.hasImage(path)
+         and not TileRenderer.pixelReadsPending(path, ts) then return end
+    end
+    if Assets.prefetchImage(path, front) then queued = queued + 1 end
+  end
+  want(ts and ts.image)
+  for _, obj in ipairs(def.objects or {}) do
+    if objectVisible(Game.save, mapId, obj) then
+      want(NPC.spriteImagePath(data, obj), true)
+    end
+  end
+  return queued
+end
+
+-- Start the background work a crossing or warp is about to need: the RED++
+-- atlas bakes (only under RED++) and the image file decodes (every COLORS
+-- mode); a no-op without a worker, see AtlasPrefetch.
+-- Standing on `rootId` (already current, front=false): queue the maps that
+-- become neighbors after the NEXT crossing, i.e. the neighbors of each
+-- current neighbor.  Heading for `rootId` (a warp, front=true): the
+-- destination, then its neighbors, ahead of any queued hints.
+local prefetchWarned = false
+function OverworldState:prefetchAtlases(rootId, front)
+  if not (Game.data and require("src.render.AtlasPrefetch").available()) then
+    return
+  end
+  local ok, err = pcall(function()
+    local TileRenderer = require("src.render.TileRenderer")
+    local gbc = PaletteFX.usesGbcPack()
+    local maps = Game.data.maps
+    local hops = FieldDefaults.world(Game.data, "neighborHops") or NEIGHBOR_HOPS
+    local vw, vh = Game.renderer:worldViewSize()
+    local rw, rh = math.floor(vw / 2) + 64, math.floor(vh / 2) + 64
+    local list
+    if front then
+      list = { rootId }
+      for _, id in ipairs(OverworldState.prefetchTargets(maps, { rootId }, hops, rw, rh)) do
+        list[#list + 1] = id
+      end
+    else
+      local near = {}
+      for _, n in ipairs(OverworldState.computeNeighbors(maps, rootId, hops, rw, rh)) do
+        near[#near + 1] = n.id
+      end
+      local skip = {}
+      for _, id in ipairs(near) do skip[id] = true end
+      list = {}
+      for _, id in ipairs(OverworldState.prefetchTargets(maps, near, hops, rw, rh, skip)) do
+        if id ~= rootId then list[#list + 1] = id end
+      end
+    end
+    local atlases, decodes, seen = 0, 0, {}
+    for _, id in ipairs(list) do
+      if gbc and (front or atlases < ATLAS_HINT_CAP)
+         and TileRenderer.prefetchAtlas(Game.data, id, front) then
+        atlases = atlases + 1
+      end
+      if front or decodes < DECODE_HINT_CAP then
+        decodes = decodes + prefetchMapImages(id, front, DECODE_HINT_CAP - decodes, seen)
+      end
+    end
+  end)
+  if not ok and not prefetchWarned then
+    prefetchWarned = true -- once: a data-shape bug would repeat every setMap
+    Logger.warn("prefetch hints failed: %s", tostring(err))
+  end
 end
 
 function OverworldState:liveMaps()
@@ -5449,6 +5571,8 @@ function OverworldState:startWarpTo(mapId, x, y, facing, onDone, opts)
     self:rememberOutdoor(self.map.id, self.player.cellX, self.player.cellY)
   end
   self.transitioning = true
+  -- the fade covers the destination's atlas bake (RED++ worker)
+  self:prefetchAtlases(mapId, true)
   local doorWarp = self.doorWarp
   self.doorWarp = nil
   local arriveWarp = self.arriveWarp

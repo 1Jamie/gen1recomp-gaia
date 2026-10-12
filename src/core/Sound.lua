@@ -677,6 +677,13 @@ local function plainMoveFrames(data, def, channels)
   return plain
 end
 
+-- the cache key of a move sound variant; playMove and prewarmMove share it
+local function moveKey(name, pitch, tempo, plain)
+  local key = ("%s@%02x%02x"):format(name, pitch, tempo)
+  if plain and plain > 0 then key = ("%s~%d"):format(key, plain) end
+  return key
+end
+
 function Sound.playMove(data, anim)
   if not anim or not anim.sound then return end
   local sfx = data.audio and data.audio.sfx
@@ -695,11 +702,10 @@ function Sound.playMove(data, anim)
       local channels = require("src.core.ChipSynth").effectChannels(data, def)
       plain = plainMoveFrames(data, def, channels)
     end
-    local key = ("%s@%02x%02x"):format(name, pitch, tempo)
-    if plain > 0 then key = ("%s~%d"):format(key, plain) end
+    local key = moveKey(name, pitch, tempo, plain)
     src = playPath(data, key, def, pitch, tempo, plain)
   else
-    local key = ("%s@%02x%02x"):format(name, pitch, tempo)
+    local key = moveKey(name, pitch, tempo)
     if (pitch ~= 0 or tempo ~= 0x80) and sfx[key] then
       src = playPath(data, key, sfx[key])
     else
@@ -863,6 +869,24 @@ function Sound.prewarmSfx(data, name)
   if not isChipDef(def) then return false end
   local ok, queued = pcall(
     require("src.core.ChipAudio").prewarmSfx, data, name, nil, nil, def, nil)
+  return ok and queued or false
+end
+
+-- the move-sound variant playMove builds when no other move sound overlaps it
+-- (plain == 0, the only case knowable ahead of time).  Same def, pitch, tempo
+-- and plainFrames=0 as that play, so ChipAudio's prewarm key matches it.
+function Sound.prewarmMove(data, anim)
+  if not love.audio or deviceSuspended() then return false end
+  if not (anim and anim.sound) then return false end
+  local sfx = data and data.audio and data.audio.sfx
+  local def = sfx and sfx[anim.sound]
+  if not isChipDef(def) then return false end
+  local pitch, tempo = anim.pitch or 0, anim.tempo or 0x80
+  if cache[moveKey(anim.sound, pitch, tempo)] ~= nil then
+    return true
+  end
+  local ok, queued = pcall(require("src.core.ChipAudio").prewarmSfx,
+    data, anim.sound, pitch, tempo, def, 0)
   return ok and queued or false
 end
 

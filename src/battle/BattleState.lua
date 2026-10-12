@@ -800,19 +800,53 @@ function BattleState:playerPartyView()
   return self.playerParty or self.game.save.party
 end
 
--- opts.hooked: rod encounter, announced with _HookedMonAttackedText
 -- Queue the battle's first two cries on the chip audio worker while the
 -- transition runs, so the entrance cries don't render on the frame they
 -- play.  A no-op without a worker; playCry renders as before on a miss.
+-- Then, in the order the battle needs them (the worker renders FIFO): both
+-- leads' move sounds, the hit sounds, the rest of both parties' cries and the
+-- generic battle SFX.
+local BATTLE_SFX = {
+  "Level_Up", "Faint_Fall", "Faint_Thud", "Ball_Toss", "Ball_Poof", "Run",
+  "Caught_Mon",
+}
+
 local function prewarmCries(self)
   local Sound = package.loaded["src.core.Sound"]
   if not (Sound and Sound.prewarmCry) then return end
+  local data = self.data
+  local leads = {}
   for _, battler in ipairs({ self.enemy, self.player }) do
     local mon = battler and battler.mon
-    if mon and mon.species then pcall(Sound.prewarmCry, self.data, mon.species) end
+    if mon and mon.species then
+      leads[#leads + 1] = mon
+      pcall(Sound.prewarmCry, data, mon.species)
+    end
   end
+  local moves = data and data.moves
+  for _, mon in ipairs(leads) do
+    for _, move in ipairs(mon.moves or {}) do
+      local mdef = moves and moves[type(move) == "table" and move.id or move]
+      if mdef then pcall(Sound.prewarmMove, data, mdef.anim) end
+    end
+  end
+  -- the hit sounds, as EffectRegistry plays them through Sound.playMove
+  local hits = EffectRegistry.HIT_SOUNDS
+  for _, kind in ipairs({ "neutral", "superEffective", "notVeryEffective" }) do
+    pcall(Sound.prewarmMove, data, hits[kind])
+  end
+  for _, party in ipairs({ self.enemyParty or {}, self:playerPartyView() or {} }) do
+    for _, mon in ipairs(party) do
+      if type(mon) == "table" and mon.species then
+        pcall(Sound.prewarmCry, data, mon.species)
+      end
+    end
+  end
+  for _, name in ipairs(BATTLE_SFX) do pcall(Sound.prewarmSfx, data, name) end
 end
+BattleState.prewarmCries = prewarmCries -- test hook
 
+-- opts.hooked: rod encounter, announced with _HookedMonAttackedText
 function BattleState.newWild(game, species, level, opts)
   local self = newBattle(game)
   self.kind = "wild"

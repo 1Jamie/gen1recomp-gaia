@@ -6,6 +6,7 @@
 local ShaderFX = {}
 
 local Json = require("src.link.Json")
+local FrameProfiler = require("src.core.FrameProfiler")
 local SaveData = require("src.core.SaveData")
 local Performance = require("src.core.Performance")
 
@@ -1278,7 +1279,7 @@ end
 -- `opts.layer` names a second chain of the same frame (its own canvases);
 -- `opts.mask` composites that layer over what is already on screen, keyed
 -- by `canvas`'s own alpha, instead of replacing the screen with it.
-function ShaderFX.render(canvas, rect, source, dpiX, dpiY, opts)
+local function renderImpl(canvas, rect, source, dpiX, dpiY, opts)
   if not autoActivateTried then tryAutoActivateFromEnv() end
   local layer = opts and opts.layer or "main"
   local masked = opts and opts.mask and maskedDraw() or nil
@@ -1395,6 +1396,17 @@ function ShaderFX.render(canvas, rect, source, dpiX, dpiY, opts)
     main = slots.main.state and slots.main.state.lastAccelPacked,
     secondary = slots.secondary.state and slots.secondary.state.lastAccelPacked,
   }
+end
+
+-- Wrapper so the profiler push/pop pairs across renderImpl's early returns.
+local function popShaderFX(...)
+  FrameProfiler.pop("shaderfx")
+  return ...
+end
+
+function ShaderFX.render(...)
+  FrameProfiler.push("shaderfx")
+  return popShaderFX(renderImpl(...))
 end
 
 return ShaderFX

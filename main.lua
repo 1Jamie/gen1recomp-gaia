@@ -8,6 +8,13 @@
 --     opens the editor on that slot's file, and restores the launcher when
 --     the editor's Close button is pressed (openEditor / closeEditor below)
 
+-- POKEPORT_JIT=0 runs without the LuaJIT compiler, approximating devices that
+-- only have an interpreter (see README "Measuring frame time").
+if os.getenv("POKEPORT_JIT") == "0" and jit and jit.off then
+  jit.off()
+  print("[info] jit off")
+end
+
 local SwitchDiagnostics = require("src.debug.SwitchDiagnostics")
 
 -- Global emergency quit: holding Start + Select for 5 seconds forcefully terminates LOVE.
@@ -218,6 +225,54 @@ local function applySavedAudioMode()
 end
 
 local Game, EditorApp, Importer, TouchEditor, Studio, Prelaunch
+local FrameProfiler = require("src.core.FrameProfiler")
+-- Short label for a frame-time spike: top state's screenId/name plus map id.
+FrameProfiler.context = function()
+  if not Game then return nil end
+  local parts = {}
+  local ok, top = pcall(function() return Game.stack and Game.stack:top() end)
+  if ok and type(top) == "table" then
+    local label = top.screenId or top.name
+      or (top == Game.overworld and "overworld" or nil)
+    if not label then
+      local mt = getmetatable(top)
+      label = mt and (mt.screenId or mt.name)
+    end
+    parts[#parts + 1] = tostring(label or "state")
+  end
+  local ok2, mapId = pcall(function()
+    local ow = Game.overworld or Game.world
+    return ow and ow.map and ow.map.id
+  end)
+  if ok2 and mapId then parts[#parts + 1] = "map=" .. tostring(mapId) end
+  return table.concat(parts, " ")
+end
+
+-- Wraps love.graphics.present so the profiler can time it and close the frame
+-- (hooks in main.lua's "Frame profiler hooks" block; love.run is untouched).
+-- PresentSync.waitBeforePresent is timed as "present" too: on X11 the vblank
+-- wait happens there (PresentProbe's GLX wait), just before present.
+local presentWrapped = false
+local function wrapPresent()
+  local g = love.graphics
+  if presentWrapped or not (g and g.present) then return end
+  presentWrapped = true
+  local present = g.present
+  g.present = function(...)
+    FrameProfiler.push("present")
+    present(...)
+    FrameProfiler.pop("present")
+    FrameProfiler.endFrame()
+  end
+  local PresentSync = require("src.core.PresentSync")
+  local waitBeforePresent = PresentSync.waitBeforePresent
+  PresentSync.waitBeforePresent = function(...)
+    FrameProfiler.push("present")
+    waitBeforePresent(...)
+    FrameProfiler.pop("present")
+  end
+end
+
 local launcherSplash
 
 local function splashBlocksInput()
@@ -603,6 +658,7 @@ local driverHost = {
 }
 
 function bootGame(version, cartId, opts)
+  wrapPresent()
   opts = opts or {}
   if require("src.core.RequireGuard").repair() then
     print("boot: restored love.filesystem searcher (see #2001)")
@@ -1076,7 +1132,9 @@ function love.update(dt)
     local i = 0
     while i < iterations do
       i = i + 1
+      FrameProfiler.push("driver")
       local ok, err = coroutine.resume(driverCo, Game, driverHost)
+      FrameProfiler.pop("driver")
       if not ok then
         print("driver error: " .. tostring(err))
         love.event.quit(1)
@@ -1151,6 +1209,7 @@ function love.draw()
       end
     end)
   end
+  FrameProfiler.draw()
   HostDisplay.endFrame("game", Game)
 end
 
@@ -1162,6 +1221,9 @@ function love.keypressed(key, scancode, isrepeat)
   if Prelaunch then return Prelaunch:cancel() end
   if Importer then return Importer:keypressed(key) end
   if not Game then return end
+  if key == "f3" then
+    return FrameProfiler.keypressed(key, Game, require("src.core.Input"))
+  end
   Game:keypressed(key)
 end
 
@@ -1641,6 +1703,7 @@ function love.quit()
   end
   local osName = love.system and love.system.getOS and love.system.getOS()
   if osName == "NX" then
+    FrameProfiler.finish()
     endProcessOnce()
     return
   end
@@ -1662,6 +1725,7 @@ function love.quit()
   -- is saved here on purpose: a window close never wrote the save, and the
   -- restart path must be no worse than that, not quietly better.
   local scripted = os.getenv("POKEPORT_AUTOPILOT") or os.getenv("POKEPORT_DRIVER")
+    or FrameProfiler.benchRequested()
     or os.getenv("POKEPORT_IMPORT_ONLY") == "1" or os.getenv("POKEPORT_IMPORT_ROM")
   -- #887: a shortcut session (--game / POKEPORT_GAME) has no launcher to go
   -- back to and the restart would re-read the shortcut, so it exits instead.
@@ -1684,6 +1748,11 @@ function love.quit()
       return true
     end
   end
+  -- Only a quit that really proceeds ends the profilers: the editor prompt
+  -- and the quit-to-launcher paths above return true and keep the run alive
+  -- (scripted/bench runs never take those paths, so their summary and jit.p
+  -- report still land exactly once, here).
+  FrameProfiler.finish()
   endProcessOnce()
 end
 
@@ -1721,6 +1790,33 @@ local function idlePresentationCap(idleFor)
   if idleFor < after then return nil end
   if Importer or Prelaunch or editorMode or not Game then return nil end
   return fps
+end
+
+-- Frame profiler hooks.  They wrap love.update / love.draw / love.graphics.present
+-- instead of living in love.run: love.run is the native-shell contract (a
+-- changed loop is a new shell, see tests/engine/love_run_shell_matrix.lua), and
+-- the profiler must not change it.  The frame is bracketed update-start to
+-- present-end, before the pacing sleep, so its total is work time only (it
+-- also excludes the vsync wait in and just before `present`).  A frame that
+-- never presents (hidden window) is simply dropped by the next beginFrame.
+do
+  local gameUpdate, gameDraw = love.update, love.draw
+  function love.update(dt)
+    -- records only while a game (not the launcher/editors) runs
+    FrameProfiler.beginFrame(Game ~= nil and not (Importer or editorMode
+      or Studio or TouchEditor or Prelaunch))
+    FrameProfiler.push("update")
+    local a, b = gameUpdate(dt)
+    FrameProfiler.pop("update")
+    return a, b
+  end
+  function love.draw(...)
+    FrameProfiler.push("draw")
+    local a, b = gameDraw(...)
+    FrameProfiler.pop("draw")
+    FrameProfiler.sampleGfx()
+    return a, b
+  end
 end
 
 function love.run()

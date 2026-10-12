@@ -14,6 +14,21 @@ local Timing = require("src.core.Timing")
 
 local EffectRegistry = {}
 
+-- PlayApplyingAttackSound's three hit sounds with their frequency modifier
+-- (see the damage-sound comment in runDamaging).  Shared with BattleState's
+-- battle-start prewarm, which must ask for exactly what a hit plays; each hit
+-- gets its own copy (records and mods see it as ctx.hitSfx).
+EffectRegistry.HIT_SOUNDS = {
+  superEffective = { sound = "Super_Effective", pitch = 0xe0 },
+  notVeryEffective = { sound = "Not_Very_Effective", pitch = 0x50 },
+  neutral = { sound = "Damage", pitch = 0x20 },
+}
+
+local function hitSound(kind)
+  local spec = EffectRegistry.HIT_SOUNDS[kind]
+  return { sound = spec.sound, pitch = spec.pitch }
+end
+
 -- A move that misses -- or that registers as missed, which in Gen 1 includes
 -- a type immunity and damage floored to zero -- skips its animation and
 -- falls into PlayerCheckIfFlyOrChargeEffect's `ld c, 30 / call DelayFrames`
@@ -250,11 +265,11 @@ function EffectRegistry.runDamaging(battle, ctx, record)
   -- the hardware never stretches.
   local hitSfx
   if info.typeMult > 10 then
-    hitSfx = { sound = "Super_Effective", pitch = 0xe0 }
+    hitSfx = hitSound("superEffective")
   elseif info.typeMult < 10 then
-    hitSfx = { sound = "Not_Very_Effective", pitch = 0x50 }
+    hitSfx = hitSound("notVeryEffective")
   else
-    hitSfx = { sound = "Damage", pitch = 0x20 }
+    hitSfx = hitSound("neutral")
   end
   -- GetPlayerAnimationType / GetEnemyAnimationType (engine/battle/core.asm
   -- :3159 / :5555): 4 blinks the enemy pic, 1 shakes vertically, 5 / 2 once

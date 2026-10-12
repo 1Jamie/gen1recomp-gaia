@@ -29,6 +29,13 @@ local function shadowImage(path)
   return shadowCache[path] or nil
 end
 
+-- The sprite sheet path NPC.new will load for a map object (nil when the
+-- object's sprite is unknown).  Pure; shares SpriteRenderer.imagePath.
+function NPC.spriteImagePath(data, objDef)
+  local spriteDef = data and data.sprites and data.sprites[objDef.sprite]
+  return SpriteRenderer.imagePath(spriteDef)
+end
+
 function NPC.new(data, mapId, objDef)
   local self = setmetatable({}, NPC)
   self.def = objDef

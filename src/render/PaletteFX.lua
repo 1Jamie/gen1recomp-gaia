@@ -965,6 +965,11 @@ end
 
 local function invalidateColorCaches()
   local loaded = package.loaded
+  -- queued / finished background atlas bakes were made for the old colours;
+  -- decoded image files are palette independent and stay in the store
+  pcall(function()
+    if loaded["src.render.AtlasPrefetch"] then loaded["src.render.AtlasPrefetch"].bumpBakes() end
+  end)
   pcall(function() if loaded["src.battle.BattleState"] then loaded["src.battle.BattleState"].invalidate() end end)
   pcall(function() if loaded["src.render.SpriteRenderer"] then loaded["src.render.SpriteRenderer"].invalidate() end end)
   pcall(function()

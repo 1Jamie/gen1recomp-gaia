@@ -2,6 +2,7 @@
 -- and save state.  Everything else reaches shared services through here.
 
 local Data = require("src.core.Data")
+local FrameProfiler = require("src.core.FrameProfiler")
 local FixedStep = require("src.core.FixedStep")
 local DeferredWrite = require("src.core.DeferredWrite")
 local Input = require("src.core.Input")
@@ -434,17 +435,24 @@ function Game:update(dt)
   local speed = self:logicSpeed()
   self._frameSpeed = speed
   FixedStep.maxAccum = FixedStep.catchupLimit(speed, dt)
+  FrameProfiler.push("logic")
   FixedStep:update(dt, speed)
+  FrameProfiler.pop("logic")
   -- Audio runs off real time at a fixed 60Hz regardless of game speed or
   -- display refresh, so fades and chip synthesis keep their intended tempo
   -- whether we are at 1X, 10X, or running with vsync disabled.  One-shot
   -- SFX stay at natural pitch too (#1990/#1991/#1997).
   local step = FixedStep.STEP
   self.audioAccum = math.min((self.audioAccum or 0) + dt, 0.25)
+  FrameProfiler.push("music")
   while self.audioAccum >= step do
     self.audioAccum = self.audioAccum - step
     require("src.core.Music").update(Data)
   end
+  FrameProfiler.pop("music")
+  -- finished background RED++ atlas bakes move into the ready store
+  local atlasPrefetch = package.loaded["src.render.AtlasPrefetch"]
+  if atlasPrefetch then atlasPrefetch.update() end
   -- Overworld tilt toggle tween: presentational, so it runs on the real
   -- frame dt (not the fixed logic step) for a smooth ~0.25s glide.
   require("src.render.Tilt").update(dt)
@@ -462,7 +470,11 @@ function Game:update(dt)
   -- frame (not every frame) so the stepping itself does not compete with
   -- the frame budget on weak single-core handhelds.
   self.gcStepFrame = (self.gcStepFrame or 0) + 1
-  if collectgarbage and self.gcStepFrame % 4 == 0 then collectgarbage("step", 1) end
+  if collectgarbage and self.gcStepFrame % 4 == 0 then
+    FrameProfiler.push("gc")
+    collectgarbage("step", 1)
+    FrameProfiler.pop("gc")
+  end
 end
 
 -- render.zones' identity default: unhooked, the zone list reaches the blit
@@ -1442,6 +1454,30 @@ function Game:writeOptions()
   SaveData.saveLiveOptions(self.save)
 end
 
+-- sounds menus and the overworld play first and most often
+Game.COMMON_SFX = {
+  "Press_AB", "Start_Menu", "Collision", "Save", "Go_Inside", "Go_Outside",
+  "Heal_HP", "Get_Item1", "Get_Item2", "Level_Up", "Tink", "Ledge_Jump",
+  "Withdraw_Deposit", "Ball_Toss", "Ball_Poof", "Faint_Fall", "Faint_Thud",
+  "Run", "Caught_Mon",
+}
+
+-- hand the common SFX (pinned, so battle prewarms can't evict them) and the
+-- party's cries to the chip audio worker; see ChipAudio.prewarmSfx
+function Game:prewarmCommonAudio()
+  local Sound = require("src.core.Sound")
+  require("src.core.ChipAudio").prewarmPinned(function()
+    for _, name in ipairs(Game.COMMON_SFX) do
+      pcall(Sound.prewarmSfx, self.data, name)
+    end
+  end)
+  for _, mon in ipairs(self.save and self.save.party or {}) do
+    if type(mon) == "table" and mon.species then
+      pcall(Sound.prewarmCry, self.data, mon.species)
+    end
+  end
+end
+
 -- Push the live options table into audio + display subsystems.
 function Game:applyOptions(opts)
   opts = opts or (self.save and self.save.options) or {}
@@ -1449,6 +1485,10 @@ function Game:applyOptions(opts)
   local Sound = require("src.core.Sound")
   if Music.applyOptions then Music.applyOptions(opts) end
   if Sound.applyOptions then Sound.applyOptions(opts) end
+  -- pre-render the common menu/overworld SFX (pinned) and the party's cries
+  -- on the chip audio worker; idempotent, a no-op without a worker.  After
+  -- Music.applyOptions so a sample-rate change is already in the render key.
+  pcall(Game.prewarmCommonAudio, self)
   require("src.render.PaletteFX").applyOptions(opts)
   require("src.render.Tilt").applyOptions(opts)
   require("src.render.Letterbox").applyOptions(opts)
