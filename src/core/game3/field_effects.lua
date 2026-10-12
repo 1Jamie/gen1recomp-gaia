@@ -2017,7 +2017,7 @@ function FieldEffects.drawBehind(camX, camY)
 end
 
 --- Collect ground/feet field effects as sorted actors (OAM Y-ordering with players/NPCs).
-function FieldEffects.collectActors(actors)
+function FieldEffects.collectActors(actors, camX, camY)
   if not actors then return end
 
   -- 1) Tall grass feet cover (player active effect)
@@ -2208,7 +2208,7 @@ function FieldEffects.collectActors(actors)
     end
   end
   local R = rse()
-  if R then R.collectActors(actors) end
+  if R then R.collectActors(actors, camX, camY) end
 end
 
 --- Draw in front of all actors (floating/airborne particles, rock smash rubble, bird)

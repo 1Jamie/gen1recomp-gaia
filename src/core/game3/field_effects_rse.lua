@@ -369,15 +369,21 @@ function FxRse.step()
   FxRse._distortTick = ((FxRse._distortTick or 0) + 1) % #DISTORT_SCALE
   FxRse._hookTick = ((FxRse._hookTick or 0) + 1) % 256
   if FxRse._hookTick == 0 then lazyReq("src.core.game3.rse.berry_trees").installTimeHook() end
-  local keep = {}
-  for _, e in ipairs(FxRse._list) do
+  -- compact in place; an effect an onDone spawns lands past i and is
+  -- stepped this frame, as it was when this built a new list
+  local list, n, i = FxRse._list, 0, 1
+  while list[i] ~= nil do
+    local e = list[i]
     if stepEntry(e) then
       if e.onDone then e.onDone(e) end
     else
-      keep[#keep + 1] = e
+      n = n + 1
+      list[n] = e
     end
+    i = i + 1
   end
-  FxRse._list = keep
+  for k = n + 1, i - 1 do list[k] = nil end
+  FxRse._list = list
   FxRse.stepObjects()
   for _, name in ipairs(FxRse.SYSTEMS) do
     local mod = package.loaded[name]
@@ -640,15 +646,20 @@ local function to8(v)
 end
 
 local function recolored(gid, spr, tag)
-  local key = tostring(gid) .. ":" .. tostring(tag)
-  local hit = FxRse._images[key]
+  -- nested by gid then tag: this runs per reflection per frame, so no key string
+  local byGid = FxRse._images[gid]
+  if not byGid then
+    byGid = {}
+    FxRse._images[gid] = byGid
+  end
+  local hit = byGid[tag]
   if hit ~= nil then return hit or nil end
   local m = FxRse.fc()
   local info = fcGfx(gid)
   local from = m and info and m.palettes and m.palettes[info.paletteTag]
   local to = m and m.palettes and m.palettes[tag]
   if not (from and to and spr and spr.imageData and love and love.graphics) then
-    FxRse._images[key] = false
+    byGid[tag] = false
     return nil
   end
   local lut = {}
@@ -658,7 +669,7 @@ local function recolored(gid, spr, tag)
   end
   local okC, data = pcall(function() return spr.imageData:clone() end)
   if not okC then
-    FxRse._images[key] = false
+    byGid[tag] = false
     return nil
   end
   data:mapPixel(function(_, _, r, g, b, a)
@@ -670,9 +681,12 @@ local function recolored(gid, spr, tag)
   local img = love.graphics.newImage(data)
   if img.setFilter then img:setFilter("nearest", "nearest") end
   local out = { image = img, width = spr.width, height = spr.height }
-  FxRse._images[key] = out
+  byGid[tag] = out
   return out
 end
+
+-- pokeemerald/src/field_effect_helpers.c:75
+local BRIDGE_REFLECTION_OFFSET = { [1] = 12, [2] = 28, [3] = 44 }
 
 local reflQuad
 local coverCells, coverN = {}, 0
@@ -698,9 +712,7 @@ local function drawReflection(obj, gid, frame, hflip, x2, y2, camX, camY, ox, oy
   local src = (tag and recolored(gid, spr, tag)) or spr
   FxRse.lastReflections = (FxRse.lastReflections or 0) + 1
   FxRse.lastReflectionTag = tag
-  -- pokeemerald/src/field_effect_helpers.c:75
-  local offs = { [1] = 12, [2] = 28, [3] = 44 }
-  local extra = (not (info and info.noReflectionLoad)) and offs[bridge] or 0
+  local extra = (not (info and info.noReflectionLoad)) and BRIDGE_REFLECTION_OFFSET[bridge] or 0
   local w, h = spr.width, spr.height
   local left = (obj.px or (cx - ox) * CELL) + ox * CELL + (16 - w) / 2 + (x2 or 0)
   local top = (obj.py or (cy - oy) * CELL) + oy * CELL + 16 - h + (h - 2) + extra - (y2 or 0)
@@ -840,7 +852,8 @@ local function drawReflections(camX, camY)
       if not eo.hideReflection and eo.graphicsId and not eo.virtualId then
         local spr = Ow.getDraw(eo.graphicsId)
         if spr then
-          local frame, flip = Ow.pose(spr, eo.facing, O.walkPhase(eo), eo.stepFlip, { frame = eo.customFrame })
+          ghostPose.frame = eo.customFrame
+          local frame, flip = Ow.pose(spr, eo.facing, O.walkPhase(eo), eo.stepFlip, ghostPose)
           drawReflection(eo, eo.graphicsId, frame, flip, eo.raiseX, eo.raiseY, camX, camY)
         end
       end
@@ -958,12 +971,40 @@ function FxRse.stepObjects()
   end
 end
 
-local function pushActor(actors, sortY, elevation, x, y, fn)
-  actors[#actors + 1] = {
-    kind = "field_effect_rse", elevation = elevation or 3, sortY = sortY, x = x, y = y,
-    i = 95000 + #actors, draw = fn,
-  }
+-- One record per effect / object, refilled each frame, drawn by a shared
+-- function that reads it (as FieldView's npcActors are): collectActors runs
+-- every frame over every object on the map.
+local entryActors = setmetatable({}, { __mode = "k" })
+local disguiseActors = setmetatable({}, { __mode = "k" })
+local berryActors = setmetatable({}, { __mode = "k" })
+local shadowActors = setmetatable({}, { __mode = "k" })
+
+local function pushActor(pool, key, actors, sortY, elevation, x, y, draw)
+  local a = pool[key]
+  if not a then
+    a = { kind = "field_effect_rse" }
+    pool[key] = a
+  end
+  a.elevation, a.sortY, a.x, a.y = elevation or 3, sortY, x, y
+  a.i, a.draw = 95000 + #actors, draw
+  a.priority, a.subpriority, a.fixedPriority, a.disguiseObject = nil, nil, nil, nil
+  actors[#actors + 1] = a
+  return a
 end
+
+local function drawEntryActor(a, camX, camY)
+  drawEntry(a.fxEntry, camX, camY)
+end
+
+local function drawObjectActor(a, camX, camY)
+  love.graphics.setColor(1, 1, 1, a.fxFade and (a.fxFade(a.fxObject) or 1) or 1)
+  love.graphics.draw(a.fxImage, a.fxQuad, math.floor(a.x) - camX, math.floor(a.y) - camY)
+  if a.fxFade then love.graphics.setColor(1, 1, 1, 1) end
+end
+
+-- the effects below draw within a sprite of their object, so one well
+-- outside the view adds nothing but sort work
+local ACTOR_CULL = 64
 
 FxRse.SYSTEMS = {
   "src.core.game3.rotating_gate",
@@ -974,7 +1015,7 @@ FxRse.SYSTEMS = {
   "src.core.game3.rse.orb_effect_rs",
 }
 
-function FxRse.collectActors(actors)
+function FxRse.collectActors(actors, camX, camY)
   for _, name in ipairs(FxRse.SYSTEMS) do
     local mod = package.loaded[name]
     if mod and mod.collectActors then mod.collectActors(actors) end
@@ -982,16 +1023,27 @@ function FxRse.collectActors(actors)
   for _, e in ipairs(FxRse._list) do
     if e.layer == "actor" and not e.hidden then
       local sortY = e.follow and ((e.follow.py or 0) + e.sortBias) or (e.y - 8 + e.sortBias)
-      pushActor(actors, sortY, e.elevation or (e.follow and e.follow.elevation) or 3, e.x, e.y, function(_, camX, camY)
-        drawEntry(e, camX, camY)
-      end)
+      local a = pushActor(entryActors, e, actors, sortY, e.elevation or (e.follow and e.follow.elevation) or 3,
+        e.x, e.y, drawEntryActor)
+      a.fxEntry = e
     end
   end
   local O = Objects()
   if not (O and O._order) then return end
+  local x0, y0, x1, y1
+  if camX and camY then
+    local FV = package.loaded["src.core.game3.field_view"]
+    local Display = lazyReq("src.core.game3.display")
+    x0, y0 = camX - ACTOR_CULL, camY - ACTOR_CULL
+    x1 = camX + (FV and FV._viewW or Display.W) + ACTOR_CULL
+    y1 = camY + (FV and FV._viewH or Display.H) + ACTOR_CULL
+  end
   for _, lid in ipairs(O._order) do
     local eo = O._byId[lid]
-    if eo and eo.visible and not eo.hidden then
+    local ex, ey = eo and (eo.px or 0), eo and (eo.py or 0)
+    if eo and eo.visible and not eo.hidden
+        and (not x0 or not (eo.px and eo.py)
+          or (ex > x0 and ex < x1 and ey > y0 and ey < y1)) then
       local d = eo.disguise
       -- pokeemerald/src/field_effect_helpers.c:1362
       if d and not d.done and not eo.invisible then
@@ -999,15 +1051,12 @@ function FxRse.collectActors(actors)
         local q = sheet and d.a and sheet.quads[d.a.frame or 0]
         if q then
           local _, _, h = objCenter(eo)
-          local x = (eo.px or 0) + 8 - sheet.fw / 2
-          local y = (eo.py or 0) + CELL - math.floor(h / 2) + math.floor(h / 2) - 16 - sheet.fh / 2
-          pushActor(actors, (eo.py or 0) + 0.6, eo.elevation, x, y, function(_, camX, camY)
-            love.graphics.setColor(1, 1, 1, O.fadeAlpha(eo) or 1)
-            love.graphics.draw(sheet.image, q, math.floor(x) - camX, math.floor(y) - camY)
-            love.graphics.setColor(1, 1, 1, 1)
-          end)
+          local x = ex + 8 - sheet.fw / 2
+          local y = ey + CELL - math.floor(h / 2) + math.floor(h / 2) - 16 - sheet.fh / 2
+          local a = pushActor(disguiseActors, eo, actors, ey + 0.6, eo.elevation, x, y, drawObjectActor)
+          a.fxImage, a.fxQuad, a.fxObject, a.fxFade = sheet.image, q, eo, O.fadeAlpha
           -- pokeemerald/src/field_effect_helpers.c:1365
-          actors[#actors].disguiseObject = eo
+          a.disguiseObject = eo
         end
       end
       local bt = eo.berryTree
@@ -1018,13 +1067,10 @@ function FxRse.collectActors(actors)
           local iw, ih = img:getDimensions()
           bt.quad = bt.quad or love.graphics.newQuad(0, 0, 1, 1, iw, ih)
           bt.quad:setViewport(0, fr.y, fr.w, fr.h, iw, ih)
-          local x = (eo.px or 0) + (16 - fr.w) / 2
-          local y = (eo.py or 0) + 16 - fr.h
-          pushActor(actors, eo.py or 0, eo.elevation, x, y, function(_, camX, camY)
-            love.graphics.setColor(1, 1, 1, O.fadeAlpha(eo) or 1)
-            love.graphics.draw(img, bt.quad, math.floor(x) - camX, math.floor(y) - camY)
-            love.graphics.setColor(1, 1, 1, 1)
-          end)
+          local x = ex + (16 - fr.w) / 2
+          local y = ey + 16 - fr.h
+          local a = pushActor(berryActors, eo, actors, ey, eo.elevation, x, y, drawObjectActor)
+          a.fxImage, a.fxQuad, a.fxObject, a.fxFade = img, bt.quad, eo, O.fadeAlpha
         end
       end
       if eo.jumpArc and eo.jumpArc.shadow and not eo.invisible then
@@ -1033,12 +1079,10 @@ function FxRse.collectActors(actors)
         local q = sheet and sheet.quads[0]
         if q then
           local h = sprH(eo)
-          local x = (eo.px or 0) + 8 - sheet.fw / 2
-          local y = (eo.py or 0) + CELL - math.floor(h / 2) + math.floor(h / 2) - off - sheet.fh / 2
-          pushActor(actors, (eo.py or 0) - 0.5, eo.elevation, x, y, function(_, camX, camY)
-            love.graphics.setColor(1, 1, 1, 1)
-            love.graphics.draw(sheet.image, q, math.floor(x) - camX, math.floor(y) - camY)
-          end)
+          local x = ex + 8 - sheet.fw / 2
+          local y = ey + CELL - math.floor(h / 2) + math.floor(h / 2) - off - sheet.fh / 2
+          local a = pushActor(shadowActors, eo, actors, ey - 0.5, eo.elevation, x, y, drawObjectActor)
+          a.fxImage, a.fxQuad, a.fxObject, a.fxFade = sheet.image, q, eo, nil
         end
       end
     end
