@@ -60,7 +60,7 @@ function M.header(man, key, scroll, zoomed)
     M.draw(entry, 184, 33 - scroll, 64, 32, 0, zoomed and 64 or 32)
   else
     M.draw(entry, 0, 33 - scroll, 64, 32, 0, 0)
-    M.draw(entry, 80, 33 - scroll, 32, 32, 0, 32)
+    M.draw(entry, 64, 33 - scroll, 32, 32, 0, 32)
   end
 end
 function M.shell(shell, frame, scroll, help)
