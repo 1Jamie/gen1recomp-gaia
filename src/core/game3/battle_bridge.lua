@@ -223,6 +223,7 @@ local function writeback(session, battleParty, remap, result, save, opts)
         species = src.species or src.speciesId,
         speciesId = src.speciesId or src.species,
         name = src.name,
+        nickname = src.nickname,
         growthRate = src.growthRate,
         evs = src.evs,
         friendship = src.friendship,
