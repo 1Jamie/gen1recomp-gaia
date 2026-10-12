@@ -1715,15 +1715,17 @@ function FieldView.draw(game, canvasW, canvasH, opts)
     return
   end
 
-  local px, py, facing, walkPhase, stepFlip, _, playerYOff, playerXOff = playerPixels(game)
+  local px, py, facing, walkPhase, stepFlip, avatar, playerYOff, playerXOff = playerPixels(game)
   playerXOff = playerXOff or 0
   playerYOff = playerYOff or 0
   local Runtime = package.loaded["src.core.game3.runtime"]
   local session = Runtime and Runtime.getSession and Runtime.getSession()
   local world = game and (game.overworld or game.world)
   if session then
-    session.x = math.floor((px or 0) / CELL)
-    session.y = math.floor((py or 0) / CELL)
+    local cellX = type(avatar) == "table" and tonumber(avatar.cellX)
+    local cellY = type(avatar) == "table" and tonumber(avatar.cellY)
+    session.x = cellX or math.floor((px or 0) / CELL)
+    session.y = cellY or math.floor((py or 0) / CELL)
     session.facing = facing
     if mapId then session.map = mapId end
   end
