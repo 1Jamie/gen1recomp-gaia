@@ -173,8 +173,9 @@ local function pose(self, facing, walkPhase, stepFlip)
 end
 
 -- The image path SpriteRenderer.new loads for a sprite def (nil when the def
--- names none).  Pure: the prefetch code asks this instead of re-deriving the
--- path, so it cannot drift from what the constructor actually loads.
+-- names none, or carries an in-memory ImageData/Image as mods build at
+-- runtime -- nothing to prefetch then).  Pure: the prefetch code asks this
+-- instead of re-deriving the path.
 function SpriteRenderer.imagePath(spriteDef)
   local path = spriteDef and spriteDef.image
   if type(path) == "string" then return path end
@@ -187,7 +188,8 @@ function SpriteRenderer.new(spriteDef, seed)
   local self = setmetatable({}, SpriteRenderer)
   self.def = spriteDef
   self.seed = seed
-  self.image = getImage(SpriteRenderer.imagePath(spriteDef))
+  -- raw def.image: a mod may hand over an ImageData instead of a path
+  self.image = getImage(spriteDef.image)
   self.frameCount = positiveInteger(spriteDef.frames, 1)
   self.frameWidth = positiveInteger(spriteDef.frameWidth, DEFAULT_FRAME_WIDTH)
   self.frameHeight = positiveInteger(spriteDef.frameHeight, DEFAULT_FRAME_HEIGHT)
