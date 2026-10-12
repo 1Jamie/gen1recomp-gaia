@@ -184,7 +184,9 @@ return function(game)
   local blend = Anim.stage().ball.blend
   result(stars == 3 and blend and blend.coeff == 6 and blend.r == 0, "u9c 3 capture stars and ball darkened to coeff 6")
   U.shot(game, DIR .. "/u9c_06_capture_stars.png")
+  local log2 = #Ui._log + 1
   result(waitFor(function() return #seFrames(319, clickF) >= 1 end, 80), "u9c MUS_CAUGHT_INTRO starts")
+  result(waitFor(function() return logHas("Gotcha!", log2) end, 3), "u9c Gotcha printed with MUS_CAUGHT_INTRO")
   local introF = seFrames(319, clickF)[1]
   result(introF - clickF == 55, "u9c MUS_CAUGHT_INTRO 55 frames after the click d=" .. tostring(introF - clickF))
   result(waitFor(function()
@@ -192,9 +194,7 @@ return function(game)
     return a and a < 0.6 and a > 0
   end, 320), "u9c ball blending out")
   U.shot(game, DIR .. "/u9c_07_ball_blending_out.png")
-  local log2 = #Ui._log + 1
   result(waitFor(function() return b2.finished end, 80), "u9c capture anim signalled end")
-  result(waitFor(function() return logHas("Gotcha!", log2) end, 30), "u9c Gotcha printed after the anim")
   U.wait(10)
   U.shot(game, DIR .. "/u9c_08_gotcha.png")
 

@@ -1259,10 +1259,27 @@ function Audio.isSpecialSePlaying()
   return false
 end
 
-function Audio.waitSe(id, cb)
-  -- Poll in update via callback list with 180 frame (~3s) defensive timeout
+function Audio.seDurationFrames(id)
+  local SE = lazyReq("src.core.game3.se_ids")
+  id = SE.resolve(id)
+  for _, src in ipairs(Audio._seSources) do
+    local meta = Audio._seMeta[src]
+    if meta and meta.id == id then
+      local ok, d = pcall(function() return src:getDuration("seconds") end)
+      if ok and type(d) == "number" and d > 0 then return math.ceil(d * 60) end
+    end
+  end
+  return nil
+end
+
+function Audio.waitSe(id, cb, opts)
+  local frames = opts and tonumber(opts.frames)
+  if not frames then
+    local dur = Audio.seDurationFrames(id)
+    frames = dur and dur + 60 or 180
+  end
   Audio._waitSe = Audio._waitSe or {}
-  Audio._waitSe[#Audio._waitSe + 1] = { id = id, cb = cb, frames = 180 }
+  Audio._waitSe[#Audio._waitSe + 1] = { id = id, cb = cb, frames = frames }
 end
 
 local function start_fanfare_source(id, mplay)

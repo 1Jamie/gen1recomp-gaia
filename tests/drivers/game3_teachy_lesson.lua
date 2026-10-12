@@ -49,6 +49,12 @@ return function(game)
     return fn() and true or false
   end
 
+  local function pageA()
+    waitFor(function() return not TvUi.typing() end, 900)
+    U.tap(game, "a")
+    U.wait(10)
+  end
+
   session.bag = session.bag or Bag.new()
   Bag.add(session.bag, ITEM_TEACHY_TV, 1)
 
@@ -135,12 +141,9 @@ return function(game)
   U.wait(20)
   U.shot(game, DIR .. "/teachy_lesson_02_hello.png")
 
-  for _ = 1, #TvUi.pages() - 1 do
-    U.tap(game, "a")
-    U.wait(10)
-  end
+  for _ = 1, #TvUi.pages() - 1 do pageA() end
   -- pokefirered/src/teachy_tv.c:838 TTVcmd_TextPrinterSwitchStringByOptionChosen
-  result(waitFor(function() return TvUi.phase == "intro" end, 200),
+  result(waitFor(function() return TvUi.phase == "intro" end, 600),
     "CatchingScript1 took over, phase=" .. tostring(TvUi.phase))
   result(#TvUi.pages() == #TeachyTv.introPages(TeachyTv.SCRIPT.CATCHING),
     "the lesson is showing CatchingScript1, pages=" .. tostring(#TvUi.pages()))
@@ -148,19 +151,16 @@ return function(game)
   U.wait(20)
   U.shot(game, DIR .. "/teachy_lesson_03_page1.png")
 
-  U.tap(game, "a")
-  U.wait(20)
+  pageA()
+  U.wait(10)
   result(TvUi.page == 2, "A advanced to page 2, at " .. tostring(TvUi.page))
   print("[driver] intro page 2: " .. tostring(TvUi.pages()[TvUi.page]))
   U.wait(10)
   U.shot(game, DIR .. "/teachy_lesson_04_page2.png")
 
-  for _ = 1, #TvUi.pages() - 2 do
-    U.tap(game, "a")
-    U.wait(10)
-  end
+  for _ = 1, #TvUi.pages() - 2 do pageA() end
   -- pokefirered/src/teachy_tv.c:936 TTVcmd_EraseTextWindowIfKeyPressed
-  result(waitFor(function() return TvUi.stepName() == "erase_text_window_if_key_pressed" end, 200),
+  result(waitFor(function() return TvUi.stepName() == "erase_text_window_if_key_pressed" end, 600),
     "the cluster waits for a key press, step=" .. tostring(TvUi.stepName()))
   result(TvUi.waitingForKey(), "the prompt arrow is up")
   U.tap(game, "a")
@@ -224,11 +224,8 @@ return function(game)
   U.wait(20)
   U.shot(game, DIR .. "/teachy_lesson_06_demo_handoff.png")
 
-  for _ = 1, #TvUi.pages() - 1 do
-    U.tap(game, "a")
-    U.wait(10)
-  end
-  result(waitFor(function() return TvUi.stepName() == "erase_text_window_if_key_pressed" end, 200),
+  for _ = 1, #TvUi.pages() - 1 do pageA() end
+  result(waitFor(function() return TvUi.stepName() == "erase_text_window_if_key_pressed" end, 600),
     "the outro waits for a key press")
   U.tap(game, "a")
   U.wait(10)

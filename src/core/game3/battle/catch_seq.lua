@@ -181,7 +181,7 @@ function CatchSeq.begin(st, itemId, caught, shakes, opts)
     steps[#steps + 1] = { kind = kind, data = data or {} }
   end
 
-  add("msg", { text = throwMsg, wait = opts.ghostDodge and 0 or nil })
+  add("msg", { text = throwMsg, wait = 0 })
 
   -- pokefirered/src/battle_script_commands.c:9590
   add("throw", {
@@ -353,6 +353,53 @@ end
 function CB.init(b)
   arc_init(b, b.data[0], b.data[1], b.data[2], -40)
   b.cb = CB.arcFlight
+end
+
+-- pokefirered/src/battle_main.c:304
+local PLAYER_THROW_X = { [0] = -32, -16, -16, -32, -32, 0, 0, 0 }
+
+-- pokefirered/src/battle_main.c:2172
+local function trainer_throw_start(tr, shiftX)
+  local TrainerPic = require("src.core.game3.trainer_pic")
+  return { tr = tr, cmds = TrainerPic.backAnims(tr.gender).throw, idx = 0, counter = 0,
+    beginning = true, ended = false, shiftX = shiftX }
+end
+
+-- pokefirered/src/battle_main.c:2184
+-- pokefirered/src/sprite.c:939
+local function trainer_throw_step(a)
+  if a.ended then return end
+  if a.shiftX and a.counter == 0 then
+    a.tr.ox = (PLAYER_THROW_X[a.idx] or -32) + 32
+  end
+  local c
+  if a.beginning then
+    a.beginning = false
+    a.idx = 0
+    c = a.cmds[1]
+  elseif a.counter > 0 then
+    a.counter = a.counter - 1
+    return
+  else
+    c = a.cmds[a.idx + 2]
+    if not c then
+      a.ended = true
+      -- pokefirered/src/battle_anim_special.c:801
+      a.tr.frame = require("src.core.game3.trainer_pic").backIdleFrame(a.tr.gender)
+      return
+    end
+    a.idx = a.idx + 1
+  end
+  a.tr.frame = c[1]
+  a.counter = math.max(0, (tonumber(c[2]) or 0) - 1)
+end
+
+-- pokefirered/src/battle_anim_special.c:790
+function CB.waitTrainerThrow(b)
+  if not b.trainerThrow or b.trainerThrow.idx >= 1 then
+    pcall(function() Audio.playSe(SE.SE_BALL_THROW, { pan = 0 }) end)
+    b.cb = CB.init
+  end
 end
 
 -- pokefirered/src/battle_anim_special.c:824
@@ -649,6 +696,7 @@ function CB.doClick(b)
   elseif d[4] == 60 then
     BallOpen.beginFade(6, 0, { obj = b.blend, delay = 2, color = { 0, 0, 0 } })
   elseif d[4] == 95 then
+    b.released = true
     pcall(function()
       Audio.stopAll()
       Audio.playSe(caught_song("caughtIntro"))
@@ -701,6 +749,10 @@ local function ball_update(b)
   if b.monAff then
     affine_step(b.monAff, MON_AFFINE)
     b.mon.scale = b.monAff.scale / 256
+  end
+  if b.trainerThrow then
+    trainer_throw_step(b.trainerThrow)
+    if b.trainerThrow.ended then b.trainerThrow = nil end
   end
   b.cb(b)
   local s = b.stage
@@ -785,6 +837,34 @@ local function run_step(step)
       advance()
       return
     end
+    local st = CatchSeq._st
+    local tr = Anim.stage().trainer
+    tr = tr and tr.player
+    if st and (st.oldManTutorial or st.safari or wally(st)) and tr and tr.visible then
+      local b = start_ball(d)
+      local gameId = require("src.core.game3.battle.profile").of(st).gameId
+      if gameId == "firered" or gameId == "leafgreen" then
+        -- pokefirered/src/battle_anim_special.c:758
+        local x, y = 23, 11
+        if st.oldManTutorial then
+          x = 28
+        elseif tonumber(st.playerGender) == 1 then
+          y = 13
+        end
+        b.x, b.y = bit.bor(x, 32), bit.bor(y, 80)
+      else
+        -- pokeemerald/src/battle_anim_throw.c:790
+        local x, y = 23, 5
+        if wally(st) then x, y = 32, 11 end
+        b.x, b.y = x + 32, bit.bor(y, 80)
+      end
+      -- pokeruby/src/battle_anim_special.c:730
+      b.trainerThrow = trainer_throw_start(tr, gameId ~= "ruby" and gameId ~= "sapphire")
+      b.cb = CB.waitTrainerThrow
+      CatchSeq._ball = b
+      CatchSeq._waitingBall = true
+      return
+    end
     pcall(function() Audio.playSe(SE.SE_BALL_THROW, { pan = 0 }) end)
     CatchSeq._ball = start_ball(d)
     CatchSeq._waitingBall = true
@@ -800,12 +880,23 @@ local function run_step(step)
     end
     CatchSeq._catchResult = res
     -- pokefirered/data/battle_scripts_2.s:77
-    if CatchSeq._pushMsg then
-      CatchSeq._pushMsg(catch_text(gotcha_id(CatchSeq._st)))
-    end
-    pcall(function()
-      Audio.waitSe(caught_song("caughtIntro"), function() Audio.playSong(caught_song("caught")) end)
+    local seDone = false
+    local ok = pcall(function()
+      Audio.waitSe(caught_song("caughtIntro"), function()
+        seDone = true
+        Audio.playSong(caught_song("caught"))
+      end)
     end)
+    if not ok then seDone = true end
+    if CatchSeq._pushMsg then
+      local id = gotcha_id(CatchSeq._st)
+      -- pokefirered/src/battle_message.c:475
+      CatchSeq._pushMsg(catch_text(id), nil, {
+        gate = function() return not seDone end,
+        -- pokefirered/src/battle_message.c:476
+        pause = (id ~= "STRINGID_GOTCHAPKMNCAUGHT" and id ~= "STRINGID_GOTCHAPKMNCAUGHTPLAYER") and 127 or nil,
+      })
+    end
     if CatchSeq._pushMsg then
       if res and res.firstTimeCaught then
         CatchSeq._pushMsg(catch_text("STRINGID_PKMNDATAADDEDTODEX"))
@@ -836,7 +927,8 @@ function CatchSeq.update()
     for _, s in ipairs(BallOpen._sprites) do
       if s == b then alive = true end
     end
-    if alive and not b.finished then return false end
+    -- pokefirered/src/battle_anim_special.c:1195
+    if alive and not (b.finished or b.released) then return false end
     CatchSeq._waitingBall = false
     advance()
   end

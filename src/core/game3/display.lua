@@ -368,6 +368,14 @@ local function presentPlanes(game)
   if Transition and Transition.isActive and Transition.isActive() then
     Transition.drawWorld(Renderer.worldCanvas, vw, vh)
   end
+  local Fade = package.loaded["src.ui.game3.fade"]
+  if Fade and Fade.barnDoorWipeActive and Fade.barnDoorWipeActive() then
+    love.graphics.push("all")
+    love.graphics.origin()
+    love.graphics.setCanvas(Renderer.worldCanvas)
+    Fade.drawWorldWipe(vw, vh)
+    love.graphics.pop()
+  end
   Renderer:endWorldPass()
 
   love.graphics.push("all")

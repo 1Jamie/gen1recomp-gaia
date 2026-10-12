@@ -57,6 +57,12 @@ return function(game)
     return fn() and true or false
   end
 
+  local function pageA()
+    waitFor(function() return not TvUi.typing() end, 900)
+    U.tap(game, "a")
+    U.wait(8)
+  end
+
   session.bag = session.bag or Bag.new()
   Bag.add(session.bag, ITEM_TEACHY_TV, 1)
   Bag.add(session.bag, ITEM_TM_CASE, 1)
@@ -66,7 +72,8 @@ return function(game)
   -- pokefirered/src/item_use.c:534 InitTeachyTvFromBag
   local ok, kind = require("src.core.game3.item_use").useField(session, session.bag, ITEM_TEACHY_TV)
   result(ok and kind == "teachy_tv", "USE on the TEACHY TV opened the TV, kind=" .. tostring(kind))
-  U.wait(30)
+  -- pokefirered/src/item_use.c:529
+  waitFor(function() return TvUi.isOpen() and TvUi.fadeLevel() == 0 end, 120)
   if not result(TvUi.isOpen(), "the TEACHY TV screen is open") then return finish() end
 
   -- pokefirered/src/teachy_tv.c:188 gTeachyTvString_TMs
@@ -85,19 +92,13 @@ return function(game)
   -- pokefirered/src/teachy_tv.c:364 sTMsScript
   result(waitFor(function() return TvUi.phase == "hello" end, 700),
     "the POKé DUDE said hello, phase=" .. tostring(TvUi.phase))
-  for _ = 1, #TvUi.pages() - 1 do
-    U.tap(game, "a")
-    U.wait(8)
-  end
-  result(waitFor(function() return TvUi.phase == "intro" end, 200),
+  for _ = 1, #TvUi.pages() - 1 do pageA() end
+  result(waitFor(function() return TvUi.phase == "intro" end, 600),
     "TMsScript1 took over, phase=" .. tostring(TvUi.phase))
   U.wait(16)
   U.shot(game, DIR .. "/teachy_tmcase_01_intro.png")
-  for _ = 1, #TvUi.pages() - 1 do
-    U.tap(game, "a")
-    U.wait(8)
-  end
-  result(waitFor(function() return TvUi.stepName() == "erase_text_window_if_key_pressed" end, 200),
+  for _ = 1, #TvUi.pages() - 1 do pageA() end
+  result(waitFor(function() return TvUi.stepName() == "erase_text_window_if_key_pressed" end, 600),
     "the intro waits for a key press")
   U.tap(game, "a")
 
@@ -109,7 +110,7 @@ return function(game)
   result(waitFor(function() return BagMenu.mode == "action" end, 300),
     "the demo opened the item menu on the TM CASE, mode=" .. tostring(BagMenu.mode))
   U.wait(10)
-  U.shot(game, DIR .. "/teachy_tmcase_02_bag_use.png")
+  U.still(game, DIR .. "/teachy_tmcase_02_bag_use.png")
 
   -- pokefirered/src/item_menu.c:2385 exitCB = Pokedude_InitTMCase
   result(waitFor(function() return TmCase.isOpen() end, 400),
@@ -121,13 +122,13 @@ return function(game)
   result(Bag.get(session.bag, ITEM_TM02) == 0, "the player's own TM is put away")
   result(Bag.get(session.bag, ITEM_TM01) == 1, "TM01 is in the case")
   U.wait(20)
-  U.shot(game, DIR .. "/teachy_tmcase_03_pokedude_case.png")
+  U.still(game, DIR .. "/teachy_tmcase_03_pokedude_case.png")
 
   -- pokefirered/src/tm_case.c:1394 DPAD_DOWN
   result(waitFor(function() return TmCase.cursor > 1 end, 300),
     "the case scrolls itself, cursor=" .. tostring(TmCase.cursor))
   U.wait(20)
-  U.shot(game, DIR .. "/teachy_tmcase_04_scrolling.png")
+  U.still(game, DIR .. "/teachy_tmcase_04_scrolling.png")
 
   -- pokefirered/src/tm_case.c:1419 gPokedudeText_TMTypes
   result(waitFor(function() return TmCase.mode == "message" end, 1200),
@@ -136,7 +137,7 @@ return function(game)
   result(TmCase.messageText == typesPages[1],
     "page 1 is gPokedudeText_TMTypes, got " .. tostring(TmCase.messageText))
   U.wait(20)
-  U.shot(game, DIR .. "/teachy_tmcase_05_tm_types.png")
+  U.still(game, DIR .. "/teachy_tmcase_05_tm_types.png")
   for _ = 1, #typesPages do
     U.tap(game, "a")
     U.wait(10)
@@ -150,7 +151,7 @@ return function(game)
   result(TmCase.messageText == descPages[1],
     "page 1 is gPokedudeText_ReadTMDescription, got " .. tostring(TmCase.messageText))
   U.wait(20)
-  U.shot(game, DIR .. "/teachy_tmcase_06_tm_description.png")
+  U.still(game, DIR .. "/teachy_tmcase_06_tm_description.png")
   for _ = 1, #descPages do
     U.tap(game, "a")
     U.wait(10)
@@ -169,11 +170,8 @@ return function(game)
     "the TV resumed at TMsScript2, phase=" .. tostring(TvUi.phase))
   U.wait(20)
   U.shot(game, DIR .. "/teachy_tmcase_07_outro.png")
-  for _ = 1, #TvUi.pages() - 1 do
-    U.tap(game, "a")
-    U.wait(8)
-  end
-  result(waitFor(function() return TvUi.stepName() == "erase_text_window_if_key_pressed" end, 200),
+  for _ = 1, #TvUi.pages() - 1 do pageA() end
+  result(waitFor(function() return TvUi.stepName() == "erase_text_window_if_key_pressed" end, 600),
     "the outro waits for a key press")
   U.tap(game, "a")
   result(waitFor(function() return TvUi.state == "list" end, 500),

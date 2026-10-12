@@ -1067,6 +1067,11 @@ local ITEM_POKE_FLUTE = 350
 local ITEM_BICYCLE = 360
 -- pokefirered/include/constants/items.h:438 ITEM_TEACHY_TV
 local ITEM_TEACHY_TV = 366
+
+function ItemUse.isUsableTeachyTv(session, id)
+  return (id == ITEM_TEACHY_TV or id == "TEACHY_TV" or ItemsData.toNumericId(id) == ITEM_TEACHY_TV)
+    and Capabilities.gate(session, "teachy_tv")
+end
 -- pokefirered/include/constants/items.h:435 ITEM_FAME_CHECKER
 local ITEM_FAME_CHECKER = 363
 local ITEM_AWAKENING = 17
@@ -1384,7 +1389,16 @@ local function useField(session, bag, id, partySlot, moveSlot)
       return false, "teachy_tv", nil
     end
     local TeachyTv = require("src.core.game3.teachy_tv")
-    TeachyTv.show(session, bag)
+    local BagMenu = package.loaded["src.ui.game3.bag_menu"]
+    if BagMenu and BagMenu.isOpen and BagMenu.isOpen() then
+      -- pokefirered/src/item_use.c:523
+      TeachyTv.show(session, bag)
+    else
+      -- pokefirered/src/item_use.c:529
+      local Fade = require("src.ui.game3.fade")
+      Fade.begin(Fade.MODE.TO_BLACK, 1, function() TeachyTv.show(session, bag) end)
+      Fade.lockInput = true
+    end
     return true, "teachy_tv", nil
   end
 

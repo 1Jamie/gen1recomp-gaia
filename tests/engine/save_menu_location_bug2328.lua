@@ -107,7 +107,7 @@ end
 check(header ~= nil, "the header is drawn as the resolved place name")
 
 local BOX_X, BOX_W = 1 * 8, 14 * 8 -- sSaveStatsWindowTemplate (1, 1, 14, 9)
-eq(header and header.y, 1 * 8 + 2, "header keeps its row")
+eq(header and header.y, 1 * 8, "header keeps its row")
 eq(header and header.maxWidth, BOX_W, "header is clamped to the window, not 240px")
 check(header and header.x >= BOX_X and header.x + FrlgFont.measure("ROUTE 22") <= BOX_X + BOX_W,
   "the centred header stays inside the window")

@@ -240,6 +240,15 @@ function BagChrome.drawDescSelected()
   return true
 end
 
+-- src/item_menu.c:720
+function BagChrome.drawSelectButton(x, y)
+  local img = named_image("select_button", 24, 16)
+  if not img then error("BagChrome: select_button.rgba is not in the cache", 0) end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(img, x, y)
+  return true
+end
+
 -- src/item_menu_icons.c:249 CreateSwapLine, :282 UpdateSwapLinePos
 function BagChrome.drawSwapLine(firstCenterX, centerY)
   local img = named_image("swap_line", 32, 16)

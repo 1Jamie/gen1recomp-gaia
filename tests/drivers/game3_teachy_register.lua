@@ -53,6 +53,12 @@ return function(game)
     return fn() and true or false
   end
 
+  local function pageA()
+    waitFor(function() return not TvUi.typing() end, 900)
+    U.tap(game, "a")
+    U.wait(8)
+  end
+
   session.bag = session.bag or Bag.new()
   Bag.add(session.bag, ITEM_TEACHY_TV, 1)
   Bag.add(session.bag, ITEM_TM_CASE, 1)
@@ -61,7 +67,8 @@ return function(game)
   -- pokefirered/src/item_use.c:534 InitTeachyTvFromBag
   local ok, kind = require("src.core.game3.item_use").useField(session, session.bag, ITEM_TEACHY_TV)
   result(ok and kind == "teachy_tv", "USE on the TEACHY TV opened the TV, kind=" .. tostring(kind))
-  U.wait(30)
+  -- pokefirered/src/item_use.c:529
+  waitFor(function() return TvUi.isOpen() and TvUi.fadeLevel() == 0 end, 120)
   if not result(TvUi.isOpen(), "the TEACHY TV screen is open") then return finish() end
   result(#TvUi.rows() == 7, "seven rows with a TM CASE, got " .. tostring(#TvUi.rows()))
 
@@ -81,20 +88,14 @@ return function(game)
   -- pokefirered/src/teachy_tv.c:384 sRegisterKeyItemScript
   result(waitFor(function() return TvUi.phase == "hello" end, 700),
     "the POKé DUDE said hello, phase=" .. tostring(TvUi.phase))
-  for _ = 1, #TvUi.pages() - 1 do
-    U.tap(game, "a")
-    U.wait(8)
-  end
-  result(waitFor(function() return TvUi.phase == "intro" end, 200),
+  for _ = 1, #TvUi.pages() - 1 do pageA() end
+  result(waitFor(function() return TvUi.phase == "intro" end, 600),
     "RegisterScript1 took over, phase=" .. tostring(TvUi.phase))
   print("[driver] intro page 1: " .. tostring(TvUi.pages()[TvUi.page]))
   U.wait(16)
   U.shot(game, DIR .. "/teachy_register_01_intro.png")
-  for _ = 1, #TvUi.pages() - 1 do
-    U.tap(game, "a")
-    U.wait(8)
-  end
-  result(waitFor(function() return TvUi.stepName() == "erase_text_window_if_key_pressed" end, 200),
+  for _ = 1, #TvUi.pages() - 1 do pageA() end
+  result(waitFor(function() return TvUi.stepName() == "erase_text_window_if_key_pressed" end, 600),
     "the intro waits for a key press")
   U.tap(game, "a")
 
@@ -106,13 +107,13 @@ return function(game)
       .. tostring(Bag.get(session.bag, ITEM_POTION)))
   result(Bag.get(session.bag, ITEM_ANTIDOTE) == 1, "and the pokedude ANTIDOTE")
   U.wait(40)
-  U.shot(game, DIR .. "/teachy_register_02_pokedude_bag.png")
+  U.still(game, DIR .. "/teachy_register_02_pokedude_bag.png")
 
   -- pokefirered/src/item_menu.c:2217 SwitchPockets
   result(waitFor(function() return BagMenu.currentPocket() == "KEY_ITEMS" end, 200),
     "the demo switched to KEY ITEMS, at " .. tostring(BagMenu.currentPocket()))
   U.wait(20)
-  U.shot(game, DIR .. "/teachy_register_03_key_items.png")
+  U.still(game, DIR .. "/teachy_register_03_key_items.png")
 
   -- pokefirered/src/item_menu.c:2224 OpenContextMenu
   result(waitFor(function() return BagMenu.mode == "action" end, 200),
@@ -122,13 +123,13 @@ return function(game)
   end, 200), "the cursor moved to SET, on "
     .. tostring(BagMenu.ACTIONS and BagMenu.ACTIONS[BagMenu.actionCursor]))
   U.wait(10)
-  U.shot(game, DIR .. "/teachy_register_04_set_action.png")
+  U.still(game, DIR .. "/teachy_register_04_set_action.png")
 
   -- pokefirered/src/item_menu.c:2232 gSaveBlock1Ptr->registeredItem
   result(waitFor(function() return session.registeredItem ~= nil end, 300),
     "the demo registered the TEACHY TV, got " .. tostring(session.registeredItem))
   U.wait(30)
-  U.shot(game, DIR .. "/teachy_register_05_registered.png")
+  U.still(game, DIR .. "/teachy_register_05_registered.png")
 
   -- pokefirered/src/item_menu.c:2082 RestorePlayerBag
   result(waitFor(function() return not BagMenu.isOpen() end, 400),
@@ -145,11 +146,8 @@ return function(game)
   U.wait(20)
   U.shot(game, DIR .. "/teachy_register_06_outro.png")
 
-  for _ = 1, #TvUi.pages() - 1 do
-    U.tap(game, "a")
-    U.wait(8)
-  end
-  result(waitFor(function() return TvUi.stepName() == "erase_text_window_if_key_pressed" end, 200),
+  for _ = 1, #TvUi.pages() - 1 do pageA() end
+  result(waitFor(function() return TvUi.stepName() == "erase_text_window_if_key_pressed" end, 600),
     "the outro waits for a key press")
   U.tap(game, "a")
   result(waitFor(function() return TvUi.state == "list" end, 500),

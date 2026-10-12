@@ -46,13 +46,19 @@ local function se_frames(id)
   return table.concat(out, ",")
 end
 
-local function run(caught, shakes)
+local function run(caught, shakes, extra)
   Anim.reset({ headless = false })
   Anim.present("enemy").visible = true
   sounds = {}
   local msgs = {}
   frame = 0
   local st = { enemy = { species = 16, mon = { species = 16, name = "PIDGEY" } } }
+  local tr
+  if extra then
+    for k, v in pairs(extra) do st[k] = v end
+    tr = Anim.stage().trainer.player
+    tr.visible, tr.gender, tr.frame, tr.ox = true, 5, 0, 0
+  end
   CatchSeq.begin(st, 4, caught, shakes, {
     pushMsg = function(t) msgs[#msgs + 1] = { t = t, f = frame } end,
     headless = false,
@@ -69,6 +75,7 @@ local function run(caught, shakes)
     local s = Anim.stage().ball
     local p = Anim.present("enemy")
     log[f] = {
+      trFrame = tr and tr.frame, trOx = tr and tr.ox,
       sx = s.x, sy = s.y, visible = s.visible, ballFrame = s.frame, x2 = b.x2,
       rotation = b.aff.rotation, blend = b.blend.coeff, alpha = b.alpha,
       scale = p.scale, oy = p.oy, monVisible = p.visible,
@@ -79,7 +86,7 @@ local function run(caught, shakes)
       if q.invisible then log[f].invisibleStars = log[f].invisibleStars + 1 end
     end
     CatchSeq.update()
-    if not CatchSeq.busy() then break end
+    if not CatchSeq.busy() and (b.finished or b.dead) then break end
   end
   return log, msgs
 end
@@ -119,13 +126,24 @@ check(se_frames(319) == "445", "MUS_CAUGHT_INTRO 95 frames into the click")
 check(log[667].alpha == 1 and log[668].alpha == 15 / 16 and log[698].alpha == 0 and log[698].visible and log[699].visible == false,
   "ball alpha blends out over 32 frames then hides")
 check(log[700].finished ~= true and log[701].finished == true, "anim signals end on frame 701")
-check(msgs[2] and msgs[2].f == 701 and msgs[2].t:match("^Gotcha!"), "Gotcha printed after the anim ends")
+check(msgs[2] and msgs[2].f == 445 and msgs[2].t:match("^Gotcha!"), "Gotcha printed with MUS_CAUGHT_INTRO (battle_anim_special.c:1195)")
 local waited = false
-for _, s in ipairs(sounds) do if s.waitSe == 319 and s.f == 701 then waited = s.cb end end
+for _, s in ipairs(sounds) do if s.waitSe == 319 and s.f == 445 then waited = s.cb end end
 check(waited ~= false, "MUS_CAUGHT waits for MUS_CAUGHT_INTRO")
 if waited then waited() end
 check(sounds[#sounds].song == 322, "MUS_CAUGHT after the intro SE")
 
+print("[test] old man throws from his back pic (pokefirered/src/battle_anim_special.c:758-799)")
+log, msgs = run(true, 4, { oldManTutorial = true })
+check(log[1].sx == 60 and log[1].sy == 91 and log[1].visible, "ball waits in the old man's hand at (28|32, 11|80)")
+check(log[1].trFrame == 1 and log[24].trFrame == 1 and log[25].trFrame == 2,
+  "back pic anim 1 holds frame 1 for 24 frames (sprite.c:924 duration-- then animDelayCounter)")
+check(log[33].trFrame == 2 and log[34].trFrame == 3 and log[57].trFrame == 3,
+  "FRAME(2, 9) shows 9 frames and FRAME(3, 24) shows 24 (sprite.c:976)")
+check(se_frames(SE.SE_BALL_THROW) == "25", "SE_BALL_THROW when the throw anim reaches cmd 1")
+check(log[25].sx == 60 and log[27].sx ~= 60, "ball leaves the hand after the throw cmd")
+check(log[34].trFrame == 3 and log[58].trFrame == 0 and log[66].trFrame == 0, "frames 2,3,0 follow and the pose resets to idle")
+check(msgs[1] and msgs[1].f == 0, "throw text pushed before the throw")
 print("[test] breakout after 1 shake (pokefirered/src/battle_anim_special.c:1305-1354)")
 log, msgs = run(false, 1)
 check(se_frames(SE.SE_BALL) == "203" and se_frames(SE.SE_BALL_OPEN) == "36,263", "ball reopens 31 frames after the only shake")

@@ -371,8 +371,14 @@ function Ui.finishClose()
   Stack.pop("teachy_tv")
   -- pokefirered/src/teachy_tv.c:705 Overworld_PlaySpecialMapMusic
   require("src.core.game3.audio").restoreMapSong()
-  local Fade = fade()
-  Fade.begin(Fade.MODE.FROM_BLACK, 1)
+  local BagMenu = package.loaded["src.ui.game3.bag_menu"]
+  if Ui._bagUnder and BagMenu and BagMenu.isOpen and BagMenu.isOpen() then
+    fade().clear()
+    BagMenu.reshowFromTeachyTv()
+  else
+    local Fade = fade()
+    Fade.begin(Fade.MODE.FROM_BLACK, 1)
+  end
   local cb = Ui._onClose
   Ui._onClose = nil
   if cb then cb() end
@@ -388,16 +394,54 @@ function Ui.close()
   end)
 end
 
+-- pokefirered/src/new_menu_helpers.c:27
+local TEXT_SPEED_DELAYS = { 8, 4, 1 }
+
+local function text_delay()
+  local okO, Options = pcall(require, "src.core.game3.options")
+  local idx = okO and Ui._session and Options.textSpeed(Ui._session) or 1
+  -- pokefirered/src/text_printer.c:93
+  return math.max(0, (TEXT_SPEED_DELAYS[idx + 1] or 4) - 1)
+end
+
+local function begin_page()
+  local page = Ui._pages and Ui._pages[Ui.page]
+  Ui._total = page and FrlgFont.countChars(page) or 0
+  Ui._revealed = 0
+  Ui._delay = 0
+end
+
 local function set_printer(phase, pages)
   Ui.phase = phase
   Ui._pages = pages or {}
   Ui.page = 1
+  begin_page()
+end
+
+function Ui.typing()
+  return Ui._pages ~= nil and (Ui._revealed or 0) < (Ui._total or 0)
+end
+
+function Ui.nextPage()
+  Ui.page = Ui.page + 1
+  begin_page()
+end
+
+-- pokefirered/src/text.c:638
+local function printer_tick()
+  if not Ui.typing() then return end
+  if Ui._delay > 0 then
+    Ui._delay = Ui._delay - 1
+    return
+  end
+  Ui._revealed = Ui._revealed + 1
+  Ui._delay = text_delay()
 end
 
 -- pokefirered/src/teachy_tv.c:804 RunTextPrinters_CheckActive
 function Ui.printerActive()
   local pages = Ui._pages
-  return pages ~= nil and Ui.page < #pages
+  return pages ~= nil and (Ui.typing() or Ui.page < #pages)
 end
 
 local function step_advance()
@@ -412,6 +456,16 @@ local function host(x, y, facing, walking)
   Ui.hostFacing = facing or Ui.hostFacing or "down"
   Ui.hostWalk = walking and true or false
   Ui.hostVisible = true
+  Ui.hostAnim = 0
+end
+
+-- pokefirered/src/data/object_events/object_event_anims.h:177
+function Ui.hostPose()
+  if not Ui.hostWalk then return 0, false end
+  local cel = math.floor((Ui.hostAnim or 0) / 8) % 4
+  if cel == 0 then return 1, true end
+  if cel == 2 then return 1, false end
+  return 0, false
 end
 
 local STEP = {}
@@ -443,7 +497,6 @@ STEP.npc_move_and_setup_text_printer = function()
   if Ui.frames <= T.NPC_WAIT then return end
   if (Ui.hostX or 0) < T.DUDE_X_END then
     Ui.hostX = (Ui.hostX or T.DUDE_X_START) + 1
-    Ui.hostStep = (Ui.hostX % 16) < 8
     return
   end
   host(nil, nil, "down", false)
@@ -485,7 +538,6 @@ end
 STEP.dude_move_up = function()
   -- pokefirered/src/teachy_tv.c:961 ChangeBgY(3, 0x100, 2)
   Ui.bg3Y = Ui.bg3Y - 1
-  Ui.hostStep = (Ui.frames % 16) < 8
   if Ui.frames % 16 == 0 then
     Ui.grassHi = Ui.grassHi - 1
     grass_spawn(Ui.hostX or 0, Ui.hostY or 0)
@@ -502,7 +554,6 @@ end
 STEP.dude_move_right = function()
   -- pokefirered/src/teachy_tv.c:981 ChangeBgX(3, 0x100, 1)
   Ui.bg3X = Ui.bg3X + 1
-  Ui.hostStep = (Ui.frames % 16) < 8
   if Ui.frames % 16 == 0 then Ui.grassLo = Ui.grassLo + 1 end
   if (Ui.frames + 8) % 16 == 0 then
     grass_spawn((Ui.hostX or 0) + 8, Ui.hostY or 0)
@@ -537,7 +588,7 @@ end
 
 -- pokefirered/src/teachy_tv.c:996 TTVcmd_DudeTurnLeft
 STEP.dude_turn_left = function()
-  host(nil, nil, "left", false)
+  host(nil, nil, "left", true)
   Ui.grassDx = 0
   Ui.grassDy = 0
   grass_spawn(Ui.hostX or 0, Ui.hostY or 0)
@@ -554,8 +605,6 @@ STEP.dude_move_left = function()
     return
   end
   Ui.hostX = Ui.hostX - 1
-  host(nil, nil, "left", true)
-  Ui.hostStep = (Ui.hostX % 16) < 8
 end
 
 -- pokefirered/src/teachy_tv.c:1021 TTVcmd_RenderAndRemoveBg1EndGraphic
@@ -626,9 +675,13 @@ function Ui.tick()
     return
   end
   Ui.frames = Ui.frames + 1
+  -- pokefirered/src/sprite.c:304
+  Ui.hostAnim = (Ui.hostAnim or 0) + 1
   local fn = STEP[name]
   if fn then fn() end
   grass_step()
+  -- pokefirered/src/text_printer.c:115
+  printer_tick()
 end
 
 function Ui.update(dt)
@@ -999,9 +1052,11 @@ function Ui.handleInput(input)
       se(SeIds.SE_SELECT)
       abort_to_end()
     elseif input:wasPressed("a") then
-      if Ui.printerActive() then
+      if Ui.typing() then
+        return
+      elseif Ui.printerActive() then
         se(SeIds.SE_SELECT)
-        Ui.page = Ui.page + 1
+        Ui.nextPage()
       elseif Ui.stepName() == "erase_text_window_if_key_pressed" then
         se(SeIds.SE_SELECT)
         Ui._pages = nil
@@ -1107,7 +1162,7 @@ local function draw_host()
   if not sprites then return end
   pcall(sprites.draw, TeachyTv.HOST_GFX,
     (Ui.hostX or T.DUDE_X_END) - 8, Ui.hostY or T.DUDE_Y, 0, 0,
-    Ui.hostFacing or "down", Ui.hostWalk and 1 or 0, Ui.hostStep and true or false)
+    Ui.hostFacing or "down", Ui.hostPose())
 end
 
 -- pokefirered/src/teachy_tv.c:526 TeachyTvLoadGraphic
@@ -1200,15 +1255,12 @@ end
 
 -- pokefirered/src/teachy_tv.c:936 TTVcmd_EraseTextWindowIfKeyPressed
 function Ui.waitingForKey()
-  if Ui.state ~= "lesson" then return false end
+  if Ui.state ~= "lesson" or Ui.typing() then return false end
   if Ui.printerActive() then return true end
   return Ui.stepName() == "erase_text_window_if_key_pressed"
 end
 
-function Ui.draw()
-  if not Ui.open then return end
-  if not (love and love.graphics) then return end
-
+local function draw_screen()
   love.graphics.setColor(0.13, 0.16, 0.28, 1)
   love.graphics.rectangle("fill", 0, 0, SCREEN_W, SCREEN_H)
   love.graphics.setColor(1, 1, 1, 1)
@@ -1268,6 +1320,7 @@ function Ui.draw()
   local page = Ui.pages()[Ui.page]
   if not page then return end
   -- pokefirered/src/teachy_tv.c:676 TeachyTvInitTextPrinter
+  BODY_TEXT_OPTS.limitChars = Ui._revealed
   local _, endX, endY = FrlgFont.draw(page, BODY_TPL.left * 8, BODY_TPL.top * 8 + 1, BODY_TEXT_OPTS)
   if Ui.waitingForKey() then
     -- pokefirered/src/text.c:471 TextPrinterDrawDownArrow
@@ -1278,6 +1331,27 @@ function Ui.draw()
     local limit = BODY_TPL.left * 8 + BODY_TPL.width * 8 - 10
     if ax > limit then ax = limit end
     Chrome.promptArrow(ax, ay, frame)
+  end
+end
+
+-- pokefirered/src/teachy_tv.c:499
+function Ui.fadeLevel()
+  local F = fade()
+  local t = tonumber(F.t) or 0
+  if not F.active and t <= 0 then return 0, 0 end
+  local white = F.mode == F.MODE.TO_WHITE or F.mode == F.MODE.FROM_WHITE
+  return t, white and 1 or 0
+end
+
+function Ui.draw()
+  if not Ui.open then return end
+  if not (love and love.graphics) then return end
+  draw_screen()
+  local t, shade = Ui.fadeLevel()
+  if t > 0 then
+    love.graphics.setColor(shade, shade, shade, t / 16)
+    love.graphics.rectangle("fill", 0, 0, SCREEN_W, SCREEN_H)
+    love.graphics.setColor(1, 1, 1, 1)
   end
 end
 

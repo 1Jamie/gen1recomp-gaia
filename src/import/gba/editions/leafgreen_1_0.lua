@@ -3983,6 +3983,8 @@ return {
   [0x452EB8] = 0x4528D8, -- item_menu.o:sItemMenuContextActions + 0
   [0x452F60] = 0x452980, -- item_menu.o:sListItemTextColor_RegularItem + 0
   [0x452F66] = 0x452986, -- item_menu.o:sListItemTextColor_TmCase_BerryPouch + 0
+  [0x452F7C] = 0x45299C, -- item_menu.o:sBlit_SelectButton + 0
+  [0x453098] = 0x452AB8, -- bag.o:sBagWindowPalF + 0
   [0x453F74] = 0x453994, -- item_pc.o:sItemPcSubmenuOptions + 0
   [0x456ACC] = 0x4564EC, -- quest_log_events.o:sDefeatedOpponentFlavorTexts + 0
   [0x456AD8] = 0x4564F8, -- quest_log_events.o:sDefeatedChampionFlavorTexts + 0

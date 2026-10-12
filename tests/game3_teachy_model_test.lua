@@ -228,6 +228,10 @@ do
     local s = newSession()
     Bag.add(s.bag, TeachyTv.ITEM_TEACHY_TV, 1)
     local ok, kind, text = ItemUse.useField(s, s.bag, TeachyTv.ITEM_TEACHY_TV)
+    local Fade = require("src.ui.game3.fade")
+    -- pokefirered/src/item_use.c:529
+    check(Fade.isActive() and not require("src.ui.game3.teachy_tv").isOpen(), "the field fades out before the TV opens")
+    for _ = 1, 16 do Fade.tick(1 / 60) end
     check(ok, "USE on the TEACHY TV succeeds")
     eq(kind, "teachy_tv", "the key-item reject arm no longer swallows it")
     eq(text, nil, "no OAK refusal message")
@@ -244,6 +248,7 @@ do
     eq(Ui.state, "list", "and it is showing the lesson list")
     eq(#Ui.rows(), 5, "four lessons plus CANCEL in the screen's own rows")
     Ui.close()
+    for _ = 1, 32 do Fade.tick(1 / 60) end
     Stack.clear()
   end
 end
@@ -267,6 +272,8 @@ do
     -- pokefirered/src/data/text/teachy_tv.h:182 gTeachyTvText_RegisterScript2
     s.registeredItem = TeachyTv.ITEM_TEACHY_TV
     Game3._handleRegisteredItem({ input = selectInput, session = s })
+    local Fade = require("src.ui.game3.fade")
+    for _ = 1, 16 do Fade.tick(1 / 60) end
     check(Ui.isOpen(), "SELECT on the registered TEACHY TV opened the TV")
     eq(TeachyTv.resources(s).mode, TeachyTv.MODE.FRESH, "through InitTeachyTvController(0)")
     Ui.close()

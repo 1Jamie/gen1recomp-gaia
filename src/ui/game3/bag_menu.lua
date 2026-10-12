@@ -272,6 +272,13 @@ local function reshow()
   if BagMenu.open then begin_open(false) end
 end
 
+-- src/teachy_tv.c:701
+function BagMenu.reshowFromTeachyTv()
+  BagMenu.mode = "list"
+  clamp_cursor()
+  reshow()
+end
+
 -- Close the bag and report the chosen item to the battle system.  partySlot is
 -- the real party index for party-targeted items, or nil otherwise.  Shared with
 -- the Berry Pouch so a berry picked there takes the same route as a potion.
@@ -908,6 +915,12 @@ local function handle_menu_input(input)
               })
             end)
             return
+          elseif frlgCases and ItemUse.isUsableTeachyTv(BagMenu._session, row.id) then
+            -- pokefirered/src/item_use.c:524
+            open_submenu(function()
+              use_field_from_bag(BagMenu._session, BagMenu._bag, row.id)
+            end)
+            return
           elseif ItemUse.needsPartyTarget(row.id) then
             if #party == 0 then
               BagMenu.mode = "message"
@@ -1227,6 +1240,13 @@ BagMenu.POKEDUDE_PLANS = {
     { at = 204, key = "a", item = ITEM_ANTIDOTE },
     { at = 306, exit = true },
   },
+  -- pokefirered/src/item_menu.c:2106
+  oldman = {
+    noInterrupt = true,
+    { at = 102, key = "right" }, { at = 204, key = "right" },
+    { at = 306, key = "a", item = ITEM_POKE_BALL },
+    { at = 408, exit = true },
+  },
 }
 
 local function finish_pokedude(itemId)
@@ -1248,7 +1268,7 @@ local function pokedude_tick(input)
   local pd = BagMenu._pokedude
   local inp = NO_INPUT
   if not (pd.done or BagMenu._open or BagMenu._exit) then
-    if input and input.wasPressed and input:wasPressed("b") then
+    if not pd.plan.noInterrupt and input and input.wasPressed and input:wasPressed("b") then
       -- pokefirered/src/item_menu.c:2192 Task_BButtonInterruptTeachyTv
       pd.done = true
       begin_exit(true, function() finish_pokedude(nil) end)
@@ -1422,10 +1442,6 @@ function BagMenu.draw()
         FrlgFont.draw(RomText.plain("gFameCheckerText_Cancel"), 97, y, { colors = FrlgFont.COLOR.NORMAL })
       else
         local label = r.name
-        if session and session.registeredItem
-            and ItemsData.toNumericId(session.registeredItem) == ItemsData.toNumericId(r.id) then
-          label = "►" .. label
-        end
         local num = ItemsData.toNumericId(r.id)
         local colors = (num == ItemsData.ITEM_TM_CASE or num == ItemsData.ITEM_BERRY_POUCH)
           and ITEM_BLUE or FrlgFont.COLOR.NORMAL
@@ -1436,6 +1452,10 @@ function BagMenu.draw()
           -- src/item_menu.c:716
           FrlgFont.draw(string.format("×%3d", r.qty or 1), 198, y,
             { small = true, colors = FrlgFont.COLOR.NORMAL })
+        elseif session and session.registeredItem
+            and ItemsData.toNumericId(session.registeredItem) == num then
+          -- src/item_menu.c:718
+          BagChrome.drawSelectButton(LIST_LEFT * 8 + 0x70, y)
         end
       end
     end

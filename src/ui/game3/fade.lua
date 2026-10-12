@@ -51,7 +51,66 @@ function Fade.isActive()
   return Fade.active
 end
 
+local HALF_W = Display.W / 2
+
+-- pokefirered/src/field_screen_effect.c:241
+function Fade.beginOutwardBarnDoorWipe()
+  Fade._wipe = { lhs = HALF_W, rhs = HALF_W, off = 0, acc = 0, started = false }
+end
+
+function Fade.barnDoorWipeActive()
+  return Fade._wipe ~= nil
+end
+
+-- pokefirered/src/field_screen_effect.c:319
+local function stepBarnDoorWipe(w)
+  if not w.started then
+    w.started = true
+    return true
+  end
+  local lhs = HALF_W - w.off
+  if lhs < 0 then return false end
+  w.lhs, w.rhs = lhs, HALF_W + w.off
+  w.off = w.off + ((lhs < 90) and 4 or 2)
+  return true
+end
+
+local function tickBarnDoorWipe(frames)
+  local w = Fade._wipe
+  if not w then return end
+  w.acc = w.acc + frames
+  while w.acc >= 1 do
+    w.acc = w.acc - 1
+    if not stepBarnDoorWipe(w) then
+      Fade._wipe = nil
+      return
+    end
+  end
+end
+
+-- pokefirered/src/field_screen_effect.c:298
+local function drawBarnDoorWipe()
+  local w = Fade._wipe
+  if not w or not love or not love.graphics then return end
+  love.graphics.setColor(0, 0, 0, 1)
+  if w.lhs > 0 then love.graphics.rectangle("fill", 0, 0, w.lhs, Display.H) end
+  if w.rhs < Display.W then love.graphics.rectangle("fill", w.rhs, 0, Display.W - w.rhs, Display.H) end
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
+function Fade.drawWorldWipe(vw, vh)
+  local w = Fade._wipe
+  if not w or not love or not love.graphics then return end
+  local gx = math.floor((vw - Display.W) / 2)
+  local l, r = gx + w.lhs, gx + w.rhs
+  love.graphics.setColor(0, 0, 0, 1)
+  if l > 0 then love.graphics.rectangle("fill", 0, 0, l, vh) end
+  if r < vw then love.graphics.rectangle("fill", r, 0, vw - r, vh) end
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
 function Fade.tick(dt)
+  tickBarnDoorWipe((dt or 1 / 60) * 60)
   if not Fade.active then return false end
   -- Frame-based: one step every `speed` frames at 60Hz.
   local frames = (dt or 1 / 60) * 60
@@ -87,6 +146,7 @@ function Fade:_finish()
 end
 
 function Fade.draw()
+  drawBarnDoorWipe()
   if not Fade.active and (Fade.t or 0) <= 0 then
     local okR, Renderer = pcall(require, "src.render.Renderer")
     if okR and Renderer then Renderer.screenVeil = nil end

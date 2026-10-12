@@ -330,6 +330,7 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/gba/items/bag/list_blank_female.rgba",
     "data/generated/gba/items/bag/desc_sel.rgba",
     "data/generated/gba/items/bag/red_arrow.rgba",
+    "data/generated/gba/items/bag/select_button.rgba",
     -- src/item_menu.c:569, src/item_menu_icons.c:150
     "data/generated/gba/items/bag/bg_itempc.rgba",
     "data/generated/gba/items/bag/bg_itempc_female.rgba",

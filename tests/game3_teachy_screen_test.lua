@@ -65,6 +65,19 @@ local function ticks(n)
   for _ = 1, n do Ui.update(1 / 60) end
 end
 
+-- pokefirered/src/text_printer.c:115
+local function finishPage()
+  for _ = 1, 4000 do
+    if not Ui.typing() then return end
+    Ui.update(1 / 60)
+  end
+end
+
+local function pageA()
+  finishPage()
+  Ui.handleInput(press("a"))
+end
+
 local function runUntil(name, budget)
   for _ = 1, budget or 4000 do
     if Ui.stepName() == name then return true end
@@ -151,18 +164,22 @@ do
   eq(Ui.hostX, T.DUDE_X_END, "he stops at x=0x78")
   eq(Ui.phase, "hello", "and says hello")
   eq(#Ui.pages(), #TeachyTv.pagesOf(TeachyTv.HELLO), "gTeachyTvText_PokedudeSaysHello is printing")
+  check(Ui.typing() and not Ui.waitingForKey(), "the hello text types out before the prompt")
+  finishPage()
   check(Ui.waitingForKey(), "the prompt is up on a \\p page")
 
-  for _ = 1, #Ui.pages() - 1 do Ui.handleInput(press("a")) end
+  for _ = 1, #Ui.pages() - 1 do pageA() end
+  finishPage()
   check(not Ui.printerActive(), "the hello printer is done")
   ticks(4)
   eq(Ui.phase, "intro", "the intro text printer took over")
   eq(#Ui.pages(), #TeachyTv.introPages(S.CATCHING), "CatchingScript1 is printing")
   eq(Ui.page, 1, "on page 1")
 
-  Ui.handleInput(press("a"))
+  pageA()
   eq(Ui.page, 2, "A pages the body")
-  for _ = 1, #Ui.pages() - 2 do Ui.handleInput(press("a")) end
+  for _ = 1, #Ui.pages() - 2 do pageA() end
+  finishPage()
   ticks(2)
   -- pokefirered/src/teachy_tv.c:936 TTVcmd_EraseTextWindowIfKeyPressed
   eq(Ui.stepName(), "erase_text_window_if_key_pressed", "the cluster waits for a key press")
@@ -205,7 +222,8 @@ do
   eq(Ui.grassHi, 0, "grassAnimCounterHi is 3 - 3")
   ticks(2)
   eq(Ui.phase, "outro", "CatchingScript2 is printing")
-  for _ = 1, #Ui.pages() - 1 do Ui.handleInput(press("a")) end
+  for _ = 1, #Ui.pages() - 1 do pageA() end
+  finishPage()
   ticks(2)
   eq(Ui.stepName(), "erase_text_window_if_key_pressed", "the outro waits for a key press too")
   Ui.handleInput(press("a"))
@@ -283,10 +301,12 @@ do
 
   check(runUntil("idle_if_text_printer_active", 800), "the dude walked in and said hello")
   eq(Ui.phase, "hello", "gTeachyTvText_PokedudeSaysHello is printing")
-  for _ = 1, #Ui.pages() - 1 do Ui.handleInput(press("a")) end
+  for _ = 1, #Ui.pages() - 1 do pageA() end
+  finishPage()
   ticks(4)
   eq(Ui.phase, "intro", "RegisterScript1 took over")
-  for _ = 1, #Ui.pages() - 1 do Ui.handleInput(press("a")) end
+  for _ = 1, #Ui.pages() - 1 do pageA() end
+  finishPage()
   ticks(2)
   eq(Ui.stepName(), "erase_text_window_if_key_pressed", "the intro waits for a key press")
   Ui.handleInput(press("a"))

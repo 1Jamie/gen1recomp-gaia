@@ -273,17 +273,17 @@ function SaveMenu.locationName(session)
   return tostring(mapId or "PALLET TOWN"):gsub("^FR_", ""):gsub("^SEVII_", ""):gsub("_", " "):upper()
 end
 
--- pret prints every stat value at one x (56 px into the window, labels at 4).
--- A translated label can be wider than the English one the column was placed
--- for ("DUREE JEU", "SPIELZEIT"), so push the column past the widest label,
--- keeping the English gap.
-local VALUE_X = 56
-local VALUE_GAP = VALUE_X - 4 - 42 -- 42 = width of "POKéDEX", the widest US label
+-- pokefirered/src/start_menu.c:977
+local LABEL_X = 2
+-- pokefirered/src/start_menu.c:982
+local VALUE_X = 60
+local VALUE_GAP = VALUE_X - LABEL_X - 35
+local SMALL = { small = true }
 
 function SaveMenu.valueX(labels)
   local x = VALUE_X
   for _, label in ipairs(labels) do
-    x = math.max(x, 4 + FrlgFont.measure(label) + VALUE_GAP)
+    x = math.max(x, LABEL_X + FrlgFont.measure(label, SMALL) + VALUE_GAP)
   end
   return x
 end
@@ -406,28 +406,30 @@ function SaveMenu.draw()
   -- 1. Top-Left Save Stats Box (pret sSaveStatsWindowTemplate at (1, 1, 14, 9))
   -- pokefirered/src/start_menu.c:971
   Window.fixedStdFrame(Window.template(1, 1, 14, 9))
-  -- Location Header.  pret start_menu.c PrintSaveStats centres it in the
-  -- 14-tile window: x = (112 - GetStringWidth(FONT_NORMAL, text)) / 2.
+  local x0, y0 = 1 * 8, 1 * 8
+  local NORMAL = FrlgFont.COLOR.NORMAL
+  local stat = { small = true, colors = NORMAL }
+  -- pokefirered/src/start_menu.c:974
   local headerW = 14 * 8
-  local mapW = FrlgFont.measure(map)
-  local mapX = 1 * 8 + math.max(0, math.floor((headerW - mapW) / 2))
-  FrlgFont.draw(map, mapX, 1 * 8 + 2, { maxWidth = headerW, colors = FrlgFont.COLOR.NORMAL })
-  -- PLAYER
-  FrlgFont.draw(labels[1], 1 * 8 + 4, 1 * 8 + 18, { colors = FrlgFont.COLOR.NORMAL })
-  FrlgFont.draw(name, valueX, 1 * 8 + 18, { colors = FrlgFont.COLOR.NORMAL })
-  -- BADGES
-  FrlgFont.draw(labels[2], 1 * 8 + 4, 1 * 8 + 32, { colors = FrlgFont.COLOR.NORMAL })
-  FrlgFont.draw(tostring(badges), valueX, 1 * 8 + 32, { colors = FrlgFont.COLOR.NORMAL })
-  -- POKéDEX
-  local timeY = 1 * 8 + 46
+  local mapX = x0 + math.max(0, math.floor((headerW - FrlgFont.measure(map)) / 2))
+  -- pokefirered/src/save_menu_util.c:14
+  FrlgFont.draw(map, mapX, y0, { maxWidth = headerW, colors = SAVE_BLUE })
+  -- pokefirered/src/start_menu.c:977
+  FrlgFont.draw(labels[1], x0 + LABEL_X, y0 + 14, stat)
+  FrlgFont.draw(name, valueX, y0 + 14, { colors = NORMAL })
+  -- pokefirered/src/start_menu.c:980
+  FrlgFont.draw(labels[2], x0 + LABEL_X, y0 + 28, stat)
+  FrlgFont.draw(tostring(badges), valueX, y0 + 28, stat)
+  local timeY = y0 + 42
   if hasDex then
-    FrlgFont.draw(labels[3], 1 * 8 + 4, 1 * 8 + 46, { colors = FrlgFont.COLOR.NORMAL })
-    FrlgFont.draw(tostring(SaveMenu.countDex(session)), valueX, 1 * 8 + 46, { colors = FrlgFont.COLOR.NORMAL })
-    timeY = 1 * 8 + 60
+    -- pokefirered/src/start_menu.c:986
+    FrlgFont.draw(labels[3], x0 + LABEL_X, y0 + 42, stat)
+    FrlgFont.draw(tostring(SaveMenu.countDex(session)), valueX, y0 + 42, stat)
+    timeY = y0 + 56
   end
-  -- TIME
-  FrlgFont.draw(labels[4], 1 * 8 + 4, timeY, { colors = FrlgFont.COLOR.NORMAL })
-  FrlgFont.draw(string.format("%d:%02d", hours, mins), valueX, timeY, { colors = FrlgFont.COLOR.NORMAL })
+  -- pokefirered/src/start_menu.c:991
+  FrlgFont.draw(labels[4], x0 + LABEL_X, timeY, stat)
+  FrlgFont.draw(string.format("%d:%02d", hours, mins), valueX, timeY, stat)
 
   -- 2. Bottom Dialogue Window (pret WindowFunc_DrawDialogueFrame at (2, 15, 26, 4))
   Chrome.dialogueFrame()

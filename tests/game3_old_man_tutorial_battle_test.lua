@@ -70,7 +70,16 @@ check(not hasPlayerHealthbox, "player healthbox omitted")
 
 print("[test] 3. Action selection UI: prompt text and automated input")
 -- Test non-headless step timing
+local Bag = require("src.core.game3.bag")
+local BagMenu = require("src.ui.game3.bag_menu")
+local Fade = require("src.ui.game3.fade")
+local Stack = require("src.ui.game3.stack")
+local prevPush, prevPop = Stack.push, Stack.pop
+Stack.push = function() end
+Stack.pop = function() end
+Fade.clear()
 Ui.reset({ headless = false })
+Ui._session = { name = "RED", bag = Bag.new(), party = {}, modData = {} }
 Ui.bindState(st)
 Ui.openMenu()
 eq(Ui._menuIndex, 1, "menu starts on FIGHT (index 1)")
@@ -91,12 +100,24 @@ for _ = 1, 63 do
 end
 check(Ui.takeCommand() == nil, "no command produced before 64 ticks on BAG")
 
--- 64th tick on BAG selects Poké Ball
 Ui.tick()
-local cmd = Ui.takeCommand()
-check(cmd ~= nil, "command emitted after 64 ticks on BAG")
+check(Ui.takeCommand() == nil and Fade.isActive(), "BAG fades the battle to black (battle_controller_oak_old_man.c:1876)")
+for _ = 1, 16 do
+  Fade.tick(1 / 60)
+  Ui.tick()
+end
+check(BagMenu.isOpen() and BagMenu.isPokedude(), "old man bag opens after the fade (item_menu.c:2098)")
+local NO = { wasPressed = function() return false end, isDown = function() return false end }
+local cmd
+for _ = 1, 900 do
+  BagMenu.handleInput(NO)
+  cmd = Ui.takeCommand()
+  if cmd then break end
+end
+check(cmd ~= nil, "command emitted when the scripted bag closes (item_menu.c:2133)")
 eq(cmd.kind, "bag", "command is bag")
 eq(cmd.itemId, 4, "itemId is Poké Ball (4)")
+Stack.push, Stack.pop = prevPush, prevPop
 
 -- Input lock test
 Ui.openMenu()

@@ -37,10 +37,10 @@ local Space = require("src.core.game3.scripting.space")
 local SaveMenu = require("src.ui.game3.save_menu")
 local FrlgFont = require("src.ui.game3.frlg_font")
 
-local ROW_BADGES = 1 * 8 + 32
-local ROW_DEX = 1 * 8 + 46
-local ROW_TIME_LOW = 1 * 8 + 60
-local LABEL_X = 1 * 8 + 4
+local ROW_BADGES = 1 * 8 + 28
+local ROW_DEX = 1 * 8 + 42
+local ROW_TIME_LOW = 1 * 8 + 56
+local LABEL_X = 1 * 8 + 2
 
 local function drawn(session)
   local seen = {}

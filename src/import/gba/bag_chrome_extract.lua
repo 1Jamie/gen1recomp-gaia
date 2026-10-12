@@ -345,6 +345,34 @@ local function bake_swap_line(gfx, palBytes)
   return table.concat(chunks)
 end
 
+-- src/item_menu.c:720
+local function bake_select_button(gfx, palBytes)
+  local W, H = 24, 16
+  local pal = load_pal_banks(palBytes, 1)[0] or {}
+  local pixels = {}
+  for i = 1, W * H do pixels[i] = 0 end
+  local isStr = type(gfx) == "string"
+  for t = 0, 5 do
+    local tile = {}
+    for i = 1, 32 do
+      tile[i] = isStr and (string.byte(gfx, t * 32 + i) or 0) or (gfx[t * 32 + i] or 0)
+    end
+    decode_tile_4bpp(tile, pixels, (t % 3) * 8, math.floor(t / 3) * 8, W, false, false)
+  end
+  local chunks = {}
+  for i = 1, W * H do
+    local idx = pixels[i] or 0
+    if idx == 0 then
+      chunks[i] = string.char(0, 0, 0, 0)
+    else
+      local r, g, b = bgr555_to_rgb8(pal[idx] or 0)
+      chunks[i] = string.char(r, g, b, 255)
+    end
+  end
+  return table.concat(chunks)
+end
+BagChromeExtract.bakeSelectButton = bake_select_button
+
 local function gba_to_file(ptr)
   ptr = tonumber(ptr) or 0
   if ptr < 0x08000000 or ptr >= 0x0A000000 then return nil end
@@ -431,6 +459,10 @@ function BagChromeExtract.run(rom, cache, opts)
   local arrowGfx = lz(Versions.RED_ARROW_OTHER_GFX)
   local arrowPal = readBytes(Versions.RED_ARROW_PAL, 32)
   cache:write(root .. "/red_arrow.rgba", bake_red_arrow(arrowGfx, arrowPal))
+
+  -- src/bag.c:208
+  cache:write(root .. "/select_button.rgba", bake_select_button(readBytes(Versions.BAG_SELECT_BUTTON, 192),
+    readBytes(Versions.BAG_WINDOW_PAL, 32)))
 
   local maleGfx = lz(Versions.BAG_MALE_GFX)
   local femaleGfx = lz(Versions.BAG_FEMALE_GFX)

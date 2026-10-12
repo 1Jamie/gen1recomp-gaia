@@ -252,6 +252,7 @@ function Ui.reset(opts)
   opts = opts or {}
   Ui._caughtDexScene = nil
   Ui._timed = nil
+  Ui._gated = nil
   Ui._linger = false
   Ui._queue = {}
   Ui._showing = false
@@ -351,6 +352,17 @@ function Ui.pushTimed(text, waitFrames, cb)
   if Ui.isVoiceoverText(text) then return Ui.push(text, cb) end
   Ui._log[#Ui._log + 1] = text
   Ui._queue[#Ui._queue + 1] = { text = text, cb = cb, timed = true, wait = waitFrames or 64 }
+end
+
+-- pokefirered/src/battle_message.c:475
+function Ui.pushGated(text, gate, pauseFrames, cb)
+  if not text or text == "" then
+    if cb then cb() end
+    return
+  end
+  Ui._log[#Ui._log + 1] = text
+  Ui._queue[#Ui._queue + 1] = { text = text, cb = cb, gated = gate or function() return false end,
+    pause = pauseFrames }
 end
 
 local function message_blocking()
@@ -481,6 +493,7 @@ local function restore_action_menu()
   Ui._mode = "menu"
   Ui._linger = false
   Ui._timed = nil
+  Ui._gated = nil
   Ui._showing = false
   if Message and Message.open then Message.reset() end
 end
@@ -580,6 +593,48 @@ local function open_battle_bag()
   })
 end
 Ui.openBattleBag = open_battle_bag
+
+-- pokefirered/include/constants/items.h:7
+local ITEM_POKE_BALL, ITEM_POTION = 4, 13
+
+-- pokefirered/src/battle_controller_oak_old_man.c:1872
+local function open_old_man_bag()
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  local session = Ui._session
+    or (Runtime and Runtime.getSession and Runtime.getSession())
+  local bag = session and session.bag
+  if not bag then error("old man tutorial battle has no session bag") end
+  local TeachyTv = require("src.core.game3.teachy_tv")
+  local function done(itemId)
+    -- pokefirered/src/item_menu.c:2133
+    TeachyTv.restorePlayerBag(session)
+    Ui._pendingCommand = { kind = "bag", itemId = itemId or ITEM_POKE_BALL, user = "player" }
+    Ui._mode = "none"
+  end
+  local function show()
+    -- pokefirered/src/item_menu.c:2098
+    TeachyTv.backUpPlayerBag(session, {
+      ITEMS = { { id = ITEM_POTION, qty = 1 } },
+      POKE_BALLS = { { id = ITEM_POKE_BALL, qty = 1 } },
+    })
+    Ui._mode = "bag"
+    require("src.ui.game3.bag_menu").showPokedude(bag, {
+      session = session,
+      plan = "oldman",
+      onItem = done,
+      onCancel = function() done(nil) end,
+    })
+  end
+  Ui._oldManSubstate = 2
+  -- pokefirered/src/battle_controller_oak_old_man.c:1876
+  local Fade = require("src.ui.game3.fade")
+  Fade.begin(Fade.MODE.TO_BLACK, 1, function()
+    Fade.clear()
+    show()
+  end)
+  Fade.lockInput = true
+end
+Ui.openOldManBag = open_old_man_bag
 
 function Ui.isShowing()
   return Ui._showing or Ui.busy() or (Message and Message.isOpen and Message.isOpen())
@@ -753,6 +808,7 @@ function Ui.openMenu(battlerId, opts)
   end
   Ui._linger = false
   Ui._timed = nil
+  Ui._gated = nil
   Ui._mode = "menu"
   Ui._target = nil
   Ui._active = tonumber(battlerId) or 0
@@ -856,6 +912,22 @@ local function show_next()
     oak_state().pending = { text = text, cb = cb }
     return
   end
+  if item and item.gated and Message and Message.show then
+    Ui._showing = true
+    local g = { gate = item.gated, pause = item.pause, frames = 0, cb = cb }
+    Ui._gated = g
+    Message.show(text, {
+      frame = "battle",
+      battle = true,
+      stay = true,
+      done = function()
+        if Ui._gated == g then Ui._gated = nil end
+        Ui._showing = false
+        if cb then cb() end
+      end,
+    })
+    return
+  end
   if item and item.timed and Message and Message.show then
     Ui._showing = true
     Ui._timed = { frames = 0, wait = item.wait or 64, cb = cb }
@@ -955,6 +1027,32 @@ local function tick_timed()
   return false
 end
 
+-- pokefirered/src/battle_message.c:475
+local function tick_gated()
+  local g = Ui._gated
+  if not g then return false end
+  local waiting = Message and Message.isWaiting and Message.isWaiting()
+  if not (waiting and (Message._page or 1) >= #(Message._pages or {})) then return true end
+  if g.gate then
+    if g.gate() then return true end
+    g.gate = nil
+  end
+  if not g.pause then
+    Ui._gated = nil
+    Message._stay = false
+    return false
+  end
+  -- pokefirered/src/battle_message.c:476
+  g.frames = g.frames + 1
+  if g.frames < g.pause then return true end
+  Ui._gated = nil
+  Ui._showing = false
+  Ui._linger = true
+  Message._done = nil
+  if g.cb then g.cb() end
+  return false
+end
+
 function Ui.pump()
   if Ui._headless then
     while #Ui._queue > 0 do
@@ -963,11 +1061,13 @@ function Ui.pump()
     end
     Ui._showing = false
     Ui._timed = nil
+    Ui._gated = nil
     Ui._oak = nil
     return true
   end
   if tick_oak() then return false end
   if tick_timed() then return false end
+  if tick_gated() then return false end
   if open_pending_yesno() then return false end
   if message_blocking() then
     return false
@@ -1373,10 +1473,9 @@ function Ui.tick()
         Ui._oldManTimer = (Ui._oldManTimer or 0) + 1
         if Ui._oldManTimer >= 64 then
           play_select()
-          Ui._pendingCommand = { kind = "bag", itemId = 4, user = "player" }
-          Ui._mode = "none"
           Ui._oldManSubstate = nil
           Ui._oldManTimer = nil
+          open_old_man_bag()
         end
       end
     end

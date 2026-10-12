@@ -43,7 +43,7 @@ Versions.ROM_SIZE = 16777216
 -- v115: LeafGreen profiles, edition-specific title assets and Deoxys stats.
 -- v121: chrome/fonts/japanese_{normal,small}_* and japanese_widths.lua, the
 --       cart's Japanese fonts, for text a Japanese translation mod prints.
-Versions.CACHE_VERSION = 136
+Versions.CACHE_VERSION = 137
 Versions.NATIVE_VERSION = 6
 Versions.OW_VERSION = 3
 Versions.ANIM_VERSION = 1
@@ -1622,6 +1622,8 @@ Versions.BAG_LIST_TILES_H = 12
 Versions.BAG_LIST_BLANK_TILE = 0x02D             -- src/item_menu.c:1163
 Versions.RED_ARROW_PAL = 0x463308               -- sRedArrowPal (raw 32 bytes)
 Versions.RED_ARROW_OTHER_GFX = 0x463328         -- sRedArrowOtherGfx (LZ 4bpp 16x32)
+Versions.BAG_SELECT_BUTTON = 0x452F7C           -- src/item_menu.c:301 sBlit_SelectButton
+Versions.BAG_WINDOW_PAL = 0x453098              -- src/bag.c:11 sBagWindowPalF
 Versions.ITEM_PC_TILES = 0xE85090
 Versions.ITEM_PC_BG_PALS = 0xE85408
 Versions.ITEM_PC_TILEMAP = 0xE85458

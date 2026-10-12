@@ -2160,6 +2160,16 @@ end
 local SAFARI_BALL_ITEM = 5
 
 -- pokefirered/src/battle_main.c:4371
+local function catch_push(text, wait, o)
+  if o then
+    Ui.pushGated(text, o.gate, o.pause)
+  elseif wait then
+    Ui.pushTimed(text, wait)
+  else
+    Ui.push(text)
+  end
+end
+
 local function step_safari_ball()
   local st, ad = Battle._st, Battle._adapter
   local sf = st.safariState
@@ -2172,7 +2182,7 @@ local function step_safari_ball()
   local caught, shakes = Catching.tryCatch(SAFARI_BALL_ITEM, st.enemy, st, session, rng)
   local headless = Battle._headless or (Ui and Ui._headless) or false
   CatchSeq.begin(st, SAFARI_BALL_ITEM, caught, shakes, {
-    pushMsg = function(text) Ui.push(text) end,
+    pushMsg = catch_push,
     headless = headless,
     session = session,
   })
@@ -2426,12 +2436,9 @@ local function step_action()
         -- pokefirered/src/battle_script_commands.c:9473
         local Bag = require("src.core.game3.bag")
         if bag and Bag.has(bag, meta.itemId, 1) then Bag.remove(bag, meta.itemId, 1) end
-        local pushFn = function(text, wait)
-          if wait then Ui.pushTimed(text, wait) else Ui.push(text) end
-        end
         local headless = Battle._headless or (Ui and Ui._headless)
         CatchSeq.begin(st, meta.itemId, false, 0, {
-          pushMsg = pushFn, headless = headless, session = session, ghostDodge = true,
+          pushMsg = catch_push, headless = headless, session = session, ghostDodge = true,
         })
         if not headless then
           Battle._phase = "catching"
@@ -2460,7 +2467,7 @@ local function step_action()
         end
         local rng = ad and ad.rng and ad:rng() or st.rng
         local caught, shakes = Catching.tryCatch(meta.itemId, st.enemy, st, session, rng)
-        local pushFn = function(text) Ui.push(text) end
+        local pushFn = catch_push
         if Battle._headless or (Ui and Ui._headless) then
           CatchSeq.begin(st, meta.itemId, caught, shakes, {
             pushMsg = pushFn,
